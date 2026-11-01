@@ -3995,8 +3995,8 @@ function wasmDir() {
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join4(here, "parsing")} or ${here}`);
 }
-function memo(promise, forget) {
-  promise.catch(forget);
+function memo(promise, forget2) {
+  promise.catch(forget2);
   return promise;
 }
 function loadRuntime() {
@@ -5226,6 +5226,10 @@ async function runWithDeadline(at2, body2, now = () => performance2.now()) {
 }
 function deadlineSignal() {
   return scopes.getStore()?.signal;
+}
+function markDeadlineExpired() {
+  const scope = scopes.getStore();
+  if (scope) scope.expired = true;
 }
 function spawnLimit(ownMs, killSignal = "SIGTERM") {
   const scope = scopes.getStore();
@@ -6829,6 +6833,7 @@ function preToolContext(ctx) {
 }
 
 // src/hooks/lib/git.ts
+import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
 import { spawn as spawn2 } from "node:child_process";
 import { statSync as statSync7 } from "node:fs";
 var GIT_MAX_BUFFER = 256 * 1024 * 1024;
@@ -6847,13 +6852,15 @@ function collector() {
     over: () => size > GIT_MAX_BUFFER
   };
 }
-async function gitSpawn(dir, args2, options = {}) {
+function timedOut(args2) {
+  return codedError(`git ${args2[0] ?? ""} timed out`, "ETIMEDOUT");
+}
+async function spawnGit(dir, args2, options) {
   const { env = process.env, input = "", stderr: stderr2 = "ignore", timeoutMs } = options;
   const limit = spawnLimit(timeoutMs);
   const signal2 = limit === null ? void 0 : limit.byDeadline ? deadlineSignal() : AbortSignal.timeout(limit.timeout);
-  const timedOut = () => codedError(`git ${args2[0] ?? ""} timed out`, "ETIMEDOUT");
   if (signal2?.aborted) {
-    const error = timedOut();
+    const error = timedOut(args2);
     noteSpawn(limit, { error, signal: null });
     return { code: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error };
   }
@@ -6889,12 +6896,107 @@ async function gitSpawn(dir, args2, options = {}) {
         finish(null, null, failure2);
         return;
       }
-      cut4 = timedOut();
+      cut4 = timedOut(args2);
       dropOutput();
     });
     child.on("close", (code, killedBy) => finish(code, killedBy));
     child.stdin?.end(input);
   });
+}
+var memos = new AsyncLocalStorage2();
+async function runWithGitMemo(env, body2) {
+  return await memos.run({ env, entries: /* @__PURE__ */ new Map() }, body2);
+}
+var READ_SUBCOMMANDS = /* @__PURE__ */ new Set(["rev-parse", "show-ref", "merge-base", "cat-file", "status"]);
+var WALK_SUBCOMMANDS = /* @__PURE__ */ new Set(["log", "rev-list"]);
+var WRITES_A_FILE = /^--ou/;
+var SYMBOLIC_REF_READ_FLAGS = /* @__PURE__ */ new Set(["--short", "-q", "--quiet"]);
+function isProvablyReadOnly(args2) {
+  const [subcommand, ...rest] = args2;
+  if (READ_SUBCOMMANDS.has(subcommand)) return true;
+  if (WALK_SUBCOMMANDS.has(subcommand)) return !rest.some((arg) => WRITES_A_FILE.test(arg));
+  if (subcommand === "remote") return rest[0] === "get-url";
+  if (subcommand === "worktree") return rest[0] === "list";
+  if (subcommand !== "symbolic-ref") return false;
+  const others = rest.filter((arg) => !SYMBOLIC_REF_READ_FLAGS.has(arg));
+  return others.length === 1 && !others[0].startsWith("-");
+}
+function isFetch(args2) {
+  let at2 = 0;
+  while (args2[at2] === "-c" && args2[at2 + 1]?.startsWith("http.")) at2 += 2;
+  return args2[at2] === "fetch";
+}
+function isCut(r) {
+  return r.code === -1 && r.error?.code === "ETIMEDOUT";
+}
+function forget(memo2, settledFetches) {
+  for (const [key2, entry] of memo2.entries) {
+    if (entry.kind === "read" || settledFetches && entry.settled) memo2.entries.delete(key2);
+  }
+}
+function startShared(memo2, key2, kind, dir, args2, options) {
+  const conclude = (keep) => {
+    entry.settled = true;
+    if (!keep && memo2.entries.get(key2) === entry) memo2.entries.delete(key2);
+    if (kind === "fetch") forget(memo2, false);
+  };
+  const entry = {
+    kind,
+    settled: false,
+    run: spawnGit(dir, args2, options).then(
+      (r) => {
+        conclude(kind === "read" ? r.code !== -1 : r.code === 0);
+        return r;
+      },
+      (failure2) => {
+        conclude(false);
+        throw failure2;
+      }
+    )
+  };
+  memo2.entries.set(key2, entry);
+  return entry.run;
+}
+var OWN_DEADLINE = /* @__PURE__ */ Symbol("own-deadline");
+async function untilOwnDeadline(run5, signal2) {
+  if (signal2 === void 0) return await run5;
+  let onAbort = () => void 0;
+  const aborted = new Promise((resolve4) => {
+    onAbort = () => resolve4(OWN_DEADLINE);
+    signal2.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([run5, aborted]);
+  } finally {
+    signal2.removeEventListener("abort", onAbort);
+  }
+}
+async function sharedRun(memo2, kind, dir, args2, options) {
+  const key2 = JSON.stringify([dir, args2, options.input ?? ""]);
+  const signal2 = deadlineSignal();
+  for (; ; ) {
+    const held = memo2.entries.get(key2);
+    if (held === void 0) return await startShared(memo2, key2, kind, dir, args2, options);
+    const r = signal2?.aborted ? OWN_DEADLINE : await untilOwnDeadline(held.run, signal2);
+    if (r === OWN_DEADLINE) {
+      markDeadlineExpired();
+      return { code: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: timedOut(args2) };
+    }
+    if (!isCut(r)) return r;
+  }
+}
+async function gitSpawn(dir, args2, options = {}) {
+  const memo2 = memos.getStore();
+  if (memo2 === void 0) return await spawnGit(dir, args2, options);
+  const sharable = (options.env ?? process.env) === memo2.env && (options.stderr ?? "ignore") === "ignore" && options.timeoutMs === void 0;
+  if (isProvablyReadOnly(args2)) return sharable ? await sharedRun(memo2, "read", dir, args2, options) : await spawnGit(dir, args2, options);
+  if (sharable && isFetch(args2)) return await sharedRun(memo2, "fetch", dir, args2, options);
+  forget(memo2, true);
+  try {
+    return await spawnGit(dir, args2, options);
+  } finally {
+    forget(memo2, true);
+  }
 }
 async function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
   const r = await gitSpawn(dir, args2, { env, input, stderr: stderr2 });
@@ -6965,7 +7067,9 @@ function onPath3(name3, env) {
   return null;
 }
 function run2(file, args2, cwd, env) {
-  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
+  const limit = spawnLimit();
+  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+  noteSpawn(limit, r);
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
 function glabDescription(json) {
@@ -15582,50 +15686,32 @@ ${part}` : part;
   };
 };
 
-// src/utils/git-refs.ts
-import { execFileSync, spawnSync as spawnSync6 } from "node:child_process";
-
-// src/utils/timeouts.ts
-var SUBPROCESS_TIMEOUT_MS = 5e3;
-
-// src/utils/git-refs.ts
-function refResolves(repoPath, ref) {
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return true;
-  } catch {
-    return false;
-  }
+// src/hooks/lib/git-refs.ts
+async function refResolves(repoPath, ref, env) {
+  return await gitOk(repoPath, ["rev-parse", "--verify", "--quiet", ref], env);
 }
-function normalizeBase(repoPath, base2) {
-  if (!base2.startsWith("origin/") || refResolves(repoPath, `refs/heads/${base2}`)) return base2;
+async function gitOutput(repoPath, args2, env) {
+  const r = await gitRun(repoPath, args2, env);
+  if (r.code !== 0) return null;
+  return r.stdout.trim() || null;
+}
+async function normalizeBase(repoPath, base2, env) {
+  if (!base2.startsWith("origin/") || await refResolves(repoPath, `refs/heads/${base2}`, env)) return base2;
   return base2.slice("origin/".length);
 }
-function resolveBaseRef(repoPath, rawBase) {
-  const base2 = normalizeBase(repoPath, rawBase);
-  if (refResolves(repoPath, `origin/${base2}`)) return `origin/${base2}`;
-  if (refResolves(repoPath, `refs/heads/${base2}`)) return base2;
+async function resolveBaseRef(repoPath, rawBase, env) {
+  const base2 = await normalizeBase(repoPath, rawBase, env);
+  if (await refResolves(repoPath, `origin/${base2}`, env)) return `origin/${base2}`;
+  if (await refResolves(repoPath, `refs/heads/${base2}`, env)) return base2;
   return null;
 }
-function gitOut2(repoPath, args2) {
-  const res = spawnSync6("git", ["-C", repoPath, ...args2], {
-    encoding: "utf8",
-    timeout: SUBPROCESS_TIMEOUT_MS
-  });
-  if (res.error || res.status !== 0) return null;
-  const out2 = res.stdout.trim();
-  return out2.length > 0 ? out2 : null;
-}
-function resolveRepoDefaultBranch(repoPath) {
-  const originHead = gitOut2(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+async function resolveRepoDefaultBranch(repoPath, env) {
+  const originHead = await gitOutput(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env);
   if (originHead) return originHead.replace(/^origin\//, "");
   for (const candidate of ["main", "master", "dev"]) {
-    if (refResolves(repoPath, `refs/heads/${candidate}`)) return candidate;
+    if (await refResolves(repoPath, `refs/heads/${candidate}`, env)) return candidate;
   }
-  return gitOut2(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
+  return await gitOutput(repoPath, ["symbolic-ref", "--short", "HEAD"], env) ?? "main";
 }
 
 // src/hooks/code-reviewer-preflight.ts
@@ -15806,13 +15892,13 @@ function readTask(db, taskId, env) {
   const [, commitSha = "", parentBranch = "", ...branch] = row.split("\n")[0].split("|");
   return { commitSha, parentBranch, branch: branch.join("|") };
 }
-function prTargetRef(repo, targetBranch, parentBranch) {
-  for (const candidate of [targetBranch, parentBranch, resolveRepoDefaultBranch(repo)]) {
+async function prTargetRef(repo, targetBranch, parentBranch, env) {
+  for (const candidate of [targetBranch, parentBranch]) {
     if (candidate === "") continue;
-    const ref = resolveBaseRef(repo, candidate);
+    const ref = await resolveBaseRef(repo, candidate, env);
     if (ref) return ref;
   }
-  return null;
+  return await resolveBaseRef(repo, await resolveRepoDefaultBranch(repo, env), env);
 }
 async function preflight(db, taskId, env) {
   const task = readTask(db, taskId, env);
@@ -15861,7 +15947,7 @@ async function preflight(db, taskId, env) {
     env
   );
   if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
-  const targetRef = prTargetRef(repo, targetRow.split("\n")[0], task.parentBranch);
+  const targetRef = await prTargetRef(repo, targetRow.split("\n")[0], task.parentBranch, env);
   const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
   if (targetRef === null || targetTip === null) {
     return deny3({
@@ -17852,7 +17938,7 @@ function makeLivenessSentinel(clock = () => /* @__PURE__ */ new Date()) {
 var livenessSentinel = makeLivenessSentinel();
 
 // src/hooks/activation-routine.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { readFileSync as readFileSync14, statSync as statSync22 } from "node:fs";
 
 // src/hooks/cmd-analysis/harness-turn.ts
@@ -17938,7 +18024,7 @@ function saysBro(prompt, grep) {
 function serverDown(env) {
   if (!commandOnPath2("pgrep", env)) return false;
   try {
-    return spawnSync7("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+    return spawnSync6("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
   } catch {
     return false;
   }
@@ -19389,7 +19475,7 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn3, spawnSync as spawnSync8 } from "node:child_process";
+import { spawn as spawn3, spawnSync as spawnSync7 } from "node:child_process";
 import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync8, mkdtempSync, openSync as openSync3, readFileSync as readFileSync16, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { resolve as resolve3 } from "node:path";
@@ -19709,7 +19795,7 @@ function executable(path) {
   }
 }
 function capture3(cmd, args2, dir, env) {
-  const r = spawnSync8(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync7(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function toolchainDirs(env, worktree) {
@@ -19850,11 +19936,11 @@ SELECT last_insert_rowid();`
       `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`
     );
   }
-  finishWrite(rc, timedOut) {
+  finishWrite(rc, timedOut2) {
     if (!/^[0-9]+$/.test(this.runId)) return this.invalid(`invalid run_id '${this.runId}'`);
     return this.write(
       RECORD_BUDGET_MS,
-      `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`
+      `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut2} WHERE id = ${this.runId};`
     );
   }
   fixedWrite(ms, id) {
@@ -19876,10 +19962,10 @@ SELECT last_insert_rowid();`
     this.commandWrite(ms, ordinal, command, rc, elapsed, output);
     this.recordMs += Date.now() - t0;
   }
-  async recordFinish(rc, timedOut) {
+  async recordFinish(rc, timedOut2) {
     if (this.runId === "") return;
     for (let attempt = 1; ; attempt += 1) {
-      if (this.finishWrite(rc, timedOut).ok) return;
+      if (this.finishWrite(rc, timedOut2).ok) return;
       if (attempt >= FINISH_ATTEMPTS) break;
       await sleep2(attempt * FINISH_BACKOFF_MS);
     }
@@ -20868,7 +20954,7 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/orphan-scan.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
+import { spawnSync as spawnSync8 } from "node:child_process";
 import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync27 } from "node:fs";
 var GATE_NAME54 = "orphan-scan";
 var DEADLINE_S = 4;
@@ -20904,7 +20990,7 @@ function isCcCommand2(command) {
   return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
 }
 function capture4(cmd, args2, env) {
-  const r = spawnSync9(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync8(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.error ? "" : r.stdout ?? "";
 }
 function procPpid2(pid, env) {
@@ -21732,7 +21818,7 @@ var cleanMergedBranch = async (payload, env) => {
 };
 
 // src/hooks/close-issue-on-merge.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { statSync as statSync30 } from "node:fs";
 
 // src/review-sql.ts
@@ -21781,7 +21867,7 @@ function isFile16(path) {
   }
 }
 function gh(args2, repoDir, env) {
-  const r = spawnSync10("gh", args2, {
+  const r = spawnSync9("gh", args2, {
     cwd: repoDir,
     encoding: "utf8",
     env,
@@ -23053,7 +23139,7 @@ async function cleanupWorktree(payload, env, stderr2) {
 var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
+import { spawnSync as spawnSync10 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync20, statSync as statSync35 } from "node:fs";
 import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME65 = "worktree-create";
@@ -23085,7 +23171,7 @@ async function installMergeDriver(dir, env, stderr2) {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync11("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
+  const r = spawnSync10("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
   if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
@@ -24683,20 +24769,20 @@ function routerTimeoutS(group) {
 }
 
 // src/hooks/router/main.ts
-import { spawnSync as spawnSync13 } from "node:child_process";
+import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync17, mkdirSync as mkdirSync13, readFileSync as readFileSync23 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
 
 // src/hooks/router/sh-gate.ts
-import { spawnSync as spawnSync12 } from "node:child_process";
+import { spawnSync as spawnSync11 } from "node:child_process";
 import { existsSync as existsSync15 } from "node:fs";
 function shGate(name3) {
   return (payload, env) => {
     const script = `${env.CLAUDE_PLUGIN_ROOT ?? ""}/scripts/hooks/${name3}.sh`;
     if (!existsSync15(script)) throw new Error(`no ${script} (TMB_HOOKS_IMPL=bash runs only .sh gates) \u2014 not run`);
     const limit = spawnLimit(void 0, "SIGKILL");
-    const r = spawnSync12("bash", [script], {
+    const r = spawnSync11("bash", [script], {
       input: payload,
       env,
       encoding: "utf8",
@@ -24892,6 +24978,9 @@ function payloadTool(payload) {
   return typeof tool === "string" ? tool : "";
 }
 async function decide(event, payload, env, deps = {}) {
+  return await runWithGitMemo(env, () => decideCall(event, payload, env, deps));
+}
+async function decideCall(event, payload, env, deps) {
   const now = deps.now ?? (() => performance.now());
   const tool = payloadTool(payload);
   const groups = deps.groups ?? ROUTER_GROUPS;
@@ -25306,7 +25395,7 @@ function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, part, payload, env) {
-  const r = spawnSync13(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
+  const r = spawnSync12(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",

@@ -38,6 +38,12 @@ export function deadlineSignal(): AbortSignal | undefined {
   return scopes.getStore()?.signal;
 }
 
+/** Marks the running scope over budget, for a wait the deadline ended with no spawn of its own to cut. */
+export function markDeadlineExpired(): void {
+  const scope = scopes.getStore();
+  if (scope) scope.expired = true;
+}
+
 export interface SpawnLimit {
   timeout: number;
   killSignal: NodeJS.Signals;
