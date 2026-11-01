@@ -10,6 +10,8 @@ allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_
 
 When the Human refers to "cheatcode(s)" directly — "do the cheatcodes work", "which cheatcodes are installed", "is X already a cheatcode" — inspect the installed registry first with `cheatcode_list(agent='bro')` (the `cheatcodes` table). That's the read surface for what's on hand; it's distinct from the discovery pipeline below (search → vet → install), which is for closing a gap that nothing installed covers.
 
+Installed is not attached. A cheatcode the consuming agent can't use is still a gap — a skill missing from its `skills:`, or a tool such as `LSP` missing from its `tools:`. Close it with `cheatcode_approve` then `cheatcode_install(target=<agent>)`, and check the result's `attachments`.
+
 ## Is the gap real?
 
 Check the request against the project's surface — world model, installed skills/MCP, CLAUDE.md. It's a cheatcode play when:
@@ -52,7 +54,7 @@ Lead the chat with the rationale — what the cheatcode does, its tier, and the 
 
 ## Decide the consuming agent
 
-`target` is the agent that will USE the cheatcode. For a **skill**, pass `target=<agent>`; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
+`target` is the agent that will USE the cheatcode. For a **skill** or a **tool-contributing plugin**, pass `target=<agent>`; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
 
 If the Human named the agent — "install X for swe", "code-review for code-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `code-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
 
@@ -67,9 +69,10 @@ Use the recommend / AskUserQuestion path only when the Human has NOT yet decided
 
 Approval is a hard gate: `cheatcode_approve` records the per-candidate Human approval, and the install PreToolUse gate fails closed without it. Rejected → stop.
 
-Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo):
+Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo). The plugin's global agent files are never edited to give an agent a capability — that path is the cheatcode install.
 
 - **skill** (or skill-contributing plugin): `target=bro` adds a reference to `<project>/.claude/CLAUDE.md`; any other target copies the global `agents/<target>.md` into `<project>/.claude/agents/<target>.md` (if absent) and adds the name to its `skills:` frontmatter. A skill with no resolved target is hard-rejected — no orphan can land.
-- **mcp / pure-server plugin**: its registration IS its attachment — no target, no `skills:` entry needed.
+- **tool-contributing plugin** (e.g. an LSP plugin providing `LSP`): needs `target=<agent>`; the install grants its tool in the local copy's `tools:`.
+- **mcp / pure-server plugin**: its registration IS its attachment — the only kind with no target and no `skills:` or `tools:` entry.
 
 Then `cheatcode_activate`: a skill is usable in-session immediately; an MCP/plugin returns `restart_required` and loads on the next cold start.
