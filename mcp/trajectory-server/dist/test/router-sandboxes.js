@@ -1,15 +1,20 @@
 /**
- * The corpus of every PreToolUse router gate, each payload materialized in its
- * gate's parity sandbox (the builders of the hooks-*-parity suites), with the
- * env and cwd its parity run uses, in-process. Shared by the router parity
- * tests and the router benches. swe-resume-gate has no hook-corpus directory
- * (it was born in TypeScript), so its cases are built here.
+ * The corpus of every router gate, each payload materialized in its gate's
+ * parity sandbox (the builders of the hooks-*-parity suites), with the env and
+ * cwd its parity run uses, in-process. Shared by the router parity tests and the
+ * router benches. swe-resume-gate and task-overrun-alert have no hook-corpus
+ * directory (they were born in TypeScript), so their cases are built here.
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
+import { buildSandbox as healthSandbox, caseEnv as healthEnv, materialize as healthCase } from './hooks-health-parity.suite.js';
+import { buildSandbox as mergeSandbox, caseEnv as mergeEnv, materialize as mergeCase } from './hooks-merge-lifecycle-parity.suite.js';
+import { buildSandbox as readmeSandbox, caseEnv as readmeEnv, materialize as readmeCase, resetDb as readmeReset } from './hooks-readme-staleness-parity.suite.js';
+import { buildCloseSandbox, buildRescanSandbox, caseEnv as taskCloseEnv, materialize as taskCloseCase } from './hooks-task-close-parity.suite.js';
+import { buildSandbox as worktreeSandbox, caseEnv as worktreeEnv, materialize as worktreeCase } from './hooks-worktree-lifecycle-parity.suite.js';
 import { buildSandbox as gitBranchSandbox, caseEnv as gitBranchEnv, GIT_BRANCH_GATES, materialize as gitBranchCase } from './hooks-git-branch-guards-parity.suite.js';
 import { buildSandbox as gitGuardsSandbox, materialize as gitGuardsCase } from './hooks-git-guards-parity.suite.js';
 import { buildSandbox as pushGuardSandbox, materialize as pushGuardCase } from './hooks-git-push-guard-parity.suite.js';
@@ -19,7 +24,7 @@ import { buildSandbox as remoteIdSandbox, materialize as remoteIdCase } from './
 import { buildSandbox as roundtableSandbox, caseEnv as roundtableEnv, materialize as roundtableCase } from './hooks-roundtable-parity.suite.js';
 import { buildSandbox as sessionSandbox, caseEnv as sessionEnv, materialize as sessionCase } from './hooks-session-parity.suite.js';
 import { buildSandbox as sweBoundarySandbox, materialize as sweBoundaryCase, resetState as sweBoundaryReset } from './hooks-swe-boundary-parity.suite.js';
-import { buildSandbox as sweRunSandbox, caseEnv as sweRunEnv, materialize as sweRunCase } from './hooks-swe-run-parity.suite.js';
+import { buildSandbox as sweRunSandbox, caseEnv as sweRunEnv, materialize as sweRunCase, noCmdPath } from './hooks-swe-run-parity.suite.js';
 import { buildScopeSandbox, caseEnv as scopeEnv } from './hooks-swe-scope-fence-parity.suite.js';
 import { buildVerificationSandbox, caseEnv as verificationEnv, materialize as verificationCase } from './hooks-swe-verification-parity.suite.js';
 import { buildSandbox as chainSandbox, caseEnv as chainEnv, materialize as chainCase, TRAJECTORY_CHAIN_GATES } from './hooks-trajectory-chain-parity.suite.js';
@@ -51,6 +56,20 @@ export const ROUTER_CORPUS_GATES = [
     'swe-verification-gate',
     'askuserquestion-length-lint',
     'roundtable-auq-shape',
+    'cleanup-worktree-on-task-close',
+    'roundtable-cleanup-postcheck',
+    'post-task-close-rescan',
+    'post-atomic-close-readme',
+    'post-task-create-spawn-hint',
+    'task-overrun-alert',
+    'attribution-footer',
+    'clean-merged-branch',
+    'close-issue-on-merge',
+    'swe-spawn-bind',
+    'swe-spawn-rollback',
+    'bro-turn-usage',
+    'swe-atomic-close',
+    'consultant-persistence-gate',
 ];
 function files(gate) {
     const dir = join(CORPUS_ROOT, gate);
@@ -158,7 +177,7 @@ export function routerSandbox(rootDir, gates) {
             }
         }
     }
-    const lintGates = ['commit-msg-lint', 'naming-lint', 'code-quality-lint'].filter(want);
+    const lintGates = ['commit-msg-lint', 'naming-lint', 'code-quality-lint', 'attribution-footer'].filter(want);
     if (lintGates.length > 0) {
         const lint = lintSandbox(join(root, 'lint'));
         for (const file of lintGates.flatMap((gate) => files(gate).map((f) => [gate, f]))) {
@@ -262,11 +281,87 @@ export function routerSandbox(rootDir, gates) {
         const c = verificationCase(file, verificationDir, paths);
         return { input: c.input, env: verificationEnv(verificationDir, verificationBase, LOCALE, c.env, c.cwd), cwd: c.cwd };
     });
-    const roundtableDir = join(root, 'roundtable/sandbox');
-    rebuilt('roundtable-auq-shape', roundtableDir, roundtableSandbox, (file) => {
-        const c = roundtableCase(file, roundtableDir, paths);
-        return { input: c.input, env: roundtableEnv(roundtableDir, LOCALE, c.env, c.cwd), cwd: c.cwd };
+    for (const gate of ['roundtable-auq-shape', 'consultant-persistence-gate', 'roundtable-cleanup-postcheck']) {
+        const dir = join(root, `${gate}/sandbox`);
+        rebuilt(gate, dir, roundtableSandbox, (file) => {
+            const c = roundtableCase(file, dir, paths);
+            return { input: c.input, env: roundtableEnv(dir, LOCALE, c.env, c.cwd), cwd: c.cwd };
+        });
+    }
+    for (const gate of ['post-task-create-spawn-hint', 'swe-spawn-bind', 'swe-spawn-rollback']) {
+        const dir = join(root, `${gate}/sandbox`);
+        rebuilt(gate, dir, sweRunSandbox, (file) => {
+            const c = sweRunCase(file, dir, paths);
+            return { input: c.input, env: sweRunEnv(dir, LOCALE, c.env, c.cwd), cwd: c.cwd };
+        });
+    }
+    /** Like rebuilt, for a sandbox too slow to build per case: built once and copied back per case. */
+    const restored = (gate, build, one) => {
+        if (!want(gate))
+            return;
+        const dir = join(root, gate, 'sandbox');
+        const template = join(root, gate, 'template');
+        const copy = { recursive: true, preserveTimestamps: true, verbatimSymlinks: true };
+        mkdirSync(join(root, gate), { recursive: true });
+        build(dir);
+        cpSync(dir, template, copy);
+        for (const file of files(gate)) {
+            const c = one(file, dir);
+            cases.push({
+                gate,
+                file,
+                input: c.input.toString(),
+                env: clean(c.env, ['NODE_OPTIONS']),
+                cwd: c.cwd,
+                fakeUid: false,
+                reset: () => {
+                    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+                    cpSync(template, dir, copy);
+                },
+            });
+        }
+    };
+    restored('cleanup-worktree-on-task-close', worktreeSandbox, (file, s) => {
+        const c = worktreeCase(file, s, paths);
+        return { input: c.input, env: worktreeEnv(s, LOCALE, c), cwd: c.cwd };
     });
+    let noGh;
+    for (const gate of ['clean-merged-branch', 'close-issue-on-merge']) {
+        restored(gate, mergeSandbox, (file, s) => {
+            noGh ??= noCmdPath(join(root, 'no-glab'), 'glab', noCmdPath(join(root, 'no-gh'), 'gh', path));
+            const merge = { noGh, noJq: noGh, noSqlite: noGh, noTimeout: noGh };
+            const c = mergeCase(file, s, merge);
+            return { input: c.input, env: mergeEnv(s, LOCALE, merge, c.env, c.cwd), cwd: c.cwd };
+        });
+    }
+    restored('bro-turn-usage', healthSandbox, (file, s) => {
+        const c = healthCase(file, s, () => `${join(s, 'bin')}:${path}`);
+        const tmp = join(s, '..', 'tmp');
+        mkdirSync(tmp, { recursive: true });
+        return { input: c.input, env: healthEnv(s, tmp, LOCALE, c.env, c.cwd), cwd: c.cwd };
+    });
+    for (const [gate, build] of [
+        ['swe-atomic-close', buildCloseSandbox],
+        ['post-task-close-rescan', buildRescanSandbox],
+    ]) {
+        restored(gate, build, (file, s) => {
+            const c = taskCloseCase(file, s, paths);
+            const release = join(s, '..', 'rescan-release');
+            writeFileSync(release, '');
+            return { input: c.input, env: taskCloseEnv(s, LOCALE, c.env, c.cwd, { release, record: join(s, '..', 'rescan-record.json') }), cwd: c.cwd };
+        });
+    }
+    if (want('post-atomic-close-readme')) {
+        const dir = join(root, 'post-atomic-close-readme/sandbox');
+        mkdirSync(dirname(dir), { recursive: true });
+        readmeSandbox(dir);
+        for (const file of files('post-atomic-close-readme')) {
+            const c = readmeCase(file, dir, paths);
+            cases.push({ gate: 'post-atomic-close-readme', file, input: c.input, env: clean(readmeEnv(dir, LOCALE, c.env)), cwd: join(dir, 'ws'), fakeUid: false, reset: () => void readmeReset(dir) });
+        }
+    }
+    if (want('task-overrun-alert'))
+        cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
     if (want('agent-spawn-dispatch')) {
         const dir = join(root, 'agent-spawn/sandbox');
         const template = join(root, 'agent-spawn/template');
@@ -291,14 +386,49 @@ export function routerSandbox(rootDir, gates) {
     }
     if (want('swe-resume-gate'))
         cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
+    // In-process, post-task-close-rescan's invoker is the real one: its launch is proven in hooks-task-close-parity.
     return {
-        cases,
+        cases: cases.map((c) => ({ ...c, env: { ...c.env, TMB_SKIP_AUTO_RESCAN: '1' } })),
         cleanup: () => {
             for (const f of cleanups)
                 f();
             rmSync(root, { recursive: true, force: true });
         },
     };
+}
+/** task-overrun-alert's cases, on a DB holding at most one running task of the given age, rebuilt per case. */
+function overrunCases(dir, cwd) {
+    const db = join(dir, 'trajectory.db');
+    mkdirSync(dir, { recursive: true });
+    const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+    const build = (createdAt) => {
+        for (const side of ['', '-wal', '-shm', '-journal'])
+            rmSync(`${db}${side}`, { force: true });
+        const d = new DatabaseSync(db);
+        d.exec(schema);
+        d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+        if (createdAt !== null)
+            d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (3, 9, 'feat/3-x', 'd', 'running', ?, ?)").run(createdAt, createdAt);
+        d.close();
+    };
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+    const payload = (extra) => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', tool_name: 'mcp__plugin_tmb_trajectory-server__task_list', tool_input: {}, ...extra });
+    const longAgo = '2020-01-01T00:00:00.000Z';
+    const scenarios = [
+        ['overrun-alerts-bro', longAgo, payload({})],
+        ['overrun-non-bro-caller', longAgo, payload({ agent_type: 'tmb:swe', agent_id: 'a1' })],
+        ['under-threshold', () => new Date().toISOString(), payload({})],
+        ['no-running-task', null, payload({})],
+    ];
+    return scenarios.map(([file, createdAt, input]) => ({
+        gate: 'task-overrun-alert',
+        file,
+        input,
+        env,
+        cwd,
+        fakeUid: false,
+        reset: () => build(typeof createdAt === 'function' ? createdAt() : createdAt),
+    }));
 }
 const SWE_RESUME_T0 = '2026-10-25T09:00:00.000Z';
 /** swe-resume-gate's cases, on a DB holding one swe and one code-reviewer of task 3, rebuilt per case. */

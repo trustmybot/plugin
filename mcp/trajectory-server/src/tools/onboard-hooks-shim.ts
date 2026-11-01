@@ -25,6 +25,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { matcherOfColumn } from '../hooks/router/table.js';
 import { serverLog } from '../logger.js';
 import { ensureLocalSettingsIgnored } from './onboard-sandbox.js';
 
@@ -182,10 +183,10 @@ function routerGateHooks(pluginRoot: string, matcher: string, h: HookCommand): H
   const rows = manifest
     .split('\n')
     .map((line) => line.split(' '))
-    .filter((f) => f.length >= 5 && f[3] === event && f[4] === matcher && /^[a-z0-9-]+$/.test(f[0]));
+    .filter((f) => f.length >= 5 && f[3] === event && matcherOfColumn(f[4]) === matcher && /^[a-z0-9-]+$/.test(f[0]));
   if (rows.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
   const dispatched = (name: string, budgetMs: number): HookCommand => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name}`, timeout: Math.ceil(budgetMs / 1000) });
-  const chain = GROUP_CHAIN[matcher];
+  const chain = event === 'PreToolUse' ? GROUP_CHAIN[matcher] : undefined;
   if (chain === undefined) return rows.map(([gate, budgetMs]) => dispatched(gate, Number(budgetMs)));
   const filtered = (f: string[]): boolean => (f[5] ?? '*') !== '*';
   const unfilteredMs = rows.filter((f) => !filtered(f)).reduce((n, f) => n + Number(f[1]), 0);

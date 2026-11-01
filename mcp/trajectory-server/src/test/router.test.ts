@@ -11,9 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { armDeadline, disarmDeadline, noteSpawn, spawnLimit } from '../hooks/lib/deadline.js';
 import { gitRun } from '../hooks/lib/git.js';
-import { type RouterGroup, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
-import { decide, mergeContext } from '../hooks/router/decide.js';
+import { eventHoldsEnforcement, matcherFits, type RouterGroup, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
+import { decide, denyOutput, mergeContext } from '../hooks/router/decide.js';
+import { dedupeKey } from '../hooks/router/dedupe.js';
 import { routerMain } from '../hooks/router/main.js';
+import { EMPTY_MATCHER_COLUMN, matcherColumn, matcherOfColumn } from '../hooks/router/table.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -82,13 +84,13 @@ describe('router decision: deny, allow, merge', () => {
   it('a merge drops no decision: ask beats allow in either order, with its own reason and both contexts (F287-4)', () => {
     const allow = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'fine', additionalContext: 'one' } });
     const ask = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'two' } });
-    assert.deepEqual(JSON.parse(mergeContext([allow, ask])), {
+    assert.deepEqual(JSON.parse(mergeContext([allow, ask], 'PreToolUse')), {
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'one\n\ntwo' },
     });
-    assert.deepEqual(JSON.parse(mergeContext([ask, allow])), {
+    assert.deepEqual(JSON.parse(mergeContext([ask, allow], 'PreToolUse')), {
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'two\n\none' },
     });
-    assert.deepEqual(JSON.parse(mergeContext([allow, context('more').stdout.trim()])), {
+    assert.deepEqual(JSON.parse(mergeContext([allow, context('more').stdout.trim()], 'PreToolUse')), {
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'fine', additionalContext: 'one\n\nmore' },
     });
   });
@@ -96,7 +98,7 @@ describe('router decision: deny, allow, merge', () => {
   it('a merge keeps the first value of every other key, in hookSpecificOutput and at the top level (F287-4)', () => {
     const first = JSON.stringify({ systemMessage: 'first', hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { a: 1 } } });
     const second = JSON.stringify({ systemMessage: 'second', suppressOutput: true, hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { a: 2 }, extra: 'kept' } });
-    assert.deepEqual(JSON.parse(mergeContext([first, second])), {
+    assert.deepEqual(JSON.parse(mergeContext([first, second], 'PreToolUse')), {
       systemMessage: 'first',
       suppressOutput: true,
       hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: '', updatedInput: { a: 1 }, extra: 'kept' },
@@ -373,10 +375,185 @@ describe('router groups (GH 1692 R2)', () => {
     assert.ok(mcp.gates.every((g) => g.kind === 'enforcement'));
   });
 
-  it('matchers do not overlap: each tool name belongs to one group', () => {
-    const names = ROUTER_GROUPS.flatMap((g) => g.matcher.split('|'));
+  it('an event\'s matchers do not overlap: each tool name belongs to one of its groups', () => {
+    const names = ROUTER_GROUPS.flatMap((g) => g.matcher.split('|').map((m) => `${g.event} ${m}`));
     assert.equal(names.length, new Set(names).size);
     assert.equal(routerGroup('PreToolUse', 'Write')?.matcher, 'Write|Edit|MultiEdit|NotebookEdit');
+  });
+});
+
+const EVENTS = ['PreToolUse', 'PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop'] as const;
+
+function eventGroups(event: string, ...gates: [string, 'enforcement' | 'advisory', number?][]): RouterGroup[] {
+  return [{ event, matcher: '', groupBudgetMs: 60_000, gates: gates.map(([name, kind, budgetMs]) => ({ name, kind, budgetMs: budgetMs ?? 5000 })) }];
+}
+
+const stopPayload = (extra: Record<string, unknown> = {}): string => JSON.stringify({ session_id: 'sess-stop', stop_hook_active: false, ...extra });
+
+function reasonFor(event: string, stdout: string): string {
+  const out = JSON.parse(stdout) as { decision?: string; reason?: string; hookSpecificOutput?: { hookEventName: string; permissionDecision: string; permissionDecisionReason: string } };
+  if (event === 'PreToolUse') {
+    assert.equal(out.hookSpecificOutput?.hookEventName, 'PreToolUse');
+    assert.equal(out.hookSpecificOutput?.permissionDecision, 'deny');
+    assert.equal(out.decision, undefined);
+    return out.hookSpecificOutput?.permissionDecisionReason ?? '';
+  }
+  assert.equal(out.decision, 'block');
+  assert.equal(out.hookSpecificOutput, undefined);
+  return out.reason ?? '';
+}
+
+describe('router events: a deny reads as its event wants (GH 1692 R3)', () => {
+  for (const event of EVENTS) {
+    it(`${event}: denyOutput and every fail-closed path print its shape`, async () => {
+      assert.equal(reasonFor(event, denyOutput('no', event)), 'no');
+      const failing: [string, Gate | undefined, RegExp][] = [
+        ['throw', () => { throw new Error('kaboom'); }, /TMB gate g exited 1 without a decision/],
+        ['exit 1', () => ({ stdout: '', code: 1 }), /TMB gate g exited 1 without a decision/],
+        ['unparseable output', () => ({ stdout: 'not json\n', code: 0 }), /TMB gate g printed unparseable output without a decision/],
+        ['unknown gate', undefined, /TMB gate g exited 1 without a decision/],
+      ];
+      for (const [what, gate, pattern] of failing) {
+        const d = await decide(event, stopPayload(), {}, { groups: eventGroups(event, ['g', 'enforcement']), findGate: fakes(gate ? { g: gate } : {}) });
+        assert.match(reasonFor(event, d.stdout), pattern, what);
+        assert.equal(d.denied?.gate, 'g');
+      }
+    });
+
+    it(`${event}: a gate past its budget or left no group budget denies in its shape`, async () => {
+      const late = await decide(event, stopPayload(), {}, {
+        groups: eventGroups(event, ['g', 'enforcement', 5]),
+        findGate: fakes({ g: async () => { await sleep(40); return ALLOW; } }),
+      });
+      assert.match(reasonFor(event, late.stdout), /timed out after 5 ms/);
+      const spent = await decide(event, stopPayload(), {}, { groups: eventGroups(event, ['g', 'enforcement']), groupBudgetMs: 0, findGate: fakes({ g: () => ALLOW }) });
+      assert.match(reasonFor(event, spent.stdout), /group budget/);
+    });
+
+    it(`${event}: mergeContext defaults hookEventName to it`, () => {
+      const plain = (text: string): string => JSON.stringify({ hookSpecificOutput: { additionalContext: text } });
+      assert.deepEqual(JSON.parse(mergeContext([plain('a'), plain('b')], event)), { hookSpecificOutput: { hookEventName: event, additionalContext: 'a\n\nb' } });
+    });
+  }
+
+  it('an enforcement gate serves PreToolUse and SubagentStop, and no other event here', () => {
+    assert.deepEqual(EVENTS.filter((e) => eventHoldsEnforcement(e)), ['PreToolUse', 'SubagentStop']);
+  });
+
+  for (const event of ['PreToolUse', 'SubagentStop']) {
+    it(`an unparseable payload blocks on ${event}, naming the router`, async () => {
+      const d = await decide(event, '{not json', {}, { findGate: fakes({}) });
+      assert.match(reasonFor(event, d.stdout), /^BLOCKED: TMB gate router got an unparseable payload without a decision/);
+      assert.equal(d.denied?.gate, 'router');
+      assert.equal(d.code, 0);
+    });
+  }
+
+  for (const event of ['PostToolUse', 'PermissionDenied', 'Stop']) {
+    it(`an unparseable payload on ${event} logs to stderr and exits 0`, async () => {
+      const d = await decide(event, '{not json', {}, { findGate: fakes({}) });
+      assert.equal(d.stdout, '');
+      assert.equal(d.code, 0);
+      assert.equal(d.denied, null);
+      assert.match(d.stderr, new RegExp(`TMB router: ${event} got an unparseable payload`));
+    });
+  }
+});
+
+describe('router events: a block keeps the other gates\' context (GH 1692 R3)', () => {
+  const contextOn = (event: string, text: string): GateResult => ({ stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } })}\n`, code: 0 });
+  const blocks = (reason: string): GateResult => ({ stdout: `${JSON.stringify({ decision: 'block', reason })}\n`, code: 0 });
+
+  it('swe-atomic-close\'s context survives consultant-persistence-gate\'s block', async () => {
+    const d = await decide('SubagentStop', stopPayload(), {}, {
+      findGate: fakes({ 'swe-atomic-close': () => contextOn('SubagentStop', 'task closed'), 'consultant-persistence-gate': () => blocks('persist first') }),
+    });
+    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['swe-atomic-close', 'allow'], ['consultant-persistence-gate', 'deny']]);
+    assert.deepEqual(JSON.parse(d.stdout), { decision: 'block', reason: 'persist first', hookSpecificOutput: { hookEventName: 'SubagentStop', additionalContext: 'task closed' } });
+    assert.deepEqual(d.denied, { gate: 'consultant-persistence-gate', reason: 'persist first' });
+    assert.equal(d.code, 0);
+  });
+
+  it('a fail-closed block keeps the context too', async () => {
+    const d = await decide('SubagentStop', stopPayload(), {}, { findGate: fakes({ 'swe-atomic-close': () => contextOn('SubagentStop', 'task closed') }) });
+    const out = JSON.parse(d.stdout) as { decision: string; reason: string; hookSpecificOutput: { additionalContext: string } };
+    assert.equal(out.decision, 'block');
+    assert.match(out.reason, /TMB gate consultant-persistence-gate exited 1/);
+    assert.equal(out.hookSpecificOutput.additionalContext, 'task closed');
+  });
+
+  it('a block with no context prints the gate\'s own bytes', async () => {
+    const d = await decide('SubagentStop', stopPayload(), {}, { findGate: fakes({ 'swe-atomic-close': () => ALLOW, 'consultant-persistence-gate': () => blocks('persist first') }) });
+    assert.equal(d.stdout, blocks('persist first').stdout);
+  });
+
+  it('an exit 2 stays as it is: Claude Code reads its stderr, not stdout', async () => {
+    const d = await decide('SubagentStop', stopPayload(), {}, { findGate: fakes({ 'swe-atomic-close': () => contextOn('SubagentStop', 'task closed'), 'consultant-persistence-gate': () => ({ stdout: '', code: 2 }) }) });
+    assert.equal(d.code, 2);
+    assert.equal(d.stdout, '');
+  });
+
+  it('a PreToolUse deny stays byte-identical, whatever context the other gates printed', async () => {
+    const d = await decide('PreToolUse', bash('ls'), {}, { groups: group(['a', 'advisory'], ['b', 'enforcement']), findGate: fakes({ a: () => context('ctx'), b: () => deny('no') }) });
+    assert.equal(d.stdout, deny('no').stdout);
+  });
+});
+
+describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
+  const mcp = (suffix: string): string => `mcp__plugin_tmb_trajectory-server__${suffix}`;
+  const names = (event: string, tool: string): string[] => routerGates(event, tool).map((g) => g.name);
+
+  it('an empty matcher fits every call of its event, with or without a tool name', () => {
+    assert.equal(matcherFits('', ''), true);
+    assert.equal(matcherFits('', 'Bash'), true);
+    assert.equal(matcherFits('Bash', ''), false);
+    assert.deepEqual(names('Stop', ''), ['bro-turn-usage']);
+    assert.deepEqual(names('SubagentStop', ''), ['swe-atomic-close', 'consultant-persistence-gate']);
+  });
+
+  it('the post-tool groups run in the order the spec names, each tool-filtered gate only for its tools', () => {
+    assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('validation_record')), ['cleanup-worktree-on-task-close', 'task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('roundtable_close')), ['roundtable-cleanup-postcheck', 'task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-task-close-rescan', 'post-atomic-close-readme', 'task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert']);
+    assert.deepEqual(names('PostToolUse', 'Bash'), ['attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
+    assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
+    assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);
+    assert.deepEqual(names('PostToolUse', 'Read'), []);
+  });
+
+  it('decide skips a tool-filtered gate for another tool', async () => {
+    const ran: string[] = [];
+    const spy = (name: string): Gate | undefined => () => {
+      ran.push(name);
+      return ALLOW;
+    };
+    await decide('PostToolUse', JSON.stringify({ tool_name: mcp('issue_list'), tool_input: {} }), {}, { findGate: spy });
+    assert.deepEqual(ran, ['task-overrun-alert']);
+  });
+
+  it('the table is one line per row, an empty matcher as its sentinel, every line six columns', () => {
+    const lines = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n');
+    for (const line of lines) assert.equal(line.split(' ').length, 6, line);
+    const rows = lines.map((l) => l.split(' '));
+    assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
+    assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
+    assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['swe-atomic-close', 'advisory', '-'], ['consultant-persistence-gate', 'enforcement', '-']]);
+    assert.equal(matcherColumn(''), '-');
+    assert.equal(matcherColumn('Bash'), 'Bash');
+    assert.equal(matcherOfColumn('-'), '');
+    assert.equal(matcherOfColumn('Bash'), 'Bash');
+  });
+
+  it('a payload with no tool_name keys on the whole payload, key order aside; a tool payload still on its call', () => {
+    assert.equal(dedupeKey('{"session_id":"s","a":1}'), dedupeKey('{"a":1,"session_id":"s"}'));
+    assert.notEqual(dedupeKey('{"session_id":"s","a":1}'), dedupeKey('{"session_id":"s","a":2}'));
+    assert.equal(dedupeKey('[1]'), null);
+    assert.equal(dedupeKey('{not json'), null);
+    const call = { hook_event_name: 'PostToolUse', session_id: 's', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 't' };
+    assert.equal(dedupeKey(JSON.stringify(call)), dedupeKey(JSON.stringify({ ...call, tool_response: { stdout: 'other' } })));
   });
 });
 
@@ -597,10 +774,10 @@ describe('router entry: dedupe and records', () => {
     return e;
   };
 
-  async function call(payload: string, findGate: (name: string) => Gate | undefined, groups?: RouterGroup[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  async function call(payload: string, findGate: (name: string) => Gate | undefined, groups?: RouterGroup[], event = 'PreToolUse'): Promise<{ code: number; stdout: string; stderr: string }> {
     let stdout = '';
     let stderr = '';
-    const code = await routerMain('PreToolUse', env(), {
+    const code = await routerMain(event, env(), {
       readStdin: () => payload,
       writeStdout: async (t) => {
         stdout += t;
@@ -713,6 +890,35 @@ describe('router entry: dedupe and records', () => {
     assert.equal(reasonOf(write), 'this install decided');
     const shell = await run(bash('ls', { session_id: 'sess-hop', tool_use_id: 'hop-b' }));
     assert.match(shell, /old install answered/);
+  });
+
+  for (const event of ['Stop', 'SubagentStop']) {
+    it(`a ${event} payload with no tool_name runs its group, and its duplicate runs nothing`, async () => {
+      let runs = 0;
+      const findGate = (): Gate => () => {
+        runs++;
+        return ALLOW;
+      };
+      const payload = JSON.stringify({ hook_event_name: event, session_id: `sess-${event}`, stop_hook_active: false });
+      const first = await call(payload, findGate, undefined, event);
+      assert.equal(first.code, 0);
+      const ran = routerGates(event, '').length;
+      assert.equal(runs, ran);
+      assert.ok(ran > 0);
+      const second = await call(payload, findGate, undefined, event);
+      assert.equal(second.code, 0);
+      assert.equal(second.stdout, '');
+      assert.equal(runs, ran);
+    });
+  }
+
+  it('a call no group matches leaves no lock behind', async () => {
+    const locks = join(dirname(db), 'locks/events');
+    const before = existsSync(locks) ? readdirSync(locks).length : 0;
+    const r = await call(JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 'sess-none', tool_name: 'Read', tool_input: {}, tool_use_id: 'none' }), fakes({}), undefined, 'PostToolUse');
+    assert.equal(r.code, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(locks) ? readdirSync(locks).length : 0, before);
   });
 
   it('an unjudged deny records no path', async () => {

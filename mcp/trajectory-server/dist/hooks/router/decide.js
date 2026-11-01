@@ -11,7 +11,11 @@
  * matches runs nothing, and a group marked stopAtFirstDeny runs no gate after
  * a deny. The first deny in group order is the answer, with that gate's output; with none, the
  * allowing gates' outputs merge as dispatch.sh's run_chain merges a chain's
- * context. Fail-closed as dispatch.sh is: an enforcement gate that throws,
+ * context; a block on any event but PreToolUse keeps the allowing gates' context
+ * in its one output, since as separate registrations each of them reached Claude
+ * Code. A deny reads as its event wants, as dispatch.sh's fail_closed_decision
+ * prints it, and an unparseable payload blocks only on an event an enforcement
+ * gate serves. Fail-closed as dispatch.sh is: an enforcement gate that throws,
  * exits other than 0 or 2 without a deny, prints unparseable output, is
  * unknown, runs past its deadline, or is left no group budget denies, naming
  * the gate; an advisory gate's failure is dropped and logged. Under the
@@ -19,7 +23,7 @@
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import { armDeadline, disarmDeadline } from '../lib/deadline.js';
-import { ROUTER_GROUPS, findGate, routerGates, routerGroup } from '../registry.js';
+import { ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 import { shGate } from './sh-gate.js';
 export const ROUTER_NAME = 'router';
 const DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
@@ -39,8 +43,9 @@ export function groupBudgetReason(gate, groupBudgetMs, ran) {
     const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
     return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
 }
-export function denyOutput(reason) {
-    return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`;
+export function denyOutput(reason, event) {
+    const output = event === 'PreToolUse' ? { hookSpecificOutput: { hookEventName: event, permissionDecision: 'deny', permissionDecisionReason: reason } } : { decision: 'block', reason };
+    return `${JSON.stringify(output)}\n`;
 }
 /** deny_reason: the first JSON object's permissionDecisionReason or reason, else <fallback>. */
 export function denyReason(stdout, fallback) {
@@ -91,20 +96,20 @@ function firstWins(records, into, skip) {
  * permissionDecision other than allow, with its own reason, beats an allow, as
  * in Claude Code's own precedence; every other key keeps its first value.
  */
-export function mergeContext(outputs) {
+export function mergeContext(outputs, event) {
     if (outputs.length === 0)
         return '';
     if (outputs.length === 1)
         return `${outputs[0]}\n`;
     const parsed = outputs.map((o) => asRecord(JSON.parse(o)));
     const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
-    const event = specifics.map((p) => p.hookEventName).find((e) => typeof e === 'string' && e !== '') ?? 'PreToolUse';
+    const eventName = specifics.map((p) => p.hookEventName).find((e) => typeof e === 'string' && e !== '') ?? event;
     const context = specifics
         .map((p) => p.additionalContext)
         .filter((c) => c !== undefined && c !== null && c !== false)
         .map((c) => (typeof c === 'string' ? c : JSON.stringify(c)))
         .join('\n\n');
-    const specific = firstWins(specifics, { hookEventName: event, additionalContext: context }, DECISION_KEYS);
+    const specific = firstWins(specifics, { hookEventName: eventName, additionalContext: context }, DECISION_KEYS);
     const decided = specifics.filter((p) => p.permissionDecision !== undefined);
     const winner = decided.find((p) => p.permissionDecision !== 'allow') ?? decided[0];
     if (winner) {
@@ -113,6 +118,13 @@ export function mergeContext(outputs) {
             specific.permissionDecisionReason = winner.permissionDecisionReason;
     }
     return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}\n`;
+}
+/** A deny's output with the allowing gates' context in it: the deny goes first, so its decision and reason win. Claude Code ignores stdout on exit 2. */
+function blockKeepingContext(event, deny, contexts) {
+    const out = trimNewlines(deny.stdout);
+    if (event === 'PreToolUse' || deny.code === 2 || contexts.length === 0 || !parses(out))
+        return deny.stdout;
+    return mergeContext([out, ...contexts], event);
 }
 const LATE = Symbol('late');
 /** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
@@ -155,12 +167,12 @@ function overBudget(gate, b, ran) {
     if (gate.kind !== 'enforcement')
         return { outcome: 'skipped_budget', stdout: '', code: 0, reason: '', stderr: `TMB router: advisory gate ${gate.name} ${what} — skipped, output dropped\n` };
     const reason = b.byGroup || !ran ? groupBudgetReason(gate.name, b.groupBudgetMs, ran) : timeoutReason(gate.name, b.budget);
-    return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} — failing closed\n` };
+    return { outcome: 'deny', stdout: denyOutput(reason, b.event), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} — failing closed\n` };
 }
 function judge(gate, s, cut, b) {
     const enforce = gate.kind === 'enforcement';
     const closed = (cause, stderr = '') => enforce
-        ? { outcome: 'deny', stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr}TMB dispatch: gate ${gate.name} ${cause} — failing closed\n` }
+        ? { outcome: 'deny', stdout: denyOutput(failClosedReason(gate.name, cause), b.event), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr}TMB dispatch: gate ${gate.name} ${cause} — failing closed\n` }
         : { outcome: 'error', stdout: '', code: 0, reason: '', stderr: `${stderr}TMB router: advisory gate ${gate.name} ${cause} — output dropped\n` };
     if (s.kind === 'unrun')
         return overBudget(gate, b, false);
@@ -201,10 +213,14 @@ export function payloadTool(payload) {
 export async function decide(event, payload, env, deps = {}) {
     const now = deps.now ?? (() => performance.now());
     const tool = payloadTool(payload);
+    const groups = deps.groups ?? ROUTER_GROUPS;
     if (tool === null) {
+        if (!eventHoldsEnforcement(event, groups)) {
+            return { stdout: '', stderr: `TMB router: ${event} got an unparseable payload — no gate run\n`, code: 0, tool: '', gates: [], denied: null };
+        }
         const reason = failClosedReason(ROUTER_NAME, 'got an unparseable payload');
         return {
-            stdout: denyOutput(reason),
+            stdout: denyOutput(reason, event),
             stderr: `TMB dispatch: gate ${ROUTER_NAME} got an unparseable payload — failing closed\n`,
             code: 0,
             tool: '',
@@ -214,10 +230,9 @@ export async function decide(event, payload, env, deps = {}) {
     }
     const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
     const find = deps.findGate ?? (bashImpl ? shGate : findGate);
-    const groups = deps.groups ?? ROUTER_GROUPS;
     const group = routerGroup(event, tool, groups);
     const gates = routerGates(event, tool, groups);
-    if (tool === 'Bash' && gates.length > 0 && !bashImpl)
+    if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0 && !bashImpl)
         await bashParser().catch(() => undefined);
     const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
     const groupStart = now();
@@ -226,10 +241,10 @@ export async function decide(event, payload, env, deps = {}) {
     for (const gate of gates) {
         const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
         const left = groupBudgetMs - (now() - groupStart);
-        const b = { limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
+        const b = { event, limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
         const fn = find(gate.name);
         if (!fn) {
-            done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate) });
+            done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate, event) });
             continue;
         }
         if (spent || left <= 0) {
@@ -247,17 +262,17 @@ export async function decide(event, payload, env, deps = {}) {
     const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
     const stderr = done.map(({ j }) => j.stderr).join('');
     const deny = done.find(({ j }) => j.outcome === 'deny');
-    if (deny) {
-        return { stdout: deny.j.stdout, stderr, code: deny.j.code, tool, gates: outcomes, denied: { gate: deny.gate.name, reason: deny.j.reason } };
-    }
     const context = done.filter(({ j }) => j.outcome === 'allow' && j.stdout !== '').map(({ j }) => j.stdout);
-    return { stdout: mergeContext(context), stderr, code: 0, tool, gates: outcomes, denied: null };
+    if (deny) {
+        return { stdout: blockKeepingContext(event, deny.j, context), stderr, code: deny.j.code, tool, gates: outcomes, denied: { gate: deny.gate.name, reason: deny.j.reason } };
+    }
+    return { stdout: mergeContext(context, event), stderr, code: 0, tool, gates: outcomes, denied: null };
 }
-function judgeUnknown(gate) {
+function judgeUnknown(gate, event) {
     const note = `TMB hooks: unknown gate '${oneLine(gate.name)}' — not run\n`;
     if (gate.kind !== 'enforcement')
         return { outcome: 'error', stdout: '', code: 0, reason: '', stderr: `${note}TMB router: advisory gate ${gate.name} exited 1 — output dropped\n` };
     const reason = failClosedReason(gate.name, 'exited 1');
-    return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `${note}TMB dispatch: gate ${gate.name} exited 1 — failing closed\n` };
+    return { outcome: 'deny', stdout: denyOutput(reason, event), code: 0, reason, stderr: `${note}TMB dispatch: gate ${gate.name} exited 1 — failing closed\n` };
 }
 //# sourceMappingURL=decide.js.map

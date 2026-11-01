@@ -227,12 +227,12 @@ export function sandboxState(s) {
         ].join('\n');
     }).join('\n---\n');
 }
-function materialize(file, s, paths) {
+export function materialize(file, s, paths) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', paths.noJq).replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
     const { corpus_env: env = {}, corpus_cwd: cwd = join(s, 'ws'), corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, cwd, expect, divergent };
 }
-function caseEnv(s, locale, c) {
+export function caseEnv(s, locale, c) {
     const env = { ...process.env, ...GIT_ENV };
     for (const key of UNSET)
         delete env[key];

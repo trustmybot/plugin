@@ -144,17 +144,25 @@ export function gateNames() {
  * The router (GH 1692): `node dist/hooks.js <event>` runs the gates of the one
  * group whose event and matcher fit the payload, one after another in this
  * order, each within its budget from router/budgets.json. A matcher is the
- * text of that group's hooks.json entry; matchers do not overlap, so each call
- * starts one process. A tool no group matches runs no gates.
+ * text of that group's hooks.json entry, empty for every call of its event as
+ * in Claude Code; an event's matchers do not overlap, so each call starts one
+ * process. A tool no group matches runs no gates.
  */
 import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
 function routerGate(name, kind, toolSuffix) {
     const budgets = ROUTER_BUDGETS.gates;
     return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }) };
 }
-function preToolUseGroup(matcher, gates, opts = {}) {
+/** A group's key in budgets.json: a matcher alone is not unique, Bash and Agent sit under two events. */
+export function routerGroupKey(group) {
+    return `${group.event}:${group.matcher}`;
+}
+function eventGroup(event, matcher, gates, opts = {}) {
     const budgets = ROUTER_BUDGETS.groups;
-    return { event: 'PreToolUse', matcher, gates, groupBudgetMs: budgets[matcher].group_budget_ms, ...opts };
+    return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher })].group_budget_ms, ...opts };
+}
+function preToolUseGroup(matcher, gates, opts = {}) {
+    return eventGroup('PreToolUse', matcher, gates, opts);
 }
 export const ROUTER_GROUPS = [
     preToolUseGroup('Write|Edit|MultiEdit|NotebookEdit', [
@@ -191,13 +199,31 @@ export const ROUTER_GROUPS = [
     ], { stopAtFirstDeny: true }),
     preToolUseGroup('AskUserQuestion', [routerGate('askuserquestion-length-lint', 'advisory'), routerGate(RT_AUQ_SHAPE_GATE, 'advisory')]),
     preToolUseGroup('Read|Skill', [routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
+    eventGroup('PostToolUse', 'mcp__.*trajectory-server__.*', [
+        routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'task_update_status'),
+        routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'validation_record'),
+        routerGate(RT_CLEANUP_GATE, 'advisory', 'roundtable_close'),
+        routerGate(TASK_CLOSE_RESCAN_GATE, 'advisory', 'bro_atomic_close'),
+        routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
+        routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
+        routerGate(OVERRUN_GATE, 'advisory'),
+    ]),
+    eventGroup('PostToolUse', 'Bash', [routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
+    eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
+    eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
+    eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
+    eventGroup('SubagentStop', '', [routerGate(SWE_ATOMIC_CLOSE_GATE, 'advisory'), routerGate(CONSULTANT_PERSISTENCE_GATE, 'enforcement')]),
 ];
 export function routerEvents() {
     return new Set(ROUTER_GROUPS.map((g) => g.event));
 }
-/** Whether <matcher>, hooks.json regex text, matches the whole of <tool>. */
+/** Whether an enforcement gate serves <event>: only then can a call that reaches no gate be refused. */
+export function eventHoldsEnforcement(event, groups = ROUTER_GROUPS) {
+    return groups.some((g) => g.event === event && g.gates.some((x) => x.kind === 'enforcement'));
+}
+/** Whether <matcher>, hooks.json regex text, matches the whole of <tool>; empty matches every call. */
 export function matcherFits(matcher, tool) {
-    return new RegExp(`^(?:${matcher})$`).test(tool);
+    return matcher === '' || new RegExp(`^(?:${matcher})$`).test(tool);
 }
 /** The group serving a call: the first whose event and matcher fit. */
 export function routerGroup(event, tool, groups = ROUTER_GROUPS) {

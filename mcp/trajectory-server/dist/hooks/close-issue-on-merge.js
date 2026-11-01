@@ -17,7 +17,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../tools/lifecycle.js';
+import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
 import { stripLiterals } from './cmd-analysis/strip-literals.js';
 import { ALLOW } from './gate.js';
 import { auditSql, dbWrite, nowIso } from './lib/audit.js';

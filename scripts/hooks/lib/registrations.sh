@@ -48,7 +48,7 @@ tmb_chain_gates() {
 # order, so `"${CLAUDE_PLUGIN_ROOT}/…/dispatch.sh" <name>` and the unquoted
 # form match alike.
 # A gate with no `dispatch.sh <name>` registration that the router serves
-# (a `<gate> <budget ms> <kind> <event> <matcher> <tool suffix|*>` line of
+# (a `<gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*>` line of
 # mcp/trajectory-server/dist/hooks-router.txt next to <hooks.json>'s plugin
 # root) reads "<budget in whole s> <1 when its kind is enforcement>".
 # A chain with no registration reads "<every * gate plus the largest
@@ -99,7 +99,7 @@ tmb_registration() {
 #   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>
 # runs the gates dist/hooks-router.txt lists for <Event> and that matcher, in
 # order; a line whose last column is not `*` runs only for a tool name ending
-# in `trajectory-server__<that column>`.
+# in `trajectory-server__<that column>`. An empty matcher prints as `-`.
 #
 #   tmb_router_event <command> — <Event> when <command> is the router, else nothing
 #   tmb_router_gates <plugin root> <Event> [<matcher> [<tool name>]]
@@ -126,5 +126,5 @@ tmb_router_gates() {
 
 #   tmb_router_budget_max <plugin root> <Event> <matcher> — the largest of that group's gate budgets, in ms
 tmb_router_budget_max() {
-  awk -v e="$2" -v g="$3" '$4 == e && $5 == g && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+  awk -v e="$2" -v g="${3:--}" '$4 == e && $5 == g && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }

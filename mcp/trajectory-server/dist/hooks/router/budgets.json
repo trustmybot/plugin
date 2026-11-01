@@ -3,40 +3,70 @@
     "workers": 4,
     "parse_allowance_ms": 2000,
     "groups": {
-        "Write|Edit|MultiEdit|NotebookEdit": {
+        "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
             "max_budget_ms": 8090,
             "p99_sum_ms": 18264.7,
             "group_budget_ms": 27398
         },
-        "Bash": {
+        "PreToolUse:Bash": {
             "max_budget_ms": 16000,
             "p99_sum_ms": 21657.5,
             "group_budget_ms": 32487
         },
-        "Agent": {
+        "PreToolUse:Agent": {
             "max_budget_ms": 16000,
             "p99_sum_ms": 4343.4,
             "group_budget_ms": 16000
         },
-        "SendMessage": {
+        "PreToolUse:SendMessage": {
             "max_budget_ms": 6000,
             "p99_sum_ms": 10.1,
             "group_budget_ms": 6000
         },
-        "mcp__.*trajectory-server__.*": {
+        "PreToolUse:mcp__.*trajectory-server__.*": {
             "max_budget_ms": 1830000,
             "p99_sum_ms": 5368.3,
             "group_budget_ms": 1830000
         },
-        "AskUserQuestion": {
+        "PreToolUse:AskUserQuestion": {
             "max_budget_ms": 6000,
             "p99_sum_ms": 1420.8,
             "group_budget_ms": 6000
         },
-        "Read|Skill": {
+        "PreToolUse:Read|Skill": {
             "max_budget_ms": 7486,
             "p99_sum_ms": 3643,
             "group_budget_ms": 7486
+        },
+        "PostToolUse:mcp__.*trajectory-server__.*": {
+            "max_budget_ms": 11840,
+            "p99_sum_ms": 10480.7,
+            "group_budget_ms": 15722
+        },
+        "PostToolUse:Bash": {
+            "max_budget_ms": 23300,
+            "p99_sum_ms": 12992.6,
+            "group_budget_ms": 23300
+        },
+        "PostToolUse:Agent": {
+            "max_budget_ms": 6000,
+            "p99_sum_ms": 35.5,
+            "group_budget_ms": 6000
+        },
+        "PermissionDenied:Agent": {
+            "max_budget_ms": 6000,
+            "p99_sum_ms": 37.1,
+            "group_budget_ms": 6000
+        },
+        "Stop:": {
+            "max_budget_ms": 6000,
+            "p99_sum_ms": 755,
+            "group_budget_ms": 6000
+        },
+        "SubagentStop:": {
+            "max_budget_ms": 11350,
+            "p99_sum_ms": 5633.3,
+            "group_budget_ms": 11350
         }
     },
     "gates": {
@@ -408,6 +438,224 @@
             "floor_ms": 6000,
             "budget_ms": 6000,
             "date": "2026-10-31"
+        },
+        "cleanup-worktree-on-task-close": {
+            "kind": "advisory",
+            "bench_p50": 9.1,
+            "bench_p95": 2350.7,
+            "bench_p99": 3185.1,
+            "bench_runs": 2240,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 5820,
+            "transcript_samples": 287,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 11000,
+            "budget_ms": 11840,
+            "date": "2026-11-01"
+        },
+        "roundtable-cleanup-postcheck": {
+            "kind": "advisory",
+            "bench_p50": 1.3,
+            "bench_p95": 6.2,
+            "bench_p99": 28.4,
+            "bench_runs": 1440,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no roundtable-cleanup-postcheck PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "post-task-close-rescan": {
+            "kind": "advisory",
+            "bench_p50": 0.1,
+            "bench_p95": 1,
+            "bench_p99": 2.7,
+            "bench_runs": 720,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no post-task-close-rescan PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "post-atomic-close-readme": {
+            "kind": "advisory",
+            "bench_p50": 474.2,
+            "bench_p95": 1906.7,
+            "bench_p99": 2784.6,
+            "bench_runs": 1840,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 2947,
+            "transcript_samples": 370,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6094,
+            "date": "2026-11-01"
+        },
+        "post-task-create-spawn-hint": {
+            "kind": "advisory",
+            "bench_p50": 0.5,
+            "bench_p95": 8.2,
+            "bench_p99": 36.6,
+            "bench_runs": 1280,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no post-task-create-spawn-hint PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 4000,
+            "budget_ms": 4000,
+            "date": "2026-11-01"
+        },
+        "task-overrun-alert": {
+            "kind": "advisory",
+            "bench_p50": 1.6,
+            "bench_p95": 10.6,
+            "bench_p99": 20.4,
+            "bench_runs": 320,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 1646,
+            "transcript_samples": 31,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "attribution-footer": {
+            "kind": "advisory",
+            "bench_p50": 7.7,
+            "bench_p95": 47.7,
+            "bench_p99": 140.2,
+            "bench_runs": 1280,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no attribution-footer PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 16000,
+            "budget_ms": 16000,
+            "date": "2026-11-01"
+        },
+        "clean-merged-branch": {
+            "kind": "advisory",
+            "bench_p50": 230.3,
+            "bench_p95": 944,
+            "bench_p99": 1302.4,
+            "bench_runs": 1280,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no clean-merged-branch PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 11000,
+            "budget_ms": 11000,
+            "date": "2026-11-01"
+        },
+        "close-issue-on-merge": {
+            "kind": "advisory",
+            "bench_p50": 221.5,
+            "bench_p95": 10017.4,
+            "bench_p99": 10086.1,
+            "bench_runs": 1600,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 11550,
+            "transcript_samples": 60,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 16000,
+            "budget_ms": 23300,
+            "date": "2026-11-01"
+        },
+        "swe-spawn-bind": {
+            "kind": "advisory",
+            "bench_p50": 1.3,
+            "bench_p95": 7,
+            "bench_p99": 35.5,
+            "bench_runs": 1280,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no swe-spawn-bind PostToolUse hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "swe-spawn-rollback": {
+            "kind": "advisory",
+            "bench_p50": 1.7,
+            "bench_p95": 9,
+            "bench_p99": 37.1,
+            "bench_runs": 1200,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no swe-spawn-rollback PermissionDenied hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "bro-turn-usage": {
+            "kind": "advisory",
+            "bench_p50": 0.5,
+            "bench_p95": 20.1,
+            "bench_p99": 61.7,
+            "bench_runs": 1120,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 755,
+            "transcript_samples": 2,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
+        },
+        "swe-atomic-close": {
+            "kind": "advisory",
+            "bench_p50": 697.4,
+            "bench_p95": 2485.8,
+            "bench_p99": 3417.3,
+            "bench_runs": 1760,
+            "bench_load_avg": 46.55,
+            "transcript_p99": 5575,
+            "transcript_samples": 133,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 11350,
+            "date": "2026-11-01"
+        },
+        "consultant-persistence-gate": {
+            "kind": "enforcement",
+            "bench_p50": 2.3,
+            "bench_p95": 16.8,
+            "bench_p99": 58.3,
+            "bench_runs": 1360,
+            "bench_load_avg": 46.55,
+            "transcript_p99": null,
+            "reason": "no consultant-persistence-gate SubagentStop hook attachment in 995 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
         }
     }
 }

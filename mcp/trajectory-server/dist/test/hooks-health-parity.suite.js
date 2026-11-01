@@ -364,7 +364,7 @@ export function materialize(file, s, pathWithout) {
         divergence,
     };
 }
-function caseEnv(s, tmp, locale, extra, cwd) {
+export function caseEnv(s, tmp, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

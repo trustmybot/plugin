@@ -1,7 +1,8 @@
 /**
  * dispatch.sh's per-call dedupe, ported for the router: one run per (event,
- * session_id, tool_name, tool_input, tool_use_id), the gate left out of the
- * key since the router runs them all. The first call creates
+ * session_id, tool_name, tool_input, tool_use_id), or per whole payload when
+ * it has no tool_name, the gate left out of the key since the router runs them
+ * all. The first call creates
  * <state>/locks/events/<key>/ (mkdir is the lock), writes its deadline,
  * decides, and stores result, stderr and rc; a duplicate waits up to the
  * router's timeout minus 1 s and replays only a deny. A result answers
@@ -33,7 +34,7 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** The lock key of a tool-event payload, or null when it is not an object with a tool_name. */
+/** The lock key of a payload: its tool call, or the whole payload when it has no tool_name; null when it is not an object. */
 export function dedupeKey(payload: string): string | null {
   let o: unknown;
   try {
@@ -41,9 +42,9 @@ export function dedupeKey(payload: string): string | null {
   } catch {
     return null;
   }
-  if (o === null || typeof o !== 'object' || Array.isArray(o) || !('tool_name' in o)) return null;
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) return null;
   const p = o as Record<string, unknown>;
-  const material = canonicalJson([p.hook_event_name ?? '', p.session_id ?? '', p.tool_name, p.tool_input ?? null, p.tool_use_id ?? '']);
+  const material = canonicalJson('tool_name' in p ? [p.hook_event_name ?? '', p.session_id ?? '', p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ''] : p);
   return createHash('sha256').update(material).digest('hex');
 }
 

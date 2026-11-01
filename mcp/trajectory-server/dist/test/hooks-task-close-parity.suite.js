@@ -315,12 +315,12 @@ function byLocale(expect, locale) {
 function side(value, name) {
     return typeof value === 'object' && value !== null && 'bash' in value ? value[name] : value;
 }
-function materialize(file, s, paths) {
+export function materialize(file, s, paths) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', paths.noJq).replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
     const { corpus_env: env = {}, corpus_cwd: cwd = 'project', corpus_stdin: stdin, corpus_expect: expect = '', corpus_launch: launch = false, corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, launch, divergent };
 }
-function caseEnv(s, locale, extra, cwd, records) {
+export function caseEnv(s, locale, extra, cwd, records) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

@@ -32000,10 +32000,7 @@ function closeOpenRunsForTask(db, taskId, now2, exitReason) {
   return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
 }
 
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
@@ -32017,6 +32014,11 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
 function liveTasksOfIssue(db, issueId) {
   return db.all(
     `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
@@ -34812,6 +34814,12 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column) {
+  return column === EMPTY_MATCHER_COLUMN ? "" : column;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
@@ -34847,7 +34855,8 @@ function eventRanks(events) {
 }
 var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
 function routerGatesOf(table, event, matcher) {
-  return table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] === matcher).map((f) => f[0]);
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher).map((f) => f[0]);
+  return [...new Set(rows)];
 }
 function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };

@@ -175,6 +175,29 @@ describe('project enforcement shim', () => {
         assert.ok(bash);
         assert.deepEqual(bash.hooks.map((h) => [hookOf(h.command), h.timeout]), [['containment-guard.sh', 5], ['git-guards.sh', 11]]);
     });
+    it('router entries of the post-tool and stop events make no shim entry, and their sentinel rows read as an empty matcher', () => {
+        const routed = (event, matcher, block = false) => ({
+            ...(matcher === undefined ? {} : { matcher }),
+            hooks: [{ type: 'command', command: `node "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" ${event}`, timeout: 9, ...(block ? { onFailure: 'block' } : {}) }],
+        });
+        const hooks = {
+            hooks: {
+                PreToolUse: [routed('PreToolUse', 'Bash', true)],
+                PostToolUse: [routed('PostToolUse', 'Bash'), routed('PostToolUse', 'mcp__.*trajectory-server__.*'), routed('PostToolUse', 'Agent')],
+                PermissionDenied: [routed('PermissionDenied', 'Agent')],
+                Stop: [routed('Stop', '')],
+                SubagentStop: [routed('SubagentStop', '', true)],
+            },
+        };
+        writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(hooks));
+        mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+        writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'git-guards 10200 enforcement PreToolUse Bash *\nattribution-footer 16000 advisory PostToolUse Bash *\nswe-spawn-rollback 6000 advisory PermissionDenied Agent *\nbro-turn-usage 6000 advisory Stop - *\nconsultant-persistence-gate 6000 enforcement SubagentStop - *\n');
+        assert.equal(write().written, true);
+        const s = readSettings();
+        assert.deepEqual(groupFor(readSettings(), 'Bash')?.hooks.map((h) => hookOf(h.command)), ['git-guards.sh']);
+        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop'])
+            assert.equal(s.hooks?.[event], undefined, event);
+    });
     it('every router group becomes its own gates, advisory ones dropped, and the trajectory-server group its chain', () => {
         const entry = (matcher, timeout, block = true) => ({
             matcher,

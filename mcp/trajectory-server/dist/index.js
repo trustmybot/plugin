@@ -31023,10 +31023,7 @@ function openSweRun(db2, task, now2, ctx, rootDir) {
   return true;
 }
 
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
@@ -31040,6 +31037,11 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
 function liveTasksOfIssue(db2, issueId) {
   return db2.all(
     `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
@@ -34296,6 +34298,12 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column) {
+  return column === EMPTY_MATCHER_COLUMN ? "" : column;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
@@ -34331,7 +34339,8 @@ function eventRanks(events) {
 }
 var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
 function routerGatesOf(table, event, matcher) {
-  return table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] === matcher).map((f) => f[0]);
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher).map((f) => f[0]);
+  return [...new Set(rows)];
 }
 function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
@@ -43039,10 +43048,10 @@ function routerGateHooks(pluginRoot, matcher, h) {
   } catch {
     return { reason: "dist/hooks-router.txt missing or unreadable" };
   }
-  const rows = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 5 && f[3] === event && f[4] === matcher && /^[a-z0-9-]+$/.test(f[0]));
+  const rows = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 5 && f[3] === event && matcherOfColumn(f[4]) === matcher && /^[a-z0-9-]+$/.test(f[0]));
   if (rows.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
   const dispatched = (name2, budgetMs) => ({ type: "command", command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name2}`, timeout: Math.ceil(budgetMs / 1e3) });
-  const chain = GROUP_CHAIN[matcher];
+  const chain = event === "PreToolUse" ? GROUP_CHAIN[matcher] : void 0;
   if (chain === void 0) return rows.map(([gate, budgetMs]) => dispatched(gate, Number(budgetMs)));
   const filtered = (f) => (f[5] ?? "*") !== "*";
   const unfilteredMs = rows.filter((f) => !filtered(f)).reduce((n, f) => n + Number(f[1]), 0);

@@ -9812,6 +9812,12 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column) {
+  return column === EMPTY_MATCHER_COLUMN ? "" : column;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
@@ -9847,7 +9853,8 @@ function eventRanks(events) {
 }
 var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
 function routerGatesOf(table, event, matcher) {
-  return table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] === matcher).map((f) => f[0]);
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher).map((f) => f[0]);
+  return [...new Set(rows)];
 }
 function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
@@ -10222,14 +10229,7 @@ function parseStoredReport(stored) {
   }
 }
 
-// src/tools/agent-runs.ts
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
-
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a

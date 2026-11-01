@@ -264,7 +264,7 @@ interface CorpusPaths {
   noSqlite: string;
 }
 
-function materialize(file: string, s: string, paths: CorpusPaths): Case {
+export function materialize(file: string, s: string, paths: CorpusPaths): Case {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', paths.noJq).replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
   const {
     corpus_env: env = {},
@@ -276,7 +276,7 @@ function materialize(file: string, s: string, paths: CorpusPaths): Case {
   return { input: JSON.stringify(payload), env, cwd, expect, divergent };
 }
 
-function caseEnv(s: string, locale: string, c: Case): NodeJS.ProcessEnv {
+export function caseEnv(s: string, locale: string, c: Case): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...GIT_ENV };
   for (const key of UNSET) delete env[key];
   Object.assign(env, {

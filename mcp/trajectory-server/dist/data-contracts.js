@@ -16,7 +16,8 @@
  * fault.
  */
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
-import { HAS_PASS_SQL, STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
+import { HAS_PASS_SQL, reviewSkipAuthoredSql } from './review-sql.js';
+import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX } from './symbol-index.js';

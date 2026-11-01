@@ -351,7 +351,7 @@ interface Paths {
   noTimeout: string;
 }
 
-function materialize(file: string, s: string, paths: Paths): Case {
+export function materialize(file: string, s: string, paths: Paths): Case {
   const text = readFileSync(file, 'utf8')
     .replaceAll('@SANDBOX@', s)
     .replaceAll('@NOGH_PATH@', paths.noGh)
@@ -381,7 +381,7 @@ function materialize(file: string, s: string, paths: Paths): Case {
   };
 }
 
-function caseEnv(s: string, locale: string, paths: Paths, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
+export function caseEnv(s: string, locale: string, paths: Paths, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of UNSET) delete env[key];
   Object.assign(env, GIT_ENV, {
