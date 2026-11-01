@@ -2,8 +2,9 @@
  * Bash-vs-node parity for the TypeScript hook gates (GH 1692): every corpus
  * payload in tests/fixtures/hook-corpus/<gate>/ gives the same exit code and
  * the same stdout (empty, or deep-equal JSON) through
- * `bash scripts/hooks/<gate>.sh` and `node dist/hooks.js <gate>`, and a gate
- * that audits writes the same audit rows (id and created_at aside). A gate
+ * `node dist/hooks.js <gate>` as the recording of `bash scripts/hooks/<gate>.sh`
+ * in tests/fixtures/hook-golden/<gate>.json (golden.ts), and a gate that audits
+ * writes the same audit rows (id and created_at aside). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
  * (code-reviewer-preflight, code-reviewer-spawn-note, rework-limit,
  * rework-waiver-capture, swe-resume-gate, task-overrun-alert), has no bash side
@@ -17,19 +18,20 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
 import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
+import { GENERIC_CASE_PREFIX, goldenBash, goldenRoots, hasGolden, isRecording } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const MIN_CORPUS = 8;
-const PARITY_GATES = gateNames().filter((gate) => existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)));
+const PARITY_GATES = gateNames().filter((gate) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)) : hasGolden(gate)));
 const LOCALES = ['C', 'en_US.UTF-8', 'UTF-8'];
 const FAKE_UID = 4242424;
 
@@ -331,13 +333,15 @@ export function hooksParityShard(k: number, n: number): void {
           ...payloadEnv,
         };
         const db = setup?.auditDb;
-        const before = db ? auditMark(db) : 0;
-        const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, setup?.cwd);
+        const { audit: bashAudit, ...bash } = goldenBash(gate, `${GENERIC_CASE_PREFIX}${basename(file)}`, locale, goldenRoots({ '@PROJECT@': project, '@SCRATCH@': scratch, '@PROJECT_SLUG@': (setup?.cwd ?? project).replace(/[^A-Za-z0-9]/g, '-') }), () => {
+          const start = db ? auditMark(db) : 0;
+          return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, setup?.cwd), audit: db ? auditRowsAfter(db, start) : [] };
+        });
         const middle = db ? auditMark(db) : 0;
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, setup?.cwd);
         assert.equal(node.code, bash.code, 'exit code');
         assert.deepEqual(parsedStdout(node.stdout), parsedStdout(bash.stdout), 'stdout');
-        if (db) assert.deepEqual(auditRowsAfter(db, middle), auditRowsAfter(db, before).slice(0, middle - before), 'audit rows');
+        if (db) assert.deepEqual(auditRowsAfter(db, middle), bashAudit, 'audit rows');
       });
     }
 

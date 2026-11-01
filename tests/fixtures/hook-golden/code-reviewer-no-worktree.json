@@ -1,0 +1,301 @@
+{
+  "01-worktree-denied.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\\n\\nSpawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "02-no-isolation.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "03-isolation-none.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "04-swe-in-a-worktree.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "05-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "06-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "07-bypass-not-1.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\\n\\nSpawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "08-namespaced-subagent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\\n\\nSpawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "09-isolation-case-differs.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "10-stdin-not-json.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "11-two-json-values.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "12-tool-input-a-string.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "13-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  }
+}

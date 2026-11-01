@@ -1,0 +1,1342 @@
+{
+  "01-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "02-valid-shape.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "03-all-radios.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "04-q2-multiselect.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q2 must not use multiSelect (disagreement radios only) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "05-five-questions.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - AUQ has 5 questions; max 4 allowed during ratification\\n  - Q5 must not use multiSelect (disagreement radios only) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "06-no-awaiting-roundtable.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "07-human-already-voted.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "08-empty-questions.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "09-missing-questions.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "10-q1-without-the-key.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "11-multiselect-as-string.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "12-questions-an-object.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "13-questions-a-string.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "14-questions-a-number.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "15-null-entries.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "16-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "17-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "18-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "19-divergent-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  },
+  "20-all-radios-long-label.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"additionalContext\":\"roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #5 awaiting human).\\n  - Q1 must have multiSelect:true (agreements checkbox) during ratification\\n\\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total ≤4.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 4,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        }
+      }
+    }
+  }
+}

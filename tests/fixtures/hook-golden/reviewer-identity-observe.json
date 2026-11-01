@@ -1,0 +1,488 @@
+{
+  "01-records-namespaced-reviewer.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:reviewer-identity-observe\",\"event_type\":\"reviewer_identity_observed\",\"summary\":\"code-reviewer agent-abc called validation_record for task 42 attempt 1\",\"summary_hex\":\"636F64652D7265766965776572206167656E742D6162632063616C6C65642076616C69646174696F6E5F7265636F726420666F72207461736B20343220617474656D70742031\",\"content_json\":\"{\\\"task_id\\\":42,\\\"attempt_n\\\":1,\\\"session_id\\\":\\\"sess-1\\\",\\\"agent_id\\\":\\\"agent-abc\\\",\\\"tool_use_id\\\":\\\"toolu_1\\\",\\\"observed_at\\\":\\\"<ts>\\\",\\\"consumed\\\":0}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "02-records-without-tool-use-id.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:reviewer-identity-observe\",\"event_type\":\"reviewer_identity_observed\",\"summary\":\"code-reviewer agent-def called validation_record for task 43 attempt 2\",\"summary_hex\":\"636F64652D7265766965776572206167656E742D6465662063616C6C65642076616C69646174696F6E5F7265636F726420666F72207461736B20343320617474656D70742032\",\"content_json\":\"{\\\"task_id\\\":43,\\\"attempt_n\\\":2,\\\"session_id\\\":\\\"sess-2\\\",\\\"agent_id\\\":\\\"agent-def\\\",\\\"tool_use_id\\\":null,\\\"observed_at\\\":\\\"<ts>\\\",\\\"consumed\\\":0}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "03-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "04-not-a-reviewer.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "05-main-session-no-agent-id.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "06-non-integer-task-id.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "07-unknown-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "08-missing-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "09-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "10-schema-old-db-write-fails.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "tmb_db_write: reviewer-identity-observe: Parse error near line 3: table audit has no column named repo\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/old/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "11-fresh-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "12-test-flag-unresolved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "13-role-is-case-sensitive.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "14-number-literal-agent-id.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:reviewer-identity-observe\",\"event_type\":\"reviewer_identity_observed\",\"summary\":\"code-reviewer 7.50 called validation_record for task 42 attempt 3\",\"summary_hex\":\"636F64652D726576696577657220372E35302063616C6C65642076616C69646174696F6E5F7265636F726420666F72207461736B20343220617474656D70742033\",\"content_json\":\"{\\\"task_id\\\":42,\\\"attempt_n\\\":3,\\\"session_id\\\":\\\"s\\\",\\\"agent_id\\\":\\\"7.50\\\",\\\"tool_use_id\\\":null,\\\"observed_at\\\":\\\"<ts>\\\",\\\"consumed\\\":0}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "15-leading-zero-ids.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:reviewer-identity-observe\",\"event_type\":\"reviewer_identity_observed\",\"summary\":\"code-reviewer agent-o'q called validation_record for task 042 attempt 01\",\"summary_hex\":\"636F64652D7265766965776572206167656E742D6F27712063616C6C65642076616C69646174696F6E5F7265636F726420666F72207461736B2030343220617474656D7074203031\",\"content_json\":\"{\\\"task_id\\\":42,\\\"attempt_n\\\":1,\\\"session_id\\\":\\\"sess-3\\\",\\\"agent_id\\\":\\\"agent-o'q\\\",\\\"tool_use_id\\\":\\\"toolu_3\\\",\\\"observed_at\\\":\\\"<ts>\\\",\\\"consumed\\\":0}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "16-fractional-attempt.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "17-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "reviewer-identity-observe: jq not found — caller not recorded\n",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "18-divergent-no-sqlite-cli.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  }
+}

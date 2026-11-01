@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LINT_GATES, lintSandbox, type LintSandbox } from './lint-hooks-sandbox.js';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -108,13 +109,16 @@ export function lintParityShard(k: number, n: number): void {
           ...sandbox.env,
           ...extra,
         };
-        const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, dir, join(dir, 'bash.log'));
+        const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': dir }), () => {
+          const r = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, dir, join(dir, 'bash.log'));
+          return { code: r.code, stdout: r.stdout.toString('latin1'), calls: r.calls };
+        });
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, dir, join(dir, 'node.log'));
         assert.equal(node.code, bash.code, 'exit code');
-        assert.equal(node.stdout.toString('hex'), bash.stdout.toString('hex'), 'stdout, byte for byte');
+        assert.equal(node.stdout.toString('latin1'), bash.stdout, 'stdout, byte for byte');
         assert.equal(node.calls, bash.calls, 'gh/glab calls');
         assert.equal(bash.code, 0);
-        checkExpectation(gate, expect(locale), bash.stdout.toString('utf8'), bash.calls);
+        checkExpectation(gate, expect(locale), Buffer.from(bash.stdout, 'latin1').toString('utf8'), bash.calls);
       });
     }
   });

@@ -1,0 +1,92 @@
+{
+  "allow-db-unavailable.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-login-word-elsewhere.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-malformed-payload.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-command.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-login-word.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-remote-has-url.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-unregistered-repo.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "deny-cd-into-repo.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+    }
+  },
+  "deny-gh-no-remote-rows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+    }
+  },
+  "deny-glab-empty-url.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'glab auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+    }
+  },
+  "deny-non-bash-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+    }
+  },
+  "diverge-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-parse-failure.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+    }
+  }
+}

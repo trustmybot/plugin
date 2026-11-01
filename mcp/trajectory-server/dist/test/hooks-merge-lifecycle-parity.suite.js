@@ -37,8 +37,10 @@ import { chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -429,9 +431,10 @@ export function mergeLifecycleParityShard(k, n) {
             it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
                 const env = caseEnv(s, locale, paths, c.env, c.cwd);
-                restore();
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, scratch);
-                const bashSnap = snapshot(s);
+                const { tree: bashSnap, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+                    restore();
+                    return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, scratch), tree: snapshot(s) };
+                });
                 restore();
                 const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, scratch);
                 const nodeSnap = snapshot(s);
@@ -445,7 +448,7 @@ export function mergeLifecycleParityShard(k, n) {
                 }
                 else {
                     const expect = c.expect;
-                    assert.ok(node.stdout + node.stderr !== bash.stdout + bash.stderr || JSON.stringify(nodeSnap) !== JSON.stringify(bashSnap), `divergent (${c.divergent}): the sides must differ`);
+                    assert.ok(node.stdout + node.stderr !== bash.stdout + bash.stderr || !isDeepStrictEqual(nodeSnap, bashSnap), `divergent (${c.divergent}): the sides must differ`);
                     assertExpect('bash', bash, bashSnap, byLocale(expect.bash, locale));
                     assertExpect('ts', node, nodeSnap, byLocale(expect.ts, locale));
                 }

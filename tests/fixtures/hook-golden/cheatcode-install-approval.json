@@ -1,0 +1,461 @@
+{
+  "01-approved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "02-not-approved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "03-not-approved-no-name.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'https://x.test/nameless' (https://x.test/nameless). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "04-no-source-url.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "05-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "06-approved-url-with-quote.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "07-missing-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "08-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "09-schema-old-db-approved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "10-fresh-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "11-test-flag-unresolved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "12-bare-tool-name.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "13-number-source-url.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode '1.0' (1.0). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "14-candidate-not-an-object.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "15-walk-up-from-project.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "16-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "17-divergent-no-sqlite-cli.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  }
+}
