@@ -134,7 +134,7 @@ function manifestName(manifest: string): string {
 }
 
 /** _target_is_plugin_source_repo: the target's git root carries a manifest named like the running plugin's. */
-function targetIsPluginSourceRepo(target: string, input: string, env: NodeJS.ProcessEnv): boolean {
+async function targetIsPluginSourceRepo(target: string, input: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   const pluginRoot = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath(import.meta.url))) || '';
   const running = `${pluginRoot}/.claude-plugin/plugin.json`;
   let start: string;
@@ -144,7 +144,7 @@ function targetIsPluginSourceRepo(target: string, input: string, env: NodeJS.Pro
   } else {
     start = posixDirname(`${payloadCwd(input, env)}/${target}`);
   }
-  const root = repoGitRoot(start, env);
+  const root = await repoGitRoot(start, env);
   if (root === '') return false;
   const repoManifest = `${root}/.claude-plugin/plugin.json`;
   if (!isFile(running) || !isFile(repoManifest)) return false;
@@ -190,12 +190,12 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   for (const line of lines) {
     const path = judgedPath(line);
     if (path === null || path === '') continue;
-    if (isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots))) return deny(BASH_REASON);
+    if (await isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots))) return deny(BASH_REASON);
   }
   return ALLOW;
 }
 
-function editRule(input: string, env: NodeJS.ProcessEnv): GateResult {
+async function editRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
   if (db === null) return ALLOW;
 
@@ -207,23 +207,23 @@ function editRule(input: string, env: NodeJS.ProcessEnv): GateResult {
   if (target.startsWith('/')) {
     const dir = posixDirname(target);
     if (haveSqlite(env) && isDir(dir)) {
-      const root = repoGitRoot(dir, env);
+      const root = await repoGitRoot(dir, env);
       if (root === '') return ALLOW;
       if (gateRead(db, 'SELECT COUNT(*) FROM repos;', env) === GATE_READ_ERROR) return dbDenied(env);
       if (repoNameForRoot(db, root, env) === '') return ALLOW;
     }
   }
 
-  if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny(SURFACE_REASON);
+  if (isEnforcementSurface(target) && await targetIsPluginSourceRepo(target, input, env)) return deny(SURFACE_REASON);
   if (allowlisted(target)) return ALLOW;
   if (agentRole(input) === 'swe') return ALLOW;
   return deny(sourceReason(env));
 }
 
-export const noSourceEditFromMain: Gate = (payload, env) => {
+export const noSourceEditFromMain: Gate = async (payload, env) => {
   const toolName = field(payload, ['tool_name']);
   if (!JUDGED_TOOLS.has(toolName)) return ALLOW;
-  if (toolName === 'Bash') return bashRule(payload, env);
+  if (toolName === 'Bash') return await bashRule(payload, env);
   if ((env.TMB_ALLOW_SOURCE_EDIT ?? '0') === '1') return ALLOW;
-  return editRule(payload, env);
+  return await editRule(payload, env);
 };

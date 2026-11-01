@@ -321,8 +321,8 @@ SELECT last_insert_rowid();`);
         const ran = elapsed !== '' ? ` after ${elapsed}s` : '';
         return commandSubstitution(`BLOCKED: verification timed out — the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:\n${command}\n\nRaise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`);
     }
-    planCarry() {
-        const plan = planCarrySafe({ db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson }, { ...this.c.env, PATH: this.c.toolchainPath });
+    async planCarry() {
+        const plan = await planCarrySafe({ db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson }, { ...this.c.env, PATH: this.c.toolchainPath });
         if (typeof plan.source_run !== 'number' || typeof plan.source_sha !== 'string' || !Array.isArray(plan.carry))
             return;
         const run = String(plan.source_run);
@@ -418,7 +418,7 @@ SELECT last_insert_rowid();`);
             }
         }
         if (this.runId !== '')
-            this.planCarry();
+            await this.planCarry();
         const carried = [];
         for (const cmd of c.commands) {
             if (this.carryOrdinals.has(this.ordinal + 1)) {
@@ -612,7 +612,7 @@ export const sweVerificationGate = async (payload, env) => {
     const budget = parseBudget(genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv));
     if (budget.warning !== '')
         stderr(budget.warning);
-    const head = gitRun(worktree, ['rev-parse', '--verify', '-q', 'HEAD'], genv);
+    const head = await gitRun(worktree, ['rev-parse', '--verify', '-q', 'HEAD'], genv);
     const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : '';
     const expectedSha = field('commit_sha');
     const commands = block.split('\n').filter((line) => line !== '');

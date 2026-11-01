@@ -93,7 +93,7 @@ export const stayOnBaseGuard = async (payload, env) => {
         if (dir === '?')
             return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
         const loc = taskLocation(db, openTask, env);
-        const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
+        const wt = loc.code === 0 ? loc.worktree : `${await repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
         return denyResult(`the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`);
     }
     return ALLOW;

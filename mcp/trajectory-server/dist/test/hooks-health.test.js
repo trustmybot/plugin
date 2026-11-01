@@ -130,8 +130,8 @@ describe('substrate-preflight helpers', () => {
         assert.equal(noRemoteUrl('[{"url":""},{"url":"git@x:y"}]'), false);
         assert.equal(noRemoteUrl('not json'), false);
     });
-    it('names every missing probe in one banner, escaped as the .sh escapes it', () => {
-        const r = substratePreflight('{}', { PATH: NO_COMMANDS });
+    it('names every missing probe in one banner, escaped as the .sh escapes it', async () => {
+        const r = await substratePreflight('{}', { PATH: NO_COMMANDS });
         assert.equal(r.code, 0);
         const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
         assert.ok(ctx.startsWith('TMB DEGRADED: missing jq — '), ctx);

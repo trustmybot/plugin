@@ -71,10 +71,10 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
 }
 
 /** tmb_cwd_state <cwd>: `-` for no dir, `?` for a checkout with linked worktrees, else <cwd>. */
-export function cwdState(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function cwdState(cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (!isDir(cwd)) return '-';
-  if (gitOk(cwd, ['rev-parse', '--git-dir'], env)) {
-    const n = gitOut(cwd, ['worktree', 'list', '--porcelain'], env)
+  if (await gitOk(cwd, ['rev-parse', '--git-dir'], env)) {
+    const n = (await gitOut(cwd, ['worktree', 'list', '--porcelain'], env))
       .split('\n')
       .filter((l) => l.startsWith('worktree ')).length;
     if (n > 1) return '?';
@@ -92,11 +92,13 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
   const listed = listing(parser, command, '@', 0, env.HOME ?? '');
   if (listed === null) return { ok: false };
   let state: string | undefined;
-  const statements = listed.map(({ dir, stmt }) => {
+  const statements: Statement[] = [];
+  for (const { dir: listedDir, stmt } of listed) {
+    let dir = listedDir;
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
-    else if (dir === '@') dir = state ??= cwdState(cwd, env);
-    return { dir, stmt: stmt.replace(HD_MARK, '<<').replace(ENCODED, '_') };
-  });
+    else if (dir === '@') dir = state ??= await cwdState(cwd, env);
+    statements.push({ dir, stmt: stmt.replace(HD_MARK, '<<').replace(ENCODED, '_') });
+  }
   return { ok: true, statements };
 }
 
@@ -115,7 +117,7 @@ export function gitSubcommand(stmt: string): string {
 }
 
 /** tmb_stmt_repo_root <dir> <cwd>: the main checkout of the repo a statement's dir is in, "" when none. */
-export function stmtRepoRoot(dir: string, cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function stmtRepoRoot(dir: string, cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (dir === '?') dir = cwd || shellPwd(env);
   else if (dir === '-' || dir === '') return '';
   while (!isDir(dir)) {
@@ -123,10 +125,10 @@ export function stmtRepoRoot(dir: string, cwd: string, env: NodeJS.ProcessEnv = 
     if (slash < 0) return '';
     dir = dir.slice(0, slash) || '/';
   }
-  const common = gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env);
+  const common = await gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env);
   if (common === '') return '';
   if (common.endsWith('/.git')) return cdPwd(common.slice(0, -5), shellPwd(env));
-  return gitOut(dir, ['rev-parse', '--show-toplevel'], env);
+  return await gitOut(dir, ['rev-parse', '--show-toplevel'], env);
 }
 
 /** tmb_deny_ambiguous_git_target <stmt> [unresolved]: the deny JSON line. */

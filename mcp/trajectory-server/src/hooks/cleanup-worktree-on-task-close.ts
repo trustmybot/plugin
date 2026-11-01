@@ -14,7 +14,7 @@
  */
 import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskLocation } from './lib/agent-context.js';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo } from './lib/db.js';
 import { gitOk, gitOut, isDir } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -50,8 +50,8 @@ function slugMatcher(slug: string): (path: string) => boolean {
 }
 
 /** The first linked worktree of `git worktree list --porcelain` that `matches` accepts. */
-function listedWorktree(repoRoot: string, matches: (path: string) => boolean, env: NodeJS.ProcessEnv): string {
-  for (const line of gitOut(repoRoot, ['worktree', 'list', '--porcelain'], env).split('\n')) {
+async function listedWorktree(repoRoot: string, matches: (path: string) => boolean, env: NodeJS.ProcessEnv): Promise<string> {
+  for (const line of (await gitOut(repoRoot, ['worktree', 'list', '--porcelain'], env)).split('\n')) {
     if (!line.startsWith(WORKTREE_LINE)) continue;
     const wt = line.slice(WORKTREE_LINE.length);
     if (matches(wt)) return wt;
@@ -67,18 +67,18 @@ function taskRepoRoot(db: string, taskId: string, env: NodeJS.ProcessEnv): strin
   return repoSinglePath(db, env) || workspace;
 }
 
-function resetHead(db: string, repoRoot: string, taskId: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): void {
+async function resetHead(db: string, repoRoot: string, taskId: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<void> {
   const target = repoResolve(db, repoRoot, env).split('|')[0] || DEFAULT_PR_TARGET;
-  const current = gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
-  if (!gitOk(repoRoot, ['rev-parse', '--verify', target], env) || current === target) return;
-  if (gitOk(repoRoot, ['checkout', target], env)) {
+  const current = await gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+  if (!await gitOk(repoRoot, ['rev-parse', '--verify', target], env) || current === target) return;
+  if (await gitOk(repoRoot, ['checkout', target], env)) {
     stderr(`tmb: checked out ${target} after task #${taskId} closed (was on ${current})\n`);
   } else {
     stderr(`tmb: post-close checkout of ${target} failed — leaving on ${current}\n`);
   }
 }
 
-export function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): GateResult {
+export async function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<GateResult> {
   const input = jqInput(payload);
   const tool = jqCapture(input, ['tool_name']);
   if (!TOOL.test(tool)) return ALLOW;
@@ -108,17 +108,17 @@ export function cleanupWorktree(payload: string, env: NodeJS.ProcessEnv, stderr:
   }
   const repoRoot = taskRepoRoot(db, safeId, env);
   if (!isDir(`${repoRoot}/.git`)) return ALLOW;
-  const worktree = listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
+  const worktree = await listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
   if (worktree === '' || worktree === repoRoot) return ALLOW;
-  if (!gitOk(repoRoot, ['worktree', 'remove', worktree, '--force'], env)) {
+  if (!await gitOk(repoRoot, ['worktree', 'remove', worktree, '--force'], env)) {
     stderr(`tmb: worktree remove failed for ${worktree} — leaving in place\n`);
     return ALLOW;
   }
-  gitOk(repoRoot, ['worktree', 'prune'], env);
-  if (env[KEEP_HEAD_ENV] !== '1') resetHead(db, repoRoot, taskId, env, stderr);
+  await gitOk(repoRoot, ['worktree', 'prune'], env);
+  if (env[KEEP_HEAD_ENV] !== '1') await resetHead(db, repoRoot, taskId, env, stderr);
   stderr(`tmb: cleaned up worktree ${worktree} after task #${taskId} closed\n`);
   return ALLOW;
 }
 
-export const cleanupWorktreeOnTaskClose: SyncGate = (payload, env) =>
-  cleanupWorktree(payload, env, (line) => process.stderr.write(line));
+export const cleanupWorktreeOnTaskClose: Gate = async (payload, env) =>
+  await cleanupWorktree(payload, env, (line) => process.stderr.write(line));

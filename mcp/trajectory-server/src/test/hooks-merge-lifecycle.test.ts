@@ -27,7 +27,7 @@ const ALLOWED = { stdout: '', code: 0 };
 const PROJECT_DB = 'project/.claude/tmb/trajectory.db';
 
 /** Runs <fn> with process.stderr.write captured, returning what it wrote. */
-function stderrOf(fn: () => void): string {
+async function stderrOf(fn: () => Promise<void>): Promise<string> {
   const original = process.stderr.write.bind(process.stderr);
   let out = '';
   process.stderr.write = ((chunk: string | Uint8Array): boolean => {
@@ -35,7 +35,7 @@ function stderrOf(fn: () => void): string {
     return true;
   }) as typeof process.stderr.write;
   try {
-    fn();
+    await fn();
   } finally {
     process.stderr.write = original;
   }
@@ -178,36 +178,36 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     }
   };
 
-  it('branchFromCmd takes the first local branch after merge, past flags, URLs and numbers', () => {
+  it('branchFromCmd takes the first local branch after merge, past flags, URLs and numbers', async () => {
     const e = env();
-    assert.equal(branchFromCmd('gh pr merge 12 --squash https://x/y feat/open', repo(), e), 'feat/open');
-    assert.equal(branchFromCmd('gh pr merge no/such-branch', repo(), e), '');
+    assert.equal(await branchFromCmd('gh pr merge 12 --squash https://x/y feat/open', repo(), e), 'feat/open');
+    assert.equal(await branchFromCmd('gh pr merge no/such-branch', repo(), e), '');
   });
 
-  it('integrated sees ancestor and squash merges, not open work', () => {
+  it('integrated sees ancestor and squash merges, not open work', async () => {
     const e = env();
-    assert.ok(integrated(repo(), 'refs/heads/feat/ancestor', 'refs/heads/dev', e));
-    assert.ok(integrated(repo(), 'refs/heads/feat/squash', 'refs/heads/dev', e));
-    assert.ok(!integrated(repo(), 'refs/heads/feat/open', 'refs/heads/dev', e));
-    assert.equal(worktreeForBranch(repo(), 'feat/clean-wt', e), join(s, 'wt/clean'));
-    assert.equal(worktreeForBranch(repo(), 'main', e), '');
+    assert.ok(await integrated(repo(), 'refs/heads/feat/ancestor', 'refs/heads/dev', e));
+    assert.ok(await integrated(repo(), 'refs/heads/feat/squash', 'refs/heads/dev', e));
+    assert.ok(!await integrated(repo(), 'refs/heads/feat/open', 'refs/heads/dev', e));
+    assert.equal(await worktreeForBranch(repo(), 'feat/clean-wt', e), join(s, 'wt/clean'));
+    assert.equal(await worktreeForBranch(repo(), 'main', e), '');
   });
 
-  it('clean-merged-branch cleans a branch merged into repos.target_branch with no jq or sqlite3 CLI (decision 703)', () => {
+  it('clean-merged-branch cleans a branch merged into repos.target_branch with no jq or sqlite3 CLI (decision 703)', async () => {
     let result;
-    const err = stderrOf(() => {
-      result = cleanMergedBranch(payload('gh pr merge feat/ancestor --squash', repo()), env());
+    const err = await stderrOf(async () => {
+      result = await cleanMergedBranch(payload('gh pr merge feat/ancestor --squash', repo()), env());
     });
     assert.deepEqual(result, ALLOWED);
     assert.equal(err, 'tmb: cleaned up merged branch feat/ancestor\n');
     assert.ok(!branches().includes('feat/ancestor'));
   });
 
-  it('clean-merged-branch removes a clean worktree, keeps a dirty one, and honours its bypass', () => {
-    const err = stderrOf(() => {
-      cleanMergedBranch(payload('gh pr merge feat/clean-wt', repo()), env());
-      cleanMergedBranch(payload('gh pr merge feat/dirty-wt', repo()), env());
-      cleanMergedBranch(payload('gh pr merge feat/squash', repo()), env({ TMB_DISABLE_CLEAN_MERGED_BRANCH: '1' }));
+  it('clean-merged-branch removes a clean worktree, keeps a dirty one, and honours its bypass', async () => {
+    const err = await stderrOf(async () => {
+      await cleanMergedBranch(payload('gh pr merge feat/clean-wt', repo()), env());
+      await cleanMergedBranch(payload('gh pr merge feat/dirty-wt', repo()), env());
+      await cleanMergedBranch(payload('gh pr merge feat/squash', repo()), env({ TMB_DISABLE_CLEAN_MERGED_BRANCH: '1' }));
     });
     assert.match(err, /^tmb: cleaned up merged branch feat\/clean-wt \(worktree .*\/wt\/clean\)\n/);
     assert.match(err, /branch feat\/dirty-wt is merged but its worktree .*\/wt\/dirty has uncommitted\/untracked changes/);
@@ -216,10 +216,10 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     assert.ok(branches().includes('feat/squash'));
   });
 
-  it('close-issue-on-merge records the merge with no jq or sqlite3 CLI (decision 703)', () => {
+  it('close-issue-on-merge records the merge with no jq or sqlite3 CLI (decision 703)', async () => {
     let result;
-    const err = stderrOf(() => {
-      result = closeIssueOnMerge(payload('gh pr merge 42 --squash', repo()), env());
+    const err = await stderrOf(async () => {
+      result = await closeIssueOnMerge(payload('gh pr merge 42 --squash', repo()), env());
     });
     assert.deepEqual(result, ALLOWED);
     assert.equal(err, 'tmb: auto-closed issue 3 on merge\ntmb: auto-closed issue 1 on merge\n');
@@ -249,10 +249,10 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     assert.match(readFileSync(join(s, 'gh.log'), 'utf8'), /^issue close 101$/m);
   });
 
-  it('close-issue-on-merge writes remote_skipped with sync off and nothing on its bypass', () => {
-    stderrOf(() => {
-      closeIssueOnMerge(payload('gh pr merge 46', repo()), env({ TMB_DISABLE_REMOTE_SYNC: '1' }));
-      closeIssueOnMerge(payload('gh pr merge 48', repo()), env({ TMB_DISABLE_CLOSE_ISSUE_ON_MERGE: '1' }));
+  it('close-issue-on-merge writes remote_skipped with sync off and nothing on its bypass', async () => {
+    await stderrOf(async () => {
+      await closeIssueOnMerge(payload('gh pr merge 46', repo()), env({ TMB_DISABLE_REMOTE_SYNC: '1' }));
+      await closeIssueOnMerge(payload('gh pr merge 48', repo()), env({ TMB_DISABLE_CLOSE_ISSUE_ON_MERGE: '1' }));
     });
     const skipped = rows<{ content_json: string }>("SELECT content_json FROM audit WHERE event_type = 'issue_auto_close_remote_skipped'");
     assert.deepEqual(
@@ -263,21 +263,21 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     assert.doesNotMatch(readFileSync(join(s, 'gh.log'), 'utf8'), /issue close/);
   });
 
-  it('close-issue-on-merge runs gh in the checkout the merge ran in, the main one once its worktree is gone, not the hook process cwd (GH 2134)', () => {
+  it('close-issue-on-merge runs gh in the checkout the merge ran in, the main one once its worktree is gone, not the hook process cwd (GH 2134)', async () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
     const expected = realpathSync(repo());
     assert.notEqual(realpathSync(process.cwd()), expected);
 
-    closeIssueOnMerge(payload(`cd '${repo()}' && gh pr merge 46 --squash`, tmpdir()), env());
-    closeIssueOnMerge(payload(`cd '${join(s, 'wt/clean')}' && gh pr merge 46 --squash`, tmpdir()), env());
-    closeIssueOnMerge(payload(`cd '${join(repo(), '.claude/worktrees/removed')}' && gh pr merge 46 --squash`, tmpdir()), env());
+    await closeIssueOnMerge(payload(`cd '${repo()}' && gh pr merge 46 --squash`, tmpdir()), env());
+    await closeIssueOnMerge(payload(`cd '${join(s, 'wt/clean')}' && gh pr merge 46 --squash`, tmpdir()), env());
+    await closeIssueOnMerge(payload(`cd '${join(repo(), '.claude/worktrees/removed')}' && gh pr merge 46 --squash`, tmpdir()), env());
 
     assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, realpathSync(join(s, 'wt/clean')), expected]);
   });
 
-  it('close-issue-on-merge runs gh in the payload cwd, not a git -C target, and reads a no-arg ref there too (F292-2)', () => {
+  it('close-issue-on-merge runs gh in the payload cwd, not a git -C target, and reads a no-arg ref there too (F292-2)', async () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\necho "$*" >> '${pwds}.args'\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
@@ -286,14 +286,14 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     spawnSync('git', ['init', '-q', '-b', 'other-branch', other]);
     spawnSync('git', ['-C', other, '-c', 'user.name=x', '-c', 'user.email=x@x', 'commit', '-q', '--allow-empty', '-m', 'i']);
 
-    closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge 46 --squash`, here), env());
+    await closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge 46 --squash`, here), env());
     assert.equal(readFileSync(pwds, 'utf8').trim().split('\n')[0], here);
 
-    closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge --squash`, here), env());
+    await closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge --squash`, here), env());
     assert.doesNotMatch(readFileSync(`${pwds}.args`, 'utf8'), /other-branch/);
   });
 
-  it('close-issue-on-merge runs gh in a submodule whose origin is its own remote, not the superproject (F292-3)', () => {
+  it('close-issue-on-merge runs gh in a submodule whose origin is its own remote, not the superproject (F292-3)', async () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
@@ -307,13 +307,13 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     git('-C', superproject, 'remote', 'add', 'origin', 'https://github.com/o/super.git');
     git('-C', superproject, ...identity, 'submodule', 'add', '-q', upstream, 'sub');
 
-    closeIssueOnMerge(payload(`cd '${join(superproject, 'sub')}' && gh pr merge 46 --squash`, tmpdir()), env());
+    await closeIssueOnMerge(payload(`cd '${join(superproject, 'sub')}' && gh pr merge 46 --squash`, tmpdir()), env());
 
     const first = readFileSync(pwds, 'utf8').trim().split('\n')[0];
     assert.equal(spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: first, encoding: 'utf8' }).stdout.trim(), upstream);
   });
 
-  it('a cd that did not run before gh chooses no directory for the footer or the merge (F292-4)', () => {
+  it('a cd that did not run before gh chooses no directory for the footer or the merge (F292-4)', async () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\nif [ "$2" = view ]; then echo Body; fi\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
@@ -334,13 +334,13 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     footer(`gh pr create --fill\ncd ${b} && git status`);
     assert.deepEqual(readPwds(), [a, a], 'footer: cd after gh');
 
-    closeIssueOnMerge(payload(`gh pr merge 46 --squash\ncd ${b} && git pull`, a), env());
+    await closeIssueOnMerge(payload(`gh pr merge 46 --squash\ncd ${b} && git pull`, a), env());
     assert.equal(readPwds()[0], a, 'merge: cd after gh');
-    closeIssueOnMerge(payload(`gh pr merge 46 --squash --body "$(cat <<X\ncd ${b}\nX\n)"`, a), env());
+    await closeIssueOnMerge(payload(`gh pr merge 46 --squash --body "$(cat <<X\ncd ${b}\nX\n)"`, a), env());
     assert.equal(readPwds()[0], a, 'merge: heredoc body');
   });
 
-  it('close-issue-on-merge reads a cd leading the first non-blank line, and only that line (F292-4)', () => {
+  it('close-issue-on-merge reads a cd leading the first non-blank line, and only that line (F292-4)', async () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
@@ -348,17 +348,17 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     const b = join(realpathSync(s), 'lead-b');
     mkdirSync(a);
     mkdirSync(b);
-    const first = (command: string): string => {
+    const first = async (command: string): Promise<string> => {
       writeFileSync(pwds, '');
-      closeIssueOnMerge(payload(command, a), env());
+      await closeIssueOnMerge(payload(command, a), env());
       return readFileSync(pwds, 'utf8').trim().split('\n')[0];
     };
-    assert.equal(first(`\n  \ncd ${b} && gh pr merge 46 --squash`), b);
-    assert.equal(first(`echo start\ncd ${b}\ngh pr merge 46 --squash`), a);
-    assert.equal(first(`echo "cd ${b}" && gh pr merge 46 --squash`), a);
+    assert.equal(await first(`\n  \ncd ${b} && gh pr merge 46 --squash`), b);
+    assert.equal(await first(`echo start\ncd ${b}\ngh pr merge 46 --squash`), a);
+    assert.equal(await first(`echo "cd ${b}" && gh pr merge 46 --squash`), a);
   });
 
-  it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', () => {
+  it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', async () => {
     const sleep = spawnSync('bash', ['-c', 'command -v sleep'], { encoding: 'utf8' }).stdout.trim();
     const pidFile = join(s, 'gh.pid');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\necho $$ > '${pidFile}'\nexec '${sleep}' 600\n`);
@@ -366,8 +366,8 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     const e = env();
     assert.ok((e.PATH ?? '').split(':').every((dir) => !existsSync(join(dir, 'timeout'))), 'no timeout on PATH');
     let result;
-    const err = stderrOf(() => {
-      result = closeIssueOnMerge(payload('gh pr merge 46 --squash', repo()), e);
+    const err = await stderrOf(async () => {
+      result = await closeIssueOnMerge(payload('gh pr merge 46 --squash', repo()), e);
     });
     assert.deepEqual(result, ALLOWED);
     assert.equal(err, '');

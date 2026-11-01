@@ -43,12 +43,12 @@ function rawField(value) {
 function deny(reason) {
     return denyPreToolUse(reason);
 }
-function worktreeState(repo, branch, env) {
+async function worktreeState(repo, branch, env) {
     const ref = `branch refs/heads/${branch}`;
     let entry = 0;
     let main = false;
     let linked = false;
-    for (const line of gitOut(repo, ['worktree', 'list', '--porcelain'], env).split('\n')) {
+    for (const line of (await gitOut(repo, ['worktree', 'list', '--porcelain'], env)).split('\n')) {
         if (line.startsWith('worktree '))
             entry += 1;
         if (line === ref) {
@@ -60,7 +60,7 @@ function worktreeState(repo, branch, env) {
     }
     return linked ? 'linked' : main ? 'main' : 'none';
 }
-function worktreeDeny(db, taskId, safeId, env) {
+async function worktreeDeny(db, taskId, safeId, env) {
     const wt = gateRead(db, `SELECT json_object('branch', COALESCE(t.branch_id, ''),
       'path', COALESCE((SELECT path FROM repos WHERE name = t.repo), CASE WHEN COALESCE(t.repo, '') = '' AND (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END, ''))
     FROM tasks t WHERE t.id = ${safeId};`, env);
@@ -78,9 +78,9 @@ function worktreeDeny(db, taskId, safeId, env) {
     const repo = path === '' ? (env.CLAUDE_PROJECT_DIR ?? '') : repoPathAbs(db, path);
     if (repo === '' || branch === '')
         return null;
-    if (gitOut(repo, ['rev-parse', '--is-inside-work-tree'], env) !== 'true')
+    if (await gitOut(repo, ['rev-parse', '--is-inside-work-tree'], env) !== 'true')
         return null;
-    const state = worktreeState(repo, branch, env);
+    const state = await worktreeState(repo, branch, env);
     if (state === 'linked')
         return null;
     const expected = `${repo.replace(/\/$/, '')}/.claude/worktrees/${branchSlug(branch)}`;
@@ -136,7 +136,7 @@ function specShapeVerdict(db, taskId, safeId, env) {
         `To waive, bro first records audit_append(event_type="spec_shape_gate_waived", from_node="bro", issue_id=${issue}, branch_id="${branch}", ` +
         `summary=<why>, content_json={"task_id":${taskId},"gate":"spec_shape","reason":"<why, >= 10 chars>"}) and then respawns.`);
 }
-export const requireTaskSpec = (payload, env) => {
+export const requireTaskSpec = async (payload, env) => {
     if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'swe')
         return ALLOW;
     const taskId = promptTaskId(jqAlternatives(payload, [['tool_input', 'prompt']]));
@@ -174,7 +174,7 @@ export const requireTaskSpec = (payload, env) => {
         return deny(`BLOCKED: task_id=${taskId} has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.`);
     }
     if (status === 'pending') {
-        const blocked = worktreeDeny(db, taskId, safeId, env);
+        const blocked = await worktreeDeny(db, taskId, safeId, env);
         if (blocked !== null)
             return blocked;
     }

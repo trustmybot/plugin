@@ -46,18 +46,18 @@ export function noRemoteUrl(remotesJson) {
     }
     return out.join('\n') === 'false';
 }
-function offlineNote(env) {
+async function offlineNote(env) {
     if (!commandOnPath('sqlite3', env) || !commandOnPath('jq', env))
         return '';
     const db = dbPath(env);
     if (db === null || db === '')
         return '';
-    const remotes = repoRemotes(db, repoGitRoot(projectRoot(env), env), env);
+    const remotes = repoRemotes(db, await repoGitRoot(projectRoot(env), env), env);
     return remotes !== '' && noRemoteUrl(remotes) ? OFFLINE_NOTE : '';
 }
-export const substratePreflight = (_payload, env) => {
+export const substratePreflight = async (_payload, env) => {
     const missing = PROBES.filter(([bin]) => !commandOnPath(bin, env)).map(([bin, why]) => `missing ${bin} — ${why}`);
-    const offline = offlineNote(env);
+    const offline = await offlineNote(env);
     if (missing.length === 0 && offline === '')
         return ALLOW;
     const parts = [];

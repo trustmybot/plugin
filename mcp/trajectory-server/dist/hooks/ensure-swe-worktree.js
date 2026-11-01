@@ -47,7 +47,7 @@ export function recordedWorktree(db, taskId, branch, env) {
         return '';
     return existsSync(loc.worktree) ? loc.worktree : '';
 }
-function registered(repoRoot, slug, env) {
+async function registered(repoRoot, slug, env) {
     let pattern;
     try {
         pattern = new RegExp(`^worktree .*/\\.claude/worktrees/${slug}$`);
@@ -55,7 +55,7 @@ function registered(repoRoot, slug, env) {
     catch {
         return false;
     }
-    return gitRun(repoRoot, ['worktree', 'list', '--porcelain'], env)
+    return (await gitRun(repoRoot, ['worktree', 'list', '--porcelain'], env))
         .stdout.split('\n')
         .some((line) => pattern.test(line));
 }
@@ -63,7 +63,7 @@ function skip(line) {
     process.stderr.write(`ensure-swe-worktree: ${line}\n`);
     return ALLOW;
 }
-export const ensureSweWorktree = (payload, env) => {
+export const ensureSweWorktree = async (payload, env) => {
     if (env.TMB_DISABLE_ENSURE_SWE_WORKTREE === '1')
         return ALLOW;
     const taskId = sweSpawnTaskId(jqInput(commandSubstitution(payload)));
@@ -87,11 +87,11 @@ export const ensureSweWorktree = (payload, env) => {
         return skip(`repo root '${repoRoot}' is not a git repo — skipping`);
     const wtRel = `.claude/worktrees/${slug}`;
     const wtAbs = `${repoRoot}/${wtRel}`;
-    if (registered(repoRoot, slug, env))
+    if (await registered(repoRoot, slug, env))
         return ALLOW;
     if (existsSync(wtAbs))
         return skip(`'${wtAbs}' exists but is not a registered worktree — skipping`);
-    if (gitOk(repoRoot, ['worktree', 'add', wtRel, branch], env)) {
+    if (await gitOk(repoRoot, ['worktree', 'add', wtRel, branch], env)) {
         return skip(`created worktree ${wtAbs} for branch ${branch}`);
     }
     return skip(`'git worktree add ${wtRel} ${branch}' failed — skipping (non-isolated fallback)`);

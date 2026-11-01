@@ -12,7 +12,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { GateResult, SyncGate } from './gate.js';
+import type { Gate, GateResult } from './gate.js';
 import { branchSlug, dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { gitOk, gitRun } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -45,8 +45,8 @@ function pluginRoot(): string {
 }
 
 /** install_merge_driver <dir>: the tmb-regen driver in <dir>'s top level when its .gitattributes asks for it. */
-function installMergeDriver(dir: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): void {
-  const top = gitRun(dir, ['rev-parse', '--show-toplevel'], env);
+async function installMergeDriver(dir: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<void> {
+  const top = await gitRun(dir, ['rev-parse', '--show-toplevel'], env);
   if (top.code !== 0) return;
   const root = top.stdout.replace(/\n+$/, '');
   let attributes: string;
@@ -61,7 +61,7 @@ function installMergeDriver(dir: string, env: NodeJS.ProcessEnv, stderr: StderrW
 }
 
 /** The worktree of <branch> in <repo>: reused, or added on the branch (created at HEAD when missing). */
-function ensureWorktree(
+async function ensureWorktree(
   repo: string,
   worktree: string,
   branch: string,
@@ -69,7 +69,7 @@ function ensureWorktree(
   created: string,
   env: NodeJS.ProcessEnv,
   stderr: StderrWriter,
-): GateResult {
+): Promise<GateResult> {
   try {
     mkdirSync(posixDirname(worktree), { recursive: true });
   } catch {
@@ -77,18 +77,18 @@ function ensureWorktree(
   }
   if (existsSync(`${worktree}/.git`)) {
     stderr(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}\n`);
-    installMergeDriver(repo, env, stderr);
+    await installMergeDriver(repo, env, stderr);
     return { stdout: `${worktree}\n`, code: 0 };
   }
-  if (!gitOk(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], env)) {
-    if (!gitOk(repo, ['branch', branch, 'HEAD'], env)) {
+  if (!await gitOk(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], env)) {
+    if (!await gitOk(repo, ['branch', branch, 'HEAD'], env)) {
       return fail(stderr, `tmb worktree-create: could not create branch ${branch} in ${repo}\n`);
     }
     stderr(`tmb worktree-create: auto-created branch ${branch} in ${repo}\n`);
   }
-  if (!gitOk(repo, ['worktree', 'add', worktree, branch], env)) return fail(stderr, addFailed);
+  if (!await gitOk(repo, ['worktree', 'add', worktree, branch], env)) return fail(stderr, addFailed);
   stderr(created);
-  installMergeDriver(repo, env, stderr);
+  await installMergeDriver(repo, env, stderr);
   return { stdout: `${worktree}\n`, code: 0 };
 }
 
@@ -102,7 +102,7 @@ function branchRepo(db: string, branch: string, env: NodeJS.ProcessEnv): string 
   return repoResolvePath(db, repo, env) || workspace;
 }
 
-export function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): GateResult {
+export async function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<GateResult> {
   const branch = jqCapture(jqInput(payload), ['branch']);
   if (branch === '') return fail(stderr, NO_BRANCH);
   const slug = branchSlug(branch);
@@ -110,10 +110,10 @@ export function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv, stder
   if (db === null || db === '' || !isFile(db)) {
     const cwd = shellPwd(env);
     const worktree = `${cwd}/.claude/worktrees/${slug}`;
-    if (!gitOk(cwd, ['rev-parse', '--is-inside-work-tree'], env)) {
+    if (!await gitOk(cwd, ['rev-parse', '--is-inside-work-tree'], env)) {
       return fail(stderr, `tmb worktree-create: no trajectory DB and cwd ${cwd} is not a git repo\n`);
     }
-    return ensureWorktree(
+    return await ensureWorktree(
       cwd,
       worktree,
       branch,
@@ -126,10 +126,10 @@ export function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv, stder
   if (!haveSqlite(env)) return fail(stderr, 'tmb worktree-create: sqlite3 unavailable\n');
   const repo = branchRepo(db, branch, env);
   const worktree = `${repo}/.claude/worktrees/${slug}`;
-  if (!gitOk(repo, ['rev-parse', '--is-inside-work-tree'], env)) {
+  if (!await gitOk(repo, ['rev-parse', '--is-inside-work-tree'], env)) {
     return fail(stderr, `tmb worktree-create: resolved repo ${repo} is not a git work tree\n`);
   }
-  return ensureWorktree(
+  return await ensureWorktree(
     repo,
     worktree,
     branch,
@@ -140,5 +140,5 @@ export function worktreeCreateRun(payload: string, env: NodeJS.ProcessEnv, stder
   );
 }
 
-export const worktreeCreate: SyncGate = (payload, env) =>
-  worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
+export const worktreeCreate: Gate = async (payload, env) =>
+  await worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
