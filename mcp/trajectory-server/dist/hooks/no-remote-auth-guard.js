@@ -72,7 +72,7 @@ export const noRemoteAuthGuard = async (payload, env) => {
         return ALLOW;
     if (!haveSqlite(env))
         return ALLOW;
-    const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
+    const remotes = repoRemotes(db, await stmtRepoRoot(matchedDir, cwd, env), env);
     if (remotes === '')
         return ALLOW;
     if (hasRemoteUrl(remotes) !== 'false')

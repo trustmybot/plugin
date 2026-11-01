@@ -37,8 +37,8 @@ function pluginRoot() {
     return installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? '';
 }
 /** install_merge_driver <dir>: the tmb-regen driver in <dir>'s top level when its .gitattributes asks for it. */
-function installMergeDriver(dir, env, stderr) {
-    const top = gitRun(dir, ['rev-parse', '--show-toplevel'], env);
+async function installMergeDriver(dir, env, stderr) {
+    const top = await gitRun(dir, ['rev-parse', '--show-toplevel'], env);
     if (top.code !== 0)
         return;
     const root = top.stdout.replace(/\n+$/, '');
@@ -56,7 +56,7 @@ function installMergeDriver(dir, env, stderr) {
         stderr(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}\n`);
 }
 /** The worktree of <branch> in <repo>: reused, or added on the branch (created at HEAD when missing). */
-function ensureWorktree(repo, worktree, branch, addFailed, created, env, stderr) {
+async function ensureWorktree(repo, worktree, branch, addFailed, created, env, stderr) {
     try {
         mkdirSync(posixDirname(worktree), { recursive: true });
     }
@@ -65,19 +65,19 @@ function ensureWorktree(repo, worktree, branch, addFailed, created, env, stderr)
     }
     if (existsSync(`${worktree}/.git`)) {
         stderr(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}\n`);
-        installMergeDriver(repo, env, stderr);
+        await installMergeDriver(repo, env, stderr);
         return { stdout: `${worktree}\n`, code: 0 };
     }
-    if (!gitOk(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], env)) {
-        if (!gitOk(repo, ['branch', branch, 'HEAD'], env)) {
+    if (!await gitOk(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], env)) {
+        if (!await gitOk(repo, ['branch', branch, 'HEAD'], env)) {
             return fail(stderr, `tmb worktree-create: could not create branch ${branch} in ${repo}\n`);
         }
         stderr(`tmb worktree-create: auto-created branch ${branch} in ${repo}\n`);
     }
-    if (!gitOk(repo, ['worktree', 'add', worktree, branch], env))
+    if (!await gitOk(repo, ['worktree', 'add', worktree, branch], env))
         return fail(stderr, addFailed);
     stderr(created);
-    installMergeDriver(repo, env, stderr);
+    await installMergeDriver(repo, env, stderr);
     return { stdout: `${worktree}\n`, code: 0 };
 }
 /** The repo the branch's task names, else the sole registered repo, else the workspace root. */
@@ -90,7 +90,7 @@ function branchRepo(db, branch, env) {
     const repo = sqliteRo(db, `SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='${safe}' LIMIT 1;`, env);
     return repoResolvePath(db, repo, env) || workspace;
 }
-export function worktreeCreateRun(payload, env, stderr) {
+export async function worktreeCreateRun(payload, env, stderr) {
     const branch = jqCapture(jqInput(payload), ['branch']);
     if (branch === '')
         return fail(stderr, NO_BRANCH);
@@ -99,19 +99,19 @@ export function worktreeCreateRun(payload, env, stderr) {
     if (db === null || db === '' || !isFile(db)) {
         const cwd = shellPwd(env);
         const worktree = `${cwd}/.claude/worktrees/${slug}`;
-        if (!gitOk(cwd, ['rev-parse', '--is-inside-work-tree'], env)) {
+        if (!await gitOk(cwd, ['rev-parse', '--is-inside-work-tree'], env)) {
             return fail(stderr, `tmb worktree-create: no trajectory DB and cwd ${cwd} is not a git repo\n`);
         }
-        return ensureWorktree(cwd, worktree, branch, `tmb worktree-create: git worktree add failed for branch ${branch} in ${cwd}\n`, `tmb worktree-create: created worktree ${worktree} for branch ${branch} (no-DB path)\n`, env, stderr);
+        return await ensureWorktree(cwd, worktree, branch, `tmb worktree-create: git worktree add failed for branch ${branch} in ${cwd}\n`, `tmb worktree-create: created worktree ${worktree} for branch ${branch} (no-DB path)\n`, env, stderr);
     }
     if (!haveSqlite(env))
         return fail(stderr, 'tmb worktree-create: sqlite3 unavailable\n');
     const repo = branchRepo(db, branch, env);
     const worktree = `${repo}/.claude/worktrees/${slug}`;
-    if (!gitOk(repo, ['rev-parse', '--is-inside-work-tree'], env)) {
+    if (!await gitOk(repo, ['rev-parse', '--is-inside-work-tree'], env)) {
         return fail(stderr, `tmb worktree-create: resolved repo ${repo} is not a git work tree\n`);
     }
-    return ensureWorktree(repo, worktree, branch, `tmb worktree-create: git worktree add failed for branch ${branch} in repo ${repo}\n`, `tmb worktree-create: created worktree ${worktree} for branch ${branch} in repo ${repo}\n`, env, stderr);
+    return await ensureWorktree(repo, worktree, branch, `tmb worktree-create: git worktree add failed for branch ${branch} in repo ${repo}\n`, `tmb worktree-create: created worktree ${worktree} for branch ${branch} in repo ${repo}\n`, env, stderr);
 }
-export const worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
+export const worktreeCreate = async (payload, env) => await worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
 //# sourceMappingURL=worktree-create.js.map

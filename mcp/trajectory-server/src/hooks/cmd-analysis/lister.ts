@@ -1,14 +1,14 @@
 /**
  * The path-listing model of cmd-analysis.sh: _tmb_cmd_lister_bind with
  * _tmb_cmd_pat_matches and _tmb_cmd_excl_covers, judging prompt surfaces with
- * surface.ts's isPromptSurfacePath. A loop variable fed by a lister, and the placeholder of what find / fd run,
+ * surface.ts's isPromptSurfaceUnder. A loop variable fed by a lister, and the placeholder of what find / fd run,
  * is bound to the paths the lister may list when every one lies in the run
  * root.
  */
 import { statSync } from 'node:fs';
 import { decode } from './encode.js';
 import { pathCanonical } from './path.js';
-import { isPromptSurfacePath } from './surface.js';
+import { isPromptSurfaceUnder } from './surface.js';
 
 export interface ListerHost {
   cwd: string;
@@ -477,7 +477,7 @@ export function listerBind(
       if (!(w + '/').startsWith(trimSlash(bound) + '/')) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
       const at = git ? trimSlash(p) : trimSlash(v);
-      if (isPromptSurfacePath(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at}/*.md`);
+      if (isPromptSurfaceUnder(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at}/*.md`);
       else if (cmd !== 'ls') {
         const rel = w.replace(/^\//, '');
         for (const d of SURFACES) {

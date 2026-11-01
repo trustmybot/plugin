@@ -19,7 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
 import { stripLiterals } from './cmd-analysis/strip-literals.js';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { auditSql, dbWrite, nowIso, type AuditRow } from './lib/audit.js';
 import { dbPath, haveSqlite, sqliteRo, sqlInt, sqlQuote } from './lib/db.js';
 import { gitOut } from './lib/git.js';
@@ -336,7 +336,7 @@ export function syncOn(db: string, env: NodeJS.ProcessEnv = process.env): boolea
   return mode !== '' && mode !== 'off';
 }
 
-function close(payload: string, env: NodeJS.ProcessEnv): void {
+async function close(payload: string, env: NodeJS.ProcessEnv): Promise<void> {
   const { input, toolName, command: cmd, response } = readMergePayload(payload);
   if (toolName !== 'Bash' || cmd === '') return;
   const args = mergeArgs(cmd);
@@ -347,10 +347,10 @@ function close(payload: string, env: NodeJS.ProcessEnv): void {
   if (db === null || !isFile(db) || !haveSqlite(env)) return;
 
   let ref = refFromArgs(commandSubstitution(args.join('\n')).split('\n'));
-  if (ref === '') ref = gitOut(forgeCommandDir(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+  if (ref === '') ref = await gitOut(forgeCommandDir(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
   if (ref === '' || ref === 'HEAD') return;
 
-  const repoDir = forgeRepoDir(cmd, input, env);
+  const repoDir = await forgeRepoDir(cmd, input, env);
   const prJson = gh(['pr', 'view', ref, '--json', 'closingIssuesReferences,body,headRefName'], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, 'headRefName'));
   if (head === '' && /[^0-9]/.test(ref) && !ref.includes('://')) head = ref;
@@ -366,10 +366,10 @@ function close(payload: string, env: NodeJS.ProcessEnv): void {
   merge.closeRemotes();
 }
 
-export const closeIssueOnMerge: SyncGate = (payload, env): GateResult => {
+export const closeIssueOnMerge: Gate = async (payload, env): Promise<GateResult> => {
   if ((env.TMB_DISABLE_CLOSE_ISSUE_ON_MERGE ?? '0') === '1') return ALLOW;
   try {
-    close(payload, env);
+    await close(payload, env);
   } catch {
     /* advisory: every path exits 0 */
   }

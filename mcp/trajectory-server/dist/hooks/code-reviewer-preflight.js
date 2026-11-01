@@ -19,34 +19,28 @@
  * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
  * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
-import { spawnSync } from 'node:child_process';
 import { ALLOW } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { gitSpawn } from './lib/git.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 export const GATE_NAME = 'code-reviewer-preflight';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 const GIT_TIMEOUT_MS = 10_000;
-const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 const MAX_LISTED = 10;
 const DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
 const TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 const TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 const CHANGELOG_DIR = 'changelog.d';
 const REGEN_DRIVER = 'tmb-regen';
-function git(repo, args, env) {
-    const r = spawnSync('git', ['-C', repo, ...args], {
-        encoding: 'utf8',
-        env: { ...env, GIT_OPTIONAL_LOCKS: '0' },
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: GIT_MAX_BUFFER,
-    });
-    return { code: r.error ? -1 : (r.status ?? -1), stdout: r.stdout ?? '', stderr: (r.stderr ?? '') || (r.error?.message ?? '') };
+async function git(repo, args, env) {
+    const r = await gitSpawn(repo, args, { env: { ...env, GIT_OPTIONAL_LOCKS: '0' }, stderr: 'pipe', timeoutMs: GIT_TIMEOUT_MS });
+    return { code: r.code, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8') || (r.error?.message ?? '') };
 }
-function revParse(repo, rev, env) {
-    const r = git(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], env);
+async function revParse(repo, rev, env) {
+    const r = await git(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], env);
     const sha = r.stdout.trim();
     return r.code === 0 && sha !== '' ? sha : null;
 }
@@ -76,8 +70,8 @@ function dbUnavailable(env) {
     return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
 }
 /** Tracked blobs of <rev>: path → object id. */
-function treeBlobs(repo, rev, env) {
-    const r = git(repo, ['ls-tree', '-r', '-z', '--full-tree', rev], env);
+async function treeBlobs(repo, rev, env) {
+    const r = await git(repo, ['ls-tree', '-r', '-z', '--full-tree', rev], env);
     if (r.code !== 0)
         return null;
     const blobs = new Map();
@@ -90,17 +84,17 @@ function treeBlobs(repo, rev, env) {
     return blobs;
 }
 /** The contents of <oids>, read through one `git cat-file --batch`. */
-function readBlobs(repo, oids, env) {
+async function readBlobs(repo, oids, env) {
     const contents = new Map();
     if (oids.length === 0)
         return contents;
-    const r = spawnSync('git', ['-C', repo, 'cat-file', '--batch'], {
+    const r = await gitSpawn(repo, ['cat-file', '--batch'], {
         input: `${oids.join('\n')}\n`,
         env: { ...env, GIT_OPTIONAL_LOCKS: '0' },
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: GIT_MAX_BUFFER,
+        stderr: 'pipe',
+        timeoutMs: GIT_TIMEOUT_MS,
     });
-    if (r.error || r.status !== 0)
+    if (r.code !== 0)
         return null;
     const out = r.stdout;
     let at = 0;
@@ -143,8 +137,8 @@ function dirOf(path) {
     const slash = path.lastIndexOf('/');
     return slash < 0 ? '' : path.slice(0, slash);
 }
-function removedInDiff(repo, base, commit, env) {
-    const diff = git(repo, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, commit], env);
+async function removedInDiff(repo, base, commit, env) {
+    const diff = await git(repo, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, commit], env);
     if (diff.code !== 0)
         return `git diff ${base}..${commit} failed: ${diff.stderr.trim()}`;
     const fields = nulFields(diff.stdout);
@@ -163,28 +157,28 @@ function removedInDiff(repo, base, commit, env) {
     }
     if (!touchesTools)
         return { paths, tools: [] };
-    const before = treeBlobs(repo, base, env);
-    const after = treeBlobs(repo, commit, env);
+    const before = await treeBlobs(repo, base, env);
+    const after = await treeBlobs(repo, commit, env);
     if (!before || !after)
         return `git ls-tree of ${base} or ${commit} failed`;
     const sources = (blobs) => [...blobs].filter(([p]) => TOOL_SOURCE.test(p) && !p.includes('/test/')).map(([, oid]) => oid);
-    const contents = readBlobs(repo, [...new Set([...sources(before), ...sources(after)])], env);
+    const contents = await readBlobs(repo, [...new Set([...sources(before), ...sources(after)])], env);
     if (!contents)
         return 'git cat-file of the tool sources failed';
     const kept = toolNames(after, contents);
     return { paths, tools: [...toolNames(before, contents)].filter((t) => !kept.has(t)).sort() };
 }
-function staleDocRefs(repo, base, commit, env) {
-    const removed = removedInDiff(repo, base, commit, env);
+async function staleDocRefs(repo, base, commit, env) {
+    const removed = await removedInDiff(repo, base, commit, env);
     if (typeof removed === 'string')
         return removed;
     if (removed.paths.length === 0 && removed.tools.length === 0)
         return [];
-    const blobs = treeBlobs(repo, commit, env);
+    const blobs = await treeBlobs(repo, commit, env);
     if (!blobs)
         return `git ls-tree of ${commit} failed`;
     const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    const contents = readBlobs(repo, docs.map(([, oid]) => oid), env);
+    const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
     if (!contents)
         return 'git cat-file of the docs failed';
     const tools = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
@@ -205,13 +199,13 @@ function staleDocRefs(repo, base, commit, env) {
     }
     return hits;
 }
-function hasChangelogDir(repo, rev, env) {
-    const r = git(repo, ['ls-tree', '-d', '--name-only', rev, '--', CHANGELOG_DIR], env);
+async function hasChangelogDir(repo, rev, env) {
+    const r = await git(repo, ['ls-tree', '-d', '--name-only', rev, '--', CHANGELOG_DIR], env);
     return r.code === 0 && r.stdout.trim() !== '';
 }
 /** The <paths> whose `merge` attribute at <rev> is not tmb-regen, or null when git check-attr fails. */
-function nonRegenPaths(repo, rev, paths, env) {
-    const r = git(repo, ['check-attr', `--source=${rev}`, '-z', 'merge', '--', ...paths], env);
+async function nonRegenPaths(repo, rev, paths, env) {
+    const r = await git(repo, ['check-attr', `--source=${rev}`, '-z', 'merge', '--', ...paths], env);
     if (r.code !== 0)
         return null;
     const fields = nulFields(r.stdout);
@@ -244,7 +238,7 @@ function prTargetRef(repo, targetBranch, parentBranch) {
     }
     return null;
 }
-function preflight(db, taskId, env) {
+async function preflight(db, taskId, env) {
     const task = readTask(db, taskId, env);
     if (task === GATE_READ_ERROR)
         return dbUnavailable(env);
@@ -259,8 +253,8 @@ function preflight(db, taskId, env) {
     }
     const repo = location.repoRoot;
     const branch = task.branch;
-    const tip = revParse(repo, `refs/heads/${branch}`, env);
-    const commit = recorded === '' ? null : revParse(repo, recorded, env);
+    const tip = await revParse(repo, `refs/heads/${branch}`, env);
+    const commit = recorded === '' ? null : await revParse(repo, recorded, env);
     if (commit === null || tip !== commit) {
         return deny({
             check: 'sha_mismatch',
@@ -285,7 +279,7 @@ function preflight(db, taskId, env) {
     if (targetRow === GATE_READ_ERROR)
         return dbUnavailable(env);
     const targetRef = prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch);
-    const targetTip = targetRef === null ? null : revParse(repo, targetRef, env);
+    const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
     if (targetRef === null || targetTip === null) {
         return deny({
             check: 'base_conflict',
@@ -293,10 +287,10 @@ function preflight(db, taskId, env) {
             actual: `no PR target ref resolves in ${repo}`,
         });
     }
-    const merge = git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
+    const merge = await git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
     if (merge.code !== 0) {
         const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ''))];
-        const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
+        const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
         if (blocking === null || blocking.length > 0) {
             return deny({
                 check: 'base_conflict',
@@ -309,7 +303,7 @@ function preflight(db, taskId, env) {
             });
         }
     }
-    const mergeBase = git(repo, ['merge-base', targetTip, commit], env).stdout.trim();
+    const mergeBase = (await git(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
     if (mergeBase === '') {
         return deny({
             check: 'base_conflict',
@@ -317,7 +311,7 @@ function preflight(db, taskId, env) {
             actual: 'no merge-base',
         });
     }
-    const stale = staleDocRefs(repo, mergeBase, commit, env);
+    const stale = await staleDocRefs(repo, mergeBase, commit, env);
     if (typeof stale === 'string' || stale.length > 0) {
         return deny({
             check: 'stale_doc_ref',
@@ -325,8 +319,8 @@ function preflight(db, taskId, env) {
             actual: typeof stale === 'string' ? stale : listed(stale),
         });
     }
-    if (hasChangelogDir(repo, commit, env) || hasChangelogDir(repo, mergeBase, env)) {
-        const added = git(repo, ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', mergeBase, commit, '--', `${CHANGELOG_DIR}/`], env);
+    if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
+        const added = await git(repo, ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', mergeBase, commit, '--', `${CHANGELOG_DIR}/`], env);
         if (added.code !== 0 || added.stdout.trim() === '') {
             return deny({
                 check: 'missing_changelog',
@@ -337,7 +331,7 @@ function preflight(db, taskId, env) {
     }
     return ALLOW;
 }
-export const codeReviewerPreflight = (payload, env) => {
+export const codeReviewerPreflight = async (payload, env) => {
     if (env[BYPASS_ENV] === '1')
         return ALLOW;
     if (jqAlternatives(payload, [['tool_name']]) !== 'Agent')
@@ -353,6 +347,6 @@ export const codeReviewerPreflight = (payload, env) => {
         return ALLOW;
     if (!haveSqlite(env))
         return dbUnavailable(env);
-    return preflight(db, taskId, env);
+    return await preflight(db, taskId, env);
 };
 //# sourceMappingURL=code-reviewer-preflight.js.map

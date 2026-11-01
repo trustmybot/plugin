@@ -92,11 +92,11 @@ function denial(stdout) {
     assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
     return JSON.parse(out.hookSpecificOutput.permissionDecisionReason);
 }
-function run(f, input = payload()) {
-    return codeReviewerPreflight(input, f.env);
+async function run(f, input = payload()) {
+    return (await codeReviewerPreflight(input, f.env));
 }
-function assertAllowed(f) {
-    assert.deepEqual(run(f), { stdout: '', code: 0 });
+async function assertAllowed(f) {
+    assert.deepEqual(await run(f), { stdout: '', code: 0 });
 }
 describe('code-reviewer-preflight', () => {
     before(() => {
@@ -110,61 +110,61 @@ describe('code-reviewer-preflight', () => {
         assert.ok(gateNames().includes('code-reviewer-preflight'));
     });
     describe('sha_mismatch', () => {
-        it('denies when the branch tip moved past tasks.commit_sha', () => {
+        it('denies when the branch tip moved past tasks.commit_sha', async () => {
             const f = fixture();
             featureCommit(f);
             const recorded = f.record();
             f.write('src/b.txt', 'later\n');
             const tip = f.commit('after close');
-            const r = run(f);
+            const r = await run(f);
             assert.equal(r.code, 0);
             assert.deepEqual(denial(r.stdout), { check: 'sha_mismatch', expected: recorded, actual: tip });
         });
-        it('denies when the task records no commit_sha', () => {
+        it('denies when the task records no commit_sha', async () => {
             const f = fixture();
             featureCommit(f);
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'sha_mismatch');
             assert.equal(d.expected, null);
         });
-        it('allows when the branch tip is tasks.commit_sha', () => {
+        it('allows when the branch tip is tasks.commit_sha', async () => {
             const f = fixture();
             featureCommit(f);
             f.record();
-            assertAllowed(f);
+            await assertAllowed(f);
         });
     });
     describe('no_passing_run', () => {
-        it('denies when the only run for the commit failed', () => {
+        it('denies when the only run for the commit failed', async () => {
             const f = fixture();
             featureCommit(f);
             const sha = f.record({ exit: 1 });
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'no_passing_run');
             assert.match(d.actual ?? '', /exit_code=1, timed_out=0/);
             assert.match(d.expected ?? '', new RegExp(sha));
         });
-        it('denies a timed-out run and a commit with no run at all', () => {
+        it('denies a timed-out run and a commit with no run at all', async () => {
             const f = fixture();
             featureCommit(f);
             f.record({ exit: 0, timedOut: 1 });
-            assert.equal(denial(run(f).stdout).check, 'no_passing_run');
+            assert.equal(denial((await run(f)).stdout).check, 'no_passing_run');
             const g = fixture();
             featureCommit(g);
             g.record(null);
-            const d = denial(run(g).stdout);
+            const d = denial((await run(g)).stdout);
             assert.equal(d.check, 'no_passing_run');
             assert.match(d.actual ?? '', /no verification_runs row/);
         });
-        it('allows a passing run recorded for the commit', () => {
+        it('allows a passing run recorded for the commit', async () => {
             const f = fixture();
             featureCommit(f);
             f.record({ exit: 0 });
-            assertAllowed(f);
+            await assertAllowed(f);
         });
     });
     describe('base_conflict', () => {
-        it('denies when the PR target gained a conflicting change', () => {
+        it('denies when the PR target gained a conflicting change', async () => {
             const f = fixture();
             featureCommit(f);
             f.record();
@@ -172,11 +172,11 @@ describe('code-reviewer-preflight', () => {
             f.write('src/a.txt', 'one\ntwo\nthree\nFOUR on dev\n');
             f.commit('dev conflicts');
             f.git('checkout', '-q', BRANCH);
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'base_conflict');
             assert.match(d.actual ?? '', /conflicts in src\/a\.txt/);
         });
-        it('allows a clean base move', () => {
+        it('allows a clean base move', async () => {
             const f = fixture();
             featureCommit(f);
             f.record();
@@ -184,7 +184,7 @@ describe('code-reviewer-preflight', () => {
             f.write('src/other.txt', 'dev only\n');
             f.commit('dev moves cleanly');
             f.git('checkout', '-q', BRANCH);
-            assertAllowed(f);
+            await assertAllowed(f);
         });
         const CHUNK_LINES = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`).join('\n');
         const REGEN_FILES = {
@@ -214,21 +214,21 @@ describe('code-reviewer-preflight', () => {
             assert.equal(r.status, 1, 'merge-tree reports a conflict');
             assert.match(r.stdout, /dist\/chunks\/View-bbb222\.js/);
         }
-        it('allows a conflict confined to merge=tmb-regen paths (GH 2005)', () => {
+        it('allows a conflict confined to merge=tmb-regen paths (GH 2005)', async () => {
             const f = fixture(REGEN_FILES);
             regenChunkConflict(f);
             assertMergeTreeConflicts(f);
-            assertAllowed(f);
+            await assertAllowed(f);
         });
-        it('denies a source conflict alongside a regen chunk, naming only the source path', () => {
+        it('denies a source conflict alongside a regen chunk, naming only the source path', async () => {
             const f = fixture(REGEN_FILES);
             regenChunkConflict(f, true);
             assertMergeTreeConflicts(f);
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'base_conflict');
             assert.equal(d.actual, 'conflicts in src/a.txt');
         });
-        it('denies a source conflict in a repo whose dist/ is merge=tmb-regen', () => {
+        it('denies a source conflict in a repo whose dist/ is merge=tmb-regen', async () => {
             const f = fixture(REGEN_FILES);
             featureCommit(f);
             f.record();
@@ -236,11 +236,11 @@ describe('code-reviewer-preflight', () => {
             f.write('src/a.txt', 'one\ntwo\nthree\nFOUR on dev\n');
             f.commit('dev conflicts');
             f.git('checkout', '-q', BRANCH);
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'base_conflict');
             assert.equal(d.actual, 'conflicts in src/a.txt');
         });
-        it('denies a regen-only conflict when git check-attr fails (fail-closed)', () => {
+        it('denies a regen-only conflict when git check-attr fails (fail-closed)', async () => {
             const f = fixture(REGEN_FILES);
             regenChunkConflict(f);
             const bin = join(dirname(f.repo), 'bin');
@@ -256,33 +256,33 @@ describe('code-reviewer-preflight', () => {
             ].join('\n'));
             chmodSync(wrapper, 0o755);
             const env = { ...f.env, PATH: `${bin}:${f.env.PATH}` };
-            const d = denial(codeReviewerPreflight(payload(), env).stdout);
+            const d = denial((await codeReviewerPreflight(payload(), env)).stdout);
             assert.equal(d.check, 'base_conflict');
             assert.match(d.actual ?? '', /conflicts in .*dist\/chunks\/View-bbb222\.js.*; git check-attr of their merge attribute failed/);
         });
     });
     describe('stale_doc_ref', () => {
-        it('denies a deleted path a docs/ file still names', () => {
+        it('denies a deleted path a docs/ file still names', async () => {
             const f = fixture();
             featureCommit(f);
             f.git('rm', '-q', 'scripts/old.sh');
             f.commit('drop old.sh');
             f.record();
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'stale_doc_ref');
             assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'scripts\/old\.sh'/);
         });
-        it('denies a renamed path whose old name README.md still carries', () => {
+        it('denies a renamed path whose old name README.md still carries', async () => {
             const f = fixture();
             featureCommit(f);
             f.git('mv', 'docs/guide.md', 'docs/handbook.md');
             f.commit('rename guide');
             f.record();
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'stale_doc_ref');
             assert.match(d.actual ?? '', /README\.md mentions removed path 'docs\/guide\.md'/);
         });
-        it('denies an MCP tool the diff removes that a skills/*/SKILL.md still mentions', () => {
+        it('denies an MCP tool the diff removes that a skills/*/SKILL.md still mentions', async () => {
             const f = fixture();
             f.write('skills/s/SKILL.md', 'Call `mcp__plugin_tmb_trajectory-server__old_tool` then `keep_tool`.\n');
             f.commit('skill names old_tool');
@@ -290,11 +290,11 @@ describe('code-reviewer-preflight', () => {
             f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
             f.commit('drop old_tool');
             f.record();
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'stale_doc_ref');
             assert.match(d.actual ?? '', /skills\/s\/SKILL\.md mentions removed MCP tool 'old_tool'/);
         });
-        it('allows a deletion and a tool removal once the docs drop them', () => {
+        it('allows a deletion and a tool removal once the docs drop them', async () => {
             const f = fixture();
             featureCommit(f);
             f.git('rm', '-q', 'scripts/old.sh');
@@ -302,46 +302,46 @@ describe('code-reviewer-preflight', () => {
             f.write('mcp/srv/src/tools/t.ts', "export const tools = [\n  {\n    name: 'keep_tool',\n  },\n];\n");
             f.commit('drop old.sh and old_tool');
             f.record();
-            assertAllowed(f);
+            await assertAllowed(f);
         });
     });
     describe('missing_changelog', () => {
-        it('denies a diff that adds no file under changelog.d/', () => {
+        it('denies a diff that adds no file under changelog.d/', async () => {
             const f = fixture();
             f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
             f.commit('feature without fragment');
             f.record();
-            const d = denial(run(f).stdout);
+            const d = denial((await run(f)).stdout);
             assert.equal(d.check, 'missing_changelog');
             assert.equal(d.actual, 'no file added under changelog.d/');
         });
-        it('allows a repo without changelog.d/ that adds no fragment', () => {
+        it('allows a repo without changelog.d/ that adds no fragment', async () => {
             const files = { ...BASE_FILES };
             delete files['changelog.d/README.md'];
             const f = fixture(files);
             f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
             f.commit('feature');
             f.record();
-            assertAllowed(f);
+            await assertAllowed(f);
         });
     });
     describe('scope', () => {
-        it('ignores other subagents, a prompt without task_id, and the bypass', () => {
+        it('ignores other subagents, a prompt without task_id, and the bypass', async () => {
             const f = fixture();
             featureCommit(f);
-            assert.deepEqual(run(f, payload(`task_id=${TASK_ID}`, 'swe')), { stdout: '', code: 0 });
-            assert.deepEqual(run(f, payload('review this')), { stdout: '', code: 0 });
-            assert.deepEqual(codeReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
-            assert.equal(denial(run(f, payload(`task_id=${TASK_ID}`, 'tmb:code-reviewer')).stdout).check, 'sha_mismatch');
+            assert.deepEqual(await run(f, payload(`task_id=${TASK_ID}`, 'swe')), { stdout: '', code: 0 });
+            assert.deepEqual(await run(f, payload('review this')), { stdout: '', code: 0 });
+            assert.deepEqual(await codeReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
+            assert.equal(denial((await run(f, payload(`task_id=${TASK_ID}`, 'tmb:code-reviewer'))).stdout).check, 'sha_mismatch');
         });
-        it('allows a task with no tasks row', () => {
+        it('allows a task with no tasks row', async () => {
             const f = fixture();
-            assert.deepEqual(run(f, payload('task_id=999')), { stdout: '', code: 0 });
+            assert.deepEqual(await run(f, payload('task_id=999')), { stdout: '', code: 0 });
         });
-        it('denies when the DB cannot be read', () => {
+        it('denies when the DB cannot be read', async () => {
             const f = fixture();
             writeFileSync(f.db, 'not a database');
-            const out = JSON.parse(codeReviewerPreflight(payload(), f.env).stdout);
+            const out = JSON.parse((await codeReviewerPreflight(payload(), f.env)).stdout);
             assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
             assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — code-reviewer-preflight/);
         });

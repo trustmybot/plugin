@@ -341,7 +341,7 @@ export function syncOn(db, env = process.env) {
   `, env);
     return mode !== '' && mode !== 'off';
 }
-function close(payload, env) {
+async function close(payload, env) {
     const { input, toolName, command: cmd, response } = readMergePayload(payload);
     if (toolName !== 'Bash' || cmd === '')
         return;
@@ -355,10 +355,10 @@ function close(payload, env) {
         return;
     let ref = refFromArgs(commandSubstitution(args.join('\n')).split('\n'));
     if (ref === '')
-        ref = gitOut(forgeCommandDir(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+        ref = await gitOut(forgeCommandDir(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
     if (ref === '' || ref === 'HEAD')
         return;
-    const repoDir = forgeRepoDir(cmd, input, env);
+    const repoDir = await forgeRepoDir(cmd, input, env);
     const prJson = gh(['pr', 'view', ref, '--json', 'closingIssuesReferences,body,headRefName'], repoDir, env);
     let head = commandSubstitution(jqFieldOr(prJson, 'headRefName'));
     if (head === '' && /[^0-9]/.test(ref) && !ref.includes('://'))
@@ -374,11 +374,11 @@ function close(payload, env) {
     }
     merge.closeRemotes();
 }
-export const closeIssueOnMerge = (payload, env) => {
+export const closeIssueOnMerge = async (payload, env) => {
     if ((env.TMB_DISABLE_CLOSE_ISSUE_ON_MERGE ?? '0') === '1')
         return ALLOW;
     try {
-        close(payload, env);
+        await close(payload, env);
     }
     catch {
         /* advisory: every path exits 0 */

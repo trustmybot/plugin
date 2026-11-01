@@ -19,10 +19,10 @@
  * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
  * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
-import { spawnSync } from 'node:child_process';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { gitSpawn } from './lib/git.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
@@ -39,7 +39,6 @@ export interface PreflightFailure {
 }
 
 const GIT_TIMEOUT_MS = 10_000;
-const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 const MAX_LISTED = 10;
 const DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
 const TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
@@ -53,18 +52,13 @@ interface GitResult {
   stderr: string;
 }
 
-function git(repo: string, args: string[], env: NodeJS.ProcessEnv): GitResult {
-  const r = spawnSync('git', ['-C', repo, ...args], {
-    encoding: 'utf8',
-    env: { ...env, GIT_OPTIONAL_LOCKS: '0' },
-    timeout: GIT_TIMEOUT_MS,
-    maxBuffer: GIT_MAX_BUFFER,
-  });
-  return { code: r.error ? -1 : (r.status ?? -1), stdout: r.stdout ?? '', stderr: (r.stderr ?? '') || (r.error?.message ?? '') };
+async function git(repo: string, args: string[], env: NodeJS.ProcessEnv): Promise<GitResult> {
+  const r = await gitSpawn(repo, args, { env: { ...env, GIT_OPTIONAL_LOCKS: '0' }, stderr: 'pipe', timeoutMs: GIT_TIMEOUT_MS });
+  return { code: r.code, stdout: r.stdout.toString('utf8'), stderr: r.stderr.toString('utf8') || (r.error?.message ?? '') };
 }
 
-function revParse(repo: string, rev: string, env: NodeJS.ProcessEnv): string | null {
-  const r = git(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], env);
+async function revParse(repo: string, rev: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const r = await git(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], env);
   const sha = r.stdout.trim();
   return r.code === 0 && sha !== '' ? sha : null;
 }
@@ -98,8 +92,8 @@ function dbUnavailable(env: NodeJS.ProcessEnv): GateResult {
 }
 
 /** Tracked blobs of <rev>: path → object id. */
-function treeBlobs(repo: string, rev: string, env: NodeJS.ProcessEnv): Map<string, string> | null {
-  const r = git(repo, ['ls-tree', '-r', '-z', '--full-tree', rev], env);
+async function treeBlobs(repo: string, rev: string, env: NodeJS.ProcessEnv): Promise<Map<string, string> | null> {
+  const r = await git(repo, ['ls-tree', '-r', '-z', '--full-tree', rev], env);
   if (r.code !== 0) return null;
   const blobs = new Map<string, string>();
   for (const entry of nulFields(r.stdout)) {
@@ -111,16 +105,16 @@ function treeBlobs(repo: string, rev: string, env: NodeJS.ProcessEnv): Map<strin
 }
 
 /** The contents of <oids>, read through one `git cat-file --batch`. */
-function readBlobs(repo: string, oids: readonly string[], env: NodeJS.ProcessEnv): Map<string, string> | null {
+async function readBlobs(repo: string, oids: readonly string[], env: NodeJS.ProcessEnv): Promise<Map<string, string> | null> {
   const contents = new Map<string, string>();
   if (oids.length === 0) return contents;
-  const r = spawnSync('git', ['-C', repo, 'cat-file', '--batch'], {
+  const r = await gitSpawn(repo, ['cat-file', '--batch'], {
     input: `${oids.join('\n')}\n`,
     env: { ...env, GIT_OPTIONAL_LOCKS: '0' },
-    timeout: GIT_TIMEOUT_MS,
-    maxBuffer: GIT_MAX_BUFFER,
+    stderr: 'pipe',
+    timeoutMs: GIT_TIMEOUT_MS,
   });
-  if (r.error || r.status !== 0) return null;
+  if (r.code !== 0) return null;
   const out = r.stdout;
   let at = 0;
   while (at < out.length) {
@@ -169,8 +163,8 @@ interface Removed {
   tools: string[];
 }
 
-function removedInDiff(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Removed | string {
-  const diff = git(repo, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, commit], env);
+async function removedInDiff(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<Removed | string> {
+  const diff = await git(repo, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, commit], env);
   if (diff.code !== 0) return `git diff ${base}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
   const paths: string[] = [];
@@ -185,25 +179,25 @@ function removedInDiff(repo: string, base: string, commit: string, env: NodeJS.P
     if (status === 'D' || status.startsWith('R')) paths.push(from);
   }
   if (!touchesTools) return { paths, tools: [] };
-  const before = treeBlobs(repo, base, env);
-  const after = treeBlobs(repo, commit, env);
+  const before = await treeBlobs(repo, base, env);
+  const after = await treeBlobs(repo, commit, env);
   if (!before || !after) return `git ls-tree of ${base} or ${commit} failed`;
   const sources = (blobs: Map<string, string>) =>
     [...blobs].filter(([p]) => TOOL_SOURCE.test(p) && !p.includes('/test/')).map(([, oid]) => oid);
-  const contents = readBlobs(repo, [...new Set([...sources(before), ...sources(after)])], env);
+  const contents = await readBlobs(repo, [...new Set([...sources(before), ...sources(after)])], env);
   if (!contents) return 'git cat-file of the tool sources failed';
   const kept = toolNames(after, contents);
   return { paths, tools: [...toolNames(before, contents)].filter((t) => !kept.has(t)).sort() };
 }
 
-function staleDocRefs(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): string[] | string {
-  const removed = removedInDiff(repo, base, commit, env);
+async function staleDocRefs(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<string[] | string> {
+  const removed = await removedInDiff(repo, base, commit, env);
   if (typeof removed === 'string') return removed;
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
-  const blobs = treeBlobs(repo, commit, env);
+  const blobs = await treeBlobs(repo, commit, env);
   if (!blobs) return `git ls-tree of ${commit} failed`;
   const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const contents = readBlobs(repo, docs.map(([, oid]) => oid), env);
+  const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
   if (!contents) return 'git cat-file of the docs failed';
   const tools = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
   const paths = removed.paths.map((p) => ({ p, re: pathPattern(p) }));
@@ -222,14 +216,14 @@ function staleDocRefs(repo: string, base: string, commit: string, env: NodeJS.Pr
   return hits;
 }
 
-function hasChangelogDir(repo: string, rev: string, env: NodeJS.ProcessEnv): boolean {
-  const r = git(repo, ['ls-tree', '-d', '--name-only', rev, '--', CHANGELOG_DIR], env);
+async function hasChangelogDir(repo: string, rev: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const r = await git(repo, ['ls-tree', '-d', '--name-only', rev, '--', CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== '';
 }
 
 /** The <paths> whose `merge` attribute at <rev> is not tmb-regen, or null when git check-attr fails. */
-function nonRegenPaths(repo: string, rev: string, paths: readonly string[], env: NodeJS.ProcessEnv): string[] | null {
-  const r = git(repo, ['check-attr', `--source=${rev}`, '-z', 'merge', '--', ...paths], env);
+async function nonRegenPaths(repo: string, rev: string, paths: readonly string[], env: NodeJS.ProcessEnv): Promise<string[] | null> {
+  const r = await git(repo, ['check-attr', `--source=${rev}`, '-z', 'merge', '--', ...paths], env);
   if (r.code !== 0) return null;
   const fields = nulFields(r.stdout);
   if (fields.length % 3 !== 0) return null;
@@ -268,7 +262,7 @@ function prTargetRef(repo: string, targetBranch: string, parentBranch: string): 
   return null;
 }
 
-function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResult {
+async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const task = readTask(db, taskId, env);
   if (task === GATE_READ_ERROR) return dbUnavailable(env);
   if (task === null) return ALLOW;
@@ -281,8 +275,8 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
   }
   const repo = location.repoRoot;
   const branch = task.branch;
-  const tip = revParse(repo, `refs/heads/${branch}`, env);
-  const commit = recorded === '' ? null : revParse(repo, recorded, env);
+  const tip = await revParse(repo, `refs/heads/${branch}`, env);
+  const commit = recorded === '' ? null : await revParse(repo, recorded, env);
   if (commit === null || tip !== commit) {
     return deny({
       check: 'sha_mismatch',
@@ -319,7 +313,7 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
   );
   if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
   const targetRef = prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch);
-  const targetTip = targetRef === null ? null : revParse(repo, targetRef, env);
+  const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
   if (targetRef === null || targetTip === null) {
     return deny({
       check: 'base_conflict',
@@ -327,10 +321,10 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
       actual: `no PR target ref resolves in ${repo}`,
     });
   }
-  const merge = git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
+  const merge = await git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ''))];
-    const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
+    const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
     if (blocking === null || blocking.length > 0) {
       return deny({
         check: 'base_conflict',
@@ -345,7 +339,7 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
     }
   }
 
-  const mergeBase = git(repo, ['merge-base', targetTip, commit], env).stdout.trim();
+  const mergeBase = (await git(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
   if (mergeBase === '') {
     return deny({
       check: 'base_conflict',
@@ -353,7 +347,7 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
       actual: 'no merge-base',
     });
   }
-  const stale = staleDocRefs(repo, mergeBase, commit, env);
+  const stale = await staleDocRefs(repo, mergeBase, commit, env);
   if (typeof stale === 'string' || stale.length > 0) {
     return deny({
       check: 'stale_doc_ref',
@@ -362,8 +356,8 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
     });
   }
 
-  if (hasChangelogDir(repo, commit, env) || hasChangelogDir(repo, mergeBase, env)) {
-    const added = git(repo, ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', mergeBase, commit, '--', `${CHANGELOG_DIR}/`], env);
+  if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
+    const added = await git(repo, ['diff', '--no-ext-diff', '--name-only', '--no-renames', '--diff-filter=A', mergeBase, commit, '--', `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === '') {
       return deny({
         check: 'missing_changelog',
@@ -375,7 +369,7 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
   return ALLOW;
 }
 
-export const codeReviewerPreflight: SyncGate = (payload, env) => {
+export const codeReviewerPreflight: Gate = async (payload, env) => {
   if (env[BYPASS_ENV] === '1') return ALLOW;
   if (jqAlternatives(payload, [['tool_name']]) !== 'Agent') return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'code-reviewer') return ALLOW;
@@ -385,5 +379,5 @@ export const codeReviewerPreflight: SyncGate = (payload, env) => {
   const db = dbPath(env);
   if (db === null) return ALLOW;
   if (!haveSqlite(env)) return dbUnavailable(env);
-  return preflight(db, taskId, env);
+  return await preflight(db, taskId, env);
 };

@@ -175,12 +175,12 @@ describe('ensure-swe-worktree', () => {
         delete env.TMB_DISABLE_ENSURE_SWE_WORKTREE;
         return { repo, env };
     }
-    function ensure(env) {
+    async function ensure(env) {
         const written = [];
         const write = process.stderr.write;
         process.stderr.write = ((chunk) => written.push(String(chunk)) > 0);
         try {
-            assert.deepEqual(ensureSweWorktree(PAYLOAD, env), ALLOW);
+            assert.deepEqual(await ensureSweWorktree(PAYLOAD, env), ALLOW);
         }
         finally {
             process.stderr.write = write;
@@ -188,14 +188,14 @@ describe('ensure-swe-worktree', () => {
         return written.join('');
     }
     const worktrees = (repo) => git(repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree '));
-    it('adds the slug worktree for a task with no recorded worktree', () => {
+    it('adds the slug worktree for a task with no recorded worktree', async () => {
         const f = fixture('feat/clean', () => null);
         const slugPath = join(f.repo, '.claude/worktrees/clean');
-        assert.equal(ensure(f.env), `ensure-swe-worktree: created worktree ${slugPath} for branch feat/clean\n`);
+        assert.equal(await ensure(f.env), `ensure-swe-worktree: created worktree ${slugPath} for branch feat/clean\n`);
         assert.ok(existsSync(join(slugPath, 'README.md')));
-        assert.equal(ensure(f.env), '', 'a registered slug worktree is left alone');
+        assert.equal(await ensure(f.env), '', 'a registered slug worktree is left alone');
     });
-    it('leaves an existing recorded worktree in place without a git worktree add (GH 2032)', () => {
+    it('leaves an existing recorded worktree in place without a git worktree add (GH 2032)', async () => {
         let recorded = '';
         const f = fixture('feat/adopted', (repo) => {
             recorded = join(repo, '.claude/worktrees/session-1');
@@ -203,19 +203,19 @@ describe('ensure-swe-worktree', () => {
         });
         git(f.repo, 'worktree', 'add', '-q', '.claude/worktrees/session-1', 'feat/adopted');
         const before = worktrees(f.repo);
-        assert.equal(ensure(f.env), '');
+        assert.equal(await ensure(f.env), '');
         assert.deepEqual(worktrees(f.repo), before);
         assert.ok(!existsSync(join(f.repo, '.claude/worktrees/adopted')));
     });
-    it('falls back to the slug worktree when the recorded one is gone (GH 2032)', () => {
+    it('falls back to the slug worktree when the recorded one is gone (GH 2032)', async () => {
         const f = fixture('feat/gone', (repo) => join(repo, '.claude/worktrees/session-gone'));
         const slugPath = join(f.repo, '.claude/worktrees/gone');
-        assert.equal(ensure(f.env), `ensure-swe-worktree: created worktree ${slugPath} for branch feat/gone\n`);
+        assert.equal(await ensure(f.env), `ensure-swe-worktree: created worktree ${slugPath} for branch feat/gone\n`);
         assert.ok(existsSync(slugPath));
     });
-    it('does nothing under TMB_DISABLE_ENSURE_SWE_WORKTREE=1', () => {
+    it('does nothing under TMB_DISABLE_ENSURE_SWE_WORKTREE=1', async () => {
         const f = fixture('feat/off', () => null);
-        assert.equal(ensure({ ...f.env, TMB_DISABLE_ENSURE_SWE_WORKTREE: '1' }), '');
+        assert.equal(await ensure({ ...f.env, TMB_DISABLE_ENSURE_SWE_WORKTREE: '1' }), '');
         assert.ok(!existsSync(join(f.repo, '.claude/worktrees/off')));
     });
 });

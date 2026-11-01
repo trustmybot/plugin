@@ -267,8 +267,8 @@ function detectStacks(dir, env) {
     return s || '(none detected)';
 }
 /** `$(git -C <dir> <args> 2>/dev/null || echo <fallback>)`. */
-function gitOr(dir, args, fallback, env) {
-    const r = gitRun(dir, args, env);
+async function gitOr(dir, args, fallback, env) {
+    const r = await gitRun(dir, args, env);
     return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}${fallback}\n`);
 }
 function lineCount(text) {
@@ -412,7 +412,7 @@ function pluginRoot() {
     return installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? '';
 }
 /** The prescan as a function of its env, the plugin root it reads scripts from, and its stderr. */
-export function sessionStartPrescanRun(env, root, stderr) {
+export async function sessionStartPrescanRun(env, root, stderr) {
     if (!commandOnPath('jq', env))
         return { stdout: NO_JQ_LINE, code: 0 };
     const db = dbPathAdvisory(GATE_NAME, env, (line) => stderr(`${line}\n`));
@@ -436,12 +436,12 @@ export function sessionStartPrescanRun(env, root, stderr) {
             continue;
         }
         stacks.push(`${name}: ${detectStacks(path, env)}`);
-        const branch = gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env);
-        const commits = gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env);
-        const dirty = lineCount(gitRun(path, ['status', '--porcelain'], env).stdout);
+        const branch = await gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env);
+        const commits = await gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env);
+        const dirty = lineCount((await gitRun(path, ['status', '--porcelain'], env)).stdout);
         branches.push(`${name}: ${branch} (${commits} commits, ${dirty} dirty paths)`);
         const prefix = repoN > 1 ? `  [${name}] ` : '  ';
-        const log = records(gitRun(path, ['log', '--oneline', '-5'], env).stdout).map((l) => `${prefix}${l}`);
+        const log = records((await gitRun(path, ['log', '--oneline', '-5'], env)).stdout).map((l) => `${prefix}${l}`);
         if (log.length > 0)
             last5.push(log.join('\n'));
     }
@@ -453,7 +453,7 @@ export function sessionStartPrescanRun(env, root, stderr) {
     for (const { name, path } of repos) {
         if (name === '' || !isDir(path))
             continue;
-        sourceFiles += records(gitRun(path, ['ls-files'], env).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
+        sourceFiles += records((await gitRun(path, ['ls-files'], env)).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
     }
     const scanRow = sqliteRo(db, "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;", env);
     const worldModel = worldModelLine(wmDirs, sourceFiles, scanRow);
@@ -492,9 +492,9 @@ export function sessionStartPrescanRun(env, root, stderr) {
     ].join('\n'));
     return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: inventory } })}\n`, code: 0 };
 }
-export const sessionStartPrescan = (_payload, env) => {
+export const sessionStartPrescan = async (_payload, env) => {
     try {
-        return sessionStartPrescanRun(env, pluginRoot(), (text) => process.stderr.write(text));
+        return await sessionStartPrescanRun(env, pluginRoot(), (text) => process.stderr.write(text));
     }
     catch {
         return ALLOW;

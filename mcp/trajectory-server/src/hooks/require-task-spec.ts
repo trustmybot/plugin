@@ -8,7 +8,7 @@
  * spec_shape_gate_waived audit row names it. No resolvable DB allows; a DB
  * read failure denies.
  */
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import {
   branchSlug,
   dbPath,
@@ -64,12 +64,12 @@ interface WorktreeRow {
   path?: unknown;
 }
 
-function worktreeState(repo: string, branch: string, env: NodeJS.ProcessEnv): 'linked' | 'main' | 'none' {
+async function worktreeState(repo: string, branch: string, env: NodeJS.ProcessEnv): Promise<'linked' | 'main' | 'none'> {
   const ref = `branch refs/heads/${branch}`;
   let entry = 0;
   let main = false;
   let linked = false;
-  for (const line of gitOut(repo, ['worktree', 'list', '--porcelain'], env).split('\n')) {
+  for (const line of (await gitOut(repo, ['worktree', 'list', '--porcelain'], env)).split('\n')) {
     if (line.startsWith('worktree ')) entry += 1;
     if (line === ref) {
       if (entry === 1) main = true;
@@ -79,7 +79,7 @@ function worktreeState(repo: string, branch: string, env: NodeJS.ProcessEnv): 'l
   return linked ? 'linked' : main ? 'main' : 'none';
 }
 
-function worktreeDeny(db: string, taskId: string, safeId: string, env: NodeJS.ProcessEnv): GateResult | null {
+async function worktreeDeny(db: string, taskId: string, safeId: string, env: NodeJS.ProcessEnv): Promise<GateResult | null> {
   const wt = gateRead(
     db,
     `SELECT json_object('branch', COALESCE(t.branch_id, ''),
@@ -98,8 +98,8 @@ function worktreeDeny(db: string, taskId: string, safeId: string, env: NodeJS.Pr
   const path = rawField(row.path);
   const repo = path === '' ? (env.CLAUDE_PROJECT_DIR ?? '') : repoPathAbs(db, path);
   if (repo === '' || branch === '') return null;
-  if (gitOut(repo, ['rev-parse', '--is-inside-work-tree'], env) !== 'true') return null;
-  const state = worktreeState(repo, branch, env);
+  if (await gitOut(repo, ['rev-parse', '--is-inside-work-tree'], env) !== 'true') return null;
+  const state = await worktreeState(repo, branch, env);
   if (state === 'linked') return null;
   const expected = `${repo.replace(/\/$/, '')}/.claude/worktrees/${branchSlug(branch)}`;
   const sw =
@@ -170,7 +170,7 @@ function specShapeVerdict(db: string, taskId: string, safeId: string, env: NodeJ
   );
 }
 
-export const requireTaskSpec: SyncGate = (payload, env) => {
+export const requireTaskSpec: Gate = async (payload, env) => {
   if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'swe') return ALLOW;
   const taskId = promptTaskId(jqAlternatives(payload, [['tool_input', 'prompt']]));
   if (taskId === '') {
@@ -216,7 +216,7 @@ export const requireTaskSpec: SyncGate = (payload, env) => {
     );
   }
   if (status === 'pending') {
-    const blocked = worktreeDeny(db, taskId, safeId, env);
+    const blocked = await worktreeDeny(db, taskId, safeId, env);
     if (blocked !== null) return blocked;
   }
   return specShapeVerdict(db, taskId, safeId, env);

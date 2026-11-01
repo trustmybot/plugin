@@ -64,7 +64,7 @@ export function isDistDir(dir) {
  * One line per touched dir whose README.md is missing from <sha>'s tree or
  * present there but not among the commit's own changed paths; dist dirs skipped.
  */
-export function staleDirs(repoPath, sha, repo, paths, env) {
+export async function staleDirs(repoPath, sha, repo, paths, env) {
     const changed = new Set(paths);
     const out = [];
     for (const dir of touchedDirs(paths, env)) {
@@ -72,7 +72,7 @@ export function staleDirs(repoPath, sha, repo, paths, env) {
             continue;
         const readme = dir === ROOT_DIR ? 'README.md' : `${dir}/README.md`;
         const label = dir === ROOT_DIR ? (repo === '' ? '<repo root>' : `${repo}/`) : dir;
-        if (!gitOk(repoPath, ['cat-file', '-e', `${sha}:${readme}`], env))
+        if (!await gitOk(repoPath, ['cat-file', '-e', `${sha}:${readme}`], env))
             out.push(`${label} (no README.md)`);
         else if (!changed.has(readme))
             out.push(`${label} (README.md older than the commit)`);
@@ -87,15 +87,15 @@ ${stale}
 
 For each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.`;
 }
-function resolveRepoPath(db, repo, env) {
+async function resolveRepoPath(db, repo, env) {
     let path = repoResolvePath(db, repo, env);
     if (path === '' && repo === '')
         path = posixDirname(posixDirname(posixDirname(db)));
-    if (path !== '' && !gitOk(path, ['rev-parse', '--git-dir'], env))
+    if (path !== '' && !await gitOk(path, ['rev-parse', '--git-dir'], env))
         path = '';
     return path;
 }
-function surface(payload, env) {
+async function surface(payload, env) {
     if (env[BYPASS_ENV] === '1')
         return ALLOW;
     const input = jqInput(payload);
@@ -115,17 +115,17 @@ function surface(payload, env) {
     const task = parseTaskRow(row);
     if (!/^[0-9a-fA-F]+$/.test(task.commitSha))
         return ALLOW;
-    const repoPath = resolveRepoPath(db, task.repo, env);
+    const repoPath = await resolveRepoPath(db, task.repo, env);
     if (repoPath === '')
         return ALLOW;
-    if (!gitOk(repoPath, ['cat-file', '-e', `${task.commitSha}^{commit}`], env))
+    if (!await gitOk(repoPath, ['cat-file', '-e', `${task.commitSha}^{commit}`], env))
         return ALLOW;
-    const paths = gitOut(repoPath, ['show', '--name-only', '--pretty=format:', task.commitSha], env)
+    const paths = (await gitOut(repoPath, ['show', '--name-only', '--pretty=format:', task.commitSha], env))
         .split('\n')
         .filter((line) => line !== '');
     if (paths.length === 0)
         return ALLOW;
-    const stale = staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+    const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
     if (stale.length === 0)
         return ALLOW;
     const staleText = stale.join('\n');
@@ -143,9 +143,9 @@ function surface(payload, env) {
     const out = jqCompact({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: nudgeReason(taskId, task.commitSha, staleText) } });
     return { stdout: `${w.stdout}${out}\n`, code: 0 };
 }
-export const postAtomicCloseReadme = (payload, env) => {
+export const postAtomicCloseReadme = async (payload, env) => {
     try {
-        return surface(payload, env);
+        return await surface(payload, env);
     }
     catch {
         return ALLOW;

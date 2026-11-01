@@ -123,22 +123,22 @@ describe('post-atomic-close-readme over a git and DB sandbox', { skip: !GIT && '
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('GH 2044: a commit on a branch the main checkout lacks, adding a/b/README.md, editing a/README.md and building x/dist, flags nothing', () => {
+  it('GH 2044: a commit on a branch the main checkout lacks, adding a/b/README.md, editing a/README.md and building x/dist, flags nothing', async () => {
     db = resetDb(s);
     assert.equal(existsSync(join(project, 'a')), false, 'the main checkout has no a/');
-    assert.deepEqual(postAtomicCloseReadme(close(5), env()), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme(close(5), env()), ALLOWED);
     assert.deepEqual(auditRows(db), []);
   });
 
-  it('GH 1792: a commit editing dashboard/README.md flags no dashboard line, its checkout mtime notwithstanding', () => {
+  it('GH 1792: a commit editing dashboard/README.md flags no dashboard line, its checkout mtime notwithstanding', async () => {
     db = resetDb(s);
-    assert.deepEqual(postAtomicCloseReadme(close(4), env()), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme(close(4), env()), ALLOWED);
     assert.deepEqual(auditRows(db), []);
   });
 
-  it('flags a README missing from the tree and one the commit left alone, and records one audit row', () => {
+  it('flags a README missing from the tree and one the commit left alone, and records one audit row', async () => {
     db = resetDb(s);
-    const r = postAtomicCloseReadme(close(6), env());
+    const r = await postAtomicCloseReadme(close(6), env());
     assert.equal(r.code, 0);
     assert.deepEqual(staleLines(r.stdout), [`project/ ${OLDER}`, 'Zeta (no README.md)', `src/lib ${OLDER}`, 'tools (no README.md)']);
     const mixed = taskSha(db, 6);
@@ -154,47 +154,47 @@ describe('post-atomic-close-readme over a git and DB sandbox', { skip: !GIT && '
     );
   });
 
-  it('skips a dir with a dist path segment and still flags its parent', () => {
+  it('skips a dir with a dist path segment and still flags its parent', async () => {
     db = resetDb(s);
-    assert.deepEqual(staleLines(postAtomicCloseReadme(close(12), env()).stdout), ['web (no README.md)']);
+    assert.deepEqual(staleLines((await postAtomicCloseReadme(close(12), env())).stdout), ['web (no README.md)']);
   });
 
-  it('sorts the dirs by the locale, as sort -u does', () => {
+  it('sorts the dirs by the locale, as sort -u does', async () => {
     db = resetDb(s);
-    const r = postAtomicCloseReadme(close(6), env({ LC_ALL: 'en_US.UTF-8' }));
+    const r = await postAtomicCloseReadme(close(6), env({ LC_ALL: 'en_US.UTF-8' }));
     const lines = staleLines(r.stdout);
     assert.deepEqual([...lines].sort(), [`project/ ${OLDER}`, 'Zeta (no README.md)', `src/lib ${OLDER}`, 'tools (no README.md)'].sort());
   });
 
-  it('labels the root by the task repo, <repo root> without one', () => {
+  it('labels the root by the task repo, <repo root> without one', async () => {
     db = resetDb(s);
-    assert.deepEqual(staleLines(postAtomicCloseReadme(close(1), env()).stdout), [`project/ ${OLDER}`]);
-    assert.deepEqual(staleLines(postAtomicCloseReadme(close(10), env()).stdout), [`<repo root> ${OLDER}`]);
-    assert.deepEqual(staleLines(postAtomicCloseReadme(close(11), env()).stdout), [`ghost/ ${OLDER}`]);
+    assert.deepEqual(staleLines((await postAtomicCloseReadme(close(1), env())).stdout), [`project/ ${OLDER}`]);
+    assert.deepEqual(staleLines((await postAtomicCloseReadme(close(10), env())).stdout), [`<repo root> ${OLDER}`]);
+    assert.deepEqual(staleLines((await postAtomicCloseReadme(close(11), env())).stdout), [`ghost/ ${OLDER}`]);
   });
 
-  it('prints nothing for another tool, an error response, a bad task id, SHA or commit, or the bypass', () => {
+  it('prints nothing for another tool, an error response, a bad task id, SHA or commit, or the bypass', async () => {
     db = resetDb(s);
-    assert.deepEqual(postAtomicCloseReadme(close(1, { tool_name: 'Bash' }), env()), ALLOWED);
-    assert.deepEqual(postAtomicCloseReadme(close(1, { tool_response: { is_error: true } }), env()), ALLOWED);
-    assert.deepEqual(postAtomicCloseReadme(close('1a'), env()), ALLOWED);
-    for (const id of [7, 8, 9, 999]) assert.deepEqual(postAtomicCloseReadme(close(id), env()), ALLOWED, `task ${id}`);
-    assert.deepEqual(postAtomicCloseReadme(close(1), env({ TMB_DISABLE_README_STALENESS_HOOK: '1' })), ALLOWED);
-    assert.deepEqual(postAtomicCloseReadme('not json', env()), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme(close(1, { tool_name: 'Bash' }), env()), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme(close(1, { tool_response: { is_error: true } }), env()), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme(close('1a'), env()), ALLOWED);
+    for (const id of [7, 8, 9, 999]) assert.deepEqual(await postAtomicCloseReadme(close(id), env()), ALLOWED, `task ${id}`);
+    assert.deepEqual(await postAtomicCloseReadme(close(1), env({ TMB_DISABLE_README_STALENESS_HOOK: '1' })), ALLOWED);
+    assert.deepEqual(await postAtomicCloseReadme('not json', env()), ALLOWED);
     assert.deepEqual(auditRows(db), []);
   });
 
-  it('prints nothing without a trajectory DB', () => {
-    const r = postAtomicCloseReadme(close(1), env({ TRAJECTORY_DB_PATH: join(s, 'nodb/none.db'), CLAUDE_PROJECT_DIR: join(s, 'nodb') }));
+  it('prints nothing without a trajectory DB', async () => {
+    const r = await postAtomicCloseReadme(close(1), env({ TRAJECTORY_DB_PATH: join(s, 'nodb/none.db'), CLAUDE_PROJECT_DIR: join(s, 'nodb') }));
     assert.deepEqual(r, ALLOWED);
   });
 
-  it('nudges and records without jq or the sqlite3 CLI, where the .sh exits silently', () => {
+  it('nudges and records without jq or the sqlite3 CLI, where the .sh exits silently', async () => {
     db = resetDb(s);
     const bare = env({ PATH: gitOnly });
     assert.equal(commandOnPath('jq', bare), false);
     assert.equal(commandOnPath('sqlite3', bare), false);
-    assert.deepEqual(staleLines(postAtomicCloseReadme(close(2), bare).stdout), [`src/lib ${OLDER}`]);
+    assert.deepEqual(staleLines((await postAtomicCloseReadme(close(2), bare)).stdout), [`src/lib ${OLDER}`]);
     assert.equal(auditRows(db).length, 1);
   });
 });
