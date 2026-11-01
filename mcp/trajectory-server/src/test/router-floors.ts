@@ -2,9 +2,9 @@
  * Each router gate's budget floor (GH 1861): the timeout, in seconds, of the
  * hooks.json registration it ran under before the router took it (the Bash
  * gates at origin/dev 619ce711, the post-tool and stop gates at 54f9731c, the
- * rest at 9cc886e8). Every gate was its own
- * registration, so its share is that whole timeout; a trajectory-gates chain
- * member's is its chain-table budget.
+ * session, prompt and worktree gates at 76ec206d, the rest at 9cc886e8). Every
+ * gate was its own registration, so its share is that whole timeout; a
+ * trajectory-gates chain member's is its chain-table budget.
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -46,6 +46,22 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'bro-turn-usage': 6,
   'swe-atomic-close': 6,
   'consultant-persistence-gate': 6,
+  'ensure-gitignore': 6,
+  'mcp-health-check': 6,
+  'deferred-tools-drift-warn': 6,
+  'plugin-hooks-marker': 4,
+  'session-start-persona': 6,
+  'session-start-prescan': 6,
+  'ensure-mcp-deps-installed': 6,
+  'substrate-preflight': 6,
+  'orphan-scan': 7,
+  'user-prompt-persona': 6,
+  'rework-waiver-capture': 6,
+  'activation-routine': 6,
+  'session-log-capture': 4,
+  'prompt-intent-hints': 6,
+  'roundtable-slash-detect': 21,
+  'worktree-create': 16,
 });
 
 export function floorMs(gate: string): number {

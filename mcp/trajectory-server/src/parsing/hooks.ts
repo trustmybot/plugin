@@ -6,7 +6,7 @@
 // edges.line holding the chain position. A router entry (`dist/hooks.js <Event>`)
 // takes its gates from dist/hooks-router.txt the same way, named by its first
 // gate (GH 2185). Ported from the GH 1680 MVP enrich.mjs.
-import { matcherOfColumn } from '../hooks/router/table.js';
+import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
 import { clip, md5, oneLine, type Extraction } from './extract.js';
 
 export const HOOKS_PATH = 'hooks/hooks.json';
@@ -60,12 +60,12 @@ function eventRanks(events: string[]): Map<string, number> {
 const scriptOf = (gate: string): string => `scripts/hooks/${gate}.sh`;
 
 // A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
-// <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*>.
-function routerGatesOf(table: string, event: string, matcher: string): string[] {
+// <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*> [<part>].
+function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
   const rows = table
     .split('\n')
     .map((line) => line.split(' '))
-    .filter((f) => f[3] === event && f[4] !== undefined && matcherOfColumn(f[4]) === matcher)
+    .filter((f) => f[3] === event && f[4] !== undefined && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part))
     .map((f) => f[0]!);
   return [...new Set(rows)];
 }
@@ -91,7 +91,8 @@ export function extractHooks(src: string, chains: Map<string, string[]>, routerT
         const cmd = hook.command ?? '';
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : (cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null);
-        const routed = cmd.match(/dist\/hooks\.js"?\s+(\S+)\s*$/)?.[1] === event ? routerGatesOf(routerTable, event, matcher) : [];
+        const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
+        const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable, event, matcher, routerCommand[2]) : [];
         const isRouted = routed.length > 0;
         const name = gate ?? direct?.split('/').pop() ?? routed[0] ?? `hook${pos}`;
         const line = lineOf(gate ?? direct ?? (isRouted ? 'dist/hooks.js' : cmd), cursor);

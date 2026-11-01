@@ -45,7 +45,7 @@ export function auditCall(event, payload, d, env) {
     const p = parse(payload);
     const { taskId, issue } = taskAndIssue(payload, p, db, writeEnv);
     const tool = str(p.tool_name);
-    const decision = d.denied ? 'deny' : 'allow';
+    const decision = d.denied ? 'deny' : d.code === 0 ? 'allow' : 'failed';
     auditAppend(db, {
         issueId: issue,
         branchId: '',

@@ -20,6 +20,11 @@
  * unknown, runs past its deadline, or is left no group budget denies, naming
  * the gate; an advisory gate's failure is dropped and logged. Under the
  * TMB_HOOKS_IMPL=bash kill switch each gate runs as its .sh (router/sh-gate.ts).
+ * Claude Code adds a SessionStart or UserPromptSubmit gate's plain stdout as
+ * context, so plain text is an output there, kept as is; only text shaped as JSON
+ * that fails to parse is dropped. WorktreeCreate reads stdout as the path and
+ * fails creation on any non-zero exit, so it prints the gate's bare path or
+ * nothing, and every failure there exits 1 naming the cause.
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import type { Gate, GateResult } from '../gate.js';
@@ -53,12 +58,31 @@ export interface DecideDeps {
   budgetMs?: (gate: RouterGate) => number;
   /** The time the call's gates share, in place of the matched group's budget. */
   groupBudgetMs?: number;
+  /** The registration of the event this call answers; absent, its default. */
+  part?: string;
   now?: () => number;
 }
 
 export const ROUTER_NAME = 'router';
 
 const DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
+const PLAIN_CONTEXT_EVENTS: ReadonlySet<string> = new Set(['SessionStart', 'UserPromptSubmit']);
+/** An object, or an array opening as one: `[Persona loaded by …` is prose. */
+const JSON_SHAPED = /^\s*(\{|\[\s*([[{"\]\d-]|true\b|false\b|null\b))/;
+const PATH_EVENT = 'WorktreeCreate';
+
+export function stdoutIsPath(event: string): boolean {
+  return event === PATH_EVENT;
+}
+
+export function isBarePath(stdout: string): boolean {
+  const path = trimNewlines(stdout);
+  return path.trim() !== '' && !path.includes('\n') && !path.startsWith('{');
+}
+
+export function pathFailure(event: string, cause: string): string {
+  return `TMB router: ${event} failed: ${cause}\n`;
+}
 
 function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -104,6 +128,22 @@ export function denyReason(stdout: string, fallback: string): string {
   return fallback;
 }
 
+function isObjectText(stdout: string): boolean {
+  try {
+    const o = JSON.parse(stdout) as unknown;
+    return o !== null && typeof o === 'object' && !Array.isArray(o);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether Claude Code takes <out> on <event> as text, not as its JSON output. */
+function readsAsText(out: string, event: string): boolean {
+  if (stdoutIsPath(event)) return true;
+  if (!PLAIN_CONTEXT_EVENTS.has(event)) return false;
+  return !JSON_SHAPED.test(out) || (parses(out) && !isObjectText(out));
+}
+
 function parses(stdout: string): boolean {
   try {
     JSON.parse(stdout);
@@ -130,14 +170,15 @@ function firstWins(records: readonly Record<string, unknown>[], into: Record<str
 
 /**
  * run_chain's merge of the gates that did not deny: one output as is, more
- * joined into one additionalContext. No gate's decision is lost: the first
- * permissionDecision other than allow, with its own reason, beats an allow, as
- * in Claude Code's own precedence; every other key keeps its first value.
+ * joined into one additionalContext in group order, plain text as its own text.
+ * No gate's decision is lost: the first permissionDecision other than allow, with
+ * its own reason, beats an allow, as in Claude Code's own precedence; every other
+ * key keeps its first value.
  */
 export function mergeContext(outputs: readonly string[], event: string): string {
   if (outputs.length === 0) return '';
-  if (outputs.length === 1) return `${outputs[0]}\n`;
-  const parsed = outputs.map((o) => asRecord(JSON.parse(o)));
+  if (outputs.length === 1) return readsAsText(outputs[0], event) ? outputs[0] : `${outputs[0]}\n`;
+  const parsed = outputs.map((o) => (readsAsText(o, event) ? { hookSpecificOutput: { additionalContext: trimNewlines(o) } } : asRecord(JSON.parse(o))));
   const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
   const eventName = specifics.map((p) => p.hookEventName).find((e) => typeof e === 'string' && e !== '') ?? event;
   const context = specifics
@@ -236,18 +277,20 @@ function judge(gate: RouterGate, s: Settled, cut: boolean, b: Bound): Judged {
   if (s.kind === 'unrun') return overBudget(gate, b, false);
   if (cut || s.kind === 'late') return overBudget(gate, b, true);
   if (s.kind === 'threw') return closed('exited 1', `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}\n`);
-  if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) return overBudget(gate, b, true);
   const { code } = s.result;
   const out = trimNewlines(s.result.stdout);
-  const denies = DENY_PATTERN.test(out);
+  const text = out !== '' && readsAsText(out, b.event);
+  const denies = !text && DENY_PATTERN.test(out);
+  if (s.ms > b.limit && !(code === 2 || denies)) return overBudget(gate, b, true);
   if (code === 2 || denies) {
     if (code === 0 || code === 2 || enforce) {
       return { outcome: 'deny', stdout: out === '' ? '' : `${out}\n`, code: code === 2 ? 2 : 0, reason: denyReason(out, `exit ${code}`), stderr: '' };
     }
   }
   if (code !== 0) return closed(`exited ${code}`);
-  if (out !== '' && !parses(out)) return closed('printed unparseable output');
-  return { outcome: 'allow', stdout: out, code: 0, reason: '', stderr: '' };
+  if (out !== '' && !text && !parses(out)) return closed('printed unparseable output');
+  const context = !text ? out : out.trim() === '' ? '' : s.result.stdout;
+  return { outcome: 'allow', stdout: context, code: 0, reason: '', stderr: '' };
 }
 
 /** The tool_name of a payload that is a JSON object, else null (unparseable). */
@@ -268,6 +311,7 @@ export async function decide(event: string, payload: string, env: NodeJS.Process
   const tool = payloadTool(payload);
   const groups = deps.groups ?? ROUTER_GROUPS;
   if (tool === null) {
+    if (stdoutIsPath(event)) return { stdout: '', stderr: pathFailure(event, 'an unparseable payload'), code: 1, tool: '', gates: [], denied: null };
     if (!eventHoldsEnforcement(event, groups)) {
       return { stdout: '', stderr: `TMB router: ${event} got an unparseable payload — no gate run\n`, code: 0, tool: '', gates: [], denied: null };
     }
@@ -283,8 +327,8 @@ export async function decide(event: string, payload: string, env: NodeJS.Process
   }
   const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
   const find = deps.findGate ?? (bashImpl ? shGate : findGate);
-  const group = routerGroup(event, tool, groups);
-  const gates = routerGates(event, tool, groups);
+  const group = routerGroup(event, tool, groups, deps.part);
+  const gates = routerGates(event, tool, groups, deps.part);
   if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0 && !bashImpl) await bashParser().catch(() => undefined);
   const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
   const groupStart = now();
@@ -314,6 +358,12 @@ export async function decide(event: string, payload: string, env: NodeJS.Process
   const stderr = done.map(({ j }) => j.stderr).join('');
   const deny = done.find(({ j }) => j.outcome === 'deny');
   const context = done.filter(({ j }) => j.outcome === 'allow' && j.stdout !== '').map(({ j }) => j.stdout);
+  if (stdoutIsPath(event)) {
+    const notAllowed = done.find(({ j }) => j.outcome !== 'allow');
+    if (!notAllowed && context.length === 1 && isBarePath(context[0])) return { stdout: context[0], stderr, code: 0, tool, gates: outcomes, denied: null };
+    const cause = notAllowed ? `gate ${notAllowed.gate.name} ended in ${notAllowed.j.outcome}` : done.length === 0 ? 'no gate serves it' : 'no bare path printed';
+    return { stdout: '', stderr: `${stderr}${pathFailure(event, cause)}`, code: 1, tool, gates: outcomes, denied: null };
+  }
   if (deny) {
     return { stdout: blockKeepingContext(event, deny.j, context), stderr, code: deny.j.code, tool, gates: outcomes, denied: { gate: deny.gate.name, reason: deny.j.reason } };
   }

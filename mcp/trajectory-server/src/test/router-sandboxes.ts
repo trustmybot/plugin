@@ -2,14 +2,17 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate, task-overrun-alert and liveness-alert have
- * no hook-corpus directory (they were born in TypeScript), so their cases are
- * built here.
+ * router benches. swe-resume-gate, task-overrun-alert, liveness-alert and
+ * rework-waiver-capture have no hook-corpus directory (they were born in
+ * TypeScript), so their cases are built here. A gate with bash recordings
+ * carries where its case's recording sits, so the parity tests can hold the
+ * router to it.
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { projectSlug } from '../hooks/orphan-scan.js';
 import { buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from './hooks-agent-spawn-parity.suite.js';
 import { buildSandbox as healthSandbox, caseEnv as healthEnv, materialize as healthCase } from './hooks-health-parity.suite.js';
 import { buildSandbox as mergeSandbox, caseEnv as mergeEnv, materialize as mergeCase } from './hooks-merge-lifecycle-parity.suite.js';
@@ -20,15 +23,18 @@ import { buildSandbox as gitBranchSandbox, caseEnv as gitBranchEnv, GIT_BRANCH_G
 import { buildSandbox as gitGuardsSandbox, materialize as gitGuardsCase } from './hooks-git-guards-parity.suite.js';
 import { buildSandbox as pushGuardSandbox, materialize as pushGuardCase } from './hooks-git-push-guard-parity.suite.js';
 import { buildSourceEditSandbox, caseEnv as sourceEditEnv, materialize as sourceEditCase } from './hooks-no-source-edit-parity.suite.js';
-import { containmentGuardSetup } from './hooks-parity.suite.js';
+import { containmentGuardSetup, readyDepsEnv } from './hooks-parity.suite.js';
+import { buildSandbox as promptIntentSandbox, caseEnv as promptIntentEnv } from './hooks-prompt-intent-parity.suite.js';
 import { buildSandbox as remoteIdSandbox, materialize as remoteIdCase } from './hooks-remote-id-guard-parity.suite.js';
 import { buildSandbox as roundtableSandbox, caseEnv as roundtableEnv, materialize as roundtableCase } from './hooks-roundtable-parity.suite.js';
 import { buildSandbox as sessionSandbox, caseEnv as sessionEnv, materialize as sessionCase } from './hooks-session-parity.suite.js';
+import { buildSessionScansSandbox, materialize as sessionScanCase, sessionScanEnv } from './hooks-session-scans-parity.suite.js';
 import { buildSandbox as sweBoundarySandbox, materialize as sweBoundaryCase, resetState as sweBoundaryReset } from './hooks-swe-boundary-parity.suite.js';
 import { buildSandbox as sweRunSandbox, caseEnv as sweRunEnv, materialize as sweRunCase, noCmdPath } from './hooks-swe-run-parity.suite.js';
 import { buildScopeSandbox, caseEnv as scopeEnv } from './hooks-swe-scope-fence-parity.suite.js';
 import { buildVerificationSandbox, caseEnv as verificationEnv, materialize as verificationCase } from './hooks-swe-verification-parity.suite.js';
 import { buildSandbox as chainSandbox, caseEnv as chainEnv, materialize as chainCase, TRAJECTORY_CHAIN_GATES } from './hooks-trajectory-chain-parity.suite.js';
+import { GENERIC_CASE_PREFIX, type GoldenRoots } from './golden.js';
 import { lintSandbox } from './lint-hooks-sandbox.js';
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -75,9 +81,32 @@ export const ROUTER_CORPUS_GATES = [
   'bro-turn-usage',
   'swe-atomic-close',
   'consultant-persistence-gate',
+  'ensure-gitignore',
+  'mcp-health-check',
+  'deferred-tools-drift-warn',
+  'plugin-hooks-marker',
+  'session-start-persona',
+  'session-start-prescan',
+  'ensure-mcp-deps-installed',
+  'substrate-preflight',
+  'orphan-scan',
+  'user-prompt-persona',
+  'rework-waiver-capture',
+  'activation-routine',
+  'session-log-capture',
+  'prompt-intent-hints',
+  'roundtable-slash-detect',
+  'worktree-create',
 ] as const;
 
 export type RouterCorpusGate = (typeof ROUTER_CORPUS_GATES)[number];
+
+/** Where a case's bash recording sits; `divergent` when the corpus allows the gate to differ from it. */
+export interface RouterGolden {
+  key: string;
+  roots: GoldenRoots;
+  divergent: boolean;
+}
 
 export interface RouterCase {
   gate: string;
@@ -89,6 +118,7 @@ export interface RouterCase {
   fakeUid: boolean;
   /** Resets the sandbox state the payload starts from. */
   reset?: () => void;
+  golden?: RouterGolden;
 }
 
 export interface RouterSandbox {
@@ -286,13 +316,13 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   }
 
   const paths = { noJq: path, noSqlite: path };
-  const rebuilt = (gate: RouterCorpusGate, dir: string, build: (s: string) => void, one: (file: string) => { input: Buffer; env: NodeJS.ProcessEnv; cwd: string }, fakeUid = false): void => {
+  const rebuilt = (gate: RouterCorpusGate, dir: string, build: (s: string) => void, one: (file: string) => { input: Buffer; env: NodeJS.ProcessEnv; cwd: string; golden?: RouterGolden }, fakeUid = false): void => {
     if (!want(gate)) return;
     mkdirSync(dirname(dir), { recursive: true });
     build(dir);
     for (const file of files(gate)) {
       const c = one(file);
-      cases.push({ gate, file, input: c.input.toString('utf8'), env: clean(c.env, ['NODE_OPTIONS']), cwd: c.cwd, fakeUid, reset: () => build(dir) });
+      cases.push({ gate, file, input: c.input.toString('utf8'), env: clean(c.env, ['NODE_OPTIONS']), cwd: c.cwd, fakeUid, reset: () => build(dir), golden: c.golden });
     }
   };
 
@@ -352,7 +382,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   }
 
   /** Like rebuilt, for a sandbox too slow to build per case: built once and copied back per case. */
-  const restored = (gate: RouterCorpusGate, build: (s: string) => void, one: (file: string, s: string) => { input: Buffer | string; env: NodeJS.ProcessEnv; cwd: string }): void => {
+  const restored = (gate: RouterCorpusGate, build: (s: string) => void, one: (file: string, s: string) => { input: Buffer | string; env: NodeJS.ProcessEnv; cwd: string; golden?: RouterGolden }): void => {
     if (!want(gate)) return;
     const dir = join(root, gate, 'sandbox');
     const template = join(root, gate, 'template');
@@ -369,6 +399,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
         env: clean(c.env, ['NODE_OPTIONS']),
         cwd: c.cwd,
         fakeUid: false,
+        golden: c.golden,
         reset: () => {
           rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
           cpSync(template, dir, copy);
@@ -449,6 +480,81 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
 
   if (want('swe-resume-gate')) cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
 
+  // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
+  const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
+  const golden = (file: string, s: string, divergent: boolean, roots: GoldenRoots = {}): RouterGolden => ({ key: basename(file), roots: { '@SANDBOX@': s, '@BASE@': dirname(s), ...roots }, divergent });
+  let realPaths: { noJq: string; noSqlite: string } | undefined;
+  const corpusPaths = (): { noJq: string; noSqlite: string } => (realPaths ??= { noJq: noCmdPath(join(root, 'paths/nojq'), 'jq', path), noSqlite: noCmdPath(join(root, 'paths/nosqlite'), 'sqlite3', path) });
+
+  for (const gate of ['deferred-tools-drift-warn', 'ensure-gitignore', 'mcp-health-check', 'substrate-preflight'] as const) {
+    restored(gate, healthSandbox, (file, s) => {
+      const without = (cmds: string): string => cmds.split(',').reduce((p, cmd) => noCmdPath(join(root, gate, 'paths', cmds, cmd), cmd, p), `${join(s, 'bin')}:${path}`);
+      const c = healthCase(file, s, without);
+      const tmp = join(s, '..', 'tmp');
+      mkdirSync(tmp, { recursive: true });
+      return { input: c.input, env: noInstall(healthEnv(s, tmp, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, s, c.divergence !== undefined) };
+    });
+  }
+
+  for (const gate of ['plugin-hooks-marker', 'session-start-persona', 'user-prompt-persona', 'activation-routine', 'session-log-capture'] as const) {
+    const dir = join(root, gate, 'sandbox');
+    rebuilt(gate, dir, sessionSandbox, (file) => {
+      const c = sessionCase(file, dir, corpusPaths().noJq);
+      return { input: c.input, env: noInstall(sessionEnv(dir, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, dir, false) };
+    });
+  }
+
+  for (const gate of ['orphan-scan', 'session-start-prescan'] as const) {
+    restored(
+      gate,
+      (s) => buildSessionScansSandbox(s, process.pid),
+      (file, s) => {
+        const c = sessionScanCase(file, s, corpusPaths());
+        return {
+          input: c.input,
+          env: noInstall(sessionScanEnv(s, gate, LOCALE, c.env, c.cwd)),
+          cwd: c.cwd,
+          golden: golden(file, s, c.divergent !== undefined, { '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }),
+        };
+      },
+    );
+  }
+
+  const promptIntentDir = join(root, 'prompt-intent-hints/sandbox');
+  rebuilt('prompt-intent-hints', promptIntentDir, promptIntentSandbox, (file) => {
+    const c = sweRunCase(file, promptIntentDir, corpusPaths());
+    return { input: c.input, env: promptIntentEnv(promptIntentDir, LOCALE, c.env, c.cwd), cwd: c.cwd, golden: golden(file, promptIntentDir, c.divergent !== undefined) };
+  });
+
+  const slashDir = join(root, 'roundtable-slash-detect/sandbox');
+  rebuilt('roundtable-slash-detect', slashDir, roundtableSandbox, (file) => {
+    const c = roundtableCase(file, slashDir, corpusPaths());
+    return { input: c.input, env: roundtableEnv(slashDir, LOCALE, c.env, c.cwd), cwd: c.cwd, golden: golden(file, slashDir, c.divergent !== undefined) };
+  });
+
+  restored('worktree-create', worktreeSandbox, (file, s) => {
+    const c = worktreeCase(file, s, corpusPaths());
+    return { input: c.input, env: worktreeEnv(s, LOCALE, c), cwd: c.cwd, golden: golden(file, s, c.divergent !== undefined) };
+  });
+
+  if (want('ensure-mcp-deps-installed')) {
+    const scratch = join(root, 'ensure-mcp-deps-installed');
+    const env = readyDepsEnv(scratch);
+    for (const file of files('ensure-mcp-deps-installed')) {
+      cases.push({
+        gate: 'ensure-mcp-deps-installed',
+        file,
+        input: readFileSync(file, 'utf8'),
+        env: clean({ ...process.env, HOME: join(scratch, 'home'), CLAUDE_PROJECT_DIR: emptyProject, LC_ALL: LOCALE, TMB_DRIFT_SELF_PID: '1', ...env }, ['NODE_OPTIONS', 'TRAJECTORY_DB_PATH']),
+        cwd: emptyProject,
+        fakeUid: false,
+        golden: { key: `${GENERIC_CASE_PREFIX}${basename(file)}`, roots: { '@PROJECT@': emptyProject, '@SCRATCH@': scratch, '@PROJECT_SLUG@': emptyProject.replace(/[^A-Za-z0-9]/g, '-') }, divergent: false },
+      });
+    }
+  }
+
+  if (want('rework-waiver-capture')) cases.push(...reworkWaiverCases(join(root, 'rework-waiver-capture'), emptyProject));
+
   // In-process, post-task-close-rescan's invoker is the real one: its launch is proven in hooks-task-close-parity.
   return {
     cases: cases.map((c) => ({ ...c, env: { ...c.env, TMB_SKIP_AUTO_RESCAN: '1' } })),
@@ -523,6 +629,37 @@ function livenessCases(dir: string, cwd: string): RouterCase[] {
     cwd,
     fakeUid: false,
     reset: () => build(typeof startedAt === 'function' ? startedAt() : startedAt),
+  }));
+}
+
+/** rework-waiver-capture's cases, on a DB holding task 3 of issue 9, rebuilt per case. */
+function reworkWaiverCases(dir: string, cwd: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  mkdirSync(dir, { recursive: true });
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const build = (): void => {
+    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
+    const d = new DatabaseSync(db);
+    d.exec(schema);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+    d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (3, 9, 'feat/3-x', 'd', 'closed', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+    d.close();
+  };
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['waives-a-task', 'waive task 3'],
+    ['waives-with-hash', 'please Waive task #3, it is fine'],
+    ['waives-an-unknown-task', 'waive task 999'],
+    ['other-wording', 'skip the rework on task 3'],
+  ];
+  return scenarios.map(([file, prompt]) => ({
+    gate: 'rework-waiver-capture',
+    file,
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt }),
+    env,
+    cwd,
+    fakeUid: false,
+    reset: build,
   }));
 }
 

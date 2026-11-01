@@ -18,7 +18,7 @@ A PR that changes a flow updates its step, loop or roadmap row here in the same 
 
 Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workflow hero takes its memory story from there.
 
-**Hook citations.** A PreToolUse, PostToolUse, PermissionDenied, Stop or SubagentStop gate runs through the router (`node dist/hooks.js <Event>`, one `hooks/hooks.json` entry per matcher group, gates listed in `dist/hooks-router.txt`); every other hook is registered as `scripts/hooks/dispatch.sh <gate>`. A gate ported to TypeScript runs from `mcp/trajectory-server/src/hooks/<gate>.ts` (built into `dist/hooks.js` and listed in `dist/hooks-gates.txt`); the rest run `scripts/hooks/<gate>.sh`. `TMB_HOOKS_IMPL=bash` forces the `.sh` of a ported gate that still has one, in the router as in `dispatch.sh`; a gate with no `.sh` is not run, so an enforcement gate denies. Below, `src/hooks/` means `mcp/trajectory-server/src/hooks/`, and the port to TypeScript is tracked in GH 1692.
+**Hook citations.** Every gate runs through the router (`node dist/hooks.js <Event> [part]`, one `hooks/hooks.json` registration per group, gates listed in `dist/hooks-router.txt`). A gate ported to TypeScript runs from `mcp/trajectory-server/src/hooks/<gate>.ts` (built into `dist/hooks.js` and listed in `dist/hooks-gates.txt`); the rest run `scripts/hooks/<gate>.sh`. `TMB_HOOKS_IMPL=bash` forces the `.sh` of a ported gate that still has one, in the router as in `dispatch.sh`; a gate with no `.sh` is not run, so an enforcement gate denies. Below, `src/hooks/` means `mcp/trajectory-server/src/hooks/`, and the port to TypeScript is tracked in GH 1692.
 
 **Layout.** Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Fresh or existing project](#part-iii--fresh-or-existing-project), [Agent task handling](#part-iv--agent-task-handling), [Extending the team](#part-v--extending-the-team) and [Reporting TMB bugs](#part-vi--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
 
@@ -340,7 +340,7 @@ Hooks that fire across many steps rather than at one.
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 | G10 | <a id="G10"></a>`liveness-alert`, `liveness-sentinel` | UserPromptSubmit, PostToolUse trajectory-server; Stop (`asyncRewake`) | Reports a subagent run silent past `TMB_RUN_SILENT_MIN` minutes (default 30, scaled by load) or a hung `tail -f` watcher to bro, once per finding (`liveness_finding_reported`): during a turn as context, while idle by waking an attended session. Reports only: kills, closes and fails nothing | `src/hooks/liveness-probe.ts`; `src/hooks/liveness-alert.ts`; `src/hooks/liveness-sentinel.ts` |
 
-**Planned (GH 1861):** `dispatch.sh` records each gate's run time, sets timeouts from the p99, and retries a timed-out gate once.
+**Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped.
 
 #### Metering
 
@@ -590,7 +590,6 @@ Every unshipped item that changes a flow, with the ids it touches. Most come fro
 | R9 | <a id="R9"></a>Handoff fields for swe specs and returns, and a downstream-consumer check at close | **Planned (GH 1983)** | S6, S10, S13 |
 | R10 | <a id="R10"></a>Reviewer convergence: bug-class findings, severity tiers, risk-scaled effort, a reviewer eval | **Planned (GH 1955)** | S15, S16, L3 |
 | R11 | <a id="R11"></a>The verification gate checks the worktree is clean before it records or reuses a run | **Planned (GH 2001)** | S10, L2 |
-| R12 | <a id="R12"></a>Per-gate run time, p99 timeouts, one retry for a timed-out gate | **Planned (GH 1861)** | every hook |
 | R13 | <a id="R13"></a>`wm_tool_called` logs the `impact` and `source` arguments | **In flight (PR 2010)**, GH 1986 | S2 |
 | R14 | <a id="R14"></a>Adopt the session's worktree when bro runs in a Claude Code worktree session | **In flight (GH 2032)** | S6, S9, L3 |
 | R15 | <a id="R15"></a>Opt-in TMB bug reports | **In flight (PR 2053)**, GH 2034 | flow 1 Round 5, flow B |

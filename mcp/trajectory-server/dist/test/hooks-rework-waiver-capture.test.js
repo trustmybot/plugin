@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { makeReworkWaiverCapture, reworkWaiverCapture, waivers, WAIVER_BODY_MAX_CHARS } from '../hooks/rework-waiver-capture.js';
-import { findGate, gateNames } from '../hooks/registry.js';
+import { findGate, gateNames, routerGates } from '../hooks/registry.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
@@ -56,12 +56,13 @@ describe('rework-waiver-capture', () => {
     after(() => {
         rmSync(sandbox, { recursive: true, force: true });
     });
-    it('SC4: is registered and wired in hooks.json under UserPromptSubmit through dispatch.sh', () => {
+    it('SC4: is registered and wired under the default UserPromptSubmit router group', () => {
         assert.equal(findGate('rework-waiver-capture'), reworkWaiverCapture);
         assert.ok(gateNames().includes('rework-waiver-capture'));
+        assert.ok(routerGates('UserPromptSubmit', '').some((g) => g.name === 'rework-waiver-capture'));
         const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8'));
         const commands = hooks.hooks.UserPromptSubmit.flatMap((g) => g.hooks.map((h) => h.command));
-        assert.ok(commands.includes('"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" rework-waiver-capture'));
+        assert.ok(commands.includes('node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" UserPromptSubmit'));
     });
     it('SC1: `waive task 278` writes exactly one human decision row on task 278 and its issue', () => {
         const f = fixture();

@@ -23525,6 +23525,41 @@ var budgets_default = {
       max_budget_ms: 11350,
       p99_sum_ms: 5633.3,
       group_budget_ms: 11350
+    },
+    "SessionStart:": {
+      max_budget_ms: 13038,
+      p99_sum_ms: 18982,
+      group_budget_ms: 28473
+    },
+    "SessionStart::persona": {
+      max_budget_ms: 8340,
+      p99_sum_ms: 4070,
+      group_budget_ms: 8340
+    },
+    "SessionStart::prescan": {
+      max_budget_ms: 11792,
+      p99_sum_ms: 5796,
+      group_budget_ms: 11792
+    },
+    "UserPromptSubmit:": {
+      max_budget_ms: 6e3,
+      p99_sum_ms: 2210.3,
+      group_budget_ms: 6e3
+    },
+    "UserPromptSubmit::persona": {
+      max_budget_ms: 6e3,
+      p99_sum_ms: 2.4,
+      group_budget_ms: 6e3
+    },
+    "UserPromptSubmit::roundtable": {
+      max_budget_ms: 21e3,
+      p99_sum_ms: 6.9,
+      group_budget_ms: 21e3
+    },
+    "WorktreeCreate:": {
+      max_budget_ms: 16e3,
+      p99_sum_ms: 1208.5,
+      group_budget_ms: 16e3
     }
   },
   gates: {
@@ -24130,6 +24165,253 @@ var budgets_default = {
       floor_ms: 6e3,
       budget_ms: 6e3,
       date: "2026-11-01"
+    },
+    "ensure-gitignore": {
+      kind: "advisory",
+      bench_p50: 150.6,
+      bench_p95: 698.8,
+      bench_p99: 1127.6,
+      bench_runs: 800,
+      bench_load_avg: 11.25,
+      transcript_p99: 2123,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "mcp-health-check": {
+      kind: "advisory",
+      bench_p50: 199.8,
+      bench_p95: 497,
+      bench_p99: 523.4,
+      bench_runs: 1280,
+      bench_load_avg: 11.25,
+      transcript_p99: 4065,
+      transcript_samples: 45,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 8330,
+      date: "2026-11-01"
+    },
+    "deferred-tools-drift-warn": {
+      kind: "advisory",
+      bench_p50: 0.4,
+      bench_p95: 803.4,
+      bench_p99: 1072.4,
+      bench_runs: 1200,
+      bench_load_avg: 11.25,
+      transcript_p99: 2015,
+      transcript_samples: 85,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "plugin-hooks-marker": {
+      kind: "advisory",
+      bench_p50: 0.2,
+      bench_p95: 0.7,
+      bench_p99: 1.5,
+      bench_runs: 880,
+      bench_load_avg: 11.25,
+      transcript_p99: 565,
+      transcript_samples: 1,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 4e3,
+      budget_ms: 4e3,
+      date: "2026-11-01"
+    },
+    "session-start-persona": {
+      kind: "advisory",
+      bench_p50: 0.7,
+      bench_p95: 1.9,
+      bench_p99: 5.3,
+      bench_runs: 1120,
+      bench_load_avg: 11.25,
+      transcript_p99: 4070,
+      transcript_samples: 843,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 8340,
+      date: "2026-11-01"
+    },
+    "session-start-prescan": {
+      kind: "advisory",
+      bench_p50: 646.8,
+      bench_p95: 1298.9,
+      bench_p99: 1616.7,
+      bench_runs: 1280,
+      bench_load_avg: 11.25,
+      transcript_p99: 5796,
+      transcript_samples: 795,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 11792,
+      date: "2026-11-01"
+    },
+    "ensure-mcp-deps-installed": {
+      kind: "advisory",
+      bench_p50: 0.1,
+      bench_p95: 1.7,
+      bench_p99: 3.6,
+      bench_runs: 640,
+      bench_load_avg: 11.25,
+      transcript_p99: 1507,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "substrate-preflight": {
+      kind: "advisory",
+      bench_p50: 119,
+      bench_p95: 203.9,
+      bench_p99: 346.9,
+      bench_runs: 800,
+      bench_load_avg: 11.25,
+      transcript_p99: 2288,
+      transcript_samples: 1,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "orphan-scan": {
+      kind: "advisory",
+      bench_p50: 428.1,
+      bench_p95: 1028.6,
+      bench_p99: 1090.3,
+      bench_runs: 1120,
+      bench_load_avg: 11.25,
+      transcript_p99: 6419,
+      transcript_samples: 812,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 7e3,
+      budget_ms: 13038,
+      date: "2026-11-01"
+    },
+    "user-prompt-persona": {
+      kind: "advisory",
+      bench_p50: 0.6,
+      bench_p95: 1.4,
+      bench_p99: 2.4,
+      bench_runs: 960,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no user-prompt-persona UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "rework-waiver-capture": {
+      kind: "advisory",
+      bench_p50: 1.5,
+      bench_p95: 2.8,
+      bench_p99: 4.7,
+      bench_runs: 320,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no rework-waiver-capture UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "activation-routine": {
+      kind: "advisory",
+      bench_p50: 153.5,
+      bench_p95: 500.6,
+      bench_p99: 532.9,
+      bench_runs: 1440,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no activation-routine UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "session-log-capture": {
+      kind: "advisory",
+      bench_p50: 0.4,
+      bench_p95: 1.1,
+      bench_p99: 1.7,
+      bench_runs: 880,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no session-log-capture UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 4e3,
+      budget_ms: 4e3,
+      date: "2026-11-01"
+    },
+    "prompt-intent-hints": {
+      kind: "advisory",
+      bench_p50: 2.9,
+      bench_p95: 5.9,
+      bench_p99: 10,
+      bench_runs: 5200,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no prompt-intent-hints UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
+    },
+    "roundtable-slash-detect": {
+      kind: "advisory",
+      bench_p50: 1.8,
+      bench_p95: 3.3,
+      bench_p99: 6.9,
+      bench_runs: 1360,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no roundtable-slash-detect UserPromptSubmit hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 21e3,
+      budget_ms: 21e3,
+      date: "2026-11-01"
+    },
+    "worktree-create": {
+      kind: "advisory",
+      bench_p50: 438.8,
+      bench_p95: 1062.7,
+      bench_p99: 1208.5,
+      bench_runs: 1520,
+      bench_load_avg: 11.25,
+      transcript_p99: null,
+      reason: "no worktree-create WorktreeCreate hook attachment in 1050 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 16e3,
+      budget_ms: 16e3,
+      date: "2026-11-01"
     }
   }
 };
@@ -24214,11 +24496,11 @@ function routerGate(name3, kind, toolSuffix) {
   return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix } };
 }
 function routerGroupKey(group) {
-  return `${group.event}:${group.matcher}`;
+  return group.part === void 0 ? `${group.event}:${group.matcher}` : `${group.event}:${group.matcher}:${group.part}`;
 }
 function eventGroup(event, matcher, gates, opts = {}) {
   const budgets = budgets_default.groups;
-  return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher })].group_budget_ms, ...opts };
+  return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher, part: opts.part })].group_budget_ms, ...opts };
 }
 function preToolUseGroup(matcher, gates, opts = {}) {
   return eventGroup("PreToolUse", matcher, gates, opts);
@@ -24276,7 +24558,29 @@ var ROUTER_GROUPS = [
   eventGroup("PostToolUse", "Agent", [routerGate(GATE_NAME44, "advisory")]),
   eventGroup("PermissionDenied", "Agent", [routerGate(GATE_NAME45, "advisory")]),
   eventGroup("Stop", "", [routerGate(GATE_NAME3, "advisory")]),
-  eventGroup("SubagentStop", "", [routerGate(GATE_NAME35, "enforcement"), routerGate(GATE_NAME58, "advisory")])
+  eventGroup("SubagentStop", "", [routerGate(GATE_NAME35, "enforcement"), routerGate(GATE_NAME58, "advisory")]),
+  eventGroup("SessionStart", "", [
+    routerGate(GATE_NAME9, "advisory"),
+    routerGate(GATE_NAME11, "advisory"),
+    routerGate(GATE_NAME8, "advisory"),
+    routerGate(GATE_NAME24, "advisory"),
+    routerGate("ensure-mcp-deps-installed", "advisory"),
+    routerGate(GATE_NAME18, "advisory"),
+    routerGate(GATE_NAME54, "advisory")
+  ]),
+  eventGroup("SessionStart", "", [routerGate(GATE_NAME30, "advisory")], { part: "persona" }),
+  eventGroup("SessionStart", "", [routerGate(GATE_NAME55, "advisory")], { part: "prescan" }),
+  eventGroup("UserPromptSubmit", "", [
+    routerGate(GATE_NAME34, "advisory"),
+    routerGate(GATE_NAME27, "advisory"),
+    routerGate(GATE_NAME29, "advisory"),
+    routerGate(GATE_NAME33, "advisory"),
+    routerGate(GATE_NAME23, "advisory"),
+    routerGate(GATE_NAME25, "advisory")
+  ]),
+  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME31, "advisory")], { part: "persona" }),
+  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME38, "advisory")], { part: "roundtable" }),
+  eventGroup("WorktreeCreate", "", [routerGate(GATE_NAME65, "advisory")])
 ];
 function routerEvents() {
   return new Set(ROUTER_GROUPS.map((g) => g.event));
@@ -24287,11 +24591,11 @@ function eventHoldsEnforcement(event, groups = ROUTER_GROUPS) {
 function matcherFits(matcher, tool) {
   return matcher === "" || new RegExp(`^(?:${matcher})$`).test(tool);
 }
-function routerGroup(event, tool, groups = ROUTER_GROUPS) {
-  return groups.find((g) => g.event === event && matcherFits(g.matcher, tool));
+function routerGroup(event, tool, groups = ROUTER_GROUPS, part) {
+  return groups.find((g) => g.event === event && g.part === part && matcherFits(g.matcher, tool));
 }
-function routerGates(event, tool, groups = ROUTER_GROUPS) {
-  const gates = routerGroup(event, tool, groups)?.gates ?? [];
+function routerGates(event, tool, groups = ROUTER_GROUPS, part) {
+  const gates = routerGroup(event, tool, groups, part)?.gates ?? [];
   return gates.filter((g) => g.toolSuffix === void 0 || tool.endsWith(`trajectory-server__${g.toolSuffix}`));
 }
 function routerTimeoutS(group) {
@@ -24329,6 +24633,20 @@ function shGate(name3) {
 // src/hooks/router/decide.ts
 var ROUTER_NAME = "router";
 var DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
+var PLAIN_CONTEXT_EVENTS = /* @__PURE__ */ new Set(["SessionStart", "UserPromptSubmit"]);
+var JSON_SHAPED = /^\s*(\{|\[\s*([[{"\]\d-]|true\b|false\b|null\b))/;
+var PATH_EVENT = "WorktreeCreate";
+function stdoutIsPath(event) {
+  return event === PATH_EVENT;
+}
+function isBarePath(stdout) {
+  const path = trimNewlines(stdout);
+  return path.trim() !== "" && !path.includes("\n") && !path.startsWith("{");
+}
+function pathFailure(event, cause) {
+  return `TMB router: ${event} failed: ${cause}
+`;
+}
 function oneLine(text) {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -24365,6 +24683,19 @@ function denyReason4(stdout, fallback) {
   }
   return fallback;
 }
+function isObjectText(stdout) {
+  try {
+    const o = JSON.parse(stdout);
+    return o !== null && typeof o === "object" && !Array.isArray(o);
+  } catch {
+    return false;
+  }
+}
+function readsAsText(out2, event) {
+  if (stdoutIsPath(event)) return true;
+  if (!PLAIN_CONTEXT_EVENTS.has(event)) return false;
+  return !JSON_SHAPED.test(out2) || parses(out2) && !isObjectText(out2);
+}
 function parses(stdout) {
   try {
     JSON.parse(stdout);
@@ -24386,9 +24717,9 @@ function firstWins(records2, into, skip2) {
 }
 function mergeContext(outputs, event) {
   if (outputs.length === 0) return "";
-  if (outputs.length === 1) return `${outputs[0]}
+  if (outputs.length === 1) return readsAsText(outputs[0], event) ? outputs[0] : `${outputs[0]}
 `;
-  const parsed = outputs.map((o) => asRecord(JSON.parse(o)));
+  const parsed = outputs.map((o) => readsAsText(o, event) ? { hookSpecificOutput: { additionalContext: trimNewlines(o) } } : asRecord(JSON.parse(o)));
   const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
   const eventName2 = specifics.map((p) => p.hookEventName).find((e) => typeof e === "string" && e !== "") ?? event;
   const context4 = specifics.map((p) => p.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
@@ -24454,10 +24785,11 @@ function judge(gate, s, cut4, b) {
   if (cut4 || s.kind === "late") return overBudget(gate, b, true);
   if (s.kind === "threw") return closed("exited 1", `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}
 `);
-  if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) return overBudget(gate, b, true);
   const { code } = s.result;
   const out2 = trimNewlines(s.result.stdout);
-  const denies = DENY_PATTERN.test(out2);
+  const text = out2 !== "" && readsAsText(out2, b.event);
+  const denies = !text && DENY_PATTERN.test(out2);
+  if (s.ms > b.limit && !(code === 2 || denies)) return overBudget(gate, b, true);
   if (code === 2 || denies) {
     if (code === 0 || code === 2 || enforce) {
       return { outcome: "deny", stdout: out2 === "" ? "" : `${out2}
@@ -24465,8 +24797,9 @@ function judge(gate, s, cut4, b) {
     }
   }
   if (code !== 0) return closed(`exited ${code}`);
-  if (out2 !== "" && !parses(out2)) return closed("printed unparseable output");
-  return { outcome: "allow", stdout: out2, code: 0, reason: "", stderr: "" };
+  if (out2 !== "" && !text && !parses(out2)) return closed("printed unparseable output");
+  const context4 = !text ? out2 : out2.trim() === "" ? "" : s.result.stdout;
+  return { outcome: "allow", stdout: context4, code: 0, reason: "", stderr: "" };
 }
 function payloadTool(payload) {
   let parsed;
@@ -24484,6 +24817,7 @@ async function decide(event, payload, env, deps = {}) {
   const tool = payloadTool(payload);
   const groups = deps.groups ?? ROUTER_GROUPS;
   if (tool === null) {
+    if (stdoutIsPath(event)) return { stdout: "", stderr: pathFailure(event, "an unparseable payload"), code: 1, tool: "", gates: [], denied: null };
     if (!eventHoldsEnforcement(event, groups)) {
       return { stdout: "", stderr: `TMB router: ${event} got an unparseable payload \u2014 no gate run
 `, code: 0, tool: "", gates: [], denied: null };
@@ -24501,8 +24835,8 @@ async function decide(event, payload, env, deps = {}) {
   }
   const bashImpl = env.TMB_HOOKS_IMPL === "bash";
   const find = deps.findGate ?? (bashImpl ? shGate : findGate);
-  const group = routerGroup(event, tool, groups);
-  const gates = routerGates(event, tool, groups);
+  const group = routerGroup(event, tool, groups, deps.part);
+  const gates = routerGates(event, tool, groups, deps.part);
   if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await bashParser().catch(() => void 0);
   const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
   const groupStart = now();
@@ -24532,6 +24866,12 @@ async function decide(event, payload, env, deps = {}) {
   const stderr2 = done.map(({ j }) => j.stderr).join("");
   const deny11 = done.find(({ j }) => j.outcome === "deny");
   const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
+  if (stdoutIsPath(event)) {
+    const notAllowed = done.find(({ j }) => j.outcome !== "allow");
+    if (!notAllowed && context4.length === 1 && isBarePath(context4[0])) return { stdout: context4[0], stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
+    const cause = notAllowed ? `gate ${notAllowed.gate.name} ended in ${notAllowed.j.outcome}` : done.length === 0 ? "no gate serves it" : "no bare path printed";
+    return { stdout: "", stderr: `${stderr2}${pathFailure(event, cause)}`, code: 1, tool, gates: outcomes, denied: null };
+  }
   if (deny11) {
     return { stdout: blockKeepingContext(event, deny11.j, context4), stderr: stderr2, code: deny11.j.code, tool, gates: outcomes, denied: { gate: deny11.gate.name, reason: deny11.j.reason } };
   }
@@ -24559,7 +24899,11 @@ function canonicalJson(value) {
   }
   return JSON.stringify(value) ?? "null";
 }
-function dedupeKey(payload) {
+function callMaterial(p, event) {
+  if ("tool_name" in p) return [p.hook_event_name ?? "", p.session_id ?? "", p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ""];
+  return event === "SessionStart" ? [event, p.session_id ?? ""] : p;
+}
+function dedupeKey(payload, event, part) {
   let o;
   try {
     o = JSON.parse(payload);
@@ -24568,8 +24912,8 @@ function dedupeKey(payload) {
   }
   if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
   const p = o;
-  const material = canonicalJson("tool_name" in p ? [p.hook_event_name ?? "", p.session_id ?? "", p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ""] : p);
-  return createHash2("sha256").update(material).digest("hex");
+  const call = callMaterial(p, event);
+  return createHash2("sha256").update(canonicalJson(part === void 0 ? call : [call, part])).digest("hex");
 }
 function intEnv(env, name3, fallback) {
   const v = env[name3] ?? "";
@@ -24594,14 +24938,16 @@ function ageS(path) {
   }
 }
 var Dedupe = class {
-  constructor(base2, timeoutS, env) {
+  constructor(base2, timeoutS, env, replayAll = false) {
     this.timeoutS = timeoutS;
+    this.replayAll = replayAll;
     this.base = base2;
     this.ttlMin = intEnv(env, "TMB_DISPATCH_TTL_MIN", 10);
     this.windowS = intEnv(env, "TMB_DISPATCH_WINDOW_S", 5);
     this.sweepS = intEnv(env, "TMB_DISPATCH_SWEEP_S", 60);
   }
   timeoutS;
+  replayAll;
   base;
   ttlMin;
   windowS;
@@ -24678,6 +25024,7 @@ var Dedupe = class {
       }
     };
     const result = read("result");
+    if (this.replayAll) return { stdout: result, stderr: read("stderr"), code: rc };
     if (rc === 2) return { stdout: result, stderr: read("stderr"), code: 2 };
     const denies = result.split("\n").some((line) => {
       try {
@@ -24767,7 +25114,7 @@ function auditCall(event, payload, d, env) {
   const p = parse(payload);
   const { taskId, issue } = taskAndIssue(payload, p, db, writeEnv);
   const tool = str(p.tool_name);
-  const decision = d.denied ? "deny" : "allow";
+  const decision = d.denied ? "deny" : d.code === 0 ? "allow" : "failed";
   auditAppend(
     db,
     {
@@ -24868,6 +25215,9 @@ var EMPTY_MATCHER_COLUMN = "-";
 function matcherOfColumn(column) {
   return column === EMPTY_MATCHER_COLUMN ? "" : column;
 }
+function rowHoldsPart(fields, part) {
+  return fields[6] === part;
+}
 
 // src/hooks/router/main.ts
 var ROUTER_MANIFEST = "mcp/trajectory-server/dist/hooks-router.txt";
@@ -24876,8 +25226,8 @@ var HOP_ENV = "TMB_ROUTER_HOP";
 function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
-function hopTo(root, event, payload, env) {
-  const r = spawnSync15(process.execPath, [`${root}/${BUNDLE}`, event], {
+function hopTo(root, event, part, payload, env) {
+  const r = spawnSync15(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",
@@ -24885,15 +25235,18 @@ function hopTo(root, event, payload, env) {
   });
   if (r.error || r.status === null) {
     const cause = `could not run in ${root}`;
+    if (stdoutIsPath(event)) return { stdout: "", stderr: pathFailure(event, cause), code: 1 };
     if (!eventHoldsEnforcement(event)) return { stdout: "", stderr: `TMB router: ${event} ${cause} \u2014 no gate run
 `, code: 0 };
     return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause), event), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} \u2014 failing closed
 `, code: 0 };
   }
+  if (stdoutIsPath(event) && (r.status !== 0 || !isBarePath(r.stdout))) {
+    return { stdout: "", stderr: `${r.stderr}${pathFailure(event, `${root} answered exit ${r.status} with no bare path`)}`, code: r.status === 0 ? 1 : r.status };
+  }
   return { stdout: r.stdout, stderr: r.stderr, code: r.status };
 }
-function servesCall(root, event, tool) {
-  if (tool === null) return true;
+function servesCall(root, event, part, tool) {
   let table;
   try {
     table = readFileSync23(`${root}/${ROUTER_MANIFEST}`, "utf8");
@@ -24902,7 +25255,8 @@ function servesCall(root, event, tool) {
   }
   return table.split("\n").some((line) => {
     const f = line.split(" ");
-    return f[3] === event && matcherOfColumn(f[4] ?? "").split(",").some((m) => matcherFits(m, tool));
+    if (f[3] !== event || !rowHoldsPart(f, part)) return false;
+    return tool === null || matcherOfColumn(f[4] ?? "").split(",").some((m) => matcherFits(m, tool));
   });
 }
 function lockBase(env) {
@@ -24917,8 +25271,8 @@ async function routerMain(event, env, io, opts = {}) {
   if (opts.hop !== false && env[HOP_ENV] !== "1") {
     const root = activeInstall(env, io.writeStderr);
     if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
-      if (existsSync17(`${root}/${ROUTER_MANIFEST}`) && existsSync17(`${root}/${BUNDLE}`) && servesCall(root, event, tool)) {
-        const out2 = hopTo(root, event, payload, env);
+      if (existsSync17(`${root}/${ROUTER_MANIFEST}`) && existsSync17(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
+        const out2 = hopTo(root, event, opts.part, payload, env);
         io.writeStderr(out2.stderr);
         await io.writeStdout(out2.stdout);
         return out2.code;
@@ -24929,12 +25283,12 @@ async function routerMain(event, env, io, opts = {}) {
   }
   const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
   const locks = opts.dedupe === false ? null : lockBase(gateEnv);
-  const key2 = locks === null ? null : dedupeKey(payload);
+  const key2 = locks === null ? null : dedupeKey(payload, event, opts.part);
   let dedupe = null;
   let lock = null;
-  const groupBudget = opts.groupBudgetMs ?? routerGroup(event, tool ?? "", opts.groups)?.groupBudgetMs;
+  const groupBudget = opts.groupBudgetMs ?? routerGroup(event, tool ?? "", opts.groups, opts.part)?.groupBudgetMs;
   if (locks !== null && key2 !== null && groupBudget !== void 0) {
-    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: groupBudget }), gateEnv);
+    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: groupBudget }), gateEnv, stdoutIsPath(event));
     try {
       mkdirSync13(dedupe.base, { recursive: true });
       const claim2 = await dedupe.claim(key2);
@@ -24943,7 +25297,11 @@ async function routerMain(event, env, io, opts = {}) {
         await io.writeStdout(claim2.out.stdout);
         return claim2.out.code;
       }
-      if (claim2.kind === "none") return 0;
+      if (claim2.kind === "none") {
+        if (!stdoutIsPath(event)) return 0;
+        io.writeStderr(pathFailure(event, "a duplicate of a call whose answer never came"));
+        return 1;
+      }
       lock = claim2.lock;
     } catch {
       lock = null;
@@ -24990,13 +25348,19 @@ async function runHook(name3, findGate2, env, io) {
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
 if (routerEvents().has(name2)) {
-  const code = await routerMain(name2, process.env, {
-    readStdin: () => readFileSync24(0, "utf8"),
-    writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
-    writeStderr: (text) => {
-      if (text !== "") process.stderr.write(text);
-    }
-  });
+  const part = process.argv[3];
+  const code = await routerMain(
+    name2,
+    process.env,
+    {
+      readStdin: () => readFileSync24(0, "utf8"),
+      writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
+      writeStderr: (text) => {
+        if (text !== "") process.stderr.write(text);
+      }
+    },
+    part === void 0 ? {} : { part }
+  );
   await new Promise((resolve4) => process.stderr.write("", () => resolve4()));
   process.exit(code);
 }

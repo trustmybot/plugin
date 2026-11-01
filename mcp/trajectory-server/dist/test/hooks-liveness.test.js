@@ -17,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { livenessAlert, makeLivenessAlert, THROTTLE_MS } from '../hooks/liveness-alert.js';
 import { probe, readSnapshot, tailFollowTarget } from '../hooks/liveness-probe.js';
 import { livenessSentinel, TOKEN_SUFFIX } from '../hooks/liveness-sentinel.js';
-import { findGate, gateNames } from '../hooks/registry.js';
+import { findGate, gateNames, ROUTER_GROUPS } from '../hooks/registry.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
@@ -381,9 +381,12 @@ describe('liveness gates', () => {
         const context = (stdout) => JSON.parse(stdout).hookSpecificOutput.additionalContext;
         it('is registered on UserPromptSubmit, and in the router group holding task-overrun-alert', () => {
             assert.equal(findGate('liveness-alert'), livenessAlert);
-            const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')).hooks;
-            const entry = hooks.UserPromptSubmit.flatMap((g) => g.hooks).find((h) => h.command.endsWith('dispatch.sh" liveness-alert'));
-            assert.equal(entry?.timeout, 6);
+            for (const event of ['UserPromptSubmit', 'PostToolUse']) {
+                const holders = ROUTER_GROUPS.filter((g) => g.event === event && g.gates.some((x) => x.name === 'task-overrun-alert'));
+                assert.ok(holders.length > 0, event);
+                for (const group of holders)
+                    assert.ok(group.gates.some((x) => x.name === 'liveness-alert'), `${event}:${group.matcher}`);
+            }
         });
         it('reports a dead run and a hung watcher to bro, as a report only, and writes one row per finding', () => {
             const f = fixture();

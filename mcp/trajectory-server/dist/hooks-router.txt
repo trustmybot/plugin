@@ -44,3 +44,21 @@ swe-spawn-rollback 6000 advisory PermissionDenied Agent *
 bro-turn-usage 6000 advisory Stop - *
 consultant-persistence-gate 6000 enforcement SubagentStop - *
 swe-atomic-close 11350 advisory SubagentStop - *
+ensure-gitignore 6000 advisory SessionStart - *
+mcp-health-check 8330 advisory SessionStart - *
+deferred-tools-drift-warn 6000 advisory SessionStart - *
+plugin-hooks-marker 4000 advisory SessionStart - *
+ensure-mcp-deps-installed 6000 advisory SessionStart - *
+substrate-preflight 6000 advisory SessionStart - *
+orphan-scan 13038 advisory SessionStart - *
+session-start-persona 8340 advisory SessionStart - * persona
+session-start-prescan 11792 advisory SessionStart - * prescan
+rework-waiver-capture 6000 advisory UserPromptSubmit - *
+activation-routine 6000 advisory UserPromptSubmit - *
+session-log-capture 4000 advisory UserPromptSubmit - *
+prompt-intent-hints 6000 advisory UserPromptSubmit - *
+task-overrun-alert 6000 advisory UserPromptSubmit - *
+liveness-alert 6000 advisory UserPromptSubmit - *
+user-prompt-persona 6000 advisory UserPromptSubmit - * persona
+roundtable-slash-detect 21000 advisory UserPromptSubmit - * roundtable
+worktree-create 16000 advisory WorktreeCreate - *
