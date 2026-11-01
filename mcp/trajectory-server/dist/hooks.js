@@ -17264,6 +17264,8 @@ var GATE_NAME24 = "activation-routine";
 var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
 var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
 var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
+var TOOL_CALLS_LIMIT = 150;
+var CONTEXT_PER_CALL_LIMIT = 6e4;
 var LocaleGrep = class {
   constructor(utf8) {
     this.utf8 = utf8;
@@ -17350,6 +17352,29 @@ function activationContext(onboardedCount, pending2) {
   }
   return `[tmb activation routine \u2014 pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume \u2014 they would be redundant duplicate reads. ${pendingLine}`;
 }
+function usageWarning(toolUses2, cacheReadTokens) {
+  if (toolUses2 <= 0) return "";
+  const contextPerCall = Math.ceil(cacheReadTokens / toolUses2);
+  const passed = [];
+  if (toolUses2 > TOOL_CALLS_LIMIT) passed.push(`${toolUses2} tool calls (limit ${TOOL_CALLS_LIMIT})`);
+  if (contextPerCall > CONTEXT_PER_CALL_LIMIT) passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
+  if (passed.length === 0) return "";
+  return `\u26A0\uFE0F This bro session is past its usage limits: ${passed.join(", ")}. Finish what is in flight, then end the session and resume cold from the DB.`;
+}
+function sessionUsageWarning(db, sessionId, env) {
+  if (!SESSION_ID_LINE.test(sessionId)) return "";
+  try {
+    const row = sqliteRo(
+      db,
+      `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
+      env
+    );
+    const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
+    return usage === null ? "" : usageWarning(Number(usage[1]), Number(usage[2]));
+  } catch {
+    return "";
+  }
+}
 function activationRoutine(payload, env) {
   try {
     const echoed = `${commandSubstitution(payload)}
@@ -17373,6 +17398,9 @@ function activationRoutine(payload, env) {
     if (halt !== "") context4 = `${halt} ${context4}`;
     const sessionId = field6("session_id");
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context4 = `${context4} session_id=${sessionId}`;
+    const warning = sessionUsageWarning(db, sessionId, env);
+    if (warning !== "") context4 = `${context4}
+${warning}`;
     return emit(context4);
   } catch {
     return ALLOW;
