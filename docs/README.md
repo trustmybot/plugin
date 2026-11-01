@@ -13,7 +13,7 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 | `reference/MULTI_PLATFORM.md` | OS compatibility notes |
 | `reference/INSTALL.md` | Recommended install scope and what `/onboard` writes where |
 | `reference/UPGRADE.md` | Plugin version migration notes |
-| `architecture/` | Design rationale (CHEATCODES, ERD, FLOWS, GIT, REPO_RESOLUTION, RESPONSIBILITIES, TYPED_RAILS, UI, WORLD_MODEL) |
+| `architecture/` | Design rationale (MEMORY, CHEATCODES, ERD, FLOWS, GIT, REPO_RESOLUTION, RESPONSIBILITIES, TYPED_RAILS, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
 | `contributing/` | Enum/label/naming registries (ENUMS, LABELS, NAMING) |
 | `adapters/` | Platform-adapter development standard (ADAPTER_CONTRACT) |
