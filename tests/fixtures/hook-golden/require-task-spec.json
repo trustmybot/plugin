@@ -1,0 +1,177 @@
+{
+  "01-pending-linked-worktree-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "02-non-swe-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "03-no-task-id-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id).\"}}\n"
+    }
+  },
+  "04-missing-row-denies-raw-digits.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=0999 does not exist in the tasks table.\"}}\n"
+    }
+  },
+  "05-live-swe-run-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=4 is running with a live swe run: agent_runs 1 (started 2026-10-17T12:00:00.000Z). Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.\"}}\n"
+    }
+  },
+  "06-orphaned-and-finished-runs-allow.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "07-closed-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=6 has status=closed, expected pending, or running with no live swe run. Reopen finished work with task_reopen.\"}}\n"
+    }
+  },
+  "08-empty-spec-body-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=7 has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.\"}}\n"
+    }
+  },
+  "09-unlinked-branch-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=2 is pending and branch feat/unlinked has no linked worktree (expected @SANDBOX@/project/.claude/worktrees/unlinked). Call task_reopen(task_id=2, reason=\\\"<why>\\\") to create the worktree, then respawn swe.\"}}\n"
+    }
+  },
+  "10-branch-on-main-checkout-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=14 is pending and branch feat/onmain has no linked worktree (expected @SANDBOX@/onmain/.claude/worktrees/onmain). The main checkout currently has feat/onmain checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere). Call task_reopen(task_id=14, reason=\\\"<why>\\\") to create the worktree, then respawn swe.\"}}\n"
+    }
+  },
+  "11-relative-repo-path-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=19 is pending and branch feat/onmain has no linked worktree (expected @SANDBOX@/project/../onmain/.claude/worktrees/onmain). The main checkout currently has feat/onmain checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere). Call task_reopen(task_id=19, reason=\\\"<why>\\\") to create the worktree, then respawn swe.\"}}\n"
+    }
+  },
+  "12-schema-file-without-contract-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=8 adds a column, field, tool, table or migration, and its spec_body is missing a Writer: and Populated: line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\\\"spec_shape_gate_waived\\\", from_node=\\\"bro\\\", issue_id=8, branch_id=\\\"feat/linked\\\", summary=<why>, content_json={\\\"task_id\\\":8,\\\"gate\\\":\\\"spec_shape\\\",\\\"reason\\\":\\\"<why, >= 10 chars>\\\"}) and then respawns.\"}}\n"
+    }
+  },
+  "13-nbsp-new-column-missing-populated-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=9 adds a column, field, tool, table or migration, and its spec_body is missing a Populated: line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\\\"spec_shape_gate_waived\\\", from_node=\\\"bro\\\", issue_id=9, branch_id=\\\"feat/linked\\\", summary=<why>, content_json={\\\"task_id\\\":9,\\\"gate\\\":\\\"spec_shape\\\",\\\"reason\\\":\\\"<why, >= 10 chars>\\\"}) and then respawns.\"}}\n"
+    }
+  },
+  "14-nullable-line-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "15-bro-waiver-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "16-decorated-contract-lines-allow.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "17-empty-writer-value-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=13 adds a column, field, tool, table or migration, and its spec_body is missing a Writer: line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\\\"spec_shape_gate_waived\\\", from_node=\\\"bro\\\", issue_id=13, branch_id=\\\"feat/linked\\\", summary=<why>, content_json={\\\"task_id\\\":13,\\\"gate\\\":\\\"spec_shape\\\",\\\"reason\\\":\\\"<why, >= 10 chars>\\\"}) and then respawns.\"}}\n"
+    }
+  },
+  "18-invalid-files-json-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "19-colon-form-migration-with-contract-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "20-prefixed-swe-first-task-id-wins.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=8 adds a column, field, tool, table or migration, and its spec_body is missing a Writer: and Populated: line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\\\"spec_shape_gate_waived\\\", from_node=\\\"bro\\\", issue_id=8, branch_id=\\\"feat/linked\\\", summary=<why>, content_json={\\\"task_id\\\":8,\\\"gate\\\":\\\"spec_shape\\\",\\\"reason\\\":\\\"<why, >= 10 chars>\\\"}) and then respawns.\"}}\n"
+    }
+  },
+  "21-corrupt-db-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-task-spec could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "22-unresolved-db-warns-and-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n",
+      "stdout": ""
+    }
+  },
+  "23-no-jq-divergence.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "@PLUGIN_ROOT@/scripts/hooks/require-task-spec.sh: line 33: jq: command not found\n@PLUGIN_ROOT@/scripts/hooks/require-task-spec.sh: line 34: jq: command not found\n",
+      "stdout": ""
+    }
+  },
+  "24-no-sqlite3-divergence.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "25-pending-outside-a-git-repo-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  }
+}

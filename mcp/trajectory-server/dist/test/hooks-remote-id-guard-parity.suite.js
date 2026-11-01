@@ -26,6 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/remote-id-guard');
@@ -82,6 +83,8 @@ export function materialize(file, s, paths) {
     return { input: JSON.stringify(payload), env, expect, divergent };
 }
 /** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
+/** bash's `set -m` prints this, with a pid, when a background child beats its setpgid. */
+const BASH_JOB_CONTROL_RACE = /^.*child setpgid .*\n/gm;
 function run(cmd, args, input, env, cwd) {
     const dir = mkdtempSync(join(tmpdir(), 'tmb-rig-stdin-'));
     const file = join(dir, 'stdin');
@@ -157,7 +160,10 @@ export function remoteIdGuardParityShard(k, n) {
                     ...c.env,
                 });
                 const cwd = join(s, 'project');
-                const bash = run('bash', [HOOK_SH], c.input, env, cwd);
+                const bash = goldenBash('remote-id-guard', f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+                    const r = run('bash', [HOOK_SH], c.input, env, cwd);
+                    return { ...r, stderr: r.stderr.replace(BASH_JOB_CONTROL_RACE, '') };
+                });
                 const node = run(process.execPath, [HOOKS_BUNDLE, 'remote-id-guard'], c.input, env, cwd);
                 if (c.divergent === undefined) {
                     assert.equal(node.code, bash.code, 'exit code');

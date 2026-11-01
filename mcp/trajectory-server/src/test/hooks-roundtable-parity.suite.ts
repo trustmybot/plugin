@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -162,7 +163,7 @@ function dumpDb(path: string): DbDump | string {
         'SELECT (SELECT COUNT(*) FROM issues) AS issues, (SELECT COUNT(*) FROM discussions) AS discussions, (SELECT COUNT(*) FROM roundtables) AS roundtables, (SELECT COUNT(*) FROM roundtable_votes) AS votes, (SELECT COUNT(*) FROM agents) AS agents',
       )
       .get();
-    return { audit: audit.map((r) => ({ ...r, created_at: r.created_at.replace(TS_RE, '<TS>') })), counts };
+    return { audit: audit.map((r) => ({ ...r, created_at: r.created_at.replace(TS_RE, '<TS>') })), counts: { ...counts } };
   } catch {
     return readFileSync(path).toString('base64');
   } finally {
@@ -332,9 +333,10 @@ export function roundtableHooksParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = caseEnv(s, locale, c.env, c.cwd);
-          buildSandbox(s);
-          const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env);
-          const bashTree = snapshot(s);
+          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+            buildSandbox(s);
+            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), tree: snapshot(s) };
+          });
           buildSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
           const nodeTree = snapshot(s);

@@ -48,6 +48,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -563,9 +564,10 @@ export function healthHooksParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, pathWithout);
           const env = caseEnv(s, tmp, locale, c.env, c.cwd);
-          restore();
-          const bash = run(BASH, [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env);
-          const bashTree = snapshot(s);
+          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+            restore();
+            return { ...run(BASH, [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), tree: snapshot(s) };
+          });
           restore();
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
           const nodeTree = snapshot(s);

@@ -24,9 +24,11 @@ import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { cksum } from '../hooks/lib/scope-fence.js';
 import { corpusFiles, type CorpusPaths, materialize, noCmdPath, snapshot } from './hooks-swe-run-parity.suite.js';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -184,9 +186,10 @@ export function sweScopeFenceParityShard(k: number, n: number): void {
         it(`${GATE} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, GATE, f), s, paths);
           const env = caseEnv(s, locale, c.env, c.cwd);
-          buildScopeSandbox(s);
-          const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c.input, env, c.cwd);
-          const bashTree = snapshot(s);
+          const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+            buildScopeSandbox(s);
+            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c.input, env, c.cwd), tree: snapshot(s) };
+          });
           buildScopeSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c.input, env, c.cwd);
           const nodeTree = snapshot(s);
@@ -200,7 +203,7 @@ export function sweScopeFenceParityShard(k: number, n: number): void {
           } else {
             const expect = c.expect as { bash: SideExpect; ts: SideExpect };
             assert.ok(
-              node.stdout + node.stderr !== bash.stdout + bash.stderr || JSON.stringify(nodeTree) !== JSON.stringify(bashTree),
+              node.stdout + node.stderr !== bash.stdout + bash.stderr || !isDeepStrictEqual(nodeTree, bashTree),
               `divergent (${c.divergent}): the sides must differ`,
             );
             assertExpect('bash', bash, byLocale(expect.bash, locale));

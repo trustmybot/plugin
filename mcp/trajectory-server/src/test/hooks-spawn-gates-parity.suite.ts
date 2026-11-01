@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -332,7 +333,7 @@ export function spawnGatesParityShard(k: number, n: number): void {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, pathWithout);
           const env = caseEnv(s, locale, c.env);
           const cwd = join(s, 'project');
-          const bash = run(BASH, [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c.input, env, cwd);
+          const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => run(BASH, [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c.input, env, cwd));
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c.input, env, cwd);
           if (c.divergence) {
             assert.equal(bash.code, c.divergence.bash_code ?? 0, `.sh exit code (${c.divergence.why})`);

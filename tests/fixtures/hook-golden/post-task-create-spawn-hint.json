@@ -1,0 +1,498 @@
+{
+  "bypass-env-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "corrupt-db-read-failed.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=feat/unbriefed worktree=unresolved (task 11: the trajectory DB read failed (tasks/repos))\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "divergent-no-jq-still-hints.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "divergent-no-sqlite-still-places-worktrees.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=feat/unbriefed worktree=unresolved (task 11: the trajectory DB read failed (tasks/repos))\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "empty-array-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "error-response-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "fresh-db-no-row.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=feat/unbriefed worktree=unresolved (task 11 has no tasks row)\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "hint-names-what-is-missing.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=18 branch_id=feat/ghost worktree=unresolved (task 18's repo 'ghost' has no repos row with a path)\\n  - task_id=20 branch_id=feat/no-repo worktree=unresolved (task 20 has no repo: tasks.repo is empty and the repos table does not hold exactly one row)\\n  - task_id=99 branch_id=feat/none worktree=unresolved (task 99 has no tasks row)\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "hint-non-string-fields.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=null worktree=@SANDBOX@/project/checkout/.claude/worktrees/unbriefed\\n  - task_id=1E+2 branch_id={\\\"a\\\":1} worktree=unresolved (no task_id)\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "hint-short-tool-prefix.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=10 branch_id=feat/briefed worktree=@SANDBOX@/project/checkout/.claude/worktrees/briefed\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "hint-with-worktrees.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=feat/unbriefed worktree=@SANDBOX@/project/checkout/.claude/worktrees/unbriefed\\n  - task_id=17 branch_id=docs/readme worktree=@SANDBOX@/project/docs-checkout/.claude/worktrees/readme\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "invalid-json-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "missing-db-unresolved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"🚀 SWE-spawn hint: task_create_batch created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.\\n\\nTasks created:\\n  - task_id=11 branch_id=feat/unbriefed worktree=unresolved (no trajectory DB)\\n\\nFor each task, run the two-step proven flow:\\n1. Pre-create the worktree: `printf '{\\\"branch\\\":\\\"<branch_id>\\\"}' | bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh` — capture the printed path.\\n2. Spawn SWE (all tasks' Agent calls together in one message): `Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')` — no isolation= parameter.\\n\\nIf you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "non-array-response-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "other-tool-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  },
+  "scalar-elements-silent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "<unchanged>",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"audit\":[]}",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":10,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":11,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":12,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":13,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":14,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":15,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":16,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":17,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":18,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":19,\"status\":\"running\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"},{\"id\":20,\"status\":\"pending\",\"updated_at\":\"2026-10-01T10:00:00.000Z\"}],\"agent_runs\":[{\"id\":1,\"task_id\":10,\"spawn_id\":\"agent-briefed\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":2,\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":3,\"task_id\":12,\"spawn_id\":\"agent-resumed\",\"exit_reason\":\"completed\",\"usage_source\":null,\"completed_at\":\"2026-10-01T11:00:00.000Z\",\"duration_ms\":0},{\"id\":4,\"task_id\":13,\"spawn_id\":\"agent-live\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":5,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14a\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":6,\"task_id\":14,\"spawn_id\":\"tool_use:toolu_14b\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":1234},{\"id\":7,\"task_id\":15,\"spawn_id\":null,\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":8,\"task_id\":16,\"spawn_id\":\"agent-bound\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":9,\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0},{\"id\":10,\"task_id\":19,\"spawn_id\":\"tool_use:toolu_19\",\"exit_reason\":null,\"usage_source\":null,\"completed_at\":null,\"duration_ms\":0}],\"audit\":[{\"id\":1,\"issue_id\":1,\"branch_id\":\"feat/briefed\",\"from_node\":\"swe\",\"event_type\":\"swe_brief_fetched\",\"summary\":\"brief\",\"content_json\":\"{\\\"task_id\\\":10}\",\"repo\":null,\"created_at\":\"2026-10-01T10:00:00.000Z\"}]}",
+        "project/checkout/": null,
+        "project/docs-checkout/": null,
+        "transcripts/": null,
+        "transcripts/session.jsonl": "<unchanged>",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-agent-tx.jsonl": "<unchanged>",
+        "transcripts/spawn-12.jsonl": "<unchanged>"
+      }
+    }
+  }
+}

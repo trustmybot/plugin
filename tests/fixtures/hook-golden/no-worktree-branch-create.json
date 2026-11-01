@@ -1,0 +1,104 @@
+{
+  "allow-branch-create-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-detach-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-malformed-payload.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-worktree-word.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-bash-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-plain-attach.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-worktree-remove.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "deny-create-branch-long.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.\"}}\n"
+    }
+  },
+  "deny-dash-b.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.\"}}\n"
+    }
+  },
+  "deny-db-unavailable.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — no-worktree-branch-create could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "deny-detach-past-branch-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.\"}}\n"
+    }
+  },
+  "deny-detach.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.\"}}\n"
+    }
+  },
+  "deny-second-statement.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.\"}}\n"
+    }
+  },
+  "diverge-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-parse-failure.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  }
+}

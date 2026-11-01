@@ -1,0 +1,506 @@
+{
+  "01-closed-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "02-running-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 13 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=13, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "03-completed-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 12 status=closed but actual status=completed.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=12, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "04-needs-validation-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 14 status=closed but actual status=needs_validation.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=14, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "05-no-task-row.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "06-no-task-id.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "07-spaces-around-equals.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 13 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=13, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "08-no-word-boundary.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 12 status=closed but actual status=completed.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=12, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "09-leading-zeros.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 013 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=013, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "10-first-match-wins.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "11-nbsp-before-equals.json": {
+    "C": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    },
+    "en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 13 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=13, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "12-id-out-of-range.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "13-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — code-reviewer-after-atomic-close could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "14-schema-only-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "15-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "16-db-found-by-walk-up.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 13 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=13, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "17-swe-spawn.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "18-namespaced-subagent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 13 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=13, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "19-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "20-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "21-divergent-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  }
+}

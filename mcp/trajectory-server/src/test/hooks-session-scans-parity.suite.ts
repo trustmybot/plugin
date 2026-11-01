@@ -34,14 +34,15 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { chmodSync, closeSync, cpSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { projectSlug } from '../hooks/orphan-scan.js';
 import { corpusFiles, type CorpusPaths, noCmdPath } from './hooks-swe-run-parity.suite.js';
+import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -103,6 +104,9 @@ function shQuote(text: string): string {
   return `'${text.replaceAll("'", `'\\''`)}'`;
 }
 
+/** orphan-scan.sh stops scanning 4 s after its first `date +%s`, so a recording on a loaded machine would lose report lines. */
+const FROZEN_DATE_STUB = '#!/bin/sh\n[ "$1" = +%s ] && { echo 1700000000; exit 0; }\nexec /bin/date "$@"\n';
+
 /** bin/ps and bin/lsof over processTable: sh scripts, so the 4 s scan deadline never hangs on a stub's startup. */
 export function writeProcessStubs(bin: string, s: string, runner: number): void {
   mkdirSync(bin, { recursive: true });
@@ -140,8 +144,8 @@ export function writeProcessStubs(bin: string, s: string, runner: number): void 
   ].join('\n');
   writeFileSync(join(bin, 'ps'), ps);
   writeFileSync(join(bin, 'lsof'), lsof);
-  chmodSync(join(bin, 'ps'), 0o755);
-  chmodSync(join(bin, 'lsof'), 0o755);
+  writeFileSync(join(bin, 'date'), FROZEN_DATE_STUB);
+  for (const stub of ['ps', 'lsof', 'date']) chmodSync(join(bin, stub), 0o755);
 }
 
 function write(path: string, text: string): void {
@@ -360,7 +364,7 @@ export function scanTree(root: string): Record<string, string | null> {
       else if (st.isDirectory()) {
         out[`${rel}/`] = null;
         if (name !== '.git') walk(path);
-      } else out[rel] = createHash('sha256').update(readFileSync(path)).digest('hex');
+      } else out[rel] = sandboxSha(path, root);
     }
   };
   walk(root);
@@ -521,12 +525,15 @@ export function sessionScansParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = sessionScanEnv(s, gate, locale, c.env, c.cwd);
+          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base, '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }), () => {
+            fresh();
+            const setup = scanTree(s);
+            return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
+          });
           fresh();
-          const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c.input, env, c.cwd);
-          const bashTree = scanTree(s);
-          fresh();
+          const setup = scanTree(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c.input, env, c.cwd);
-          const nodeTree = scanTree(s);
+          const nodeTree = settledTree(setup, scanTree(s));
           assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
           if (c.divergent === undefined) {
@@ -537,7 +544,7 @@ export function sessionScansParityShard(k: number, n: number): void {
           } else {
             const expect = c.expect as { bash: SideExpect; ts: SideExpect };
             assert.ok(
-              node.stdout + node.stderr !== bash.stdout + bash.stderr || JSON.stringify(nodeTree) !== JSON.stringify(bashTree),
+              node.stdout + node.stderr !== bash.stdout + bash.stderr || !isDeepStrictEqual(nodeTree, bashTree),
               `divergent (${c.divergent}): the sides must differ`,
             );
             assertExpect('bash', bash, byLocale(expect.bash, locale));

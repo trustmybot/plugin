@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -311,8 +312,10 @@ export function worktreeLifecycleParityShard(k, n) {
             it(`${gate}/${f} (LC_ALL=${locale})`, () => {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
                 const env = caseEnv(s, locale, c);
-                restore(template, s);
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, s);
+                const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+                    restore(template, s);
+                    return run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env, s);
+                });
                 restore(template, s);
                 const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, s);
                 if (c.divergent === undefined) {
