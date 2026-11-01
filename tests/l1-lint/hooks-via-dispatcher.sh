@@ -13,6 +13,8 @@
 # chain name (scripts/hooks/lib/registrations.sh) stands for its gates: each
 # of them must exist and be executable. A gate born in TypeScript has no .sh:
 # its src/hooks/<gate>.ts exists and dist/hooks-gates.txt lists it.
+# The named exception is liveness-sentinel (GH 2205): its exit 2 is an asyncRewake
+# wake, which dispatch.sh would replay under its lock and audit as hook_denied.
 
 set -euo pipefail
 
@@ -52,6 +54,14 @@ while IFS= read -r cmd; do
         FAIL=$((FAIL + 1))
       }
     done
+    continue
+  fi
+  if [ "$cmd" = 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" liveness-sentinel' ]; then
+    GATES=$((GATES + 1))
+    ts_only liveness-sentinel || {
+      printf "hooks-via-dispatcher: liveness-sentinel has no source or manifest line\n" >&2
+      FAIL=$((FAIL + 1))
+    }
     continue
   fi
   gate="${cmd#"$PREFIX"}"

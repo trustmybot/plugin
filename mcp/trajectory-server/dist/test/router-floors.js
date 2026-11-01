@@ -37,6 +37,7 @@ export const PRE_ROUTER_TIMEOUT_S = Object.freeze({
     'post-atomic-close-readme': 6,
     'post-task-create-spawn-hint': 4,
     'task-overrun-alert': 6,
+    'liveness-alert': 6,
     'attribution-footer': 16,
     'clean-merged-branch': 11,
     'close-issue-on-merge': 16,

@@ -223,7 +223,7 @@ check() {
     printf '%-18s %-34s %-12s %-10s %s\n' "$event" "$gate" "$capable" "$on_failure" "$status"
   done < <(jq -r '
     .hooks | to_entries[] | .key as $e | .value[]? | (.matcher // "") as $m | .hooks[]?
-    | [$e, ((.command // "") | (capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g // (capture("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" (?<r>[A-Za-z]+)( (?<p>[a-z-]+))?$") | "router:" + .r + (if .p then "+" + .p else "" end) + ":" + $m) // "")), (.onFailure // "-")]
+    | [$e, ((.command // "") | (capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g // capture("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" (?<g>liveness-sentinel)$").g // (capture("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" (?<r>[A-Za-z]+)( (?<p>[a-z-]+))?$") | "router:" + .r + (if .p then "+" + .p else "" end) + ":" + $m) // "")), (.onFailure // "-")]
     | @tsv' "$hooks_json" | expand_chains "$(dirname "$hooks_json")/..")
   if [ "$n" -eq 0 ]; then
     printf "hook-onfailure: parsed 0 registrations from %s — jq path wrong?\n" "$hooks_json" >&2

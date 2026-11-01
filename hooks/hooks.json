@@ -176,6 +176,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" liveness-sentinel",
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
       }
     ],
     "SubagentStop": [
