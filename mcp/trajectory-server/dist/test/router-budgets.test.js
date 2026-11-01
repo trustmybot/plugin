@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { ROUTER_GROUPS, routerGroupKey, routerTimeoutS } from '../hooks/registry.js';
+import { ROUTER_GROUPS, routerGroup, routerGroupKey, routerTimeoutS } from '../hooks/registry.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
 import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_ROUTER_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
@@ -52,19 +52,28 @@ describe('router budgets.json (GH 1861)', () => {
             }
         }
     });
+    it('the concurrent groups are PreToolUse Bash and Write alone, at their critical path, Bash registered at 19 s', () => {
+        const concurrent = ROUTER_GROUPS.filter((g) => g.concurrent);
+        assert.deepEqual(concurrent.map(routerGroupKey).sort(), ['PreToolUse:Bash', 'PreToolUse:Write|Edit|MultiEdit|NotebookEdit']);
+        for (const g of concurrent) {
+            assert.equal(g.stopAtFirstDeny, undefined);
+            assert.equal(g.groupBudgetMs, Math.max(...g.gates.map((x) => x.budgetMs)));
+        }
+        assert.equal(routerTimeoutS(routerGroup('PreToolUse', 'Bash')), 19);
+    });
     it('holds exactly one entry per router group', () => {
         assert.deepEqual(Object.keys(BUDGETS.groups).sort(), ROUTER_GROUPS.map(routerGroupKey).sort());
     });
     for (const group of ROUTER_GROUPS) {
         const key = routerGroupKey(group);
-        it(`${key}: group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) over its own gates`, () => {
+        it(`${key}: group_budget_ms follows ${group.concurrent ? 'the critical path, max_budget_ms,' : 'max(max_budget_ms, ceil(1.5 x p99_sum_ms))'} over its own gates`, () => {
             const b = BUDGETS.groups[key];
             const members = [...new Set(group.gates.map((g) => g.name))].map((name) => BUDGETS.gates[name]);
             assert.equal(b.max_budget_ms, Math.max(...members.map((m) => m.budget_ms)));
             assert.equal(b.max_budget_ms, Math.max(...group.gates.map((g) => g.budgetMs)));
             const sum = members.reduce((n, m) => n + p99Term(m.bench_p99, m.transcript_p99), 0);
             assert.equal(b.p99_sum_ms, Math.round(sum * 10) / 10);
-            assert.equal(b.group_budget_ms, groupBudgetMs(b.max_budget_ms, b.p99_sum_ms));
+            assert.equal(b.group_budget_ms, groupBudgetMs(b.max_budget_ms, b.p99_sum_ms, group.concurrent));
             assert.equal(group.groupBudgetMs, b.group_budget_ms, 'ROUTER_GROUPS reads budgets.json');
         });
         it(`${key}: one hooks.json registration whose matcher, timeout and onFailure are the registry's, and no if`, () => {
@@ -142,6 +151,7 @@ describe('router budgets.json (GH 1861)', () => {
         assert.equal(groupBudgetMs(16000, 100), 16000);
         assert.equal(groupBudgetMs(16000, 21492), 32238);
         assert.equal(groupBudgetMs(1000, 1000.1), 1501);
+        assert.equal(groupBudgetMs(16000, 21492, true), 16000);
     });
     it('the formula: max(floor, ceil(2 x max(bench_p99, transcript_p99)) + 200)', () => {
         assert.equal(budgetMs(5000, 10, null), 5000);

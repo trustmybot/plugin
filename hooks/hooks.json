@@ -51,7 +51,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
-            "timeout": 31,
+            "timeout": 12,
             "onFailure": "block"
           }
         ]
@@ -62,7 +62,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
-            "timeout": 36,
+            "timeout": 19,
             "onFailure": "block"
           }
         ]

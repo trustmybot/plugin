@@ -148,8 +148,10 @@ export function gateNames() {
 }
 /*
  * The router (GH 1692): `node dist/hooks.js <event> [part]` runs the gates of
- * the one group whose event, part and matcher fit the payload, one after another
- * in this order, each within its budget from router/budgets.json. A matcher is
+ * the one group whose event, part and matcher fit the payload, each within its
+ * budget from router/budgets.json: one after another in this order, or, in a
+ * group marked concurrent, all started in this order and awaited together, with
+ * the answer still read in this order. A matcher is
  * the text of that group's hooks.json entry, empty for every call of its event
  * as in Claude Code; an event's matchers do not overlap. A part is a registration
  * of its own under one event, for a gate whose context must meet Claude Code's
@@ -182,7 +184,7 @@ export const ROUTER_GROUPS = [
         routerGate(NAMING_LINT_GATE, 'advisory'),
         routerGate(CQ_LINT_GATE, 'advisory'),
         routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
-    ]),
+    ], { concurrent: true }),
     preToolUseGroup('Bash', [
         routerGate('containment-guard', 'enforcement'),
         routerGate(GIT_GUARDS_GATE, 'enforcement'),
@@ -195,7 +197,7 @@ export const ROUTER_GROUPS = [
         routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
         routerGate(REMOTE_ID_GATE, 'enforcement'),
         routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
-    ]),
+    ], { concurrent: true }),
     preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
     preToolUseGroup('SendMessage', [routerGate(SWE_RESUME_GATE, 'enforcement')]),
     preToolUseGroup('mcp__.*trajectory-server__.*', [

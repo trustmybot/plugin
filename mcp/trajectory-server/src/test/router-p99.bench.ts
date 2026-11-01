@@ -8,7 +8,8 @@
  * plus parse_allowance_ms and, per group, group_budget_ms = max(max_budget_ms,
  * ceil(1.5 x p99_sum_ms)) with its two inputs, p99_sum_ms summing each of its
  * gates' max(bench_p99, transcript_p99): the time one call's gates share and,
- * with the parse allowance, that group's registration timeout.
+ * with the parse allowance, that group's registration timeout. A concurrent
+ * group's group_budget_ms is its critical path, max_budget_ms.
  *
  * --events names the events to bench, comma-separated; --write then replaces
  * only their gates and groups, every other number staying as recorded.
@@ -152,9 +153,10 @@ async function main(): Promise<void> {
     const members = [...new Set(group.gates.map((g) => g.name))].map((name) => recorded[name]);
     const maxBudget = Math.max(...members.map((g) => g.budget_ms));
     const p99Sum = round1(members.reduce((n, g) => n + p99Term(g.bench_p99, g.transcript_p99), 0)) as number;
-    const groupBudget = groupBudgetMs(maxBudget, p99Sum);
+    const groupBudget = groupBudgetMs(maxBudget, p99Sum, group.concurrent);
+    const formula = group.concurrent ? `critical path, max_budget_ms ${maxBudget}` : `max(max_budget_ms ${maxBudget}, ceil(1.5 x p99_sum_ms ${p99Sum}))`;
     groups[routerGroupKey(group)] = { max_budget_ms: maxBudget, p99_sum_ms: p99Sum, group_budget_ms: groupBudget };
-    console.log(`${routerGroupKey(group)}: group_budget_ms ${groupBudget} = max(max_budget_ms ${maxBudget}, ceil(1.5 x p99_sum_ms ${p99Sum})); router timeout ${Math.ceil((PARSE_ALLOWANCE_MS + groupBudget) / 1000) + 1} s with parse_allowance_ms ${PARSE_ALLOWANCE_MS}`);
+    console.log(`${routerGroupKey(group)}: group_budget_ms ${groupBudget} = ${formula}; router timeout ${Math.ceil((PARSE_ALLOWANCE_MS + groupBudget) / 1000) + 1} s with parse_allowance_ms ${PARSE_ALLOWANCE_MS}`);
   }
   if (values.write) {
     const whole = values.events === '';

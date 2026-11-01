@@ -1,7 +1,8 @@
 /**
  * The running router gate's deadline (GH 1692 R1 and R-async, decisions 922 and
  * 937): the router runs each gate inside runWithDeadline, at the gate's start
- * plus the smaller of its budget and the group's time left. The scope follows
+ * plus the smaller of its budget and the group's time left, or in a concurrent
+ * group the group budget itself. The scope follows
  * the gate through its awaits, so overlapping gates each read their own. An
  * async git takes the scope's AbortSignal and a sync spawn takes
  * max(1, deadline - now) as its timeout, so no child outlives the gate's budget;

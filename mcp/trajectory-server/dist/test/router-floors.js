@@ -75,7 +75,8 @@ export const BUDGET_MARGIN_MS = 200;
  * The router's own time on one call beyond its gates' budgets: the shared
  * bash parser load before the first gate clock starts, the install check,
  * the dedupe lock and the record writes. It keeps the 2 s margin the
- * registration timeout had over a gate budget before the gates ran in turn.
+ * registration timeout had over a gate budget before the gates ran in turn;
+ * the router stops waiting for the parser at it.
  */
 export const PARSE_ALLOWANCE_MS = 2000;
 /** budget_ms = max(floor_ms, ceil(2 x max(bench_p99, transcript_p99)) + 200). */
@@ -86,8 +87,8 @@ export function budgetMs(floor, benchP99, transcriptP99) {
 export function p99Term(benchP99, transcriptP99) {
     return Math.max(benchP99, transcriptP99 ?? 0);
 }
-/** group_budget_ms = max(max_budget_ms, ceil(1.5 x p99_sum_ms)). */
-export function groupBudgetMs(maxBudgetMs, p99SumMs) {
-    return Math.max(maxBudgetMs, Math.ceil(1.5 * p99SumMs));
+/** group_budget_ms = max(max_budget_ms, ceil(1.5 x p99_sum_ms)); for a concurrent group the critical path, max_budget_ms. */
+export function groupBudgetMs(maxBudgetMs, p99SumMs, concurrent = false) {
+    return concurrent ? maxBudgetMs : Math.max(maxBudgetMs, Math.ceil(1.5 * p99SumMs));
 }
 //# sourceMappingURL=router-floors.js.map

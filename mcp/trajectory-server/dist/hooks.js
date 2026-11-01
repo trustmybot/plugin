@@ -23786,12 +23786,12 @@ var budgets_default = {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       max_budget_ms: 8090,
       p99_sum_ms: 18264.7,
-      group_budget_ms: 27398
+      group_budget_ms: 8090
     },
     "PreToolUse:Bash": {
       max_budget_ms: 16e3,
       p99_sum_ms: 21657.5,
-      group_budget_ms: 32487
+      group_budget_ms: 16e3
     },
     "PreToolUse:Agent": {
       max_budget_ms: 16e3,
@@ -24859,7 +24859,7 @@ var ROUTER_GROUPS = [
     routerGate(GATE_NAME19, "advisory"),
     routerGate(GATE_NAME5, "advisory"),
     routerGate(GATE_NAME28, "advisory")
-  ]),
+  ], { concurrent: true }),
   preToolUseGroup("Bash", [
     routerGate("containment-guard", "enforcement"),
     routerGate(GATE_NAME6, "enforcement"),
@@ -24872,7 +24872,7 @@ var ROUTER_GROUPS = [
     routerGate(GATE_NAME53, "enforcement"),
     routerGate(GATE_NAME67, "enforcement"),
     routerGate(GATE_NAME28, "advisory")
-  ]),
+  ], { concurrent: true }),
   preToolUseGroup("Agent", [routerGate(GATE_NAME62, "enforcement"), routerGate(GATE_NAME28, "advisory")]),
   preToolUseGroup("SendMessage", [routerGate(GATE_NAME21, "enforcement")]),
   preToolUseGroup(
@@ -25156,6 +25156,73 @@ function payloadTool(payload) {
   const tool = parsed.tool_name;
   return typeof tool === "string" ? tool : "";
 }
+async function parserReady(wait) {
+  let timer;
+  const allowance = new Promise((resolve4) => {
+    timer = setTimeout(resolve4, budgets_default.parse_allowance_ms);
+    timer.unref();
+  });
+  try {
+    await Promise.race([wait().catch(() => void 0), allowance]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function unknownRun(gate, event) {
+  return { gate, s: { kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 }, j: judgeUnknown(gate, event) };
+}
+function unrun(gate, b) {
+  const s = { kind: "unrun", ms: 0 };
+  return { gate, s, j: judge(gate, s, false, b) };
+}
+async function runInTurn(gates, call, stopAtFirstDeny) {
+  const { event, payload, env, now, groupBudgetMs } = call;
+  const groupStart = now();
+  const done = [];
+  let spent = false;
+  for (const gate of gates) {
+    const budget = call.budgetOf(gate);
+    const left = groupBudgetMs - (now() - groupStart);
+    const b = { event, limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
+    const fn = call.find(gate.name);
+    if (!fn) {
+      done.push(unknownRun(gate, event));
+      continue;
+    }
+    if (spent || left <= 0) {
+      done.push(unrun(gate, b));
+      continue;
+    }
+    const { s, cut: cut4 } = await settle(fn, payload, env, b.limit, now);
+    spent = b.byGroup && (cut4 || s.kind === "late" || s.ms >= b.limit);
+    const j = judge(gate, s, cut4, b);
+    done.push({ gate, s, j });
+    if (stopAtFirstDeny && j.outcome === "deny") break;
+  }
+  return done;
+}
+async function runTogether(gates, call) {
+  const { event, payload, env, now, groupBudgetMs } = call;
+  const bound = (gate) => {
+    const budget = call.budgetOf(gate);
+    return { event, limit: Math.min(budget, groupBudgetMs), budget, groupBudgetMs, byGroup: groupBudgetMs < budget };
+  };
+  const settled = await Promise.allSettled(
+    gates.map(async (gate) => {
+      const fn = call.find(gate.name);
+      if (!fn) return unknownRun(gate, event);
+      const b = bound(gate);
+      if (groupBudgetMs <= 0) return unrun(gate, b);
+      const { s, cut: cut4 } = await settle(fn, payload, env, b.limit, now);
+      return { gate, s, j: judge(gate, s, cut4, b) };
+    })
+  );
+  return settled.map((r, i2) => {
+    if (r.status === "fulfilled") return r.value;
+    const s = { kind: "threw", error: r.reason instanceof Error ? r.reason.message : String(r.reason), ms: 0 };
+    return { gate: gates[i2], s, j: judge(gates[i2], s, false, bound(gates[i2])) };
+  });
+}
 async function decide(event, payload, env, deps = {}) {
   return await runWithGitMemo(env, () => decideCall(event, payload, env, deps));
 }
@@ -25181,34 +25248,19 @@ async function decideCall(event, payload, env, deps) {
     };
   }
   const bashImpl = env.TMB_HOOKS_IMPL === "bash";
-  const find = deps.findGate ?? (bashImpl ? shGate : findGate);
   const group = routerGroup(event, tool, groups, deps.part);
   const gates = routerGates(event, tool, groups, deps.part);
-  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await bashParser().catch(() => void 0);
-  const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
-  const groupStart = now();
-  const done = [];
-  let spent = false;
-  for (const gate of gates) {
-    const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
-    const left = groupBudgetMs - (now() - groupStart);
-    const b = { event, limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
-    const fn = find(gate.name);
-    if (!fn) {
-      done.push({ gate, s: { kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 }, j: judgeUnknown(gate, event) });
-      continue;
-    }
-    if (spent || left <= 0) {
-      const s2 = { kind: "unrun", ms: 0 };
-      done.push({ gate, s: s2, j: judge(gate, s2, false, b) });
-      continue;
-    }
-    const { s, cut: cut4 } = await settle(fn, payload, env, b.limit, now);
-    spent = b.byGroup && (cut4 || s.kind === "late" || s.ms >= b.limit);
-    const j = judge(gate, s, cut4, b);
-    done.push({ gate, s, j });
-    if (group?.stopAtFirstDeny && j.outcome === "deny") break;
-  }
+  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
+  const call = {
+    event,
+    payload,
+    env,
+    now,
+    find: deps.findGate ?? (bashImpl ? shGate : findGate),
+    budgetOf: (gate) => deps.budgetMs?.(gate) ?? gate.budgetMs,
+    groupBudgetMs: deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0
+  };
+  const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
   const deny11 = done.find(({ j }) => j.outcome === "deny");
@@ -25654,7 +25706,13 @@ async function routerMain(event, env, io, opts = {}) {
       lock = null;
     }
   }
-  const d = await decide(event, payload, gateEnv, opts);
+  const holdOpen = setInterval(() => void 0, 6e4);
+  let d;
+  try {
+    d = await decide(event, payload, gateEnv, opts);
+  } finally {
+    clearInterval(holdOpen);
+  }
   if (lock !== null) Dedupe.store(lock, d);
   io.writeStderr(d.stderr);
   await io.writeStdout(d.stdout);
