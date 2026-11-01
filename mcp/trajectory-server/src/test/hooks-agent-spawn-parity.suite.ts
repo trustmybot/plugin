@@ -9,8 +9,9 @@
  * tasks and agent_runs rows, every timestamp the run wrote masked as <now>,
  * the epoch-ms tail of a session spawn_id as <ms> and a duration_ms equal to
  * its run's window as "window". jq's own `jq: ` stderr lines (the .sh leaves
- * ensure-swe-worktree's jq calls unsilenced) are part of the no-jq divergence
- * and dropped from the bash side.
+ * ensure-swe-worktree's jq calls unsilenced) are a decision 703 divergence:
+ * dropped from the bash side before a same-output comparison, and kept for a
+ * corpus_divergent payload, which pins them.
  *
  * project/ is the workspace: its DB registers plugin (absolute path), docs (a
  * path relative to the workspace), ghost (no path) and slashed (plugin's path
@@ -269,10 +270,8 @@ export function caseEnv(s: string, locale: string, extra: Record<string, string 
   return env;
 }
 
-function quiet(r: Run, side: 'bash' | 'ts'): Run {
-  let stderr = r.stderr.replace(XCRUN_CACHE_NOISE, '');
-  if (side === 'bash') stderr = stderr.replace(JQ_STDERR, '');
-  return { ...r, stderr };
+function quiet(r: Run, _side: 'bash' | 'ts'): Run {
+  return { ...r, stderr: r.stderr.replace(XCRUN_CACHE_NOISE, '') };
 }
 
 /**
@@ -362,8 +361,9 @@ export function agentSpawnParityShard(k: number, n: number): void {
             assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
             assert.deepEqual(nodeTree, bashTree, 'the sandbox after the run');
             assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
-            assert.equal(node.stderr, bash.stderr, 'stderr, byte for byte');
-            assertExpect('bash', bash, bashTree, byLocale(c.expect as SideExpect, locale), dbRel);
+            const bashStderr = bash.stderr.replace(JQ_STDERR, '');
+            assert.equal(node.stderr, bashStderr, 'stderr, byte for byte');
+            assertExpect('bash', { ...bash, stderr: bashStderr }, bashTree, byLocale(c.expect as SideExpect, locale), dbRel);
           } else {
             const expect = c.expect as { bash: SideExpect; ts: SideExpect };
             assert.ok(
