@@ -343,6 +343,12 @@ type IssueLeftOpen =
 export const BRIEF_SECTIONS = ['core', 'verification', 'scope', 'history', 'all'] as const;
 export type BriefSection = (typeof BRIEF_SECTIONS)[number];
 const isBriefSection = (v: unknown): v is BriefSection => (BRIEF_SECTIONS as readonly unknown[]).includes(v);
+export const BRIEF_RESPONSE_FORMATS = ['concise', 'detailed'] as const;
+export type BriefResponseFormat = (typeof BRIEF_RESPONSE_FORMATS)[number];
+const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
+  (BRIEF_RESPONSE_FORMATS as readonly unknown[]).includes(v);
+const BRIEF_RESPONSE_FORMAT_HINT =
+  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
 const BRIEF_SECTION_HINTS = {
   core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
@@ -1364,7 +1370,8 @@ export function compositeTools(
         "locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all), at most 6000 chars, null when the repo has no world model; " +
         "plus a `sections` map of what the others hold), " +
         "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
-        "Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+        "Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. " +
+        "`response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1374,6 +1381,11 @@ export function compositeTools(
             type: 'string',
             enum: [...BRIEF_SECTIONS],
             description: "Part of the brief to return. Default 'core' for swe, 'all' for every other caller.",
+          },
+          response_format: {
+            type: 'string',
+            enum: [...BRIEF_RESPONSE_FORMATS],
+            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full.",
           },
         },
         required: ['agent', 'task_id'],
@@ -2000,6 +2012,14 @@ export function compositeTools(
         if (!isBriefSection(section)) {
           return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
         }
+        const responseFormat = args['response_format'] ?? 'concise';
+        if (!isBriefResponseFormat(responseFormat)) {
+          return err(
+            `unknown response_format ${JSON.stringify(responseFormat)}; valid values: ${BRIEF_RESPONSE_FORMATS.join(', ')}`,
+          );
+        }
+        const concise = responseFormat === 'concise';
+        let trimmed = false;
         const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
         const task = db.get<{
@@ -2156,9 +2176,16 @@ export function compositeTools(
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
             base_moved: closeScope ? closeScope.base_moved === true : null,
           };
+          if (concise) {
+            trimmed ||= scope_world_model.some(
+              (d) => d.summary !== null || d.children.some((c) => c.summary !== null),
+            );
+          }
           return {
             scope,
-            scope_world_model,
+            scope_world_model: concise
+              ? scope_world_model.map((d) => ({ dir: d.dir, children: d.children.map((c) => ({ path: c.path })) }))
+              : scope_world_model,
             ...checkoutLag(db, repo),
             ...(world_model_warning ? { world_model_warning } : {}),
           };
@@ -2224,10 +2251,19 @@ export function compositeTools(
             omittedCount > 0
               ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` }
               : undefined;
-          return { task_discussions, ...(task_discussions_omitted ? { task_discussions_omitted } : {}) };
+          const keptInConcise = new Set([...taskRows, issueDecision, issueIntent].map((d) => d?.id));
+          trimmed ||= concise && task_discussions.some((d) => !keptInConcise.has(d.id));
+          return {
+            task_discussions: concise
+              ? task_discussions.map((d) =>
+                  keptInConcise.has(d.id) ? d : { id: d.id, kind: d.kind, author: d.author },
+                )
+              : task_discussions,
+            ...(task_discussions_omitted ? { task_discussions_omitted } : {}),
+          };
         };
 
-        return ok({
+        const brief = {
           ...(want('core') ? coreSection() : {}),
           ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
           ...(want('verification')
@@ -2235,7 +2271,8 @@ export function compositeTools(
             : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
-        });
+        };
+        return ok(trimmed ? { ...brief, response_format_hint: BRIEF_RESPONSE_FORMAT_HINT } : brief);
       }),
     ),
 
