@@ -1,0 +1,272 @@
+{
+  "01-close-launches-scan.json": {
+    "C,en_US.UTF-8": {
+      "launched": "{\"db\":\"@SANDBOX@/project/.claude/tmb/trajectory.db\",\"argv\":[\"@SANDBOX@/plugin/scripts/maintenance/run-scan.mjs\"],\"execArgv\":[\"--experimental-sqlite\"]}",
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "02-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "03-bypass.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "04-malformed-stdin.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "05-bypass-not-one.json": {
+    "C,en_US.UTF-8": {
+      "launched": "{\"db\":\"@SANDBOX@/project/.claude/tmb/trajectory.db\",\"argv\":[\"@SANDBOX@/plugin/scripts/maintenance/run-scan.mjs\"],\"execArgv\":[\"--experimental-sqlite\"]}",
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "06-dev-channel-tool.json": {
+    "C,en_US.UTF-8": {
+      "launched": "{\"db\":\"@SANDBOX@/project/.claude/tmb/trajectory.db\",\"argv\":[\"@SANDBOX@/plugin/scripts/maintenance/run-scan.mjs\"],\"execArgv\":[\"--experimental-sqlite\"]}",
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "07-tool-name-suffix.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "08-no-db.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  },
+  "09-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "launched": null,
+      "name": "bash",
+      "r": {
+        "code": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "tree": {
+        "bare/": null,
+        "home/": null,
+        "plugin/": null,
+        "plugin/.claude-plugin/": null,
+        "plugin/.claude-plugin/plugin.json": "<unchanged>",
+        "plugin/mcp/": null,
+        "plugin/mcp/trajectory-server/": null,
+        "plugin/mcp/trajectory-server/dist/": null,
+        "plugin/mcp/trajectory-server/dist/hooks.js": "<unchanged>",
+        "plugin/scripts/": null,
+        "plugin/scripts/maintenance/": null,
+        "plugin/scripts/maintenance/run-scan.mjs": "<unchanged>",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[],\"agent_runs\":[],\"agent_run_tool_output\":[],\"audit\":[]}"
+      },
+      "unreleased": true
+    }
+  }
+}

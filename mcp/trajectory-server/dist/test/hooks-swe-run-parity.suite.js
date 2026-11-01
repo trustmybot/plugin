@@ -33,7 +33,9 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, r
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -194,7 +196,7 @@ export function snapshot(root) {
                 walk(path);
             }
             else {
-                out[rel] = name.endsWith('.db') ? dumpDb(path) : createHash('sha256').update(readFileSync(path)).digest('hex');
+                out[rel] = name.endsWith('.db') ? dumpDb(path) : sandboxSha(path, root);
             }
         }
     };
@@ -292,12 +294,15 @@ export function sweRunParityShard(k, n) {
             it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
                 const env = caseEnv(s, locale, c.env, c.cwd);
+                const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+                    buildSandbox(s);
+                    const setup = snapshot(s);
+                    return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), tree: settledTree(setup, snapshot(s)) };
+                });
                 buildSandbox(s);
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env);
-                const bashTree = snapshot(s);
-                buildSandbox(s);
+                const setup = snapshot(s);
                 const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
-                const nodeTree = snapshot(s);
+                const nodeTree = settledTree(setup, snapshot(s));
                 assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
                 assert.equal(node.code, 0, `node exit: ${node.stderr}`);
                 if (c.divergent === undefined) {
@@ -308,7 +313,7 @@ export function sweRunParityShard(k, n) {
                 }
                 else {
                     const expect = c.expect;
-                    assert.ok(node.stdout + node.stderr !== bash.stdout + bash.stderr || JSON.stringify(nodeTree) !== JSON.stringify(bashTree), `divergent (${c.divergent}): the sides must differ`);
+                    assert.ok(node.stdout + node.stderr !== bash.stdout + bash.stderr || !isDeepStrictEqual(nodeTree, bashTree), `divergent (${c.divergent}): the sides must differ`);
                     assertExpect('bash', bash, bashTree, byLocale(expect.bash, locale));
                     assertExpect('ts', node, nodeTree, byLocale(expect.ts, locale));
                 }

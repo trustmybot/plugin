@@ -1,0 +1,192 @@
+{
+  "01-other-tool.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "02-error-response.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "03-missing-task-id.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "04-invalid-commit-sha.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "05-null-commit-sha.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "06-commit-not-in-repo.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "07-unknown-task.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "08-no-db.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "09-root-dir-change.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/root\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 1: README may be stale in 1 dir(s) after a1b661f\",\"content_json\":\"{\\\"task_id\\\":1,\\\"commit_sha\\\":\\\"a1b661f47df9c3c77c1828d6593a91266546c977\\\",\\\"stale\\\":[\\\"project/ (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 1, commit a1b661f): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nproject/ (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "10-nested-dir-readme-untouched.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/nested\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 2: README may be stale in 1 dir(s) after 2af9876\",\"content_json\":\"{\\\"task_id\\\":2,\\\"commit_sha\\\":\\\"2af9876eafc8e60282a073a6f585fd60643d0eb7\\\",\\\"stale\\\":[\\\"src/lib (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 2, commit 2af9876): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nsrc/lib (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "11-readme-missing.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/missing\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 3: README may be stale in 1 dir(s) after 63443d5\",\"content_json\":\"{\\\"task_id\\\":3,\\\"commit_sha\\\":\\\"63443d5f4fd8d6b127f815b506d40dd4eb486938\\\",\\\"stale\\\":[\\\"docs (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 3, commit 63443d5): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\ndocs (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "12-many-dirs.json": {
+    "C": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/mixed\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 6: README may be stale in 4 dir(s) after 5635fdd\",\"content_json\":\"{\\\"task_id\\\":6,\\\"commit_sha\\\":\\\"5635fdda616c5f4c888d21668b5f69b92e6eab29\\\",\\\"stale\\\":[\\\"project/ (README.md older than the commit)\\\",\\\"Zeta (no README.md)\\\",\\\"src/lib (README.md older than the commit)\\\",\\\"tools (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 6, commit 5635fdd): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nproject/ (README.md older than the commit)\\nZeta (no README.md)\\nsrc/lib (README.md older than the commit)\\ntools (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    },
+    "en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/mixed\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 6: README may be stale in 4 dir(s) after 5635fdd\",\"content_json\":\"{\\\"task_id\\\":6,\\\"commit_sha\\\":\\\"5635fdda616c5f4c888d21668b5f69b92e6eab29\\\",\\\"stale\\\":[\\\"project/ (README.md older than the commit)\\\",\\\"src/lib (README.md older than the commit)\\\",\\\"tools (no README.md)\\\",\\\"Zeta (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 6, commit 5635fdd): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nproject/ (README.md older than the commit)\\nsrc/lib (README.md older than the commit)\\ntools (no README.md)\\nZeta (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "13-no-repo-sole-registered.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/no-repo\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 10: README may be stale in 1 dir(s) after a1b661f\",\"content_json\":\"{\\\"task_id\\\":10,\\\"commit_sha\\\":\\\"a1b661f47df9c3c77c1828d6593a91266546c977\\\",\\\"stale\\\":[\\\"<repo root> (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 10, commit a1b661f): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\n<repo root> (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "14-unregistered-repo-name.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/ghost\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 11: README may be stale in 1 dir(s) after a1b661f\",\"content_json\":\"{\\\"task_id\\\":11,\\\"commit_sha\\\":\\\"a1b661f47df9c3c77c1828d6593a91266546c977\\\",\\\"stale\\\":[\\\"ghost/ (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 11, commit a1b661f): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nghost/ (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "15-string-task-id.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/nested\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 2: README may be stale in 1 dir(s) after 2af9876\",\"content_json\":\"{\\\"task_id\\\":2,\\\"commit_sha\\\":\\\"2af9876eafc8e60282a073a6f585fd60643d0eb7\\\",\\\"stale\\\":[\\\"src/lib (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 2, commit 2af9876): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nsrc/lib (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "16-non-integer-task-id.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "17-bypass.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "18-unprefixed-tool-name.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/missing\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 3: README may be stale in 1 dir(s) after 63443d5\",\"content_json\":\"{\\\"task_id\\\":3,\\\"commit_sha\\\":\\\"63443d5f4fd8d6b127f815b506d40dd4eb486938\\\",\\\"stale\\\":[\\\"docs (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 3, commit 63443d5): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\ndocs (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "19-divergent-gh2044-unchecked-out-branch.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/gh-2044\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 5: README may be stale in 3 dir(s) after 4cde03f\",\"content_json\":\"{\\\"task_id\\\":5,\\\"commit_sha\\\":\\\"4cde03f52849eca4b3441616213f6364c4727ac0\\\",\\\"stale\\\":[\\\"a (no README.md)\\\",\\\"a/b (no README.md)\\\",\\\"x/dist (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 5, commit 4cde03f): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\na (no README.md)\\na/b (no README.md)\\nx/dist (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "20-divergent-gh1792-readme-edited-in-commit.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/gh-1792\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 4: README may be stale in 1 dir(s) after 79b21b9\",\"content_json\":\"{\\\"task_id\\\":4,\\\"commit_sha\\\":\\\"79b21b96a60e4e1707d6b2ac36900eb2d20af518\\\",\\\"stale\\\":[\\\"dashboard (README.md older than the commit)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 4, commit 79b21b9): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\ndashboard (README.md older than the commit)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  },
+  "21-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "22-divergent-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[]",
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "23-divergent-dist-dir-skipped.json": {
+    "C,en_US.UTF-8": {
+      "audit": "[{\"issue_id\":7,\"branch_id\":\"feat/dist\",\"from_node\":\"hook:post-atomic-close-readme\",\"event_type\":\"readme_staleness_surfaced\",\"summary\":\"task 12: README may be stale in 2 dir(s) after e8dd304\",\"content_json\":\"{\\\"task_id\\\":12,\\\"commit_sha\\\":\\\"e8dd3042b93ac2b320446dce9c16e7f3392129ec\\\",\\\"stale\\\":[\\\"web (no README.md)\\\",\\\"web/dist (no README.md)\\\"]}\",\"repo\":null,\"created_at\":\"<ts>\"}]",
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"📝 README-staleness check (task 12, commit e8dd304): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.\\n\\nThe commit touched directories whose README.md is missing or older than the commit:\\nweb (no README.md)\\nweb/dist (no README.md)\\n\\nFor each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call — skip it when the change doesn't alter what the README describes.\"}}\n"
+    }
+  }
+}

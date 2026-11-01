@@ -31,6 +31,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -240,7 +241,7 @@ export function gitBranchGuardsParityShard(k, n) {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
                 const env = caseEnv(s, locale, c.env, c.cwd);
                 const stdinFile = join(base, 'stdin');
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, stdinFile, env);
+                const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, stdinFile, env));
                 const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, stdinFile, env);
                 assert.equal(bash.code, 0, 'bash exit');
                 assert.equal(node.code, 0, 'node exit');

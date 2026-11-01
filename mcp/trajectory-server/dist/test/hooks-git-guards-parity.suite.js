@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/git-guards');
@@ -175,7 +176,7 @@ export function gitGuardsParityShard(k, n) {
                 };
                 delete env.TMB_HOOKS_SQLITE;
                 const cwd = join(sandbox, 'project');
-                const bash = run('bash', [HOOK_SH], input, env, cwd);
+                const bash = goldenBash('git-guards', f, locale, goldenRoots({ '@SANDBOX@': sandbox }), () => run('bash', [HOOK_SH], input, env, cwd));
                 const node = run(process.execPath, [HOOKS_BUNDLE, 'git-guards'], input, env, cwd);
                 assert.equal(node.code, bash.code, 'exit code');
                 assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');

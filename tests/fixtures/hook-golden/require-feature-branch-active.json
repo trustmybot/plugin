@@ -1,0 +1,107 @@
+{
+  "01-existing-branch-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "02-missing-branch-with-origin-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 3 needs branch feat/missing to exist first — bro pre-creates it (\\\"git -C @SANDBOX@/project branch feat/missing origin/dev\\\") and stays on dev; SWE's worktree owns the branch.\"}}\n"
+    }
+  },
+  "03-missing-branch-remoteless-no-parent-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 16 needs branch feat/nope to exist first — bro pre-creates it (\\\"git -C @SANDBOX@/remoteless branch feat/nope <base>\\\") and stays on <base>; SWE's worktree owns the branch.\"}}\n"
+    }
+  },
+  "04-unregistered-repo-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 15. tasks.repo=ghost does not point to a git repo at @SANDBOX@/project/ghost. Verify the path is correct.\"}}\n"
+    }
+  },
+  "05-null-repo-multi-repo-workspace-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 1. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.\"}}\n"
+    }
+  },
+  "06-relative-repo-path-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "07-bypass-env-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "08-non-swe-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "09-colon-form-task-id-is-not-read-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "10-missing-task-row-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "11-corrupt-db-denies.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-feature-branch-active could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "12-branch-on-main-checkout-exists-allows.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "13-no-jq-divergence.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "@PLUGIN_ROOT@/scripts/hooks/require-feature-branch-active.sh: line 21: jq: command not found\n@PLUGIN_ROOT@/scripts/hooks/require-feature-branch-active.sh: line 22: jq: command not found\n",
+      "stdout": ""
+    }
+  },
+  "14-no-sqlite3-divergence.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "15-unresolved-db-allows-silently.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  }
+}

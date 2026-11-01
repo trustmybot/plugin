@@ -36,9 +36,11 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 import { byLocale, corpusFiles, materialize, noCmdPath, run, type CorpusPaths, type Run, type SideExpect } from './hooks-swe-run-parity.suite.js';
 
@@ -95,7 +97,7 @@ function git(dir: string, ...args: string[]): void {
 function gitRepo(dir: string, ...branches: string[]): void {
   mkdirSync(dir, { recursive: true });
   git(dir, 'init', '-q', '-b', 'main');
-  writeFileSync(join(dir, 'README.md'), `${dir}\n`);
+  writeFileSync(join(dir, 'README.md'), `${basename(dir)}\n`);
   git(dir, 'add', 'README.md');
   git(dir, 'commit', '-qm', 'init');
   for (const branch of branches) git(dir, 'branch', branch);
@@ -240,7 +242,7 @@ function snapshot(root: string): Record<string, string | null> {
       } else if (inGit) {
         out[rel] = null;
       } else {
-        out[rel] = name.endsWith('.db') ? dumpDb(path) : sha(path);
+        out[rel] = name.endsWith('.db') ? dumpDb(path) : sandboxSha(path, root);
       }
     }
   };
@@ -345,12 +347,15 @@ export function agentSpawnParityShard(k: number, n: number): void {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const env = caseEnv(s, locale, c.env, c.cwd);
           const dbRel = relative(s, env.TRAJECTORY_DB_PATH ?? join(s, PROJECT_DB));
+          const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+            restore();
+            const setup = snapshot(s);
+            return { ...quiet(run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), 'bash'), tree: settledTree(setup, snapshot(s)) };
+          });
           restore();
-          const bash = quiet(run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env), 'bash');
-          const bashTree = snapshot(s);
-          restore();
+          const setup = snapshot(s);
           const node = quiet(run(process.execPath, [HOOKS_BUNDLE, gate], c, env), 'ts');
-          const nodeTree = snapshot(s);
+          const nodeTree = settledTree(setup, snapshot(s));
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
           if (c.divergent === undefined) {
             assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
@@ -362,7 +367,7 @@ export function agentSpawnParityShard(k: number, n: number): void {
           } else {
             const expect = c.expect as { bash: SideExpect; ts: SideExpect };
             assert.ok(
-              node.code !== bash.code || node.stdout + node.stderr !== bash.stdout + bash.stderr || JSON.stringify(nodeTree) !== JSON.stringify(bashTree),
+              node.code !== bash.code || node.stdout + node.stderr !== bash.stdout + bash.stderr || !isDeepStrictEqual(nodeTree, bashTree),
               `divergent (${c.divergent}): the sides must differ`,
             );
             assertExpect('bash', bash, bashTree, byLocale(expect.bash, locale), dbRel);

@@ -1,0 +1,331 @@
+{
+  "allow-bash-heredoc-body-is-data.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-bash-non-prompt-write.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-bash-read-only.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-bash-write-into-worktree.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-bypass-env-edit.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-dir-outside-git.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-dotfile-config.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-empty-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-github-workflow.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-license-variant.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-markdown-and-docs.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-markdown-file.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-no-db-edit.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-not-json.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-other-plugin-hooks-json-swe.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-plugin-manifest.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-read-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-scratch-absolute.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-scratch-relative.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-swe-permit.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-templates-dir.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-unregistered-sibling-repo.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-worktree-enforcement-surface.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "allow-worktree-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "deny-bash-from-worktree-source-to-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-bash-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-bash-project-under-worktrees-path.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-bash-redirect-prompt-surface.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-bash-tee-claude-md-absolute.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-bypass-env-does-not-lift-bash.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — no-source-edit-from-main could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "deny-edit-relative-source.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-enforcement-hooks-json-absolute.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.\"}}\n"
+    }
+  },
+  "deny-enforcement-surface-md-for-swe.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.\"}}\n"
+    }
+  },
+  "deny-multiedit-source.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-not-sanctioned-scratch-dir.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-notebookedit-source.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-other-plugin-hooks-json-bro.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-parent-dir-absent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-registered-repo-source-write.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "deny-repos-table-unreadable.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — no-source-edit-from-main could not read @SANDBOX@/norepos/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "deny-scratch-dotdot-climbs-out.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "divergent-gh1796-canonical-harness-tmp.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "divergent-gh1796-symlinked-scratch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "divergent-gh1796-tmp-alias.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  },
+  "divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  },
+  "divergent-no-sqlite-cli.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.\"}}\n"
+    }
+  }
+}
