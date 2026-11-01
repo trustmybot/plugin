@@ -6275,6 +6275,7 @@ import { readFileSync as readFileSync6 } from "node:fs";
 var GATE_NAME2 = "tool-output-size";
 var CHARS_PER_TOKEN = 4;
 var UNKNOWN_TOOL = "unknown";
+var TOOL_OUTPUT_COMPLETED_AT_ENV = "TMB_STOP_COMPLETED_AT";
 var CANDIDATE_MARK = '"tool_';
 function resultChars(content) {
   if (typeof content === "string") return content.length;
@@ -6370,13 +6371,18 @@ function runTarget(env) {
     sinceMs
   };
 }
-function rewriteSql(runId, rows) {
-  const del = `DELETE FROM agent_run_tool_output WHERE run_id = ${runId};`;
+function completedAfter(stamp2) {
+  return `julianday(completed_at) > julianday('${sqlQuote(stamp2)}')`;
+}
+function rewriteSql(runId, rows, completedAt = "") {
+  const current = completedAt === "" ? "1" : `NOT EXISTS (SELECT 1 FROM agent_runs WHERE id = ${runId} AND ${completedAfter(completedAt)})`;
+  const del = `DELETE FROM agent_run_tool_output WHERE run_id = ${runId} AND ${current};`;
   if (rows.length === 0) return del;
   const values = rows.map((r) => `(${runId}, '${sqlQuote(r.tool_name)}', ${r.calls}, ${r.result_chars}, ${r.est_tokens})`).join(",\n       ");
   return `${del}
 INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens)
-VALUES ${values};`;
+SELECT * FROM (VALUES ${values})
+ WHERE ${current};`;
 }
 function toolOutputSize(payload, env) {
   try {
@@ -6391,7 +6397,7 @@ function toolOutputSize(payload, env) {
     const found = gateRead(db, `SELECT id FROM agent_runs WHERE ${target.where} ORDER BY id DESC LIMIT 1;`, env);
     const runId = found === GATE_READ_ERROR ? "" : sqlInt(found);
     if (runId === "") return ALLOW;
-    dbWrite(db, rewriteSql(runId, rows), { caller: GATE_NAME2, env });
+    dbWrite(db, rewriteSql(runId, rows, env[TOOL_OUTPUT_COMPLETED_AT_ENV] ?? ""), { caller: GATE_NAME2, env });
   } catch {
   }
   return ALLOW;
@@ -6628,7 +6634,7 @@ UPDATE agent_runs
        host                  = 'claude',
        root_dir              = COALESCE(${rootSql}, root_dir),
        exit_reason           = 'completed'
- WHERE ${sessionRow};
+ WHERE ${sessionRow} AND (${completedAfter(u.last)}) IS NOT TRUE;
 
 INSERT INTO agent_runs (agent_type, task_id, issue_id, session_id, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, started_at, completed_at, duration_ms,
@@ -6661,7 +6667,12 @@ var broTurnUsage = (payload, env) => {
 `);
   } else {
     try {
-      toolOutputSize(payload, { ...env, TMB_STOP_AGENT_TYPE: "bro", TMB_STOP_SESSION_ID: sessionId });
+      toolOutputSize(payload, {
+        ...env,
+        TMB_STOP_AGENT_TYPE: "bro",
+        TMB_STOP_SESSION_ID: sessionId,
+        [TOOL_OUTPUT_COMPLETED_AT_ENV]: usage.last
+      });
     } catch {
     }
   }

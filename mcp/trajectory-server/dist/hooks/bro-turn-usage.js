@@ -11,6 +11,11 @@
  * stderr line. After a written row it runs the tool-output-size recorder on
  * the session row (GH 1957), fail-open.
  *
+ * It runs async (decision 937), so Stop runs of one session can overlap: a run
+ * holding an older transcript read must not overwrite a newer one, so the
+ * UPDATE skips a row whose completed_at is later than this run's. A lost run
+ * is recovered by the next, which re-reads the whole transcript.
+ *
  * Divergence: the .sh exits 0 without jq or the sqlite3 CLI; this gate needs
  * neither (node:sqlite writes the row).
  */
@@ -21,7 +26,7 @@ import { dbLocation, dbPath, sqlQuote, stripTrailingNewlines } from './lib/db.js
 import { byteCompare, commandSubstitution } from './lib/host.js';
 import { jsonStream, jsonValues } from './lib/jq.js';
 import { jqRawText, posixDirname } from './lib/project-env.js';
-import { toolOutputSize } from './tool-output-size.js';
+import { completedAfter, toolOutputSize, TOOL_OUTPUT_COMPLETED_AT_ENV } from './tool-output-size.js';
 export const GATE_NAME = 'bro-turn-usage';
 const ISO = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z\n?$/;
 const STAMP = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/;
@@ -302,7 +307,7 @@ UPDATE agent_runs
        host                  = 'claude',
        root_dir              = COALESCE(${rootSql}, root_dir),
        exit_reason           = 'completed'
- WHERE ${sessionRow};
+ WHERE ${sessionRow} AND (${completedAfter(u.last)}) IS NOT TRUE;
 
 INSERT INTO agent_runs (agent_type, task_id, issue_id, session_id, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, started_at, completed_at, duration_ms,
@@ -340,7 +345,12 @@ export const broTurnUsage = (payload, env) => {
     }
     else {
         try {
-            toolOutputSize(payload, { ...env, TMB_STOP_AGENT_TYPE: 'bro', TMB_STOP_SESSION_ID: sessionId });
+            toolOutputSize(payload, {
+                ...env,
+                TMB_STOP_AGENT_TYPE: 'bro',
+                TMB_STOP_SESSION_ID: sessionId,
+                [TOOL_OUTPUT_COMPLETED_AT_ENV]: usage.last,
+            });
         }
         catch {
             // The recorder never fails the gate.

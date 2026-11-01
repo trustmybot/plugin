@@ -6,7 +6,7 @@
 # chain, scripts/hooks/lib/registrations.sh), so a deleted or unwired
 # hook cannot leave a stale row; every hook hooks.json registers has a row.
 # A gate born in TypeScript (no .sh) has a `<name>.ts` row naming its
-# mcp/trajectory-server/src/hooks/<name>.ts source.
+# mcp/trajectory-server/src/hooks/<name>.ts source; a ported gate may too.
 # scripts/hooks/README.md opens its entry-point section with the router as every
 # registration, not dispatch.sh (GH 1692).
 #
@@ -55,7 +55,7 @@ check_tree() {
   for hook in $gates; do
     row="$hook.sh"
     [ -f "$root/scripts/hooks/$row" ] || [ ! -f "$root/mcp/trajectory-server/src/hooks/$hook.ts" ] || row="$hook.ts"
-    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -F "| \`$row\` |" >/dev/null; then
+    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -F -e "| \`$row\` |" -e "| \`$hook.ts\` |" >/dev/null; then
       echo "  ✗ hooks/hooks.json registers $row, which has no row in the docs/reference/REFERENCE.md hook table" >&2
       failed=1
     fi
