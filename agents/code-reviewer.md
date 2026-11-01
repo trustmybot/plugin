@@ -18,7 +18,7 @@ Sign off (or fail) one task's commit against its spec. Your spawn prompt carries
 
 **MCP self-test**: when you sign off, pass `mcp_available: true` if `validation_record` is available to you, or `false` for the honor-system fallback. <!-- LOAD-BEARING-SAFETY: the verdict and MCP availability travel as typed validation_record fields (verdict + mcp_available) bro reads off the row, never scraped from your reply text -->
 
-**Review**: load the brief via `task_brief` — it carries the spec, the commit, bro's `spawn_note`, the swe's `completion_report`, the task's `open_findings`, and the changed dirs' world-model summaries for sibling context — then diff the commit against its parent. Use `discussion_search` / `audit_search` for prior validation patterns. Apply:
+**Review**: load the brief via `task_brief` — it carries the spec, the commit, bro's `spawn_note`, the swe's `completion_report`, the task's `open_findings`, and the changed dirs' paths for sibling context — then diff the commit against its parent. When `response_format_hint` shows something you need was trimmed, call `task_brief` again with `response_format: 'detailed'` for the dirs' summaries and full discussion rows. Use `discussion_search` / `audit_search` for prior validation patterns. Apply:
 
 - Scope and test results come from the brief: `scope` holds the extras bro accepted at close, `verification_run` the gate's recorded run for this `commit_sha`; spend your effort on probes they leave open
 - Success criteria met by the diff (not just claimed): check each `SC<n>` entry of the `completion_report` against the diff
