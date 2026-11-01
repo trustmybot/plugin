@@ -3,7 +3,8 @@
  * on a bro turn (the prompt says "bro" as a word and is not a harness turn,
  * or the transcript holds sticky bro mode) it pre-fetches the onboarded flag
  * and the newest open issue and injects them as additionalContext, prefixed
- * by a HALT notice when pgrep finds no trajectory-server. Never blocks.
+ * by a HALT notice when pgrep finds no trajectory-server, and followed by a
+ * one-line warning when the session's bro row is past a usage limit. Never blocks.
  *
  * The word test is grep's: `\b` and -i under the locale grep would run in
  * (ASCII word bytes in C; letters, digits and _ under UTF-8, where a
@@ -22,6 +23,8 @@ export const GATE_NAME = 'activation-routine';
 export const HALT_TEXT = '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
 const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
+const TOOL_CALLS_LIMIT = 150;
+const CONTEXT_PER_CALL_LIMIT = 60000;
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
 export class LocaleGrep {
     utf8;
@@ -118,6 +121,31 @@ export function activationContext(onboardedCount, pending) {
     }
     return `[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${pendingLine}`;
 }
+export function usageWarning(toolUses, cacheReadTokens) {
+    if (toolUses <= 0)
+        return '';
+    const contextPerCall = Math.ceil(cacheReadTokens / toolUses);
+    const passed = [];
+    if (toolUses > TOOL_CALLS_LIMIT)
+        passed.push(`${toolUses} tool calls (limit ${TOOL_CALLS_LIMIT})`);
+    if (contextPerCall > CONTEXT_PER_CALL_LIMIT)
+        passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
+    if (passed.length === 0)
+        return '';
+    return `⚠️ This bro session is past its usage limits: ${passed.join(', ')}. Finish what is in flight, then end the session and resume cold from the DB.`;
+}
+function sessionUsageWarning(db, sessionId, env) {
+    if (!SESSION_ID_LINE.test(sessionId))
+        return '';
+    try {
+        const row = sqliteRo(db, `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`, env);
+        const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
+        return usage === null ? '' : usageWarning(Number(usage[1]), Number(usage[2]));
+    }
+    catch {
+        return '';
+    }
+}
 export function activationRoutine(payload, env) {
     try {
         const echoed = `${commandSubstitution(payload)}\n`;
@@ -139,6 +167,9 @@ export function activationRoutine(payload, env) {
         const sessionId = field('session_id');
         if (sessionId.split('\n').some((line) => SESSION_ID_LINE.test(line)))
             context = `${context} session_id=${sessionId}`;
+        const warning = sessionUsageWarning(db, sessionId, env);
+        if (warning !== '')
+            context = `${context}\n${warning}`;
         return emit(context);
     }
     catch {
