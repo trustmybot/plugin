@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { payloadCwd } from './cmd-analysis/path.js';
 import { ALLOW, type SyncGate } from './gate.js';
+import { noteSpawn, spawnLimit, spawnOptions } from './lib/deadline.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
 import {
   awkSpace,
@@ -79,7 +80,9 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | null {
 }
 
 function run(file: string, args: string[], cwd: string | undefined, env: NodeJS.ProcessEnv): { stdout: string; ok: boolean } {
-  const r = spawnSync(file, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
+  const limit = spawnLimit();
+  const r = spawnSync(file, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+  noteSpawn(limit, r);
   return { stdout: r.stdout ?? '', ok: r.error === undefined && r.status === 0 };
 }
 

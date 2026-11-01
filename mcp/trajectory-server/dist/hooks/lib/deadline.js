@@ -25,6 +25,12 @@ export async function runWithDeadline(at, body, now = () => performance.now()) {
 export function deadlineSignal() {
     return scopes.getStore()?.signal;
 }
+/** Marks the running scope over budget, for a wait the deadline ended with no spawn of its own to cut. */
+export function markDeadlineExpired() {
+    const scope = scopes.getStore();
+    if (scope)
+        scope.expired = true;
+}
 /**
  * A spawn's timeout: max(1, deadline - now) inside a deadline scope, or <ownMs>
  * when the caller has a sooner limit of its own; null with neither.
