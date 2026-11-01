@@ -51,7 +51,7 @@ Every discussion write — `discussion_append` plus every composite that logs an
 
 ## Audit: who may write which event
 
-Every audit row goes through `insertAudit` (`audit.ts`). Each event in `../audit-events.ts` lists its `writers` — the agent roles that may author it, `server`, or `hook`. `audit_append` takes the role from the `agent` arg (the same `normalizeAgent` path `requireRoles` uses), refuses an event whose writers omit that role with `audit_event_not_writable_by_role` (`event_type`, `caller_role`, `allowed_writers`), and records `from_node` as the caller itself — `bro`, `swe`, `code-reviewer`, or a consultant's name; a `from_node` arg naming anyone else is refused. `insertAudit` runs the same check when given `writer`. So no agent but bro can write a gate waiver (`verification_gate_waived` is hook-only), and `GATE_SKIP_RECORDED_SQL` (`lifecycle.ts`) counts a review waiver only when `from_node = 'bro'`.
+Every audit row goes through `insertAudit` (`audit.ts`). Each event in `../audit-events.ts` lists its `writers` — the agent roles that may author it, `server`, or `hook`. `audit_append` takes the role from the `agent` arg (the same `normalizeAgent` path `requireRoles` uses), refuses an event whose writers omit that role with `audit_event_not_writable_by_role` (`event_type`, `caller_role`, `allowed_writers`), and records `from_node` as the caller itself — `bro`, `swe`, `code-reviewer`, or a consultant's name; a `from_node` arg naming anyone else is refused. `insertAudit` runs the same check when given `writer`. So no agent but bro can write a gate waiver (`verification_gate_waived` is hook-only), and `GATE_SKIP_RECORDED_SQL` (`../review-sql.ts`) counts a review waiver only when `from_node = 'bro'`.
 
 ## Atomicity notes
 

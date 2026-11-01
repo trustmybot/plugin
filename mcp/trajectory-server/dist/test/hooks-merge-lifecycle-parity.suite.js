@@ -287,7 +287,7 @@ function snapshot(s) {
 function byLocale(expect, locale) {
     return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
-function materialize(file, s, paths) {
+export function materialize(file, s, paths) {
     const text = readFileSync(file, 'utf8')
         .replaceAll('@SANDBOX@', s)
         .replaceAll('@NOGH_PATH@', paths.noGh)
@@ -303,7 +303,7 @@ function materialize(file, s, paths) {
         divergent,
     };
 }
-function caseEnv(s, locale, paths, extra, cwd) {
+export function caseEnv(s, locale, paths, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

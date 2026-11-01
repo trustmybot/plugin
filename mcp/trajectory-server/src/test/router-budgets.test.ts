@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
+import { ROUTER_GROUPS, routerGroupKey, routerTimeoutS } from '../hooks/registry.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
 import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_ROUTER_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
@@ -31,7 +31,7 @@ const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server
   gates: Record<string, Budget>;
 };
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
-  hooks: Record<string, { matcher: string; hooks: { command: string; timeout: number }[] }[]>;
+  hooks: Record<string, { matcher?: string; hooks: { command: string; timeout: number; onFailure?: string; if?: string }[] }[]>;
 };
 
 describe('router budgets.json (GH 1861)', () => {
@@ -76,13 +76,14 @@ describe('router budgets.json (GH 1861)', () => {
   });
 
   it('holds exactly one entry per router group', () => {
-    assert.deepEqual(Object.keys(BUDGETS.groups).sort(), ROUTER_GROUPS.map((g) => g.matcher).sort());
+    assert.deepEqual(Object.keys(BUDGETS.groups).sort(), ROUTER_GROUPS.map(routerGroupKey).sort());
   });
 
   for (const group of ROUTER_GROUPS) {
-    it(`${group.matcher}: group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) over its own gates`, () => {
-      const b = BUDGETS.groups[group.matcher];
-      const members = group.gates.map((g) => BUDGETS.gates[g.name]);
+    const key = routerGroupKey(group);
+    it(`${key}: group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) over its own gates`, () => {
+      const b = BUDGETS.groups[key];
+      const members = [...new Set(group.gates.map((g) => g.name))].map((name) => BUDGETS.gates[name]);
       assert.equal(b.max_budget_ms, Math.max(...members.map((m) => m.budget_ms)));
       assert.equal(b.max_budget_ms, Math.max(...group.gates.map((g) => g.budgetMs)));
       const sum = members.reduce((n, m) => n + p99Term(m.bench_p99 as number, m.transcript_p99 as number | null), 0);
@@ -91,16 +92,30 @@ describe('router budgets.json (GH 1861)', () => {
       assert.equal(group.groupBudgetMs, b.group_budget_ms, 'ROUTER_GROUPS reads budgets.json');
     });
 
-    it(`${group.matcher}: its hooks.json timeout is routerTimeoutS(group), covering the parse allowance plus its group budget`, () => {
-      const entries = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === group.matcher);
+    it(`${key}: one hooks.json entry whose matcher, timeout and onFailure are the registry's, and no if`, () => {
+      const entries = HOOKS.hooks[group.event].filter((g) => (g.matcher ?? '') === group.matcher);
       assert.equal(entries.length, 1);
-      const { timeout, command } = entries[0].hooks[0];
-      assert.ok(command.endsWith('dist/hooks.js" PreToolUse'));
+      assert.equal(entries[0].hooks.length, 1);
+      const { timeout, command, onFailure } = entries[0].hooks[0];
+      assert.ok(command.endsWith(`dist/hooks.js" ${group.event}`));
+      assert.equal('if' in entries[0].hooks[0], false);
+      assert.equal(onFailure, group.gates.some((g) => g.kind === 'enforcement') ? 'block' : undefined);
       assert.ok(timeout * 1000 >= BUDGETS.parse_allowance_ms + group.groupBudgetMs, `${timeout} s`);
       assert.equal(timeout, routerTimeoutS(group));
-      assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[group.matcher].group_budget_ms) / 1000) + 1);
+      assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[key].group_budget_ms) / 1000) + 1);
     });
   }
+
+  it('the post-tool and stop groups are the only router entries of their events', () => {
+    for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
+      assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher).sort(), event);
+    }
+  });
+
+  it('onFailure block holds on SubagentStop alone among the post-tool and stop events', () => {
+    const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
+    assert.deepEqual(blocked, ['SubagentStop']);
+  });
 
   it('swe-verification-gate keeps its chain-table budget as its floor', () => {
     assert.equal(BUDGETS.gates['swe-verification-gate'].floor_ms, 1_830_000);

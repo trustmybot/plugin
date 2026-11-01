@@ -12,7 +12,7 @@
  * GH 2032) is not the task's to remove: it is kept, with a note on stderr.
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
  */
-import { HAS_PASS_SQL } from '../tools/lifecycle.js';
+import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskLocation } from './lib/agent-context.js';
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo } from './lib/db.js';

@@ -10,18 +10,22 @@
  * gates' max(bench_p99, transcript_p99): the time one call's gates share and,
  * with the parse allowance, that group's registration timeout.
  *
+ * --events names the events to bench, comma-separated; --write then replaces
+ * only their gates and groups, every other number staying as recorded.
+ *
  *   node --experimental-sqlite dist/test/router-p99.bench.js [--rounds 20]
- *     [--workers 4] [--transcripts ~/.claude/projects] [--days 14] [--write]
+ *     [--workers 4] [--transcripts ~/.claude/projects] [--days 14]
+ *     [--events PostToolUse,Stop] [--write]
  */
 import { fork } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { findGate, ROUTER_GROUPS } from '../hooks/registry.js';
+import { findGate, ROUTER_GROUPS, routerGroupKey } from '../hooks/registry.js';
 import { DEFAULT_DAYS, DEFAULT_TRANSCRIPTS, percentile, transcriptStats } from './hook-transcripts.js';
-import { PLUGIN_ROOT, routerSandbox, underUid } from './router-sandboxes.js';
+import { PLUGIN_ROOT, type RouterCorpusGate, routerSandbox, underUid } from './router-sandboxes.js';
 import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term } from './router-floors.js';
 
 const MIN_ROUNDS = 20;
@@ -29,8 +33,8 @@ const BUDGETS = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budget
 
 type Samples = Record<string, number[]>;
 
-async function worker(rounds: number): Promise<Samples> {
-  const sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-p99-')));
+async function worker(rounds: number, gates: readonly RouterCorpusGate[]): Promise<Samples> {
+  const sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-p99-')), gates);
   const samples: Samples = {};
   try {
     for (let round = 0; round < rounds; round++) {
@@ -54,14 +58,14 @@ async function worker(rounds: number): Promise<Samples> {
   return samples;
 }
 
-function runWorkers(n: number, rounds: number): Promise<Samples[]> {
+function runWorkers(n: number, rounds: number, gates: readonly string[]): Promise<Samples[]> {
   const self = fileURLToPath(import.meta.url);
   return Promise.all(
     Array.from(
       { length: n },
       () =>
         new Promise<Samples>((resolve, reject) => {
-          const child = fork(self, ['--worker', '--rounds', String(rounds)], { execArgv: ['--experimental-sqlite', '--no-warnings'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+          const child = fork(self, ['--worker', '--rounds', String(rounds), '--gates', gates.join(',')], { execArgv: ['--experimental-sqlite', '--no-warnings'], stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
           let got: Samples | null = null;
           child.on('message', (m) => {
             got = m as Samples;
@@ -84,36 +88,41 @@ async function main(): Promise<void> {
       transcripts: { type: 'string', default: DEFAULT_TRANSCRIPTS },
       days: { type: 'string', default: String(DEFAULT_DAYS) },
       write: { type: 'boolean', default: false },
+      events: { type: 'string', default: '' },
+      gates: { type: 'string', default: '' },
     },
   });
   const rounds = Math.max(MIN_ROUNDS, Number(values.rounds));
   if (values.worker) {
-    const samples = await worker(rounds);
+    const samples = await worker(rounds, values.gates.split(',') as RouterCorpusGate[]);
     process.send?.(samples, () => process.exit(0));
     return;
   }
+  const benched = values.events === '' ? ROUTER_GROUPS : ROUTER_GROUPS.filter((g) => values.events.split(',').includes(g.event));
+  const distinct = new Map(benched.flatMap((g) => g.gates.map((x) => [x.name, { gate: x, event: g.event }] as const)));
   const workers = Math.max(1, Number(values.workers));
   const days = Number(values.days);
   const loads: number[] = [loadavg()[0]];
   const sampler = setInterval(() => loads.push(loadavg()[0]), 1000);
   const started = performance.now();
-  const results = await runWorkers(workers, rounds);
+  const results = await runWorkers(workers, rounds, [...distinct.keys()]);
   clearInterval(sampler);
   loads.push(loadavg()[0]);
   const loadAvg = Math.round((loads.reduce((a, b) => a + b, 0) / loads.length) * 100) / 100;
-  const transcripts = await transcriptStats(values.transcripts, days);
+  const events = [...new Set(benched.map((g) => g.event))];
+  const byEvent = new Map(await Promise.all(events.map(async (e) => [e, await transcriptStats(values.transcripts, days, e)] as const)));
+  const fileCount = byEvent.get(events[0])?.files ?? 0;
   const date = new Date().toISOString().slice(0, 10);
   const gates: Record<string, unknown> = {};
-  console.log(`router-p99: ${workers} workers x ${rounds} rounds in ${Math.round((performance.now() - started) / 1000)} s, mean 1-min load ${loadAvg}; transcripts: ${transcripts.files} files, last ${days} days`);
+  console.log(`router-p99: ${workers} workers x ${rounds} rounds in ${Math.round((performance.now() - started) / 1000)} s, mean 1-min load ${loadAvg}; transcripts: ${fileCount} files, last ${days} days`);
   console.log(`${'gate'.padEnd(30)} ${'runs'.padStart(6)} ${'p50'.padStart(8)} ${'p95'.padStart(8)} ${'p99'.padStart(8)} | ${'tx n'.padStart(6)} ${'tx p99'.padStart(8)} ${'tx t/o'.padStart(6)} | ${'floor'.padStart(6)} ${'budget'.padStart(6)}`);
-  const distinct = new Map(ROUTER_GROUPS.flatMap((g) => g.gates).map((g) => [g.name, g]));
-  for (const gate of distinct.values()) {
+  for (const { gate, event } of distinct.values()) {
     const ms = results.flatMap((r) => r[gate.name] ?? []);
     if (ms.length === 0) throw new Error(`no bench samples for ${gate.name}`);
     const p50 = round1(percentile(ms, 0.5));
     const p95 = round1(percentile(ms, 0.95));
     const p99 = round1(percentile(ms, 0.99)) as number;
-    const tx = transcripts.gates.get(gate.name);
+    const tx = byEvent.get(event)?.gates.get(gate.name);
     const txP99 = tx ? percentile(tx.ms, 0.99) : null;
     const floor = floorMs(gate.name);
     const budget = budgetMs(floor, p99, txP99);
@@ -125,7 +134,7 @@ async function main(): Promise<void> {
       bench_runs: ms.length,
       bench_load_avg: loadAvg,
       transcript_p99: txP99,
-      ...(txP99 === null ? { reason: `no ${gate.name} PreToolUse hook attachment in ${transcripts.files} transcript files of the last ${days} days` } : {}),
+      ...(txP99 === null ? { reason: `no ${gate.name} ${event} hook attachment in ${fileCount} transcript files of the last ${days} days` } : {}),
       transcript_samples: tx?.ms.length ?? 0,
       transcript_timed_out: tx?.timedOut ?? 0,
       window_days: days,
@@ -139,16 +148,18 @@ async function main(): Promise<void> {
   }
   const recorded = gates as Record<string, { bench_p99: number; transcript_p99: number | null; budget_ms: number }>;
   const groups: Record<string, unknown> = {};
-  for (const group of ROUTER_GROUPS) {
-    const members = group.gates.map((g) => recorded[g.name]);
+  for (const group of benched) {
+    const members = [...new Set(group.gates.map((g) => g.name))].map((name) => recorded[name]);
     const maxBudget = Math.max(...members.map((g) => g.budget_ms));
     const p99Sum = round1(members.reduce((n, g) => n + p99Term(g.bench_p99, g.transcript_p99), 0)) as number;
     const groupBudget = groupBudgetMs(maxBudget, p99Sum);
-    groups[group.matcher] = { max_budget_ms: maxBudget, p99_sum_ms: p99Sum, group_budget_ms: groupBudget };
-    console.log(`${group.matcher}: group_budget_ms ${groupBudget} = max(max_budget_ms ${maxBudget}, ceil(1.5 x p99_sum_ms ${p99Sum})); router timeout ${Math.ceil((PARSE_ALLOWANCE_MS + groupBudget) / 1000) + 1} s with parse_allowance_ms ${PARSE_ALLOWANCE_MS}`);
+    groups[routerGroupKey(group)] = { max_budget_ms: maxBudget, p99_sum_ms: p99Sum, group_budget_ms: groupBudget };
+    console.log(`${routerGroupKey(group)}: group_budget_ms ${groupBudget} = max(max_budget_ms ${maxBudget}, ceil(1.5 x p99_sum_ms ${p99Sum})); router timeout ${Math.ceil((PARSE_ALLOWANCE_MS + groupBudget) / 1000) + 1} s with parse_allowance_ms ${PARSE_ALLOWANCE_MS}`);
   }
   if (values.write) {
-    writeFileSync(BUDGETS, `${JSON.stringify({ rounds, workers, parse_allowance_ms: PARSE_ALLOWANCE_MS, groups, gates }, null, 2)}\n`);
+    const whole = values.events === '';
+    const kept = whole ? { rounds, workers, groups: {}, gates: {} } : (JSON.parse(readFileSync(BUDGETS, 'utf8')) as { rounds: number; workers: number; groups: object; gates: object });
+    writeFileSync(BUDGETS, `${JSON.stringify({ rounds: kept.rounds, workers: kept.workers, parse_allowance_ms: PARSE_ALLOWANCE_MS, groups: { ...kept.groups, ...groups }, gates: { ...kept.gates, ...gates } }, null, 2)}\n`);
     console.log(`wrote ${BUDGETS}`);
   }
 }

@@ -9,7 +9,8 @@ import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
-import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, taskHasPassingReview } from '../tools/lifecycle.js';
+import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
+import { taskHasPassingReview } from '../tools/lifecycle.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 const DB_PATH = '/tmp/.claude/tmb/trajectory.db';
 function parse(r) {

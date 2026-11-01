@@ -1,7 +1,8 @@
 /**
  * Each router gate's budget floor (GH 1861): the timeout, in seconds, of the
  * hooks.json registration it ran under before the router took it (the Bash
- * gates at origin/dev 619ce711, the rest at 9cc886e8). Every gate was its own
+ * gates at origin/dev 619ce711, the post-tool and stop gates at 54f9731c, the
+ * rest at 9cc886e8). Every gate was its own
  * registration, so its share is that whole timeout; a trajectory-gates chain
  * member's is its chain-table budget.
  */
@@ -30,6 +31,20 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'cheatcode-install-approval': 6,
   'askuserquestion-length-lint': 6,
   'roundtable-auq-shape': 6,
+  'cleanup-worktree-on-task-close': 11,
+  'roundtable-cleanup-postcheck': 6,
+  'post-task-close-rescan': 6,
+  'post-atomic-close-readme': 6,
+  'post-task-create-spawn-hint': 4,
+  'task-overrun-alert': 6,
+  'attribution-footer': 16,
+  'clean-merged-branch': 11,
+  'close-issue-on-merge': 16,
+  'swe-spawn-bind': 6,
+  'swe-spawn-rollback': 6,
+  'bro-turn-usage': 6,
+  'swe-atomic-close': 6,
+  'consultant-persistence-gate': 6,
 });
 
 export function floorMs(gate: string): number {

@@ -523,7 +523,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop or SubagentStop): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, Stop and SubagentStop), `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -4097,6 +4097,21 @@ function symbolById(db, id) {
 // ../mcp/trajectory-server/src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
 
+// ../mcp/trajectory-server/src/review-sql.ts
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
 // ../mcp/trajectory-server/src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
 function normalizeAgent(name) {
@@ -4310,85 +4325,6 @@ function insertAudit(db, entry) {
     (e) => console.error("[embeddings] insertAudit embed failed:", e)
   );
   return id;
-}
-
-// ../mcp/trajectory-server/src/tools/agent-runs.ts
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
-function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
-  return db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ${exitReasonSql},
-            ${UNMEASURED_IF_NO_USAGE_SQL}
-      WHERE completed_at IS NULL
-        AND (${where})`,
-    [now2, now2, ...params]
-  ).changes;
-}
-function closeOpenRunsForTask(db, taskId, now2, exitReason) {
-  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
-}
-
-// ../mcp/trajectory-server/src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
-var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
-    SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
-        AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
-var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
-      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
-var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE ${reviewSkipAuthoredSql("g")}
-    AND json_valid(g.content_json)
-    AND json_extract(g.content_json, '$.task_id') = t.id
-    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
-function liveTasksOfIssue(db, issueId) {
-  return db.all(
-    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
-      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
-    [issueId]
-  );
-}
-function closedTasksWithoutReview(db, issueId) {
-  return db.all(
-    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
-      WHERE t.issue_id = ? AND t.status = 'closed'
-        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
-      ORDER BY t.id`,
-    [issueId]
-  );
-}
-function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
-  for (const task of tasks2) {
-    db.run(
-      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now2, task.id]
-    );
-    insertAudit(db, {
-      issue_id: task.issue_id,
-      branch_id: task.branch_id,
-      from_node: "bro",
-      event_type: "task_escalated_by_issue_close",
-      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
-      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
-      created_at: now2
-    });
-    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
-  }
-}
-function markIssueClosed(db, issueId, now2) {
-  db.run(
-    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
-    [now2, now2, issueId]
-  );
 }
 
 // ../mcp/trajectory-server/src/world-model/concepts.ts
@@ -6468,6 +6404,72 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
     syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
     return { ok: false, reason: "spawn_error", message: message2 };
   }
+}
+
+// ../mcp/trajectory-server/src/tools/agent-runs.ts
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
+  return db.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
+  ).changes;
+}
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
+}
+
+// ../mcp/trajectory-server/src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+function liveTasksOfIssue(db, issueId) {
+  return db.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function closedTasksWithoutReview(db, issueId) {
+  return db.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
+  for (const task of tasks2) {
+    db.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now2, task.id]
+    );
+    insertAudit(db, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now2
+    });
+    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
+  }
+}
+function markIssueClosed(db, issueId, now2) {
+  db.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now2, now2, issueId]
+  );
 }
 
 // ../mcp/trajectory-server/src/tools/issues.ts

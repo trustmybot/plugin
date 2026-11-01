@@ -6,6 +6,7 @@
 // edges.line holding the chain position. A router entry (`dist/hooks.js <Event>`)
 // takes its gates from dist/hooks-router.txt the same way, named by its first
 // gate (GH 2185). Ported from the GH 1680 MVP enrich.mjs.
+import { matcherOfColumn } from '../hooks/router/table.js';
 import { clip, md5, oneLine } from './extract.js';
 export const HOOKS_PATH = 'hooks/hooks.json';
 export const REGISTRATIONS_PATH = 'scripts/hooks/lib/registrations.sh';
@@ -43,14 +44,15 @@ function eventRanks(events) {
     return new Map(order.map((e, i) => [e, i + 1]));
 }
 const scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-// A router entry's gates in run order, from dist/hooks-router.txt lines:
-// <gate> <budget ms> <kind> <event> <matcher> <tool suffix|*>.
+// A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
+// <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*>.
 function routerGatesOf(table, event, matcher) {
-    return table
+    const rows = table
         .split('\n')
         .map((line) => line.split(' '))
-        .filter((f) => f[3] === event && f[4] === matcher)
+        .filter((f) => f[3] === event && f[4] !== undefined && matcherOfColumn(f[4]) === matcher)
         .map((f) => f[0]);
+    return [...new Set(rows)];
 }
 export function extractHooks(src, chains, routerTable = '') {
     const out = { symbols: [], edges: [] };

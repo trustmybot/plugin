@@ -11,10 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { haveSqlite, stateDir } from '../lib/db.js';
 import { activeInstall, canonicalDir } from '../lib/install.js';
 import { installRoot } from '../lib/project-env.js';
-import { matcherFits, routerGroup, routerTimeoutS } from '../registry.js';
+import { eventHoldsEnforcement, matcherFits, routerGroup, routerTimeoutS } from '../registry.js';
 import { type DecideDeps, ROUTER_NAME, type RouterDecision, decide, denyOutput, failClosedReason, payloadTool } from './decide.js';
 import { Dedupe, type Emitted, dedupeKey } from './dedupe.js';
 import { auditCall, recordBashDeny } from './records.js';
+import { matcherOfColumn } from './table.js';
 
 export const ROUTER_MANIFEST = 'mcp/trajectory-server/dist/hooks-router.txt';
 const BUNDLE = 'mcp/trajectory-server/dist/hooks.js';
@@ -49,7 +50,8 @@ function hopTo(root: string, event: string, payload: string, env: NodeJS.Process
   });
   if (r.error || r.status === null) {
     const cause = `could not run in ${root}`;
-    return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause)), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} — failing closed\n`, code: 0 };
+    if (!eventHoldsEnforcement(event)) return { stdout: '', stderr: `TMB router: ${event} ${cause} — no gate run\n`, code: 0 };
+    return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause), event), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} — failing closed\n`, code: 0 };
   }
   return { stdout: r.stdout, stderr: r.stderr, code: r.status };
 }
@@ -69,7 +71,7 @@ function servesCall(root: string, event: string, tool: string | null): boolean {
   }
   return table.split('\n').some((line) => {
     const f = line.split(' ');
-    return f[3] === event && (f[4] ?? '').split(',').some((m) => matcherFits(m, tool));
+    return f[3] === event && matcherOfColumn(f[4] ?? '').split(',').some((m) => matcherFits(m, tool));
   });
 }
 
@@ -100,8 +102,9 @@ export async function routerMain(event: string, env: NodeJS.ProcessEnv, io: Rout
   const key = locks === null ? null : dedupeKey(payload);
   let dedupe: Dedupe | null = null;
   let lock: string | null = null;
-  if (locks !== null && key !== null) {
-    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: opts.groupBudgetMs ?? routerGroup(event, tool ?? '', opts.groups)?.groupBudgetMs ?? 0 }), gateEnv);
+  const groupBudget = opts.groupBudgetMs ?? routerGroup(event, tool ?? '', opts.groups)?.groupBudgetMs;
+  if (locks !== null && key !== null && groupBudget !== undefined) {
+    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: groupBudget }), gateEnv);
     try {
       mkdirSync(dedupe.base, { recursive: true });
       const claim = await dedupe.claim(key);

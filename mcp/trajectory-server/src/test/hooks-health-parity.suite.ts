@@ -446,7 +446,7 @@ export function materialize(file: string, s: string, pathWithout: (cmds: string)
   };
 }
 
-function caseEnv(s: string, tmp: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
+export function caseEnv(s: string, tmp: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of UNSET) delete env[key];
   Object.assign(env, {

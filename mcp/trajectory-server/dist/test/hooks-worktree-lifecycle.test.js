@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { cleanupWorktree } from '../hooks/cleanup-worktree-on-task-close.js';
 import { worktreeCreateRun } from '../hooks/worktree-create.js';
 import { findGate } from '../hooks/registry.js';
-import { HAS_PASS_SQL } from '../tools/lifecycle.js';
+import { HAS_PASS_SQL } from '../review-sql.js';
 import { addWorktree, GIT_ENV, git, initRepo, trajectoryDb } from './hooks-worktree-lifecycle-parity.suite.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const T1 = '2026-10-01T10:00:00.000Z';
@@ -62,7 +62,7 @@ describe('cleanup-worktree-on-task-close and worktree-create (GH 1692, GH 2032)'
         assert.doesNotMatch(git(repo, 'worktree', 'list', '--porcelain'), /\.claude\/worktrees\/provisioned/);
         assert.deepEqual(lines, [`tmb: cleaned up worktree ${provisioned} after task #2 closed\n`]);
     });
-    it('reads the validation_record pass with the HAS_PASS_SQL lifecycle.ts holds, equal to the .sh copy', () => {
+    it('reads the validation_record pass with the HAS_PASS_SQL review-sql.ts holds, equal to the .sh copy', () => {
         const sh = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks/cleanup-worktree-on-task-close.sh'), 'utf8');
         const copy = /_CWC_HAS_PASS="([\s\S]*?)"\n/.exec(sh)?.[1]?.replaceAll('\\$', '$');
         assert.equal(copy, HAS_PASS_SQL);
