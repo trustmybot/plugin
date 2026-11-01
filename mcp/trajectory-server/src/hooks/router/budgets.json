@@ -63,6 +63,11 @@
       "p99_sum_ms": 755,
       "group_budget_ms": 6000
     },
+    "Stop::handoff": {
+      "max_budget_ms": 6000,
+      "p99_sum_ms": 29.1,
+      "group_budget_ms": 6000
+    },
     "SubagentStop:": {
       "max_budget_ms": 11350,
       "p99_sum_ms": 5633.3,
@@ -660,6 +665,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-11-01"
+    },
+    "session-handoff": {
+      "kind": "advisory",
+      "bench_p50": 2.5,
+      "bench_p95": 12.3,
+      "bench_p99": 29.1,
+      "bench_runs": 400,
+      "bench_load_avg": 34.3,
+      "transcript_p99": null,
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-01",
+      "reason": "no session-handoff Stop hook attachment in 1043 transcript files of the last 14 days"
     },
     "swe-atomic-close": {
       "kind": "advisory",

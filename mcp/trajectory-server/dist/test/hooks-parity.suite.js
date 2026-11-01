@@ -258,6 +258,7 @@ export function hooksParityShard(k, n) {
                     'code-reviewer-spawn-note',
                     'rework-limit',
                     'rework-waiver-capture',
+                    'session-handoff',
                     'swe-resume-gate',
                     'swe-stop-cause',
                     'task-overrun-alert',

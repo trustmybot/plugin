@@ -26,6 +26,7 @@ import { GATE_NAME as ACTIVATION_GATE, activationRoutine } from './activation-ro
 import { GATE_NAME as DEBUG_TRAJECTORY_GATE, debugTrajectory } from './debug-trajectory.js';
 import { GATE_NAME as PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker } from './plugin-hooks-marker.js';
 import { GATE_NAME as SESSION_LOG_GATE, sessionLogCapture } from './session-log-capture.js';
+import { GATE_NAME as SESSION_HANDOFF_GATE, sessionHandoff } from './session-handoff.js';
 import { GATE_NAME as SESSION_START_PERSONA_GATE, sessionStartPersona } from './session-start-persona.js';
 import { GATE_NAME as USER_PROMPT_PERSONA_GATE, userPromptPersona } from './user-prompt-persona.js';
 import { GATE_NAME as REWORK_WAIVER_GATE, reworkWaiverCapture } from './rework-waiver-capture.js';
@@ -95,6 +96,7 @@ const GATES = new Map([
     [PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker],
     [SESSION_LOG_GATE, sessionLogCapture],
     [SESSION_START_PERSONA_GATE, sessionStartPersona],
+    [SESSION_HANDOFF_GATE, sessionHandoff],
     [USER_PROMPT_PERSONA_GATE, userPromptPersona],
     [REWORK_WAIVER_GATE, reworkWaiverCapture],
     [CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate],
@@ -214,6 +216,7 @@ export const ROUTER_GROUPS = [
     eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
     eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
     eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
+    eventGroup('Stop', '', [routerGate(SESSION_HANDOFF_GATE, 'advisory')], { part: 'handoff' }),
     eventGroup('SubagentStop', '', [routerGate(CONSULTANT_PERSISTENCE_GATE, 'enforcement'), routerGate(SWE_ATOMIC_CLOSE_GATE, 'advisory')]),
     eventGroup('SessionStart', '', [
         routerGate(ENSURE_GITIGNORE_GATE, 'advisory'),

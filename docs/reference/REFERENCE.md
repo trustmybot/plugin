@@ -130,6 +130,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `swe-spawn-bind.sh` | PostToolUse Agent | Bind an accepted swe spawn's `tool_use:<tool_use_id>` run row to `tool_response.agentId` |
 | `swe-spawn-rollback.sh` | PermissionDenied Agent | Roll back a swe spawn auto mode refused: close its `tool_use:<tool_use_id>` run row as `swept_orphan` and, with no other swe run open, return the task to `pending` |
 | `bro-turn-usage.ts` | Stop | Meter bro's token usage into one `agent_runs` row per session. Runs async and does not block the turn; a lost run is recovered by the next, which re-reads the whole transcript |
+| `session-handoff.ts` | Stop | Past bro's usage limits with no work running in the session, record a `session_handoffs` row and tell the Human once to start a new session; the next startup or clear in that folder takes it in its context. Synchronous, never blocks; `TMB_DISABLE_SESSION_HANDOFF_HOOK=1` turns it off |
 | `swe-atomic-close.sh` | SubagentStop | Auto-close a pending or running SWE task that committed; capture swe and code-reviewer agent_runs metrics and effort |
 | `consultant-persistence-gate.sh` | SubagentStop | Persist a consultant subagent's output before it exits |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |

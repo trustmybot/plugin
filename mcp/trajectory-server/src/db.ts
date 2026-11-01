@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 54;
+export const TARGET_SCHEMA_VERSION = 55;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -818,6 +818,9 @@ function runMigrations(
   }
   if (fromVersion < 54 && toVersion >= 54) {
     migrateV53toV54(db);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db);
   }
 }
 
@@ -3084,6 +3087,34 @@ function migrateV53toV54(db: DatabaseSync): void {
         );
       }
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v54→v55: session handoffs (GH 2193). A new table, written by the
+// session-handoff Stop gate and consumed by session-start-persona; no backfill.
+function migrateV54toV55(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
     commitTransaction(db);
   } catch (err) {
     try {

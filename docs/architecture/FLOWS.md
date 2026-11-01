@@ -337,6 +337,7 @@ Hooks that fire across many steps rather than at one.
 | G6 | <a id="G6"></a>`cleanup-worktree-on-task-close` | PostToolUse `task_update_status`, `validation_record` | Removes a closed task's worktree when nothing else needs it | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
 | G7 | <a id="G7"></a>`bro-turn-usage` | Stop | Meters bro's own turn into its `agent_runs` session row and records bro's tool-output sizes. Runs async and does not block the turn; a lost run is recovered by the next, which re-reads the whole transcript. | `src/hooks/bro-turn-usage.ts` |
 | G8 | <a id="G8"></a>`task-overrun-alert` | UserPromptSubmit, PostToolUse trajectory-server | Tells bro once per task when a `running` task passes `TMB_TASK_OVERRUN_MIN` minutes (default 60), with its attempts and current blocker | `src/hooks/task-overrun-alert.ts` |
+| G8b | <a id="G8b"></a>`session-handoff` | Stop, SessionStart persona | Past bro's usage limits with no work running in the session, records a handoff and tells the Human once to start a new session. The next startup or clear in that folder takes it in its context. Never blocks | `src/hooks/session-handoff.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 
 **Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped.

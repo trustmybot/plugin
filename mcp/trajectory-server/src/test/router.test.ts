@@ -570,7 +570,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     const rows = lines.map((l) => l.split(' '));
     for (const f of rows) assert.equal(f.length, f[6] === undefined ? 6 : 7, f.join(' '));
     assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
-    assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
+    assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*'], ['session-handoff', EMPTY_MATCHER_COLUMN, '*']]);
     assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['consultant-persistence-gate', 'enforcement', '-'], ['swe-atomic-close', 'advisory', '-']]);
     assert.equal(matcherColumn(''), '-');
     assert.equal(matcherColumn('Bash'), 'Bash');

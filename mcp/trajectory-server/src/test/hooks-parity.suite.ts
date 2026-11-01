@@ -297,6 +297,7 @@ export function hooksParityShard(k: number, n: number): void {
           'code-reviewer-spawn-note',
           'rework-limit',
           'rework-waiver-capture',
+          'session-handoff',
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',

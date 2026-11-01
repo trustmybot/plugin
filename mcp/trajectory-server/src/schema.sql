@@ -333,7 +333,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 54, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 55, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -447,6 +447,24 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE c
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+
+-- session_handoffs (GH 2193; schema v55): one row per bro session that stopped
+-- past its usage limits with no work running. The session-handoff Stop gate
+-- upserts it until it is consumed. issue_id is the newest issue a non-bro run of
+-- that session recorded (NULL with no such run); summary is the session's last
+-- assistant message capped at 2000 characters (NULL when absent).
+-- session-start-persona sets consumed_at and consumed_by_session when a new
+-- session in the same cwd takes the handoff.
+CREATE TABLE IF NOT EXISTS session_handoffs (
+    session_id          TEXT PRIMARY KEY,
+    cwd                 TEXT NOT NULL,
+    issue_id            INTEGER REFERENCES issues(id),
+    summary             TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    consumed_at         TEXT,
+    consumed_by_session TEXT
+);
 
 -- agent_run_tool_output (GH 1957; schema v53): how much text each tool returned
 -- into one agent run, one row per (run, tool). calls counts the run's

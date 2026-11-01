@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 54;
+export const TARGET_SCHEMA_VERSION = 55;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -674,6 +674,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 54 && toVersion >= 54) {
         migrateV53toV54(db);
+    }
+    if (fromVersion < 55 && toVersion >= 55) {
+        migrateV54toV55(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2748,6 +2751,35 @@ function migrateV53toV54(db) {
                 db.exec('ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))');
             }
         }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v54→v55: session handoffs (GH 2193). A new table, written by the
+// session-handoff Stop gate and consumed by session-start-persona; no backfill.
+function migrateV54toV55(db) {
+    beginImmediate(db);
+    try {
+        db.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
         commitTransaction(db);
     }
     catch (err) {

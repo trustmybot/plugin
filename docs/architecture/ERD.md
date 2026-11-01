@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 54`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 55`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -10,7 +10,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 | Group | Tables | Keyed by |
 |---|---|---|
-| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
+| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `session_handoffs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
 | **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta` | own primary keys; not tied to any issue |
 | **Search** | `discussions_embeddings`, `audit_embeddings`, and the FTS5 tables `discussions_fts`, `audit_fts` with their shadow tables | the source row's id |
 | **Eval mode** (`schema-eval.sql`, only with `TMB_EVAL_MODE=1`) | `debug_trajectory`, `eval_results` | own primary keys |
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 54`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 55`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -57,6 +57,7 @@ erDiagram
     issues |o--o{ agent_runs : "issue_id (NO ACTION)"
     repos |o--o{ agent_runs : "repo (RESTRICT)"
     agent_runs |o--o{ agent_runs : "resumed_from (NO ACTION)"
+    issues |o--o{ session_handoffs : "issue_id (NO ACTION)"
     agent_runs ||--o{ agent_run_tool_output : "run_id (CASCADE)"
     tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
@@ -277,6 +278,17 @@ erDiagram
         TEXT plugin_version
         TEXT stop_cause "CHECK budget|hook_block"
         TEXT stop_detail
+    }
+
+    session_handoffs {
+        TEXT session_id PK
+        TEXT cwd "NOT NULL"
+        INTEGER issue_id FK "→ issues.id NO ACTION"
+        TEXT summary
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+        TEXT consumed_at
+        TEXT consumed_by_session
     }
 
     agent_run_tool_output {
@@ -709,6 +721,19 @@ Table constraints:
 | `stop_cause` | TEXT | nullable |  | CHECK `stop_cause IN ('budget','hook_block')` |
 | `stop_detail` | TEXT | nullable |  |  |
 
+### `session_handoffs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `session_id` | TEXT | nullable |  | PK |
+| `cwd` | TEXT | NOT NULL |  |  |
+| `issue_id` | INTEGER | nullable |  | FK → `issues.id` ON DELETE NO ACTION |
+| `summary` | TEXT | nullable |  |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+| `consumed_at` | TEXT | nullable |  |  |
+| `consumed_by_session` | TEXT | nullable |  |  |
+
 ### `agent_run_tool_output`
 
 | Column | Type | Null | Default | Constraints |
@@ -966,6 +991,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `agent_runs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_runs` | `repo` | `repos(name)` | RESTRICT |
 | `agent_runs` | `resumed_from` | `agent_runs(id)` | NO ACTION |
+| `session_handoffs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_run_tool_output` | `run_id` | `agent_runs(id)` | CASCADE |
 | `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
