@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -279,10 +280,11 @@ export function readmeStalenessParityShard(k, n) {
                 const c = materialize(join(CORPUS_ROOT, GATE, f), s, paths);
                 const env = caseEnv(s, locale, c.env);
                 const cwd = join(s, 'ws');
+                const { audit: bashAudit, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
+                    const fresh = resetDb(s);
+                    return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c, env, cwd), audit: auditDump(fresh) };
+                });
                 const db = resetDb(s);
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${GATE}.sh`)], c, env, cwd);
-                const bashAudit = auditDump(db);
-                resetDb(s);
                 const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env, cwd);
                 const nodeAudit = auditDump(db);
                 assert.equal(node.code, 0, `node exit: ${node.stderr}`);

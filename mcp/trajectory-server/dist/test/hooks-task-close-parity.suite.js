@@ -43,8 +43,10 @@ import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdi
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { corpusFiles, noCmdPath } from './hooks-swe-run-parity.suite.js';
+import { goldenBash, goldenRoots, sandboxSha, settledTree } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -58,6 +60,8 @@ const TS_RE = /\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(\.\d+)?Z?/g;
 const PROJECT_DB = 'project/.claude/tmb/trajectory.db';
 const CLOSE_GATE = 'swe-atomic-close';
 const RESCAN_GATE = 'post-task-close-rescan';
+/** lib/ for both sides and the .sh for the bash side alone; what it lists follows the checkout, so a snapshot skips it. */
+const RESCAN_SCRIPTS = 'plugin/scripts/hooks';
 const MIN_CORPUS = { [CLOSE_GATE]: 12, [RESCAN_GATE]: 4 };
 export const TASK_CLOSE_GATES = [RESCAN_GATE, CLOSE_GATE];
 const UNSET = [
@@ -248,7 +252,6 @@ export function buildRescanSandbox(s) {
     writeFileSync(join(plugin, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"9.9.9-parity"}\n');
     mkdirSync(join(plugin, 'scripts/maintenance'), { recursive: true });
     cpSync(join(PLUGIN_ROOT, 'scripts/hooks/lib'), join(plugin, 'scripts/hooks/lib'), { recursive: true });
-    cpSync(join(PLUGIN_ROOT, `scripts/hooks/${RESCAN_GATE}.sh`), join(plugin, `scripts/hooks/${RESCAN_GATE}.sh`));
     writeFileSync(join(plugin, 'scripts/maintenance/run-scan.mjs'), FAKE_INVOKER);
     mkdirSync(join(plugin, 'mcp/trajectory-server/dist'), { recursive: true });
     cpSync(HOOKS_BUNDLE, join(plugin, 'mcp/trajectory-server/dist/hooks.js'));
@@ -294,6 +297,8 @@ function snapshot(root) {
             if (/-(wal|shm|journal)$/.test(name))
                 continue;
             const rel = relative(root, path);
+            if (rel === RESCAN_SCRIPTS)
+                continue;
             if (statSync(path).isDirectory()) {
                 out[`${rel}/`] = null;
                 walk(path);
@@ -303,7 +308,7 @@ function snapshot(root) {
             else if (/\.log(\.1)?$/.test(name))
                 out[rel] = masked(readFileSync(path, 'utf8'));
             else
-                out[rel] = createHash('sha256').update(readFileSync(path)).digest('hex');
+                out[rel] = sandboxSha(path, root);
         }
     };
     walk(root);
@@ -430,23 +435,28 @@ export function taskCloseParityShard(k, n) {
         for (const { gate, f, locale } of shardOf(cases, k, n)) {
             it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
-                const sides = ['bash', 'ts'].map((name) => {
+                const runSide = (name) => {
                     const records = { release: join(base, `release-${name}`), record: join(base, `record-${name}.json`) };
                     rmSync(records.release, { force: true });
                     rmSync(records.record, { force: true });
                     const env = caseEnv(s, locale, c.env, c.cwd, records);
                     restore(gate);
+                    const setup = snapshot(s);
                     const hook = gate === RESCAN_GATE ? join(s, 'plugin/scripts/hooks', `${gate}.sh`) : join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`);
+                    if (name === 'bash' && gate === RESCAN_GATE)
+                        cpSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), hook);
                     const bundle = gate === RESCAN_GATE ? join(s, 'plugin/mcp/trajectory-server/dist/hooks.js') : HOOKS_BUNDLE;
                     const r = name === 'bash' ? run('bash', [hook], c, env) : run(process.execPath, [bundle, gate], c, env);
                     const unreleased = !existsSync(records.record);
-                    const tree = snapshot(s);
+                    const tree = settledTree(setup, snapshot(s));
                     const launched = side(c.launch, name) ? launchRecord(records.release, records.record) : null;
                     if (!side(c.launch, name))
                         assert.ok(!existsSync(records.record), `${name}: no scan started`);
                     return { name, r, tree, unreleased, launched };
-                });
-                const [bash, node] = sides;
+                };
+                const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => runSide('bash'));
+                const node = runSide('ts');
+                const sides = [bash, node];
                 for (const x of sides) {
                     assert.equal(x.r.code, 0, `${x.name} exit: ${x.r.stderr}`);
                     assert.ok(x.unreleased, `${x.name}: returned before its scan was released`);
@@ -460,7 +470,7 @@ export function taskCloseParityShard(k, n) {
                 }
                 else {
                     assert.ok(node.r.stdout + node.r.stderr !== bash.r.stdout + bash.r.stderr ||
-                        JSON.stringify(node.tree) !== JSON.stringify(bash.tree) ||
+                        !isDeepStrictEqual(node.tree, bash.tree) ||
                         node.launched !== bash.launched, `divergent (${c.divergent}): the sides must differ`);
                     assertExpect('bash', bash.r, bash.tree, byLocale(side(c.expect, 'bash'), locale));
                     assertExpect('ts', node.r, node.tree, byLocale(side(c.expect, 'ts'), locale));
