@@ -17,6 +17,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
 - **plugin_config keys** — [`CONFIG_KEYS.md`](./CONFIG_KEYS.md)
 - **Full architecture** — `docs/architecture/FLOWS.md`
+- **Memory model (hot and cold)** — [`architecture/MEMORY.md`](../architecture/MEMORY.md)
 
 ## MCP tools (full list)
 
