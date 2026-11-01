@@ -25,6 +25,8 @@ ensure-mcp-deps-installed
 ensure-swe-worktree
 git-guards
 git-push-guard
+liveness-alert
+liveness-sentinel
 mcp-health-check
 naming-lint
 no-remote-auth-guard

@@ -35,6 +35,7 @@ post-task-close-rescan 6000 advisory PostToolUse mcp__.*trajectory-server__.* br
 post-atomic-close-readme 6094 advisory PostToolUse mcp__.*trajectory-server__.* bro_atomic_close
 post-task-create-spawn-hint 4000 advisory PostToolUse mcp__.*trajectory-server__.* task_create_batch
 task-overrun-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
+liveness-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
 attribution-footer 16000 advisory PostToolUse Bash *
 clean-merged-branch 11000 advisory PostToolUse Bash *
 close-issue-on-merge 23300 advisory PostToolUse Bash *
@@ -57,6 +58,7 @@ activation-routine 6000 advisory UserPromptSubmit - *
 session-log-capture 4000 advisory UserPromptSubmit - *
 prompt-intent-hints 6000 advisory UserPromptSubmit - *
 task-overrun-alert 6000 advisory UserPromptSubmit - *
+liveness-alert 6000 advisory UserPromptSubmit - *
 user-prompt-persona 6000 advisory UserPromptSubmit - * persona
 roundtable-slash-detect 21000 advisory UserPromptSubmit - * roundtable
 worktree-create 16000 advisory WorktreeCreate - *
