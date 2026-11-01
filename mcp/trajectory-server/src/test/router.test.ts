@@ -486,11 +486,15 @@ describe('router events: a block keeps the other gates\' context (GH 1692 R3)', 
     const overrunningClose = (consultant: Gate) => {
       const { groupBudgetMs } = routerGroup('SubagentStop', '') as RouterGroup;
       let clock = 0;
+      const timedConsultant: Gate = (payload, env) => {
+        clock += 1;
+        return consultant(payload, env);
+      };
       const overrun: Gate = () => {
-        clock += groupBudgetMs + 1;
+        clock += groupBudgetMs;
         return contextOn('SubagentStop', 'too late');
       };
-      return { now: () => clock, findGate: fakes({ 'consultant-persistence-gate': consultant, 'swe-atomic-close': overrun }) };
+      return { now: () => clock, findGate: fakes({ 'consultant-persistence-gate': timedConsultant, 'swe-atomic-close': overrun }) };
     };
 
     it('the stop the enforcement gate allowed still goes through', async () => {
