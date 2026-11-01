@@ -25222,7 +25222,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop or SubagentStop): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, Stop and SubagentStop), `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -40706,6 +40706,9 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
 }
 var BRIEF_SECTIONS = ["core", "verification", "scope", "history", "all"];
 var isBriefSection = (v) => BRIEF_SECTIONS.includes(v);
+var BRIEF_RESPONSE_FORMATS = ["concise", "detailed"];
+var isBriefResponseFormat = (v) => BRIEF_RESPONSE_FORMATS.includes(v);
+var BRIEF_RESPONSE_FORMAT_HINT = "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
 var BRIEF_SECTION_HINTS = {
   core: "locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it",
   verification: "verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure",
@@ -41334,7 +41337,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41344,6 +41347,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             enum: [...BRIEF_SECTIONS],
             description: "Part of the brief to return. Default 'core' for swe, 'all' for every other caller."
+          },
+          response_format: {
+            type: "string",
+            enum: [...BRIEF_RESPONSE_FORMATS],
+            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full."
           }
         },
         required: ["agent", "task_id"]
@@ -41859,6 +41867,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (!isBriefSection(section)) {
           return err17(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(", ")}`);
         }
+        const responseFormat = args2["response_format"] ?? "concise";
+        if (!isBriefResponseFormat(responseFormat)) {
+          return err17(
+            `unknown response_format ${JSON.stringify(responseFormat)}; valid values: ${BRIEF_RESPONSE_FORMATS.join(", ")}`
+          );
+        }
+        const concise = responseFormat === "concise";
+        let trimmed = false;
         const want = (s) => section === "all" || section === s;
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
@@ -41971,9 +41987,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
             base_moved: closeScope ? closeScope.base_moved === true : null
           };
+          if (concise) {
+            trimmed ||= scope_world_model.some(
+              (d) => d.summary !== null || d.children.some((c) => c.summary !== null)
+            );
+          }
           return {
             scope,
-            scope_world_model,
+            scope_world_model: concise ? scope_world_model.map((d) => ({ dir: d.dir, children: d.children.map((c) => ({ path: c.path })) })) : scope_world_model,
             ...checkoutLag(db2, repo),
             ...world_model_warning ? { world_model_warning } : {}
           };
@@ -42026,15 +42047,23 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const issueRowCount = db2.get("SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?", [task.issue_id])?.n ?? 0;
           const omittedCount = issueRowCount - task_discussions.length;
           const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
-          return { task_discussions, ...task_discussions_omitted ? { task_discussions_omitted } : {} };
+          const keptInConcise = new Set([...taskRows, issueDecision, issueIntent].map((d) => d?.id));
+          trimmed ||= concise && task_discussions.some((d) => !keptInConcise.has(d.id));
+          return {
+            task_discussions: concise ? task_discussions.map(
+              (d) => keptInConcise.has(d.id) ? d : { id: d.id, kind: d.kind, author: d.author }
+            ) : task_discussions,
+            ...task_discussions_omitted ? { task_discussions_omitted } : {}
+          };
         };
-        return ok16({
+        const brief = {
           ...want("core") ? coreSection() : {},
           ...section === "core" ? { sections: BRIEF_SECTION_HINTS } : {},
           ...want("verification") ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db2, task.id) } : {},
           ...want("scope") ? scopeSection() : {},
           ...want("history") ? historySection() : {}
-        });
+        };
+        return ok16(trimmed ? { ...brief, response_format_hint: BRIEF_RESPONSE_FORMAT_HINT } : brief);
       })
     ),
     branch_id_propose: requireRoles(

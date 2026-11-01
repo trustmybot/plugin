@@ -423,7 +423,7 @@ describe('router events: a block keeps the other gates\' context (GH 1692 R3)', 
         const d = await decide('SubagentStop', stopPayload(), {}, {
             findGate: fakes({ 'swe-atomic-close': () => contextOn('SubagentStop', 'task closed'), 'consultant-persistence-gate': () => blocks('persist first') }),
         });
-        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['swe-atomic-close', 'allow'], ['consultant-persistence-gate', 'deny']]);
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['consultant-persistence-gate', 'deny'], ['swe-atomic-close', 'allow']]);
         assert.deepEqual(JSON.parse(d.stdout), { decision: 'block', reason: 'persist first', hookSpecificOutput: { hookEventName: 'SubagentStop', additionalContext: 'task closed' } });
         assert.deepEqual(d.denied, { gate: 'consultant-persistence-gate', reason: 'persist first' });
         assert.equal(d.code, 0);
@@ -434,6 +434,30 @@ describe('router events: a block keeps the other gates\' context (GH 1692 R3)', 
         assert.equal(out.decision, 'block');
         assert.match(out.reason, /TMB gate consultant-persistence-gate exited 1/);
         assert.equal(out.hookSpecificOutput.additionalContext, 'task closed');
+    });
+    describe('an advisory gate overruns the group budget', () => {
+        const overrunningClose = (consultant) => {
+            const { groupBudgetMs } = routerGroup('SubagentStop', '');
+            let clock = 0;
+            const overrun = () => {
+                clock += groupBudgetMs + 1;
+                return contextOn('SubagentStop', 'too late');
+            };
+            return { now: () => clock, findGate: fakes({ 'consultant-persistence-gate': consultant, 'swe-atomic-close': overrun }) };
+        };
+        it('the stop the enforcement gate allowed still goes through', async () => {
+            const d = await decide('SubagentStop', stopPayload(), {}, overrunningClose(() => ALLOW));
+            assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['consultant-persistence-gate', 'allow'], ['swe-atomic-close', 'skipped_budget']]);
+            assert.equal(d.denied, null);
+            assert.equal(d.code, 0);
+            assert.equal(d.stdout, '');
+            assert.match(d.stderr, /advisory gate swe-atomic-close ran out of the \d+ ms group budget/);
+        });
+        it('the enforcement gate\'s own block still stands', async () => {
+            const d = await decide('SubagentStop', stopPayload(), {}, overrunningClose(() => blocks('persist first')));
+            assert.deepEqual(d.denied, { gate: 'consultant-persistence-gate', reason: 'persist first' });
+            assert.equal(d.stdout, blocks('persist first').stdout);
+        });
     });
     it('a block with no context prints the gate\'s own bytes', async () => {
         const d = await decide('SubagentStop', stopPayload(), {}, { findGate: fakes({ 'swe-atomic-close': () => ALLOW, 'consultant-persistence-gate': () => blocks('persist first') }) });
@@ -457,7 +481,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.equal(matcherFits('', 'Bash'), true);
         assert.equal(matcherFits('Bash', ''), false);
         assert.deepEqual(names('Stop', ''), ['bro-turn-usage']);
-        assert.deepEqual(names('SubagentStop', ''), ['swe-atomic-close', 'consultant-persistence-gate']);
+        assert.deepEqual(names('SubagentStop', ''), ['consultant-persistence-gate', 'swe-atomic-close']);
     });
     it('the post-tool groups run in the order the spec names, each tool-filtered gate only for its tools', () => {
         assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert']);
@@ -487,7 +511,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         const rows = lines.map((l) => l.split(' '));
         assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
         assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
-        assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['swe-atomic-close', 'advisory', '-'], ['consultant-persistence-gate', 'enforcement', '-']]);
+        assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['consultant-persistence-gate', 'enforcement', '-'], ['swe-atomic-close', 'advisory', '-']]);
         assert.equal(matcherColumn(''), '-');
         assert.equal(matcherColumn('Bash'), 'Bash');
         assert.equal(matcherOfColumn('-'), '');
@@ -500,6 +524,22 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.equal(dedupeKey('{not json'), null);
         const call = { hook_event_name: 'PostToolUse', session_id: 's', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 't' };
         assert.equal(dedupeKey(JSON.stringify(call)), dedupeKey(JSON.stringify({ ...call, tool_response: { stdout: 'other' } })));
+    });
+});
+describe('router docs describe what is routed (GH 1692 R3)', () => {
+    const doc = (rel) => readFileSync(join(PLUGIN_ROOT, rel), 'utf8');
+    it('the changelog names the SubagentStop order, in the fragment or the release it was assembled into', () => {
+        const fragment = 'changelog.d/1692-ts-router-post-stop.md';
+        const text = doc(existsSync(join(PLUGIN_ROOT, fragment)) ? fragment : 'CHANGELOG.md');
+        assert.match(text, /`consultant-persistence-gate`[^\n]*now runs before `swe-atomic-close`/);
+    });
+    it('CONTAINMENT.md does not limit the router to PreToolUse', () => {
+        assert.doesNotMatch(doc('docs/architecture/CONTAINMENT.md'), /command outside PreToolUse is|every PreToolUse command is the router/);
+    });
+    it('hook_call is described as written on every routed event, in the source and its generated doc', () => {
+        for (const rel of ['mcp/trajectory-server/src/audit-events.ts', 'docs/contributing/ENUMS.md']) {
+            assert.doesNotMatch(doc(rel), /The PreToolUse router \(/, rel);
+        }
     });
 });
 describe('per-group budgets (GH 1692 R2)', () => {
