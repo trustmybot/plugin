@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Lint: the docs/reference/REFERENCE.md hook table and hooks/hooks.json agree
 # both ways. Every row names a script that exists under scripts/hooks/ and is
-# registered in hooks.json (`dispatch.sh <name>`, or as a gate of a chain
-# registration, scripts/hooks/lib/registrations.sh), so a deleted or unwired
+# registered in hooks.json (a gate dist/hooks-router.txt lists for a router
+# entry's event; the lint also reads `dispatch.sh <name>` and the gates of a
+# chain, scripts/hooks/lib/registrations.sh), so a deleted or unwired
 # hook cannot leave a stale row; every hook hooks.json registers has a row.
 # A gate born in TypeScript (no .sh) has a `<name>.ts` row naming its
 # mcp/trajectory-server/src/hooks/<name>.ts source.
-# scripts/hooks/README.md opens its dispatcher section with the router as every
+# scripts/hooks/README.md opens its entry-point section with the router as every
 # registration, not dispatch.sh (GH 1692).
 #
 # Usage: hooks-doc-fresh.sh [<root>]   (default: this repo; self-tests first)

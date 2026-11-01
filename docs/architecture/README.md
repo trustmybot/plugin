@@ -9,7 +9,7 @@ Design rationale for how the TMB plugin is built — the schema, the workflow ga
 | [`ERD.md`](./ERD.md) | Trajectory DB entity-relationship diagram — the SQLite schema, table groups, and where the DB lives on disk |
 | [`FLOWS.md`](./FLOWS.md) | The Human → bro → SWE decision chain and the two gates (bro = task gate, code-reviewer = push gate) |
 | [`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md) | The role × tool matrix — what each shipped agent is actually instructed to do, plus server-enforced boundaries |
-| [`CONTAINMENT.md`](./CONTAINMENT.md) | TMB writes nothing outside the project; where every artifact lives; one install, one dispatcher, one execution per hook event |
+| [`CONTAINMENT.md`](./CONTAINMENT.md) | TMB writes nothing outside the project; where every artifact lives; one install, one entry point, one execution per hook event |
 | [`GIT.md`](./GIT.md) | Where each actor's git state lives across a task lifecycle; the local-is-canonical invariant |
 | [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) | Path-keyed repo resolution — how an operation's path identifies its repo via the `repos` table; registration-based guard scoping; per-repo `protected_branches` |
 | [`WORLD_MODEL.md`](./WORLD_MODEL.md) | The world model — bro's queryable project map, built by `scan_run` |
