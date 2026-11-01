@@ -24,7 +24,7 @@
 // side-effecting and must run once, from the plugin.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { matcherOfColumn } from '../hooks/router/table.js';
+import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
 import { serverLog } from '../logger.js';
 import { ensureLocalSettingsIgnored } from './onboard-sandbox.js';
 const RESOLVER_NAME = 'resolve-hook.sh';
@@ -119,21 +119,22 @@ function readPreToolUseFromHooksJson(pluginRoot) {
     }
     return groups;
 }
-const ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
+const ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)(?: ([a-z-]+))?$/;
 // The chain a router group's tool-filtered gates run through outside the
 // router: the shim's separate entries could not keep their order or filter.
 const GROUP_CHAIN = { 'mcp__.*trajectory-server__.*': 'trajectory-gates' };
 // A router entry (GH 1692) as one `dispatch.sh <gate>` entry per gate
-// dist/hooks-router.txt lists for its event and matcher, timed out at the
+// dist/hooks-router.txt lists for its event, matcher and part, timed out at the
 // gate's budget, so the shim runs each gate as it ran before the router; a
 // group with a chain as one `dispatch.sh <chain>` entry, timed out at its
 // gates in sequence (every unfiltered one plus the largest filtered one). Null
 // for any other entry, and a reason when the manifest is unreadable or lists
 // no gate for the group, so no shim is written without the router's gates.
 function routerGateHooks(pluginRoot, matcher, h) {
-    const event = ROUTER_COMMAND.exec(h.command ?? '')?.[1];
-    if (event === undefined)
+    const command = ROUTER_COMMAND.exec(h.command ?? '');
+    if (command === null)
         return null;
+    const [, event, part] = command;
     let manifest;
     try {
         manifest = readFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'utf8');
@@ -144,7 +145,7 @@ function routerGateHooks(pluginRoot, matcher, h) {
     const rows = manifest
         .split('\n')
         .map((line) => line.split(' '))
-        .filter((f) => f.length >= 5 && f[3] === event && matcherOfColumn(f[4]) === matcher && /^[a-z0-9-]+$/.test(f[0]));
+        .filter((f) => f.length >= 5 && f[3] === event && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part) && /^[a-z0-9-]+$/.test(f[0]));
     if (rows.length === 0)
         return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
     const dispatched = (name, budgetMs) => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name}`, timeout: Math.ceil(budgetMs / 1000) });

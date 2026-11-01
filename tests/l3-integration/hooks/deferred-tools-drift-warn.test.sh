@@ -48,19 +48,19 @@ out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
 assert_eq "" "$out" "missing tool dir = silent"
 
 test_case "MCP child running, all tool files older than child: silent no-op"
-# Cross-platform: compute epoch offset, format via GNU '@EPOCH' or BSD '-r EPOCH'.
+# Cross-platform: compute epoch offset, format via GNU '@EPOCH' or BSD '-r EPOCH'. In UTC, as a local time is ambiguous in the hour the clocks go back.
 _old_epoch=$(($(date +%s) - 120))
-OLD_MTIME="$(date -d "@$_old_epoch" '+%Y%m%d%H%M.%S' 2>/dev/null || date -r "$_old_epoch" '+%Y%m%d%H%M.%S')"
-touch -t "$OLD_MTIME" "$TOOL_DIR/index.js"
-touch -t "$OLD_MTIME" "$TOOL_DIR/tasks.js"
+OLD_MTIME="$(date -u -d "@$_old_epoch" '+%Y%m%d%H%M.%S' 2>/dev/null || date -u -r "$_old_epoch" '+%Y%m%d%H%M.%S')"
+TZ=UTC touch -t "$OLD_MTIME" "$TOOL_DIR/index.js"
+TZ=UTC touch -t "$OLD_MTIME" "$TOOL_DIR/tasks.js"
 out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
   TMB_TOOL_DIR_OVERRIDE="$TOOL_DIR" run_hook)
 assert_eq "" "$out" "old files = silent"
 
 test_case "MCP child running, one tool file newer than child: emit additionalContext"
 _new_epoch=$(($(date +%s) + 1))
-NEW_MTIME="$(date -d "@$_new_epoch" '+%Y%m%d%H%M.%S' 2>/dev/null || date -r "$_new_epoch" '+%Y%m%d%H%M.%S')"
-touch -t "$NEW_MTIME" "$TOOL_DIR/index.js"
+NEW_MTIME="$(date -u -d "@$_new_epoch" '+%Y%m%d%H%M.%S' 2>/dev/null || date -u -r "$_new_epoch" '+%Y%m%d%H%M.%S')"
+TZ=UTC touch -t "$NEW_MTIME" "$TOOL_DIR/index.js"
 out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
   TMB_TOOL_DIR_OVERRIDE="$TOOL_DIR" run_hook)
 assert_contains "$out" '"hookEventName":"SessionStart"' "JSON event name present"
@@ -72,8 +72,8 @@ assert_eq "" "$(printf '%s\n' "$out" | grep -E '(^|[ `"'"'"'(])/(plugin|reload-p
 assert_contains "$out" 'additionalContext' "additionalContext key present"
 
 test_case "all tool files older than child (future child start): silent no-op"
-touch -t "$OLD_MTIME" "$TOOL_DIR/index.js"
-touch -t "$OLD_MTIME" "$TOOL_DIR/tasks.js"
+TZ=UTC touch -t "$OLD_MTIME" "$TOOL_DIR/index.js"
+TZ=UTC touch -t "$OLD_MTIME" "$TOOL_DIR/tasks.js"
 out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$FUTURE_EPOCH" \
   TMB_TOOL_DIR_OVERRIDE="$TOOL_DIR" run_hook)
 assert_eq "" "$out" "child started after files = silent"
@@ -116,7 +116,7 @@ BY_CC=$(awk '/^CC/{print $2}' "$PF_BY")
 PIDS_TO_KILL+=("$OWN_SRV" "$OWN_HOOK" "$OWN_CC" "$BY_SRV" "$BY_HOOK" "$BY_CC")
 
 test_case "own-child resolution names this session's server, not a bystander"
-touch -t "$NEW_MTIME" "$TOOL_DIR/index.js"
+TZ=UTC touch -t "$NEW_MTIME" "$TOOL_DIR/index.js"
 out=$(TMB_DRIFT_SELF_PID="$OWN_HOOK" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
   TMB_TOOL_DIR_OVERRIDE="$TOOL_DIR" run_hook)
 assert_contains "$out" "PID $OWN_SRV)" "resolves the own session's server"

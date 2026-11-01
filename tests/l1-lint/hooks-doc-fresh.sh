@@ -23,7 +23,7 @@ registered() {
       members=$(tmb_chain_table "$name" | cut -d' ' -f1)
       printf '%s\n' ${members:-$name}
     done
-    for name in $(grep -oE 'dist/hooks\.js\\" [A-Za-z]+"' "$1/hooks/hooks.json" | sed -E 's/.* (.*)"/\1/' | sort -u); do
+    for name in $(grep -oE 'dist/hooks\.js\\" [A-Za-z]+' "$1/hooks/hooks.json" | sed -E 's/.* //' | sort -u); do
       tmb_router_gates "$1" "$name"
     done
   } | sort -u

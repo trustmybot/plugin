@@ -822,7 +822,7 @@ err=$(cd "$RP" && printf '%s' "$NP" | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$RP" bash
 assert_eq "0" "$rc" "reviewer-identity-observe exits 0"
 assert_contains "$err" "jq not found" "reviewer-identity-observe notes it on stderr"
 
-test_case "registration without jq equals the jq reading for every hooks.json entry"
+test_case "registration without jq equals the jq reading for dispatch.sh entries of every shape"
 # shellcheck disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
 jq_registration() {
@@ -830,14 +830,21 @@ jq_registration() {
     [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh\"? " + $g + "( |$)"))]
     | "\([.[].timeout // empty] | max // "") \(if any(.[]; .onFailure == "block") then 1 else 0 end)"' "$1"
 }
+REG_HOOKS="$TMP/registrations/hooks/hooks.json"
+mkdir -p "$(dirname "$REG_HOOKS")"
+jq -n '{hooks: {PreToolUse: [range(0; 24) | {matcher: "M\(.)", hooks: [
+    {type: "command",
+     command: (if . % 3 == 0 then "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" g-\(.)" else "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh g-\(.)" end),
+     timeout: (. + 2)} + (if . % 2 == 0 then {onFailure: "block"} else {} end)
+  ]}]}}' > "$REG_HOOKS"
 diffs=""
 n=0
 while IFS= read -r name; do
   n=$((n + 1))
-  want=$(jq_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
-  got=$(PATH="$NOJQ" tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
+  want=$(jq_registration "$REG_HOOKS" "$name")
+  got=$(PATH="$NOJQ" tmb_registration "$REG_HOOKS" "$name")
   [ "$want" = "$got" ] || diffs="$diffs $name(jq=<$want> awk=<$got>)"
-done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g' "$REG_HOOKS" | sort -u)
 assert_eq "" "$diffs" "every registration reads the same"
 [ "$n" -gt 20 ] && _pass || _fail "only $n registrations compared"
 assert_eq "1842 1" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" trajectory-gates)" "the chain: timeout and fail-closed"

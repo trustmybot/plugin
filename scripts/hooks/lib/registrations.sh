@@ -95,36 +95,52 @@ tmb_registration() {
     }' "$1" 2>/dev/null
 }
 
-# The router (GH 1692): one exec-form registration per matcher group,
-#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>
-# runs the gates dist/hooks-router.txt lists for <Event> and that matcher, in
-# order; a line whose last column is not `*` runs only for a tool name ending
-# in `trajectory-server__<that column>`. An empty matcher prints as `-`.
+# The router (GH 1692): one exec-form registration per matcher group and part,
+#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event> [<part>]
+# runs the gates dist/hooks-router.txt lists for <Event>, that matcher and part,
+# in order; a line whose sixth column is not `*` runs only for a tool name ending
+# in `trajectory-server__<that column>`. An empty matcher prints as `-`; a seventh
+# column is the part, and a default group's line has none.
 #
 #   tmb_router_event <command> — <Event> when <command> is the router, else nothing
-#   tmb_router_gates <plugin root> <Event> [<matcher> [<tool name>]]
+#   tmb_router_part <command> — its <part>, `-` for the default, when <command> is the router
+#   tmb_router_gates <plugin root> <Event> [<matcher> [<tool name> [<part or ->]]]
 #     — its gates, one per line, once each: every group's, one group's, or the
-#       ones that group runs for <tool name>
-tmb_router_event() {
+#       ones that group runs for <tool name>; only that part's when one is given
+tmb_router_words() {
   case "$1" in
     'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" '*)
-      local event="${1##* }"
-      case "$event" in
-        ''|*[!A-Za-z]*) ;;
-        *) printf '%s\n' "$event" ;;
-      esac
+      local rest="${1#'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" '}"
+      local event="${rest%% *}" part=-
+      [ "$event" = "$rest" ] || part="${rest#* }"
+      case "$event" in ''|*[!A-Za-z]*) return 0 ;; esac
+      case "$part" in ''|*[!a-z-]*) return 0 ;; esac
+      printf '%s %s\n' "$event" "$part"
       ;;
   esac
 }
 
+tmb_router_event() {
+  local words
+  words=$(tmb_router_words "$1")
+  [ -z "$words" ] || printf '%s\n' "${words%% *}"
+}
+
+tmb_router_part() {
+  local words
+  words=$(tmb_router_words "$1")
+  [ -z "$words" ] || printf '%s\n' "${words#* }"
+}
+
 tmb_router_gates() {
-  awk -v e="$2" -v m="${3-}" -v t="${4-}" '
+  awk -v e="$2" -v m="${3-}" -v t="${4-}" -v p="${5-}" '
     function serves() { return $6 == "*" || t == "" || (length(t) >= length(s = "trajectory-server__" $6) && substr(t, length(t) - length(s) + 1) == s) }
-    $4 == e && (m == "" || $5 == m) && serves() && !seen[$1]++ { print $1 }
+    function holds() { return p == "" || ($7 == "" ? "-" : $7) == p }
+    $4 == e && (m == "" || $5 == m) && holds() && serves() && !seen[$1]++ { print $1 }
   ' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }
 
-#   tmb_router_budget_max <plugin root> <Event> <matcher> — the largest of that group's gate budgets, in ms
+#   tmb_router_budget_max <plugin root> <Event> <matcher> [<part>] — the largest of that group's gate budgets, in ms
 tmb_router_budget_max() {
-  awk -v e="$2" -v g="${3:--}" '$4 == e && $5 == g && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+  awk -v e="$2" -v g="${3:--}" -v p="${4-}" '$4 == e && $5 == g && $7 == p && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }

@@ -343,7 +343,7 @@ describe('router groups (GH 1692 R2)', () => {
         assert.ok(mcp.gates.every((g) => g.kind === 'enforcement'));
     });
     it('an event\'s matchers do not overlap: each tool name belongs to one of its groups', () => {
-        const names = ROUTER_GROUPS.flatMap((g) => g.matcher.split('|').map((m) => `${g.event} ${m}`));
+        const names = ROUTER_GROUPS.flatMap((g) => g.matcher.split('|').map((m) => `${g.event} ${g.part ?? ''} ${m}`));
         assert.equal(names.length, new Set(names).size);
         assert.equal(routerGroup('PreToolUse', 'Write')?.matcher, 'Write|Edit|MultiEdit|NotebookEdit');
     });
@@ -508,11 +508,11 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         await decide('PostToolUse', JSON.stringify({ tool_name: mcp('issue_list'), tool_input: {} }), {}, { findGate: spy });
         assert.deepEqual(ran, ['task-overrun-alert']);
     });
-    it('the table is one line per row, an empty matcher as its sentinel, every line six columns', () => {
+    it('the table is one line per row, an empty matcher as its sentinel, six columns and a seventh for a part', () => {
         const lines = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n');
-        for (const line of lines)
-            assert.equal(line.split(' ').length, 6, line);
         const rows = lines.map((l) => l.split(' '));
+        for (const f of rows)
+            assert.equal(f.length, f[6] === undefined ? 6 : 7, f.join(' '));
         assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
         assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
         assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['consultant-persistence-gate', 'enforcement', '-'], ['swe-atomic-close', 'advisory', '-']]);
@@ -521,6 +521,18 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.equal(matcherOfColumn('-'), '');
         assert.equal(matcherOfColumn('Bash'), 'Bash');
     });
+    it('SessionStart keys on event, session and part; UserPromptSubmit on its payload and part', () => {
+        const start = (source, session = 's') => JSON.stringify({ hook_event_name: 'SessionStart', session_id: session, source });
+        assert.equal(dedupeKey(start('startup'), 'SessionStart'), dedupeKey(start('resume'), 'SessionStart'));
+        assert.notEqual(dedupeKey(start('startup'), 'SessionStart'), dedupeKey(start('startup', 'other'), 'SessionStart'));
+        assert.notEqual(dedupeKey(start('startup'), 'SessionStart'), dedupeKey(start('startup'), 'SessionStart', 'persona'));
+        assert.notEqual(dedupeKey(start('startup'), 'SessionStart', 'persona'), dedupeKey(start('startup'), 'SessionStart', 'prescan'));
+        const prompt = (text) => JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt: text });
+        assert.equal(dedupeKey(prompt('a'), 'UserPromptSubmit', 'persona'), dedupeKey(prompt('a'), 'UserPromptSubmit', 'persona'));
+        assert.notEqual(dedupeKey(prompt('a'), 'UserPromptSubmit', 'persona'), dedupeKey(prompt('b'), 'UserPromptSubmit', 'persona'));
+        assert.notEqual(dedupeKey(prompt('a'), 'UserPromptSubmit'), dedupeKey(prompt('a'), 'UserPromptSubmit', 'persona'));
+        assert.notEqual(dedupeKey(prompt('a'), 'UserPromptSubmit', 'persona'), dedupeKey(prompt('a'), 'UserPromptSubmit', 'roundtable'));
+    });
     it('a payload with no tool_name keys on the whole payload, key order aside; a tool payload still on its call', () => {
         assert.equal(dedupeKey('{"session_id":"s","a":1}'), dedupeKey('{"a":1,"session_id":"s"}'));
         assert.notEqual(dedupeKey('{"session_id":"s","a":1}'), dedupeKey('{"session_id":"s","a":2}'));
@@ -528,6 +540,51 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.equal(dedupeKey('{not json'), null);
         const call = { hook_event_name: 'PostToolUse', session_id: 's', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 't' };
         assert.equal(dedupeKey(JSON.stringify(call)), dedupeKey(JSON.stringify({ ...call, tool_response: { stdout: 'other' } })));
+    });
+});
+describe('router plain-text context (GH 1692 R4)', () => {
+    const plain = (stdout) => () => ({ stdout, code: 0 });
+    const json = (text) => () => ({ stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } })}\n`, code: 0 });
+    const eventGroup = (event, ...names) => [{ event, matcher: '', groupBudgetMs: 5000, gates: names.map((name) => ({ name, kind: 'advisory', budgetMs: 1000 })) }];
+    const payload = (event) => JSON.stringify({ hook_event_name: event, session_id: 's', prompt: 'p' });
+    for (const event of ['SessionStart', 'UserPromptSubmit']) {
+        it(`${event}: a lone plain output passes through byte for byte`, async () => {
+            const text = '[Persona loaded by the hook]\n\n  # You are bro\n\n\ttabbed {not json} line\n\n';
+            const d = await decide(event, payload(event), {}, { groups: eventGroup(event, 'a'), findGate: fakes({ a: plain(text) }) });
+            assert.equal(d.stdout, text);
+            assert.equal(d.stderr, '');
+            assert.deepEqual(d.gates.map((g) => g.outcome), ['allow']);
+        });
+        it(`${event}: a lone JSON output stays JSON`, async () => {
+            const d = await decide(event, payload(event), {}, { groups: eventGroup(event, 'a'), findGate: fakes({ a: json('ctx') }) });
+            assert.deepEqual(JSON.parse(d.stdout), { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'ctx' } });
+        });
+        it(`${event}: plain and JSON outputs merge in group order, the plain text exact`, async () => {
+            const first = 'plain one\n  indented\ttext';
+            const d = await decide(event, payload(event), {}, { groups: eventGroup(event, 'a', 'b', 'c'), findGate: fakes({ a: plain(`${first}\n`), b: json('from json'), c: plain('[last] plain') }) });
+            const out = JSON.parse(d.stdout);
+            assert.equal(out.hookSpecificOutput.additionalContext, `${first}\n\nfrom json\n\n[last] plain`);
+            assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+        });
+        it(`${event}: a JSON-shaped output that fails to parse is dropped and logged, the others kept`, async () => {
+            for (const broken of ['{"hookSpecificOutput":', '["a",']) {
+                const d = await decide(event, payload(event), {}, { groups: eventGroup(event, 'bad', 'good'), findGate: fakes({ bad: plain(broken), good: plain('still here\n') }) });
+                assert.equal(d.stdout, 'still here\n', broken);
+                assert.match(d.stderr, /advisory gate bad printed unparseable output — output dropped/);
+                assert.deepEqual(d.gates.map((g) => g.outcome), ['error', 'allow']);
+            }
+        });
+        it(`${event}: deny words in plain text are text, not a decision`, async () => {
+            const text = 'quotes "decision": "block" in prose\n';
+            const d = await decide(event, payload(event), {}, { groups: eventGroup(event, 'a'), findGate: fakes({ a: plain(text) }) });
+            assert.equal(d.denied, null);
+            assert.equal(d.stdout, text);
+        });
+    }
+    it('an event that reads no plain context still drops plain text', async () => {
+        const d = await decide('Stop', payload('Stop'), {}, { groups: eventGroup('Stop', 'a'), findGate: fakes({ a: plain('words\n') }) });
+        assert.equal(d.stdout, '');
+        assert.match(d.stderr, /advisory gate a printed unparseable output/);
     });
 });
 describe('router docs describe what is routed (GH 1692 R3)', () => {
@@ -705,6 +762,28 @@ describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', (
         assert.equal(d.stdout, '');
         assert.match(d.stderr, /unknown gate 'says-context'/);
     });
+    it('every gate of the R4 events runs under the switch but those born in TypeScript, dropped and logged', async () => {
+        const events = ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate'];
+        const gates = ROUTER_GROUPS.filter((g) => events.includes(g.event)).flatMap((g) => g.gates.map((x) => x.name));
+        assert.deepEqual(gates.filter((name) => !existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${name}.sh`))), ['rework-waiver-capture', 'task-overrun-alert']);
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-events-')));
+        const env = { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, PWD: dir, TMB_SKIP_MCP_DEPS_INSTALL: '1', TRAJECTORY_DB_PATH: join(dir, 'absent.db') };
+        try {
+            const start = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'sh-events', source: 'startup', cwd: dir });
+            const persona = await decide('SessionStart', start, env, { part: 'persona' });
+            assert.match(persona.stdout, /You are bro/);
+            assert.deepEqual(persona.gates.map((g) => g.gate), ['session-start-persona']);
+            const prompt = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'sh-events', prompt: 'hi', cwd: dir });
+            const defaults = await decide('UserPromptSubmit', prompt, env);
+            assert.equal(defaults.denied, null);
+            assert.match(defaults.stderr, /advisory gate rework-waiver-capture exited 1 — output dropped/);
+            const worktree = await decide('WorktreeCreate', JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: 'sh-events', name: 'n', cwd: dir }), env);
+            assert.deepEqual(worktree.gates.map((g) => g.gate), ['worktree-create']);
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
     it('the switch reaches a real .sh through the bundle: askuserquestion-length-lint.sh answers', () => {
         const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-real-')));
         try {
@@ -741,7 +820,7 @@ describe('router entry: dedupe and records', () => {
         delete e.TRAJECTORY_DB_PATH;
         return e;
     };
-    async function call(payload, findGate, groups, event = 'PreToolUse') {
+    async function call(payload, findGate, groups, event = 'PreToolUse', part) {
         let stdout = '';
         let stderr = '';
         const code = await routerMain(event, env(), {
@@ -752,7 +831,7 @@ describe('router entry: dedupe and records', () => {
             writeStderr: (t) => {
                 stderr += t;
             },
-        }, { findGate, groups, hop: false, selfRoot: PLUGIN_ROOT });
+        }, { findGate, groups, part, hop: false, selfRoot: PLUGIN_ROOT });
         return { code, stdout, stderr };
     }
     function rows(type) {
@@ -871,6 +950,165 @@ describe('router entry: dedupe and records', () => {
             assert.equal(runs, ran);
         });
     }
+    describe('parts of one event (GH 1692 R4)', () => {
+        const parted = (event) => [
+            { event, matcher: '', groupBudgetMs: 5000, gates: [{ name: 'main', kind: 'advisory', budgetMs: 1000 }] },
+            { event, matcher: '', part: 'persona', groupBudgetMs: 5000, gates: [{ name: 'p', kind: 'advisory', budgetMs: 1000 }] },
+        ];
+        for (const event of ['SessionStart', 'UserPromptSubmit']) {
+            it(`${event}: each part runs its own gates, its duplicate nothing, and no part answers for another`, async () => {
+                const ran = [];
+                const findGate = (name) => () => {
+                    ran.push(name);
+                    return { stdout: `from ${name}\n`, code: 0 };
+                };
+                const payload = JSON.stringify({ hook_event_name: event, session_id: `sess-parts-${event}`, prompt: 'p' });
+                const groups = parted(event);
+                assert.equal((await call(payload, findGate, groups, event)).stdout, 'from main\n');
+                assert.equal((await call(payload, findGate, groups, event, 'persona')).stdout, 'from p\n');
+                assert.equal((await call(payload, findGate, groups, event, 'persona')).stdout, '');
+                assert.equal((await call(payload, findGate, groups, event)).stdout, '');
+                assert.deepEqual(ran, ['main', 'p']);
+            });
+        }
+        it('a part no group holds runs nothing', async () => {
+            const payload = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'sess-no-part' });
+            const r = await call(payload, () => () => ({ stdout: 'ran\n', code: 0 }), parted('SessionStart'), 'SessionStart', 'absent');
+            assert.equal(r.code, 0);
+            assert.equal(r.stdout, '');
+        });
+    });
+    describe('WorktreeCreate prints the path or fails (GH 1692 R4)', () => {
+        const wt = (session) => JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: session, name: 'n', cwd: project });
+        const wtGroup = (over = {}) => [
+            { event: 'WorktreeCreate', matcher: '', groupBudgetMs: over.groupBudgetMs ?? 5000, gates: [{ name: 'wt', kind: over.kind ?? 'advisory', budgetMs: over.budgetMs ?? 1000 }] },
+        ];
+        const failed = (r, cause) => {
+            assert.equal(r.stdout, '');
+            assert.notEqual(r.code, 0);
+            assert.match(r.stderr, cause);
+        };
+        it('prints the bare path and nothing else', async () => {
+            const r = await call(wt('wt-ok'), fakes({ wt: () => ({ stdout: '/a b/.claude/worktrees/n\n', code: 0 }) }), wtGroup(), 'WorktreeCreate');
+            assert.equal(r.code, 0);
+            assert.equal(r.stdout, '/a b/.claude/worktrees/n\n');
+        });
+        it('a duplicate within the window replays the path and runs nothing', async () => {
+            let runs = 0;
+            const gates = fakes({ wt: () => (runs++, { stdout: '/p/dupe\n', code: 0 }) });
+            const first = await call(wt('wt-dupe'), gates, wtGroup(), 'WorktreeCreate');
+            const second = await call(wt('wt-dupe'), gates, wtGroup(), 'WorktreeCreate');
+            assert.equal(runs, 1);
+            assert.equal(first.stdout, '/p/dupe\n');
+            assert.equal(second.stdout, '/p/dupe\n');
+            assert.equal(second.code, 0);
+        });
+        it('a duplicate of a failure replays the failure', async () => {
+            const gates = fakes({ wt: () => ({ stdout: '', code: 1 }) });
+            const first = await call(wt('wt-dupe-fail'), gates, wtGroup(), 'WorktreeCreate');
+            failed(first, /WorktreeCreate failed/);
+            failed(await call(wt('wt-dupe-fail'), gates, wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed/);
+        });
+        it('a gate failure', async () => {
+            failed(await call(wt('wt-fail'), fakes({ wt: () => ({ stdout: '/ignored\n', code: 1 }) }), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed: gate wt ended in error/);
+        });
+        it('a gate throwing', async () => {
+            const r = await call(wt('wt-throw'), fakes({ wt: () => { throw new Error('boom'); } }), wtGroup(), 'WorktreeCreate');
+            failed(r, /boom[\s\S]*WorktreeCreate failed: gate wt ended in error/);
+        });
+        it('a gate timeout', async () => {
+            const r = await call(wt('wt-late'), fakes({ wt: () => new Promise(() => { }) }), wtGroup({ budgetMs: 30 }), 'WorktreeCreate');
+            failed(r, /ran past its 30 ms budget[\s\S]*WorktreeCreate failed: gate wt ended in skipped_budget/);
+        });
+        it('a budget skip', async () => {
+            failed(await call(wt('wt-skip'), fakes({ wt: () => ({ stdout: '/ignored\n', code: 0 }) }), wtGroup({ groupBudgetMs: 0 }), 'WorktreeCreate'), /got no time[\s\S]*WorktreeCreate failed: gate wt ended in skipped_budget/);
+        });
+        it('an unparseable payload', async () => {
+            failed(await call('{not json', fakes({}), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed: an unparseable payload/);
+        });
+        it('a gate printing no path, or more than a path', async () => {
+            failed(await call(wt('wt-empty'), fakes({ wt: () => ALLOW }), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed: no bare path printed/);
+            failed(await call(wt('wt-two'), fakes({ wt: () => ({ stdout: '/a\n/b\n', code: 0 }) }), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed: no bare path printed/);
+        });
+        it('a JSON answer is no path, whichever way the gate prints it', async () => {
+            failed(await call(wt('wt-json'), fakes({ wt: () => ({ stdout: '{"continue":true}\n', code: 0 }) }), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed: no bare path printed/);
+        });
+        it('a deny from a gate', async () => {
+            failed(await call(wt('wt-deny'), fakes({ wt: () => ({ stdout: '{"decision":"block","reason":"no"}\n', code: 2 }) }), wtGroup(), 'WorktreeCreate'), /WorktreeCreate failed/);
+        });
+        it('the audit row of a failure says failed', async () => {
+            const before = rows('hook_call').length;
+            await call(wt('wt-audit'), fakes({ wt: () => ({ stdout: '', code: 1 }) }), wtGroup(), 'WorktreeCreate');
+            const added = rows('hook_call').slice(before);
+            assert.equal(added.length, 1);
+            assert.equal(JSON.parse(added[0].content_json).decision, 'failed');
+        });
+    });
+    describe('a hop needs the event and part in the target table (GH 2207)', () => {
+        const install = (name, table, bundleSource = "process.stdout.write('hop:' + process.argv.slice(2).join(' ') + '\\n');\n") => {
+            const root = join(base, name);
+            const manifest = join(root, 'mcp/trajectory-server/dist/hooks-router.txt');
+            mkdirSync(dirname(manifest), { recursive: true });
+            writeFileSync(manifest, table);
+            writeFileSync(join(root, 'mcp/trajectory-server/dist/hooks.js'), bundleSource);
+            const installed = join(base, `${name}.json`);
+            writeFileSync(installed, JSON.stringify({ plugins: { 'tmb@trustmybot-dev': [{ scope: 'project', projectPath: project, installPath: root }] } }));
+            return installed;
+        };
+        const OLD_TABLE = 'containment-guard 5000 enforcement PreToolUse Bash *\n';
+        async function viaHop(installed, event, payload, part, gate = () => ({ stdout: 'local\n', code: 0 })) {
+            let stdout = '';
+            let stderr = '';
+            const code = await routerMain(event, { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: (t) => void (stderr += t) }, { part, selfRoot: PLUGIN_ROOT, findGate: () => gate });
+            return { code, stdout, stderr };
+        }
+        it('with an unparseable payload and an older target, Stop logs and exits 0, with no unknown gate', async () => {
+            const r = await viaHop(install('old-stop', OLD_TABLE), 'Stop', '{not json');
+            assert.equal(r.code, 0);
+            assert.equal(r.stdout, '');
+            assert.match(r.stderr, /Stop got an unparseable payload — no gate run/);
+            assert.doesNotMatch(r.stderr, /unknown gate/);
+            assert.doesNotMatch(r.stdout, /hop:/);
+        });
+        it('with an unparseable payload and an older target, SubagentStop still blocks, with no unknown gate', async () => {
+            const r = await viaHop(install('old-substop', OLD_TABLE), 'SubagentStop', '{not json');
+            assert.equal(r.code, 0);
+            assert.equal(JSON.parse(r.stdout).decision, 'block');
+            assert.doesNotMatch(r.stderr, /unknown gate/);
+        });
+        it('with an unparseable payload, a target that has the event answers', async () => {
+            const r = await viaHop(install('new-stop', 'bro-turn-usage 5000 advisory Stop - *\n'), 'Stop', '{not json');
+            assert.equal(r.stdout, 'hop:Stop\n');
+        });
+        it('a target with the event but not the part does not answer for that part', async () => {
+            const installed = install('old-part', 'ensure-gitignore 5000 advisory SessionStart - *\n');
+            const payload = (id) => JSON.stringify({ hook_event_name: 'SessionStart', session_id: id });
+            const persona = await viaHop(installed, 'SessionStart', payload('hop-part-a'), 'persona');
+            assert.equal(persona.stdout, 'local\n');
+            assert.equal((await viaHop(installed, 'SessionStart', payload('hop-part-b'))).stdout, 'hop:SessionStart\n');
+        });
+        it('a target with the part gets it as its second argument, and no row of a part answers for the default', async () => {
+            const installed = install('new-part', 'session-start-persona 5000 advisory SessionStart - * persona\n');
+            const payload = (id) => JSON.stringify({ hook_event_name: 'SessionStart', session_id: id });
+            assert.equal((await viaHop(installed, 'SessionStart', payload('hop-part-c'), 'persona')).stdout, 'hop:SessionStart persona\n');
+            assert.notEqual((await viaHop(installed, 'SessionStart', payload('hop-part-d'))).stdout, 'hop:SessionStart\n');
+        });
+        it('WorktreeCreate: a failed hop prints no stdout, names the cause and exits non-zero', async () => {
+            const table = 'worktree-create 5000 advisory WorktreeCreate - *\n';
+            const payload = (id) => JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: id, name: 'n' });
+            for (const [name, source, code] of [['exits', 'process.exit(3);\n', 3], ['chatty', "process.stdout.write('{\"continue\":true}\\n');\n", 1], ['silent', '', 1]]) {
+                const r = await viaHop(install(`wt-hop-${name}`, table, source), 'WorktreeCreate', payload(`hop-wt-${name}`));
+                assert.equal(r.stdout, '', name);
+                assert.equal(r.code, code, name);
+                assert.match(r.stderr, /WorktreeCreate failed: .* answered exit \d+ with no bare path/, name);
+            }
+        });
+        it('WorktreeCreate: a hop that answers a path passes it through', async () => {
+            const r = await viaHop(install('wt-hop-ok', 'worktree-create 5000 advisory WorktreeCreate - *\n', "process.stdout.write('/there/n\\n');\n"), 'WorktreeCreate', JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: 'hop-wt-ok', name: 'n' }));
+            assert.equal(r.code, 0);
+            assert.equal(r.stdout, '/there/n\n');
+        });
+    });
     it('a call no group matches leaves no lock behind', async () => {
         const locks = join(dirname(db), 'locks/events');
         const before = existsSync(locks) ? readdirSync(locks).length : 0;

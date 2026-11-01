@@ -9,9 +9,9 @@
 # The dispatcher is what makes one gate execution per event hold however many
 # registrations fire; a registration that calls a gate directly bypasses it.
 # The one other form is the router (GH 1692 R1),
-#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>,
+#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event> [part],
 # which holds the same per-call dedupe: each gate dist/hooks-router.txt lists
-# for <Event> must have a .sh or a src/hooks TypeScript source.
+# for <Event> and that part must have a .sh or a src/hooks TypeScript source.
 
 set -euo pipefail
 
@@ -39,7 +39,7 @@ while IFS= read -r cmd; do
   CHECKED=$((CHECKED + 1))
   event=$(tmb_router_event "$cmd")
   if [ -n "$event" ]; then
-    members=$(tmb_router_gates "$ROOT" "$event")
+    members=$(tmb_router_gates "$ROOT" "$event" "" "" "$(tmb_router_part "$cmd")")
     if [ -z "$members" ]; then
       printf "hooks-via-dispatcher: router entry for %s, but dist/hooks-router.txt lists no %s gate: %s\n" "$event" "$event" "$cmd" >&2
       FAIL=$((FAIL + 1))

@@ -131,11 +131,11 @@ fi
 ROUTER_BUDGETS="mcp/trajectory-server/src/hooks/router/budgets.json"
 ROUTER_SUMMARY=""
 # An empty matcher arrives as `-`, as read would collapse an empty tab-separated field.
-while IFS=$'\t' read -r event column wrap; do
+while IFS=$'\t' read -r event column wrap part; do
   matcher="${column#-}"
-  max=$(tmb_router_budget_max "$ROOT" "$event" "$matcher")
+  max=$(tmb_router_budget_max "$ROOT" "$event" "$matcher" "$part")
   parse=$(jq -r '.parse_allowance_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
-  group=$(jq -r --arg m "$event:$matcher" '.groups[$m].group_budget_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
+  group=$(jq -r --arg m "$event:$matcher${part:+:$part}" '.groups[$m].group_budget_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
   if ! require "$max" "$event $matcher router gate budgets (dist/hooks-router.txt)" || ! require "$parse" "router parse_allowance_ms ($ROUTER_BUDGETS)" || ! require "$group" "router group_budget_ms of $matcher ($ROUTER_BUDGETS)"; then
     continue
   fi
@@ -150,7 +150,7 @@ while IFS=$'\t' read -r event column wrap; do
   fi
   ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event} ${matcher}: wrapper ${wrap}s >= parse allowance ${parse}ms + group budget ${group}ms (>= largest gate budget ${max}ms)
 "
-done < <(jq -r '.hooks[][]? | (.matcher // "") as $m | .hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+$")) | [(.command | split(" ") | last), (if $m == "" then "-" else $m end), (.timeout // "")] | @tsv' "$HOOKS_JSON")
+done < <(jq -r '.hooks[][]? | (.matcher // "") as $m | .hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+( [a-z-]+)?$")) | (.command | capture("hooks\\.js\" (?<e>[A-Za-z]+)( (?<p>[a-z-]+))?$")) as $r | [$r.e, (if $m == "" then "-" else $m end), (.timeout // ""), ($r.p // "")] | @tsv' "$HOOKS_JSON")
 
 if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"

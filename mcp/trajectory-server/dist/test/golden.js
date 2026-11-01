@@ -165,6 +165,10 @@ export function goldenStore(dir) {
     };
 }
 export const goldenBash = goldenStore(GOLDEN_DIR);
+/** A recording as stored, for a suite that only compares with it and never records. */
+export function goldenRecording(gate, caseName, locale, roots) {
+    return expandRoots(lookup(join(GOLDEN_DIR, `${gate}.json`), gate, caseName, locale), goldenRoots(roots));
+}
 /** Whether a gate has recordings: the set the parity suites select from once the scripts are gone. */
 export function hasGolden(gate, dir = GOLDEN_DIR) {
     return existsSync(join(dir, `${gate}.json`));

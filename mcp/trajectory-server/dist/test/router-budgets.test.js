@@ -65,26 +65,67 @@ describe('router budgets.json (GH 1861)', () => {
             assert.equal(b.group_budget_ms, groupBudgetMs(b.max_budget_ms, b.p99_sum_ms));
             assert.equal(group.groupBudgetMs, b.group_budget_ms, 'ROUTER_GROUPS reads budgets.json');
         });
-        it(`${key}: one hooks.json entry whose matcher, timeout and onFailure are the registry's, and no if`, () => {
+        it(`${key}: one hooks.json registration whose matcher, timeout and onFailure are the registry's, and no if`, () => {
             const entries = HOOKS.hooks[group.event].filter((g) => (g.matcher ?? '') === group.matcher);
             assert.equal(entries.length, 1);
-            assert.equal(entries[0].hooks.length, 1);
-            const { timeout, command, onFailure } = entries[0].hooks[0];
-            assert.ok(command.endsWith(`dist/hooks.js" ${group.event}`));
-            assert.equal('if' in entries[0].hooks[0], false);
+            const parts = ROUTER_GROUPS.filter((g) => g.event === group.event && g.matcher === group.matcher);
+            assert.equal(entries[0].hooks.length, parts.length);
+            const suffix = `dist/hooks.js" ${group.event}${group.part === undefined ? '' : ` ${group.part}`}`;
+            const registered = entries[0].hooks.filter((h) => h.command.endsWith(suffix));
+            assert.equal(registered.length, 1, suffix);
+            const { timeout, onFailure } = registered[0];
+            assert.equal('if' in registered[0], false);
             assert.equal(onFailure, group.gates.some((g) => g.kind === 'enforcement') ? 'block' : undefined);
             assert.ok(timeout * 1000 >= BUDGETS.parse_allowance_ms + group.groupBudgetMs, `${timeout} s`);
             assert.equal(timeout, routerTimeoutS(group));
             assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[key].group_budget_ms) / 1000) + 1);
         });
     }
-    it('the post-tool and stop groups are the only router entries of their events', () => {
+    it('the routed groups are the only router entries of their events', () => {
+        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate']) {
+            const matchers = [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort();
+            assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), matchers, event);
+        }
+    });
+    describe('the parts of SessionStart and UserPromptSubmit (GH 1692 R4)', () => {
+        const rows = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n').map((l) => l.split(' '));
+        const namesOf = (event, part) => rows.filter((f) => f[3] === event && f[6] === part).map((f) => f[0]);
+        it('the registry holds the spec layout, order kept', () => {
+            const layout = ROUTER_GROUPS.filter((g) => ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].includes(g.event)).map((g) => [g.event, g.part, g.gates.map((x) => x.name)]);
+            assert.deepEqual(layout, [
+                ['SessionStart', undefined, ['ensure-gitignore', 'mcp-health-check', 'deferred-tools-drift-warn', 'plugin-hooks-marker', 'ensure-mcp-deps-installed', 'substrate-preflight', 'orphan-scan']],
+                ['SessionStart', 'persona', ['session-start-persona']],
+                ['SessionStart', 'prescan', ['session-start-prescan']],
+                ['UserPromptSubmit', undefined, ['rework-waiver-capture', 'activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert']],
+                ['UserPromptSubmit', 'persona', ['user-prompt-persona']],
+                ['UserPromptSubmit', 'roundtable', ['roundtable-slash-detect']],
+                ['WorktreeCreate', undefined, ['worktree-create']],
+            ]);
+        });
+        it('dist/hooks-router.txt holds the part column, populated on parts and absent on default groups', () => {
+            assert.deepEqual(namesOf('SessionStart', 'persona'), ['session-start-persona']);
+            assert.deepEqual(namesOf('SessionStart', 'prescan'), ['session-start-prescan']);
+            assert.deepEqual(namesOf('UserPromptSubmit', 'persona'), ['user-prompt-persona']);
+            assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
+            assert.equal(namesOf('SessionStart').length, 7);
+            assert.equal(namesOf('UserPromptSubmit').length, 5);
+            assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);
+            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['persona', 'prescan', 'roundtable', undefined]);
+        });
+        it('hooks.json holds one command per group of the event', () => {
+            const commands = (event) => HOOKS.hooks[event].flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
+            assert.deepEqual(commands('SessionStart'), ['SessionStart', 'SessionStart persona', 'SessionStart prescan']);
+            assert.deepEqual(commands('UserPromptSubmit'), ['UserPromptSubmit', 'UserPromptSubmit persona', 'UserPromptSubmit roundtable']);
+            assert.deepEqual(commands('WorktreeCreate'), ['WorktreeCreate']);
+        });
+    });
+    it('the post-tool and stop groups keep one registration per matcher', () => {
         for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
             assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher).sort(), event);
         }
     });
-    it('onFailure block holds on SubagentStop alone among the post-tool and stop events', () => {
-        const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
+    it('onFailure block holds on SubagentStop alone among the routed events past PreToolUse', () => {
+        const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
         assert.deepEqual(blocked, ['SubagentStop']);
     });
     it('swe-verification-gate keeps its chain-table budget as its floor', () => {
