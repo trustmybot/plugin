@@ -261,6 +261,7 @@ export function hooksParityShard(k, n) {
                     'liveness-sentinel',
                     'rework-limit',
                     'rework-waiver-capture',
+                    'session-handoff',
                     'swe-resume-gate',
                     'swe-stop-cause',
                     'task-overrun-alert',

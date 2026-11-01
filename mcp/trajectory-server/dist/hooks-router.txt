@@ -42,6 +42,7 @@ close-issue-on-merge 23300 advisory PostToolUse Bash *
 swe-spawn-bind 6000 advisory PostToolUse Agent *
 swe-spawn-rollback 6000 advisory PermissionDenied Agent *
 bro-turn-usage 6000 advisory Stop - *
+session-handoff 6000 advisory Stop - * handoff
 consultant-persistence-gate 6000 enforcement SubagentStop - *
 swe-atomic-close 11350 advisory SubagentStop - *
 ensure-gitignore 6000 advisory SessionStart - *

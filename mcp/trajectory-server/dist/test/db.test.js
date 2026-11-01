@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB, } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all prod tables exist with schema_version=54 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+    it('opens an in-memory DB and verifies all prod tables exist with schema_version=55 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -22,6 +22,7 @@ describe('TrajectoryDB', () => {
             'plugin_config',
             'agent_runs',
             'agent_run_tool_output',
+            'session_handoffs',
             'pr_review_runs',
             'repos',
             // GH 1225 — a repo's git remotes
@@ -65,7 +66,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 54);
+        assert.equal(meta.schema_version, 55);
         db.close();
     });
     it('run inserts a builtin skill row into cheatcodes, get retrieves it, all lists multiple rows', () => {

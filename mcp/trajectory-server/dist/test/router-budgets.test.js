@@ -111,19 +111,22 @@ describe('router budgets.json (GH 1861)', () => {
             assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
             assert.equal(namesOf('SessionStart').length, 7);
             assert.equal(namesOf('UserPromptSubmit').length, 6);
+            assert.deepEqual(namesOf('Stop', 'handoff'), ['session-handoff']);
+            assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
             assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);
-            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['persona', 'prescan', 'roundtable', undefined]);
+            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['handoff', 'persona', 'prescan', 'roundtable', undefined]);
         });
         it('hooks.json holds one command per group of the event', () => {
-            const commands = (event) => HOOKS.hooks[event].flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
+            const commands = (event) => routerEntries(event).flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
             assert.deepEqual(commands('SessionStart'), ['SessionStart', 'SessionStart persona', 'SessionStart prescan']);
             assert.deepEqual(commands('UserPromptSubmit'), ['UserPromptSubmit', 'UserPromptSubmit persona', 'UserPromptSubmit roundtable']);
+            assert.deepEqual(commands('Stop'), ['Stop', 'Stop handoff']);
             assert.deepEqual(commands('WorktreeCreate'), ['WorktreeCreate']);
         });
     });
     it('the post-tool and stop groups keep one registration per matcher', () => {
         for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
-            assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher).sort(), event);
+            assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort(), event);
         }
         assert.equal(HOOKS.hooks.Stop.length, routerEntries('Stop').length + 1);
     });

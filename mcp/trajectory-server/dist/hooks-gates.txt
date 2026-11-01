@@ -49,6 +49,7 @@ rework-waiver-capture
 roundtable-auq-shape
 roundtable-cleanup-postcheck
 roundtable-slash-detect
+session-handoff
 session-log-capture
 session-start-persona
 session-start-prescan

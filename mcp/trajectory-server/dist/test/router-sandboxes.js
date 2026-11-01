@@ -2,11 +2,11 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate, task-overrun-alert, liveness-alert and
- * rework-waiver-capture have no hook-corpus directory (they were born in
- * TypeScript), so their cases are built here. A gate with bash recordings
- * carries where its case's recording sits, so the parity tests can hold the
- * router to it.
+ * router benches. swe-resume-gate, task-overrun-alert, liveness-alert,
+ * rework-waiver-capture and session-handoff have no hook-corpus directory (they
+ * were born in TypeScript), so their cases are built here. A gate with bash
+ * recordings carries where its case's recording sits, so the parity tests can
+ * hold the router to it.
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -76,6 +76,7 @@ export const ROUTER_CORPUS_GATES = [
     'swe-spawn-bind',
     'swe-spawn-rollback',
     'bro-turn-usage',
+    'session-handoff',
     'swe-atomic-close',
     'consultant-persistence-gate',
     'ensure-gitignore',
@@ -385,6 +386,8 @@ export function routerSandbox(rootDir, gates) {
             cases.push({ gate: 'post-atomic-close-readme', file, input: c.input, env: clean(readmeEnv(dir, LOCALE, c.env)), cwd: join(dir, 'ws'), fakeUid: false, reset: () => void readmeReset(dir) });
         }
     }
+    if (want('session-handoff'))
+        cases.push(...sessionHandoffCases(join(root, 'session-handoff'), emptyProject));
     if (want('task-overrun-alert'))
         cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
     if (want('liveness-alert'))
@@ -519,6 +522,33 @@ function overrunCases(dir, cwd) {
         fakeUid: false,
         reset: () => build(typeof createdAt === 'function' ? createdAt() : createdAt),
     }));
+}
+/** session-handoff's Stop cases, on a DB holding one bro row of the given tool calls and at most one open swe run, rebuilt per case. */
+function sessionHandoffCases(dir, cwd) {
+    const db = join(dir, 'trajectory.db');
+    mkdirSync(dir, { recursive: true });
+    const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+    const sessionId = 'sess-handoff';
+    const build = (toolUses, openRun) => {
+        for (const side of ['', '-wal', '-shm', '-journal'])
+            rmSync(`${db}${side}`, { force: true });
+        const d = new DatabaseSync(db);
+        d.exec(schema);
+        d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, started_at, completed_at) VALUES ('bro', ?, ?, ?, ?)").run(sessionId, toolUses, SWE_RESUME_T0, SWE_RESUME_T0);
+        if (openRun)
+            d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at) VALUES ('swe', ?, ?)").run(sessionId, new Date().toISOString());
+        d.close();
+    };
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+    const payload = (extra) => JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, last_assistant_message: 'note', ...extra });
+    const scenarios = [
+        ['past-limits-notice', 151, false, payload({})],
+        ['under-limits', 1, false, payload({})],
+        ['open-run', 151, true, payload({})],
+        ['hook-active', 151, false, payload({ stop_hook_active: true })],
+        ['background-task', 151, false, payload({ background_tasks: [{ id: 'b' }] })],
+    ];
+    return scenarios.map(([file, toolUses, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(toolUses, openRun) }));
 }
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */
 function livenessCases(dir, cwd) {

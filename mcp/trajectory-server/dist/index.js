@@ -25448,7 +25448,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 54;
+var TARGET_SCHEMA_VERSION = 55;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26017,6 +26017,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 54 && toVersion >= 54) {
     migrateV53toV54(db2);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27901,6 +27904,30 @@ function migrateV53toV54(db2) {
         );
       }
     }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV54toV55(db2) {
+  beginImmediate(db2);
+  try {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
     commitTransaction(db2);
   } catch (err21) {
     try {
