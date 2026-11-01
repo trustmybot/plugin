@@ -141,25 +141,27 @@ export function gateNames() {
     return [...GATES.keys()].sort();
 }
 /*
- * The router (GH 1692): `node dist/hooks.js <event>` runs the gates of the one
- * group whose event and matcher fit the payload, one after another in this
- * order, each within its budget from router/budgets.json. A matcher is the
- * text of that group's hooks.json entry, empty for every call of its event as
- * in Claude Code; an event's matchers do not overlap, so each call starts one
- * process. A tool no group matches runs no gates.
+ * The router (GH 1692): `node dist/hooks.js <event> [part]` runs the gates of
+ * the one group whose event, part and matcher fit the payload, one after another
+ * in this order, each within its budget from router/budgets.json. A matcher is
+ * the text of that group's hooks.json entry, empty for every call of its event
+ * as in Claude Code; an event's matchers do not overlap. A part is a registration
+ * of its own under one event, for a gate whose context must meet Claude Code's
+ * per-output cap alone, so a part's process runs beside the event's others. A
+ * tool no group matches runs no gates.
  */
 import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
 function routerGate(name, kind, toolSuffix) {
     const budgets = ROUTER_BUDGETS.gates;
     return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }) };
 }
-/** A group's key in budgets.json: a matcher alone is not unique, Bash and Agent sit under two events. */
+/** A group's key in budgets.json: a matcher alone is not unique, Bash and Agent sit under two events, and an event's parts share a matcher. */
 export function routerGroupKey(group) {
-    return `${group.event}:${group.matcher}`;
+    return group.part === undefined ? `${group.event}:${group.matcher}` : `${group.event}:${group.matcher}:${group.part}`;
 }
 function eventGroup(event, matcher, gates, opts = {}) {
     const budgets = ROUTER_BUDGETS.groups;
-    return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher })].group_budget_ms, ...opts };
+    return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher, part: opts.part })].group_budget_ms, ...opts };
 }
 function preToolUseGroup(matcher, gates, opts = {}) {
     return eventGroup('PreToolUse', matcher, gates, opts);
@@ -213,6 +215,27 @@ export const ROUTER_GROUPS = [
     eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
     eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
     eventGroup('SubagentStop', '', [routerGate(CONSULTANT_PERSISTENCE_GATE, 'enforcement'), routerGate(SWE_ATOMIC_CLOSE_GATE, 'advisory')]),
+    eventGroup('SessionStart', '', [
+        routerGate(ENSURE_GITIGNORE_GATE, 'advisory'),
+        routerGate(MCP_HEALTH_GATE, 'advisory'),
+        routerGate(DRIFT_WARN_GATE, 'advisory'),
+        routerGate(PLUGIN_HOOKS_MARKER_GATE, 'advisory'),
+        routerGate('ensure-mcp-deps-installed', 'advisory'),
+        routerGate(SUBSTRATE_GATE, 'advisory'),
+        routerGate(ORPHAN_SCAN_GATE, 'advisory'),
+    ]),
+    eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
+    eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),
+    eventGroup('UserPromptSubmit', '', [
+        routerGate(REWORK_WAIVER_GATE, 'advisory'),
+        routerGate(ACTIVATION_GATE, 'advisory'),
+        routerGate(SESSION_LOG_GATE, 'advisory'),
+        routerGate(PROMPT_INTENT_GATE, 'advisory'),
+        routerGate(OVERRUN_GATE, 'advisory'),
+    ]),
+    eventGroup('UserPromptSubmit', '', [routerGate(USER_PROMPT_PERSONA_GATE, 'advisory')], { part: 'persona' }),
+    eventGroup('UserPromptSubmit', '', [routerGate(RT_SLASH_GATE, 'advisory')], { part: 'roundtable' }),
+    eventGroup('WorktreeCreate', '', [routerGate(WORKTREE_CREATE_GATE, 'advisory')]),
 ];
 export function routerEvents() {
     return new Set(ROUTER_GROUPS.map((g) => g.event));
@@ -225,13 +248,13 @@ export function eventHoldsEnforcement(event, groups = ROUTER_GROUPS) {
 export function matcherFits(matcher, tool) {
     return matcher === '' || new RegExp(`^(?:${matcher})$`).test(tool);
 }
-/** The group serving a call: the first whose event and matcher fit. */
-export function routerGroup(event, tool, groups = ROUTER_GROUPS) {
-    return groups.find((g) => g.event === event && matcherFits(g.matcher, tool));
+/** The group serving a call: the first whose event, part and matcher fit. */
+export function routerGroup(event, tool, groups = ROUTER_GROUPS, part) {
+    return groups.find((g) => g.event === event && g.part === part && matcherFits(g.matcher, tool));
 }
 /** The gates a call runs: its group's, less those whose tool filter excludes <tool>, in group order. */
-export function routerGates(event, tool, groups = ROUTER_GROUPS) {
-    const gates = routerGroup(event, tool, groups)?.gates ?? [];
+export function routerGates(event, tool, groups = ROUTER_GROUPS, part) {
+    const gates = routerGroup(event, tool, groups, part)?.gates ?? [];
     return gates.filter((g) => g.toolSuffix === undefined || tool.endsWith(`trajectory-server__${g.toolSuffix}`));
 }
 /** The router's hooks.json timeout (s) for <group>: the parse allowance plus its group budget, rounded up, plus 1 s. */

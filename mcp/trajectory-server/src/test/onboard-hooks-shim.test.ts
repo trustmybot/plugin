@@ -210,6 +210,25 @@ describe('project enforcement shim', () => {
     assert.deepEqual(bash.hooks.map((h) => [hookOf(h.command), h.timeout]), [['containment-guard.sh', 5], ['git-guards.sh', 11]]);
   });
 
+  it('the shipped SessionStart, UserPromptSubmit and WorktreeCreate registrations, parts included, make no shim entry', () => {
+    writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), readFileSync(join(PLUGIN_SOURCE, 'hooks', 'hooks.json'), 'utf8'));
+    mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+    writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), readFileSync(join(PLUGIN_SOURCE, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'utf8'));
+    assert.equal(write().written, true);
+    const s = readSettings();
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate']) assert.equal(s.hooks?.[event as 'SessionStart'], undefined, event);
+    assert.ok(groupFor(s, 'Bash')?.hooks.length);
+  });
+
+  it('a router command with a part reads only that part of dist/hooks-router.txt', () => {
+    const entry = (part: string) => ({ type: 'command', command: `node "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse${part}`, timeout: 9, onFailure: 'block' });
+    writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [entry(' guard')] }] } }));
+    mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+    writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'git-guards 10200 enforcement PreToolUse Bash *\ncontainment-guard 5000 enforcement PreToolUse Bash * guard\n');
+    write();
+    assert.deepEqual(groupFor(readSettings(), 'Bash')?.hooks.map((h) => hookOf(h.command)), ['containment-guard.sh']);
+  });
+
   it('router entries of the post-tool and stop events make no shim entry, and their sentinel rows read as an empty matcher', () => {
     const routed = (event: string, matcher: string | undefined, block = false) => ({
       ...(matcher === undefined ? {} : { matcher }),

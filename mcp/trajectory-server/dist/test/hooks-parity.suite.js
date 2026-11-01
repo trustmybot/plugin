@@ -59,7 +59,7 @@ function parsedStdout(stdout) {
  * MCP dir resolves @huggingface/transformers at the pinned version, and an
  * empty temp data dir, so neither implementation installs anything.
  */
-function readyDepsEnv(scratch) {
+export function readyDepsEnv(scratch) {
     const root = join(scratch, 'ready-root');
     const mcp = join(root, 'mcp/trajectory-server');
     const pkg = join(root, 'node_modules/@huggingface/transformers');

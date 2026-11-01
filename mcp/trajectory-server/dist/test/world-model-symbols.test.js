@@ -755,6 +755,16 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
         assert.deepEqual(edges.map((e) => e.dst_name), gates.map((g) => `scripts/hooks/${g}.sh`));
         assert.deepEqual(edges.map((e) => e.line), gates.map((_, i) => i + 1));
     });
+    it('each part of a shipped event is its own hook symbol with only that part\'s gates', () => {
+        const table = read('mcp/trajectory-server/dist/hooks-router.txt');
+        const x = extractHooks(read('hooks/hooks.json'), new Map(), table);
+        const names = x.symbols.filter((s) => s.kind === 'hook').map((s) => s.qualified_name);
+        assert.deepEqual(names.filter((n) => n.startsWith('SessionStart#')), ['SessionStart#1:ensure-gitignore', 'SessionStart#2:session-start-persona', 'SessionStart#3:session-start-prescan']);
+        assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
+        assert.deepEqual(names.filter((n) => n.startsWith('WorktreeCreate#')), ['WorktreeCreate#1:worktree-create']);
+        const persona = x.symbols.findIndex((s) => s.qualified_name === 'SessionStart#2:session-start-persona');
+        assert.deepEqual(x.edges.filter((e) => e.src === persona && e.kind === 'runs').map((e) => e.dst_name), ['scripts/hooks/session-start-persona.sh']);
+    });
     it('every PreToolUse entry of the shipped hooks.json is named by a gate, not by its position', () => {
         const x = extractHooks(read('hooks/hooks.json'), new Map(), read('mcp/trajectory-server/dist/hooks-router.txt'));
         for (const s of x.symbols.filter((y) => y.qualified_name.startsWith('PreToolUse#'))) {

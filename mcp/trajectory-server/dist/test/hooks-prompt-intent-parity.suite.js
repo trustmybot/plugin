@@ -91,7 +91,7 @@ export function buildSandbox(s) {
         config(db, 'headless_enforcement', '"yes"');
     });
 }
-function caseEnv(s, locale, extra, cwd) {
+export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

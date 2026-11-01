@@ -1,11 +1,13 @@
 /**
  * dispatch.sh's per-call dedupe, ported for the router: one run per (event,
- * session_id, tool_name, tool_input, tool_use_id), or per whole payload when
- * it has no tool_name, the gate left out of the key since the router runs them
- * all. The first call creates
- * <state>/locks/events/<key>/ (mkdir is the lock), writes its deadline,
- * decides, and stores result, stderr and rc; a duplicate waits up to the
- * router's timeout minus 1 s and replays only a deny. A result answers
+ * session_id, tool_name, tool_input, tool_use_id), per (SessionStart,
+ * session_id) as dispatch.sh keys that event, or per whole payload when it has
+ * no tool_name, the gate left out of the key since the router runs them all and
+ * the part in it, so parts of one event never answer for each other. The first
+ * call creates <state>/locks/events/<key>/ (mkdir is the lock), writes its
+ * deadline, decides, and stores result, stderr and rc; a duplicate waits up to
+ * the router's timeout minus 1 s and replays only a deny, or the whole outcome
+ * when the event's answer is its stdout and exit (replayAll). A result answers
  * duplicates for TMB_DISPATCH_WINDOW_S (5 s); expired locks are reclaimed
  * under <lock>.reclaim, and a sweep at most every TMB_DISPATCH_SWEEP_S (60 s)
  * prunes results older than TMB_DISPATCH_TTL_MIN (10 min) and dead locks.
@@ -25,8 +27,13 @@ function canonicalJson(value) {
     }
     return JSON.stringify(value) ?? 'null';
 }
-/** The lock key of a payload: its tool call, or the whole payload when it has no tool_name; null when it is not an object. */
-export function dedupeKey(payload) {
+function callMaterial(p, event) {
+    if ('tool_name' in p)
+        return [p.hook_event_name ?? '', p.session_id ?? '', p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ''];
+    return event === 'SessionStart' ? [event, p.session_id ?? ''] : p;
+}
+/** The lock key of a payload for <event> and <part>; null when the payload is not an object. */
+export function dedupeKey(payload, event, part) {
     let o;
     try {
         o = JSON.parse(payload);
@@ -37,8 +44,8 @@ export function dedupeKey(payload) {
     if (o === null || typeof o !== 'object' || Array.isArray(o))
         return null;
     const p = o;
-    const material = canonicalJson('tool_name' in p ? [p.hook_event_name ?? '', p.session_id ?? '', p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ''] : p);
-    return createHash('sha256').update(material).digest('hex');
+    const call = callMaterial(p, event);
+    return createHash('sha256').update(canonicalJson(part === undefined ? call : [call, part])).digest('hex');
 }
 function intEnv(env, name, fallback) {
     const v = env[name] ?? '';
@@ -66,12 +73,14 @@ function ageS(path) {
 }
 export class Dedupe {
     timeoutS;
+    replayAll;
     base;
     ttlMin;
     windowS;
     sweepS;
-    constructor(base, timeoutS, env) {
+    constructor(base, timeoutS, env, replayAll = false) {
         this.timeoutS = timeoutS;
+        this.replayAll = replayAll;
         this.base = base;
         this.ttlMin = intEnv(env, 'TMB_DISPATCH_TTL_MIN', 10);
         this.windowS = intEnv(env, 'TMB_DISPATCH_WINDOW_S', 5);
@@ -162,6 +171,8 @@ export class Dedupe {
             }
         };
         const result = read('result');
+        if (this.replayAll)
+            return { stdout: result, stderr: read('stderr'), code: rc };
         if (rc === 2)
             return { stdout: result, stderr: read('stderr'), code: 2 };
         const denies = result.split('\n').some((line) => {
