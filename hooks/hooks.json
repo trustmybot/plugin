@@ -172,7 +172,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" Stop",
-            "timeout": 9
+            "timeout": 9,
+            "async": true
           }
         ]
       },

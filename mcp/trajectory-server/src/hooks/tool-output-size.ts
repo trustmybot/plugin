@@ -21,7 +21,10 @@
  *     payload's transcript_path, the whole session (TMB_STOP_SINCE ignored).
  *
  * Each fire deletes and re-inserts the run's rows in one transaction, so a
- * re-fire is idempotent. Never denies: it always exits 0 with empty stdout,
+ * re-fire is idempotent. Bro's Stop runs async and can overlap: with
+ * TMB_STOP_COMPLETED_AT set, the transaction changes nothing when the run row's
+ * completed_at is later, so an older read never replaces a newer one's rows.
+ * Never denies: it always exits 0 with empty stdout,
  * and a missing run row, a missing, unreadable or malformed transcript, or a
  * failed read or write changes nothing.
  */
@@ -34,6 +37,7 @@ import { jqAlternatives } from './lib/jq.js';
 export const GATE_NAME = 'tool-output-size';
 export const CHARS_PER_TOKEN = 4;
 export const UNKNOWN_TOOL = 'unknown';
+export const TOOL_OUTPUT_COMPLETED_AT_ENV = 'TMB_STOP_COMPLETED_AT';
 const CANDIDATE_MARK = '"tool_';
 
 export interface ToolOutput {
@@ -169,14 +173,21 @@ function runTarget(env: NodeJS.ProcessEnv): RunTarget | null {
   };
 }
 
-/** The SQL that replaces run <runId>'s rows with <rows>. */
-export function rewriteSql(runId: string, rows: readonly ToolOutput[]): string {
-  const del = `DELETE FROM agent_run_tool_output WHERE run_id = ${runId};`;
+/** SQL truth of an agent_runs row's completed_at being later than <stamp>; NULL when either has no time. */
+export function completedAfter(stamp: string): string {
+  return `julianday(completed_at) > julianday('${sqlQuote(stamp)}')`;
+}
+
+/** The SQL that replaces run <runId>'s rows with <rows>, unless the run's completed_at is later than <completedAt>. */
+export function rewriteSql(runId: string, rows: readonly ToolOutput[], completedAt = ''): string {
+  const current =
+    completedAt === '' ? '1' : `NOT EXISTS (SELECT 1 FROM agent_runs WHERE id = ${runId} AND ${completedAfter(completedAt)})`;
+  const del = `DELETE FROM agent_run_tool_output WHERE run_id = ${runId} AND ${current};`;
   if (rows.length === 0) return del;
   const values = rows
     .map((r) => `(${runId}, '${sqlQuote(r.tool_name)}', ${r.calls}, ${r.result_chars}, ${r.est_tokens})`)
     .join(',\n       ');
-  return `${del}\nINSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens)\nVALUES ${values};`;
+  return `${del}\nINSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens)\nSELECT * FROM (VALUES ${values})\n WHERE ${current};`;
 }
 
 export function toolOutputSize(payload: string, env: NodeJS.ProcessEnv): GateResult {
@@ -192,7 +203,7 @@ export function toolOutputSize(payload: string, env: NodeJS.ProcessEnv): GateRes
     const found = gateRead(db, `SELECT id FROM agent_runs WHERE ${target.where} ORDER BY id DESC LIMIT 1;`, env);
     const runId = found === GATE_READ_ERROR ? '' : sqlInt(found);
     if (runId === '') return ALLOW;
-    dbWrite(db, rewriteSql(runId, rows), { caller: GATE_NAME, env });
+    dbWrite(db, rewriteSql(runId, rows, env[TOOL_OUTPUT_COMPLETED_AT_ENV] ?? ''), { caller: GATE_NAME, env });
   } catch {
     // A recorder never fails its hook.
   }
