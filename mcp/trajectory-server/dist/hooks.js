@@ -4753,6 +4753,115 @@ function runInstallWorker(env) {
 // src/hooks/lib/project-env.ts
 import { existsSync as existsSync2, readFileSync as readFileSync3, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3 } from "node:path";
+
+// src/hooks/lib/jq-key-order.ts
+var INTEGER_LIKE_KEY = /"(?:\d|\\u003\d)+"\s*:/;
+var inputOrder = /* @__PURE__ */ new WeakMap();
+var anyReordered = false;
+var isRawJson = (value) => JSON.isRawJSON?.(value) ?? false;
+function valueEnd(text, start2) {
+  const first = text[start2];
+  if (first === '"') {
+    let i3 = start2 + 1;
+    while (i3 < text.length) {
+      if (text[i3] === "\\") i3 += 2;
+      else if (text[i3] === '"') return i3 + 1;
+      else i3 += 1;
+    }
+    return -1;
+  }
+  if (first === "{" || first === "[") {
+    let depth = 0;
+    let i3 = start2;
+    while (i3 < text.length) {
+      const ch = text[i3];
+      if (ch === '"') {
+        const end = valueEnd(text, i3);
+        if (end < 0) return -1;
+        i3 = end;
+        continue;
+      }
+      if (ch === "{" || ch === "[") depth += 1;
+      else if (ch === "}" || ch === "]") {
+        depth -= 1;
+        if (depth === 0) return i3 + 1;
+      }
+      i3 += 1;
+    }
+    return -1;
+  }
+  let i2 = start2;
+  while (i2 < text.length && !/[\s{}[\]",]/.test(text[i2])) i2 += 1;
+  return i2 === start2 ? -1 : i2;
+}
+function skipSpace(text, start2) {
+  let i2 = start2;
+  while (/\s/.test(text[i2] ?? "")) i2 += 1;
+  return i2;
+}
+function scan(text, start2) {
+  const open = text[start2];
+  if (open !== "{" && open !== "[") return { end: valueEnd(text, start2) };
+  const fields = /* @__PURE__ */ new Map();
+  const items = [];
+  let i2 = skipSpace(text, start2 + 1);
+  while (text[i2] !== "}" && text[i2] !== "]") {
+    if (open === "{") {
+      const keyEnd = valueEnd(text, i2);
+      const child = scan(text, skipSpace(text, skipSpace(text, keyEnd) + 1));
+      fields.set(JSON.parse(text.slice(i2, keyEnd)), child);
+      i2 = child.end;
+    } else {
+      const child = scan(text, i2);
+      items.push(child);
+      i2 = child.end;
+    }
+    i2 = skipSpace(text, i2);
+    if (text[i2] === ",") i2 = skipSpace(text, i2 + 1);
+  }
+  return open === "{" ? { end: i2 + 1, fields } : { end: i2 + 1, items };
+}
+function remember(value, shape) {
+  if (value === null || typeof value !== "object") return;
+  if (shape.items) shape.items.forEach((item, i2) => remember(value[i2], item));
+  if (!shape.fields) return;
+  const order2 = [...shape.fields.keys()];
+  for (const [key2, field6] of shape.fields) remember(value[key2], field6);
+  if (Object.keys(value).some((key2, i2) => key2 !== order2[i2])) {
+    inputOrder.set(value, order2);
+    anyReordered = true;
+  }
+}
+function parseKeepingKeyOrder(text, reviver) {
+  const value = JSON.parse(text, reviver);
+  if (!INTEGER_LIKE_KEY.test(text)) return value;
+  try {
+    remember(value, scan(text, 0));
+  } catch (e) {
+    if (!(e instanceof RangeError)) throw e;
+  }
+  return value;
+}
+function keysInOrder(value) {
+  return inputOrder.get(value) ?? Object.keys(value);
+}
+function render(value, indent, at2) {
+  if (value === null || typeof value !== "object" || isRawJson(value)) return JSON.stringify(value) ?? "null";
+  const inner4 = at2 + indent;
+  const record = value;
+  const [open, close2] = Array.isArray(value) ? "[]" : "{}";
+  const body2 = Array.isArray(value) ? value.map((v) => render(v, indent, inner4)) : keysInOrder(value).filter((key2) => record[key2] !== void 0).map((key2) => `${JSON.stringify(key2)}:${indent === "" ? "" : " "}${render(record[key2], indent, inner4)}`);
+  if (body2.length === 0) return `${open}${close2}`;
+  return indent === "" ? `${open}${body2.join(",")}${close2}` : `${open}
+${inner4}${body2.join(`,
+${inner4}`)}
+${at2}${close2}`;
+}
+function stringifyInOrder(value, indent = 0) {
+  return anyReordered ? render(value, " ".repeat(indent), "") : JSON.stringify(value, null, indent);
+}
+
+// src/hooks/lib/project-env.ts
 var TMB_STATE_HOST_DIR = ".claude";
 var TMB_DB_FILENAME = "trajectory.db";
 var DEFAULT_PLUGIN_NAME = "tmb";
@@ -4773,7 +4882,7 @@ function posixBasename(path) {
 }
 function jqRawText(value) {
   if (typeof value === "string") return value;
-  if (value !== null && typeof value === "object") return JSON.stringify(value, null, 2);
+  if (value !== null && typeof value === "object") return stringifyInOrder(value, 2);
   return String(value);
 }
 function pluginName2(env = process.env) {
@@ -4959,41 +5068,6 @@ import { fileURLToPath } from "node:url";
 import { accessSync as accessSync3, closeSync as closeSync2, constants as constants3, existsSync as existsSync3, openSync as openSync2, readFileSync as readFileSync4, readSync, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
 
 // src/hooks/lib/jq.ts
-function valueEnd(text, start2) {
-  const first = text[start2];
-  if (first === '"') {
-    let i3 = start2 + 1;
-    while (i3 < text.length) {
-      if (text[i3] === "\\") i3 += 2;
-      else if (text[i3] === '"') return i3 + 1;
-      else i3 += 1;
-    }
-    return -1;
-  }
-  if (first === "{" || first === "[") {
-    let depth = 0;
-    let i3 = start2;
-    while (i3 < text.length) {
-      const ch = text[i3];
-      if (ch === '"') {
-        const end = valueEnd(text, i3);
-        if (end < 0) return -1;
-        i3 = end;
-        continue;
-      }
-      if (ch === "{" || ch === "[") depth += 1;
-      else if (ch === "}" || ch === "]") {
-        depth -= 1;
-        if (depth === 0) return i3 + 1;
-      }
-      i3 += 1;
-    }
-    return -1;
-  }
-  let i2 = start2;
-  while (i2 < text.length && !/[\s{}[\]",]/.test(text[i2])) i2 += 1;
-  return i2 === start2 ? -1 : i2;
-}
 function jsonValues(text, reviver) {
   const values = [];
   let i2 = 0;
@@ -5003,7 +5077,7 @@ function jsonValues(text, reviver) {
     const end = valueEnd(text, i2);
     if (end < 0) return values;
     try {
-      values.push(JSON.parse(text.slice(i2, end), reviver));
+      values.push(parseKeepingKeyOrder(text.slice(i2, end), reviver));
     } catch {
       return values;
     }
@@ -5019,7 +5093,7 @@ function jsonStream(text) {
     const end = valueEnd(text, i2);
     if (end < 0) return { values, complete: false };
     try {
-      values.push(JSON.parse(text.slice(i2, end)));
+      values.push(parseKeepingKeyOrder(text.slice(i2, end)));
     } catch {
       return { values, complete: false };
     }
@@ -5030,13 +5104,12 @@ function jqRawElements(text) {
   const out2 = [];
   for (const value of jsonStream(text).values) {
     if (value === null || typeof value !== "object") continue;
-    for (const v of Array.isArray(value) ? value : Object.values(value)) out2.push(jqRawText(v));
+    for (const v of Array.isArray(value) ? value : keysInOrder(value).map((key2) => value[key2])) out2.push(jqRawText(v));
   }
   return out2.join("\n");
 }
 var JqError2 = class extends Error {
 };
-var isRawJson = (value) => JSON.isRawJSON?.(value) ?? false;
 function index(value, key2) {
   if (value === null || value === void 0) return null;
   if (typeof value !== "object" || Array.isArray(value) || isRawJson(value)) throw new JqError2(`Cannot index ${typeof value}`);
@@ -5094,7 +5167,7 @@ function jqContentStrings(text) {
     try {
       const v = getPath(value, ["message", "content"]);
       const content = truthy(v) ? v : [];
-      out2.push(typeof content === "string" ? content : JSON.stringify(content));
+      out2.push(typeof content === "string" ? content : stringifyInOrder(content));
     } catch (e) {
       if (!(e instanceof JqError2)) throw e;
     }
@@ -5102,7 +5175,7 @@ function jqContentStrings(text) {
   return out2;
 }
 function jqCompact(value) {
-  return JSON.stringify(value).replace(/\x7f/g, "\\u007f");
+  return stringifyInOrder(value).replace(/\x7f/g, "\\u007f");
 }
 function jqNumberLiteral(source) {
   const m = /^(-?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(source);
@@ -7428,12 +7501,12 @@ function statementsEnc(buf, base2, home, assign) {
   const frames = { ext: [], runs: [], grew: /* @__PURE__ */ new Set(), lost: /* @__PURE__ */ new Set() };
   for (; ; ) {
     frames.grew.clear();
-    const records2 = scan(buf, base2, home, assign, frames);
+    const records2 = scan2(buf, base2, home, assign, frames);
     if (frames.grew.size === 0) return records2;
     for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
   }
 }
-function scan(buf, base2, home, assign, frames) {
+function scan2(buf, base2, home, assign, frames) {
   const records2 = [];
   let old = "-";
   let cwhy = "";
@@ -11959,15 +12032,15 @@ function progWrites(lang, program, operands, procWrites) {
   return { ...found, unproven };
 }
 function progFound(lang, program, scanned, operands, procWrites) {
-  const scan2 = chomp(scanned.join("\n"));
+  const scan3 = chomp(scanned.join("\n"));
   const has = (line) => `
-${scan2}
+${scan3}
 `.includes(`
 ${line}
 `);
   const cd = has("C");
   const run5 = has("R");
-  const names = scan2.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
+  const names = scan3.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
   const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run5 ? lex(lang === "py", program) : void 0;
   const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
@@ -11978,7 +12051,7 @@ ${line}
   }
   let out2 = "";
   let src = "";
-  for (const line of scan2.split("\n")) {
+  for (const line of scan3.split("\n")) {
     const rest = line.slice(2);
     if (line === "U") out2 += "$(proc)\n";
     else if (line === "H") out2 += "$(alias-write)\n";
@@ -17527,7 +17600,7 @@ function jqTostring(value) {
 }
 function jqRaw2(value) {
   if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2).replace(/\x7f/g, "\\u007f");
+  return stringifyInOrder(value, 2).replace(/\x7f/g, "\\u007f");
 }
 function jqCapture(input, keys, orEmpty2 = false) {
   const lines2 = [];
@@ -22663,8 +22736,8 @@ function carriesText(command) {
   return TEXT_OPTION.test(command) || SHORT_TEXT_OPTION.test(command) || HEREDOC.test(command);
 }
 function candidateTokens(command) {
-  const scan2 = REMOTE_MARKERS.reduce((text, marker) => text.replace(marker, " "), command);
-  const tokens = new Set([...scan2.matchAll(/#([0-9]+)/g)].map((m) => m[1]));
+  const scan3 = REMOTE_MARKERS.reduce((text, marker) => text.replace(marker, " "), command);
+  const tokens = new Set([...scan3.matchAll(/#([0-9]+)/g)].map((m) => m[1]));
   return [...tokens].sort();
 }
 function cut3(row, from, rest) {
