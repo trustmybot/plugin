@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { compositeTools } from '../tools/composites.js';
 import { GraphHolder } from '../graph.js';
 import { tempDB } from './helpers.js';
@@ -147,6 +148,13 @@ describe('task_brief response_format (GH 1958)', () => {
         const coreOfPopulated = await brief(db, populatedGraph, { task_id: id, section: 'core' });
         assert.equal('response_format_hint' in coreOfPopulated, false);
         db.close();
+    });
+    it('WORLD_MODEL.md documents the concise default and the detailed opt-in', () => {
+        const doc = readFileSync(new URL('../../../../docs/architecture/WORLD_MODEL.md', import.meta.url), 'utf8');
+        const consumers = doc.slice(doc.indexOf('## Consumers'), doc.indexOf('## Design history'));
+        assert.match(consumers, /concise by default/);
+        assert.match(consumers, /response_format: 'detailed'/);
+        assert.doesNotMatch(consumers, /each dir's summary/);
     });
 });
 //# sourceMappingURL=task-brief-concise.test.js.map
