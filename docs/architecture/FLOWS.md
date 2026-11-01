@@ -339,7 +339,7 @@ Hooks that fire across many steps rather than at one.
 | G8 | <a id="G8"></a>`task-overrun-alert` | UserPromptSubmit, PostToolUse trajectory-server | Tells bro once per task when a `running` task passes `TMB_TASK_OVERRUN_MIN` minutes (default 60), with its attempts and current blocker | `src/hooks/task-overrun-alert.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 
-**Planned (GH 1861):** `dispatch.sh` records each gate's run time, sets timeouts from the p99, and retries a timed-out gate once.
+**Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped.
 
 #### Metering
 
@@ -589,7 +589,6 @@ Every unshipped item that changes a flow, with the ids it touches. Most come fro
 | R9 | <a id="R9"></a>Handoff fields for swe specs and returns, and a downstream-consumer check at close | **Planned (GH 1983)** | S6, S10, S13 |
 | R10 | <a id="R10"></a>Reviewer convergence: bug-class findings, severity tiers, risk-scaled effort, a reviewer eval | **Planned (GH 1955)** | S15, S16, L3 |
 | R11 | <a id="R11"></a>The verification gate checks the worktree is clean before it records or reuses a run | **Planned (GH 2001)** | S10, L2 |
-| R12 | <a id="R12"></a>Per-gate run time, p99 timeouts, one retry for a timed-out gate | **Planned (GH 1861)** | every hook |
 | R13 | <a id="R13"></a>`wm_tool_called` logs the `impact` and `source` arguments | **In flight (PR 2010)**, GH 1986 | S2 |
 | R14 | <a id="R14"></a>Adopt the session's worktree when bro runs in a Claude Code worktree session | **In flight (GH 2032)** | S6, S9, L3 |
 | R15 | <a id="R15"></a>Opt-in TMB bug reports | **In flight (PR 2053)**, GH 2034 | flow 1 Round 5, flow B |

@@ -1,0 +1,2 @@
+### Fixed
+- **The hook docs name the router as every registration** (GH 1692): `scripts/hooks/README.md`, `INSTALL.md`, `CONTAINMENT.md`, `FLOWS.md`, `REFERENCE.md`, the `hook_denied` description and the lint headers still said registrations go through `dispatch.sh`, which now stays only for the opt-in headless shim. They now say who owns the event locks, how the router fails closed, that gate timing is recorded in `hook_call` with budgets from p99 and no retry of a timed-out gate, and that nine gates run on PreToolUse Agent.

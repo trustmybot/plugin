@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Lint: every hooks/hooks.json command is
+# Lint: every hooks/hooks.json command is the router (GH 1692),
+#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event> [part]
+# (the placeholder quoted, so a plugin root with a space stays one word): each
+# gate dist/hooks-router.txt lists for <Event> and that part must have a .sh or
+# a src/hooks TypeScript source.
+# The router is what makes one run per call hold however many registrations
+# fire; a registration that calls a gate directly bypasses it.
+# The one other form the lint accepts, no registration using it, is dispatch.sh,
+# which stays for the headless shim:
 #   "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>
-# (the placeholder quoted, so a plugin root with a space stays one word)
-# and scripts/hooks/<gate>.sh exists and is executable (git mode 100755). A
+# with scripts/hooks/<gate>.sh existing and executable (git mode 100755). A
 # chain name (scripts/hooks/lib/registrations.sh) stands for its gates: each
 # of them must exist and be executable. A gate born in TypeScript has no .sh:
 # its src/hooks/<gate>.ts exists and dist/hooks-gates.txt lists it.
-# The dispatcher is what makes one gate execution per event hold however many
-# registrations fire; a registration that calls a gate directly bypasses it.
-# The one other form is the router (GH 1692 R1),
-#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event> [part],
-# which holds the same per-call dedupe: each gate dist/hooks-router.txt lists
-# for <Event> and that part must have a .sh or a src/hooks TypeScript source.
 
 set -euo pipefail
 
