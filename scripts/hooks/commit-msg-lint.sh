@@ -55,7 +55,7 @@ VIOLATION=""
 # Conventional Commits with emoji prefix: <emoji> <type>(<scope>)?: <subject>.
 # Emoji-detection is byte-based (any UTF-8 multi-byte sequence at offset 0)
 # rather than regex-ranged so macOS grep doesn't choke on locale ranges.
-TYPES='feat|fix|refactor|docs|test|perf|chore|build|ci|style|revert'
+TYPES='feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert'
 
 PREFIX=$(printf '%s' "$FIRST_LINE" | awk '{print $1}')
 REST=$(printf '%s' "$FIRST_LINE" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')

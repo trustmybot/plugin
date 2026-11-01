@@ -6,6 +6,7 @@
  */
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { stringifyInOrder } from './jq-key-order.js';
 export const TMB_STATE_HOST_DIR = '.claude';
 export const TMB_DB_FILENAME = 'trajectory.db';
 const DEFAULT_PLUGIN_NAME = 'tmb';
@@ -36,7 +37,7 @@ export function jqRawText(value) {
     if (typeof value === 'string')
         return value;
     if (value !== null && typeof value === 'object')
-        return JSON.stringify(value, null, 2);
+        return stringifyInOrder(value, 2);
     return String(value);
 }
 /** tmb_plugin_name: `.name // "tmb"` of $CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json, else "tmb". */

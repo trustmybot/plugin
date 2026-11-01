@@ -110,6 +110,106 @@ describe('persona raw text', () => {
         }
     });
 });
+describe('activation-routine usage warning', () => {
+    const SESSION = 'usage-session-01';
+    const ACTION = 'Finish what is in flight, then end the session and resume cold from the DB.';
+    let base;
+    let s;
+    let emptyBin;
+    before(() => {
+        base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-usage-warning-')));
+        s = join(base, 'sandbox');
+        emptyBin = join(base, 'empty-bin');
+        mkdirSync(emptyBin);
+    });
+    after(() => rmSync(base, { recursive: true, force: true }));
+    const env = () => ({
+        HOME: join(s, 'home'),
+        CLAUDE_PROJECT_DIR: join(s, 'project'),
+        CLAUDE_PLUGIN_ROOT: join(s, 'plugin'),
+        PATH: emptyBin,
+        LC_ALL: 'C',
+    });
+    const withDb = (use) => {
+        const db = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'));
+        try {
+            use(db);
+        }
+        finally {
+            db.close();
+        }
+    };
+    const seedRow = (toolUses, cacheRead, agentType = 'bro', session = SESSION) => {
+        withDb((db) => {
+            db.prepare('INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens) VALUES (?, ?, ?, ?)').run(agentType, session, toolUses, cacheRead);
+        });
+    };
+    const run = (session = SESSION) => {
+        const r = activationRoutine(JSON.stringify({ prompt: 'hey bro', session_id: session }), env());
+        const out = JSON.parse(r.stdout);
+        return { code: r.code, stdout: r.stdout, context: out.hookSpecificOutput.additionalContext };
+    };
+    const baseline = () => {
+        buildSandbox(s);
+        return run().stdout;
+    };
+    const warningLines = (context) => context.split('\n').filter((line) => line.startsWith('⚠️'));
+    it('warns past 150 tool calls with the count, the limit and the action', () => {
+        const clean = baseline();
+        seedRow(151, 0);
+        const r = run();
+        assert.equal(r.code, 0);
+        assert.deepEqual(warningLines(r.context), [`⚠️ This bro session is past its usage limits: 151 tool calls (limit 150). ${ACTION}`]);
+        const cleanContext = JSON.parse(clean).hookSpecificOutput.additionalContext;
+        assert.ok(r.context.startsWith(cleanContext));
+    });
+    it('warns past 60000 context per call with the figure and the limit', () => {
+        buildSandbox(s);
+        seedRow(10, 700000);
+        assert.deepEqual(warningLines(run().context), [`⚠️ This bro session is past its usage limits: 70000 context per call (limit 60000). ${ACTION}`]);
+    });
+    it('carries both limits on a single line', () => {
+        buildSandbox(s);
+        seedRow(200, 14000000);
+        assert.deepEqual(warningLines(run().context), [
+            `⚠️ This bro session is past its usage limits: 200 tool calls (limit 150), 70000 context per call (limit 60000). ${ACTION}`,
+        ]);
+    });
+    const silent = [
+        ['no row', () => { }],
+        ['exactly at both limits', () => seedRow(150, 9000000)],
+        ['zero tool_uses', () => seedRow(0, 9000000)],
+        [
+            'NULL tool_uses in a table without the NOT NULL',
+            () => {
+                withDb((db) => db.exec('DROP TABLE agent_runs; CREATE TABLE agent_runs (id INTEGER PRIMARY KEY, agent_type TEXT, task_id INTEGER, session_id TEXT, tool_uses INTEGER, cache_read_tokens INTEGER)'));
+                seedRow(null, 9000000);
+            },
+        ],
+        ["another session's row", () => seedRow(500, 0, 'bro', 'other-session-01')],
+        ['a swe row in this session', () => seedRow(500, 0, 'swe')],
+    ];
+    for (const [name, seed] of silent) {
+        it(`output stays byte-identical with ${name}`, () => {
+            const clean = baseline();
+            seed();
+            assert.equal(run().stdout, clean);
+        });
+    }
+    it('a failed read keeps the normal context and exit 0, and never denies', () => {
+        const clean = baseline();
+        withDb((db) => db.exec('DROP TABLE agent_runs'));
+        const r = run();
+        assert.equal(r.code, 0);
+        assert.equal(r.stdout, clean);
+        assert.ok(!r.stdout.includes('permissionDecision'));
+    });
+    it('a session id that fails validation on any line never reaches the query', () => {
+        buildSandbox(s);
+        seedRow(500, 0);
+        assert.deepEqual(warningLines(run(`${SESSION}\n' OR 1=1 --`).context), []);
+    });
+});
 describe("activation-routine's grep", () => {
     const c = new LocaleGrep(false);
     const utf8 = new LocaleGrep(true);

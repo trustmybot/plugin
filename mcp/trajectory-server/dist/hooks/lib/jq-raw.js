@@ -6,6 +6,7 @@
  * the stream ends at the first value that fails to parse.
  */
 import { jqCompact, jqLiteralNumbers, jqNumberLiteral, jsonStream, jsonValues } from './jq.js';
+import { stringifyInOrder } from './jq-key-order.js';
 import { shellCapture, wellFormed } from './lint-shell.js';
 export class JqUnindexable extends Error {
 }
@@ -45,7 +46,7 @@ export function jqTostring(value) {
 export function jqRaw(value) {
     if (typeof value === 'string')
         return value;
-    return JSON.stringify(value, null, 2).replace(/\x7f/g, '\\u007f');
+    return stringifyInOrder(value, 2).replace(/\x7f/g, '\\u007f');
 }
 /**
  * `$(... | jq -r '.<keys> // ""')`, or `// empty` when `orEmpty`: one line per
