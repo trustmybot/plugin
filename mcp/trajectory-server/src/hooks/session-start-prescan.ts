@@ -14,7 +14,7 @@
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { dbPathAdvisory, dbReadBudget, haveSqlite, projectRoot, realdir, sqliteRo, stripTrailingNewlines } from './lib/db.js';
 import { gitRun } from './lib/git.js';
 import { byteCompare, commandOnPath } from './lib/host.js';
@@ -263,8 +263,8 @@ function detectStacks(dir: string, env: NodeJS.ProcessEnv): string {
 }
 
 /** `$(git -C <dir> <args> 2>/dev/null || echo <fallback>)`. */
-function gitOr(dir: string, args: readonly string[], fallback: string, env: NodeJS.ProcessEnv): string {
-  const r = gitRun(dir, args, env);
+async function gitOr(dir: string, args: readonly string[], fallback: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const r = await gitRun(dir, args, env);
   return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}${fallback}\n`);
 }
 
@@ -410,7 +410,7 @@ function pluginRoot(): string {
 }
 
 /** The prescan as a function of its env, the plugin root it reads scripts from, and its stderr. */
-export function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: string, stderr: (text: string) => void): GateResult {
+export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: string, stderr: (text: string) => void): Promise<GateResult> {
   if (!commandOnPath('jq', env)) return { stdout: NO_JQ_LINE, code: 0 };
   const db = dbPathAdvisory(GATE_NAME, env, (line) => stderr(`${line}\n`));
   if (db === null) return ALLOW;
@@ -432,12 +432,12 @@ export function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: string, std
       continue;
     }
     stacks.push(`${name}: ${detectStacks(path, env)}`);
-    const branch = gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env);
-    const commits = gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env);
-    const dirty = lineCount(gitRun(path, ['status', '--porcelain'], env).stdout);
+    const branch = await gitOr(path, ['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown', env);
+    const commits = await gitOr(path, ['rev-list', '--count', 'HEAD'], '0', env);
+    const dirty = lineCount((await gitRun(path, ['status', '--porcelain'], env)).stdout);
     branches.push(`${name}: ${branch} (${commits} commits, ${dirty} dirty paths)`);
     const prefix = repoN > 1 ? `  [${name}] ` : '  ';
-    const log = records(gitRun(path, ['log', '--oneline', '-5'], env).stdout).map((l) => `${prefix}${l}`);
+    const log = records((await gitRun(path, ['log', '--oneline', '-5'], env)).stdout).map((l) => `${prefix}${l}`);
     if (log.length > 0) last5.push(log.join('\n'));
   }
 
@@ -453,7 +453,7 @@ export function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: string, std
   let sourceFiles = 0;
   for (const { name, path } of repos) {
     if (name === '' || !isDir(path)) continue;
-    sourceFiles += records(gitRun(path, ['ls-files'], env).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
+    sourceFiles += records((await gitRun(path, ['ls-files'], env)).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
   }
   const scanRow = sqliteRo(
     db,
@@ -501,9 +501,9 @@ export function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: string, std
   return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: inventory } })}\n`, code: 0 };
 }
 
-export const sessionStartPrescan: SyncGate = (_payload, env) => {
+export const sessionStartPrescan: Gate = async (_payload, env) => {
   try {
-    return sessionStartPrescanRun(env, pluginRoot(), (text) => process.stderr.write(text));
+    return await sessionStartPrescanRun(env, pluginRoot(), (text) => process.stderr.write(text));
   } catch {
     return ALLOW;
   }

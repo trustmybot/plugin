@@ -64,8 +64,8 @@ class Guard {
         return gateRead(this.db, sql, this.env);
     }
     /** paths_sig: `<\037-joined changed paths>\t<sha>` per commit of <input> that changes something within the pathspec. */
-    pathsSig(dir, input, spec) {
-        const out = gitRun(dir, ['diff-tree', '--stdin', '-r', '--root', '--name-only', '--format=commit %H', ...spec], this.env, input).stdout;
+    async pathsSig(dir, input, spec) {
+        const out = (await gitRun(dir, ['diff-tree', '--stdin', '-r', '--root', '--name-only', '--format=commit %H', ...spec], this.env, input)).stdout;
         const sigs = [];
         let sha = '';
         let files = '';
@@ -92,15 +92,15 @@ class Guard {
         return sigs;
     }
     /** pair_by_paths: `<sha> <task sha>...` per commit of <shas> sharing its changed-path set with task commits. */
-    pairByPaths(dir, taskRows, shas, spec) {
+    async pairByPaths(dir, taskRows, shas, spec) {
         const bySet = new Map();
         const taskInput = `${lines(taskRows).map((r) => field(r, 1)).join('\n')}\n`;
-        for (const sig of this.pathsSig(dir, taskInput, spec)) {
+        for (const sig of await this.pathsSig(dir, taskInput, spec)) {
             const [files, sha = ''] = sig.split('\t');
             bySet.set(files, `${bySet.get(files) ?? ''} ${sha}`);
         }
         const out = [];
-        for (const sig of this.pathsSig(dir, `${shas}\n`, spec)) {
+        for (const sig of await this.pathsSig(dir, `${shas}\n`, spec)) {
             const [files, sha = ''] = sig.split('\t');
             const tasks = bySet.get(files);
             if (tasks !== undefined)
@@ -109,10 +109,10 @@ class Guard {
         return out.join('\n');
     }
     /** task_matches: `<sha>|<task_id>|<branch_id>|<reviewed>` per paired commit whose patch-id equals a task commit's, a reviewed task preferred. */
-    taskMatches(dir, taskRows, pairs, spec) {
+    async taskMatches(dir, taskRows, pairs, spec) {
         const shas = [...new Set(pairs.split(/[ \n]/))].sort();
-        const patch = gitRun(dir, ['diff-tree', '--stdin', '-p', '-r', '--root', ...spec], this.env, `${shas.join('\n')}\n`).stdout;
-        const ids = stripTrailingNewlines(gitRun(dir, ['patch-id', '--stable'], this.env, patch).stdout);
+        const patch = (await gitRun(dir, ['diff-tree', '--stdin', '-p', '-r', '--root', ...spec], this.env, `${shas.join('\n')}\n`)).stdout;
+        const ids = stripTrailingNewlines((await gitRun(dir, ['patch-id', '--stable'], this.env, patch)).stdout);
         if (ids === '')
             return [];
         const pid = new Map();
@@ -153,7 +153,7 @@ class Guard {
      * per pushed rebase of a task commit that is not reviewed or has no passing
      * verification run of its own; __ERR__ when a DB read fails.
      */
-    uncheckedRebases(dir, pushed) {
+    async uncheckedRebases(dir, pushed) {
         const values = hexLines(pushed).map((sha) => `('${sha}')`);
         if (values.length === 0)
             return '';
@@ -163,7 +163,7 @@ class Guard {
         const fresh = without(pushed, taskCommits);
         if (fresh === '')
             return '';
-        const name = repoNameForRoot(this.db, repoGitRoot(dir, this.env), this.env);
+        const name = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
         const repoFilter = name === '' ? '' : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name)}')`;
         const tasks = this.read(`SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass') FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`);
         if (tasks === GATE_READ_ERROR)
@@ -171,7 +171,7 @@ class Guard {
         if (tasks === '')
             return '';
         const taskLines = lines(tasks);
-        const checked = lines(gitRun(dir, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], this.env, `${taskLines.map((r) => field(r, 1)).join('\n')}\n`).stdout.replace(/\n$/, ''));
+        const checked = lines((await gitRun(dir, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], this.env, `${taskLines.map((r) => field(r, 1)).join('\n')}\n`)).stdout.replace(/\n$/, ''));
         const fullRows = [];
         const n = Math.max(checked.length, taskLines.length);
         for (let i = 0; i < n; i++) {
@@ -185,16 +185,16 @@ class Guard {
         if (full === '')
             return '';
         let matches = [];
-        let pairs = this.pairByPaths(dir, full, fresh, []);
+        let pairs = await this.pairByPaths(dir, full, fresh, []);
         if (pairs !== '')
-            matches = this.taskMatches(dir, full, pairs, []).map((m) => `${m}|full`);
+            matches = (await this.taskMatches(dir, full, pairs, [])).map((m) => `${m}|full`);
         let srcMatches = [];
         const rest = without(fresh, matches.map((m) => field(m, 1)).join('\n'));
         if (rest !== '') {
             const spec = ['--', ...SOURCE_PATHS];
-            pairs = this.pairByPaths(dir, full, rest, spec);
+            pairs = await this.pairByPaths(dir, full, rest, spec);
             if (pairs !== '')
-                srcMatches = this.taskMatches(dir, full, pairs, spec).map((m) => `${m}|src`);
+                srcMatches = (await this.taskMatches(dir, full, pairs, spec)).map((m) => `${m}|src`);
         }
         const all = [...matches, ...srcMatches].filter((m) => m !== '');
         if (all.length === 0)
@@ -210,36 +210,42 @@ class Guard {
         return all.filter((m) => field(m, 4) !== '1' || !passed.has(field(m, 1))).join('\n');
     }
     /** The base the commits of a branch with no upstream are counted from: the target branch's ref, else the remote default's, else "". */
-    baseRef(dir) {
-        let target = field(repoResolve(this.db, stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
+    async baseRef(dir) {
+        let target = field(repoResolve(this.db, await stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
         if (target === '') {
             const sole = repoSinglePath(this.db, this.env);
             if (sole !== '')
                 target = field(repoResolve(this.db, sole, this.env), 1);
         }
-        const remoteDefault = () => gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env).replace(/^origin\//gm, '');
+        const remoteDefault = async () => (await gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env)).replace(/^origin\//gm, '');
         if (target === '')
-            target = remoteDefault();
+            target = await remoteDefault();
         target ||= 'main';
-        const existing = (branch) => [`origin/${branch}`, branch].find((cand) => gitOk(dir, ['rev-parse', '--verify', '--quiet', cand], this.env)) ?? '';
-        let base = existing(target);
+        const existing = async (branch) => {
+            for (const cand of [`origin/${branch}`, branch]) {
+                if (await gitOk(dir, ['rev-parse', '--verify', '--quiet', cand], this.env))
+                    return cand;
+            }
+            return '';
+        };
+        let base = await existing(target);
         if (base === '') {
-            const fallback = remoteDefault();
+            const fallback = await remoteDefault();
             if (fallback !== '')
-                base = existing(fallback);
+                base = await existing(fallback);
         }
         return base;
     }
-    pushedShas(dir) {
-        const upstream = gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
+    async pushedShas(dir) {
+        const upstream = await gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
         if (upstream !== '')
             return upstream;
-        const base = this.baseRef(dir);
-        return gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
+        const base = await this.baseRef(dir);
+        return await gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
     }
     /** The deny for one push, or null when it may go. */
-    judge(dir) {
-        const pushed = this.pushedShas(dir);
+    async judge(dir) {
+        const pushed = await this.pushedShas(dir);
         if (pushed === '')
             return null;
         const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
@@ -253,7 +259,7 @@ class Guard {
             const list = rows.map((r) => `  - task_id=${field(r, 1)}  ${field(r, 2)}  (${field(r, 3)})`).join('\n');
             return deny(`BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\n\n${list}\nRun: @bro review before push\n\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`);
         }
-        const unchecked = this.uncheckedRebases(dir, pushed);
+        const unchecked = await this.uncheckedRebases(dir, pushed);
         if (unchecked === GATE_READ_ERROR)
             return deny(DB_REASON);
         if (unchecked === '')
@@ -299,7 +305,7 @@ export const gitPushGuard = async (payload, env) => {
             return deny(WORKTREE_REASON);
         if (db === '' || !haveSqlite(env))
             continue;
-        const verdict = guard.judge(dir);
+        const verdict = await guard.judge(dir);
         if (verdict)
             return verdict;
     }

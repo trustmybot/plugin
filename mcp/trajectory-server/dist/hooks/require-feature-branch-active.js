@@ -37,7 +37,7 @@ function resolveRepo(db, taskId, repo, env) {
         return abs;
     return denyPreToolUse(`BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.`);
 }
-export const requireFeatureBranchActive = (payload, env) => {
+export const requireFeatureBranchActive = async (payload, env) => {
     if ((env.TMB_ALLOW_BRANCH_MISMATCH ?? '0') === '1')
         return ALLOW;
     if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'swe')
@@ -58,10 +58,10 @@ export const requireFeatureBranchActive = (payload, env) => {
     const repoAbs = resolveRepo(db, rawId, cutField(row, 2), env);
     if (typeof repoAbs !== 'string')
         return repoAbs;
-    if (gitOk(repoAbs, ['show-ref', '--verify', '--quiet', `refs/heads/${expected}`], env, 'inherit'))
+    if (await gitOk(repoAbs, ['show-ref', '--verify', '--quiet', `refs/heads/${expected}`], env, 'inherit'))
         return ALLOW;
     const base = cutField(row, 3) || '<base>';
-    const baseRef = gitOk(repoAbs, ['remote', 'get-url', 'origin'], env) ? `origin/${base}` : base;
+    const baseRef = await gitOk(repoAbs, ['remote', 'get-url', 'origin'], env) ? `origin/${base}` : base;
     return denyPreToolUse(`BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first — bro pre-creates it ("git -C ${repoAbs} branch ${expected} ${baseRef}") and stays on ${base}; SWE's worktree owns the branch.`);
 };
 //# sourceMappingURL=require-feature-branch-active.js.map

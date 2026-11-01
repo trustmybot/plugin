@@ -4,7 +4,7 @@
  * PATH, and, when jq and sqlite3 are on PATH as the .sh needs them to look,
  * the offline note for a project repo with no remote URL. It never denies.
  */
-import { ALLOW, type SyncGate } from './gate.js';
+import { ALLOW, type Gate } from './gate.js';
 import { dbPath, projectRoot } from './lib/db.js';
 import { commandOnPath } from './lib/host.js';
 import { jsonValues } from './lib/jq.js';
@@ -45,17 +45,17 @@ export function noRemoteUrl(remotesJson: string): boolean {
   return out.join('\n') === 'false';
 }
 
-function offlineNote(env: NodeJS.ProcessEnv): string {
+async function offlineNote(env: NodeJS.ProcessEnv): Promise<string> {
   if (!commandOnPath('sqlite3', env) || !commandOnPath('jq', env)) return '';
   const db = dbPath(env);
   if (db === null || db === '') return '';
-  const remotes = repoRemotes(db, repoGitRoot(projectRoot(env), env), env);
+  const remotes = repoRemotes(db, await repoGitRoot(projectRoot(env), env), env);
   return remotes !== '' && noRemoteUrl(remotes) ? OFFLINE_NOTE : '';
 }
 
-export const substratePreflight: SyncGate = (_payload, env) => {
+export const substratePreflight: Gate = async (_payload, env) => {
   const missing = PROBES.filter(([bin]) => !commandOnPath(bin, env)).map(([bin, why]) => `missing ${bin} — ${why}`);
-  const offline = offlineNote(env);
+  const offline = await offlineNote(env);
   if (missing.length === 0 && offline === '') return ALLOW;
   const parts = [];
   if (missing.length > 0) parts.push(`TMB DEGRADED: ${missing.join('; ')}. Install the missing tools to restore enforcement.`);

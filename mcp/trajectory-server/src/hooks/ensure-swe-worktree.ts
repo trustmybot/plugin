@@ -12,7 +12,7 @@
  * nor the sqlite3 CLI.
  */
 import { existsSync } from 'node:fs';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, haveSqlite, sqlInt, sqliteRo, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitRun, isDir } from './lib/git.js';
@@ -50,14 +50,14 @@ export function recordedWorktree(db: string, taskId: string, branch: string, env
   return existsSync(loc.worktree) ? loc.worktree : '';
 }
 
-function registered(repoRoot: string, slug: string, env: NodeJS.ProcessEnv): boolean {
+async function registered(repoRoot: string, slug: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   let pattern: RegExp;
   try {
     pattern = new RegExp(`^worktree .*/\\.claude/worktrees/${slug}$`);
   } catch {
     return false;
   }
-  return gitRun(repoRoot, ['worktree', 'list', '--porcelain'], env)
+  return (await gitRun(repoRoot, ['worktree', 'list', '--porcelain'], env))
     .stdout.split('\n')
     .some((line) => pattern.test(line));
 }
@@ -67,7 +67,7 @@ function skip(line: string): GateResult {
   return ALLOW;
 }
 
-export const ensureSweWorktree: SyncGate = (payload, env): GateResult => {
+export const ensureSweWorktree: Gate = async (payload, env): Promise<GateResult> => {
   if (env.TMB_DISABLE_ENSURE_SWE_WORKTREE === '1') return ALLOW;
   const taskId = sweSpawnTaskId(jqInput(commandSubstitution(payload)));
   if (taskId === '') return ALLOW;
@@ -88,10 +88,10 @@ export const ensureSweWorktree: SyncGate = (payload, env): GateResult => {
 
   const wtRel = `.claude/worktrees/${slug}`;
   const wtAbs = `${repoRoot}/${wtRel}`;
-  if (registered(repoRoot, slug, env)) return ALLOW;
+  if (await registered(repoRoot, slug, env)) return ALLOW;
   if (existsSync(wtAbs)) return skip(`'${wtAbs}' exists but is not a registered worktree — skipping`);
 
-  if (gitOk(repoRoot, ['worktree', 'add', wtRel, branch], env)) {
+  if (await gitOk(repoRoot, ['worktree', 'add', wtRel, branch], env)) {
     return skip(`created worktree ${wtAbs} for branch ${branch}`);
   }
   return skip(`'git worktree add ${wtRel} ${branch}' failed — skipping (non-isolated fallback)`);

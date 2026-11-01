@@ -390,8 +390,8 @@ SELECT last_insert_rowid();`,
     );
   }
 
-  private planCarry(): void {
-    const plan = planCarrySafe(
+  private async planCarry(): Promise<void> {
+    const plan = await planCarrySafe(
       { db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson },
       { ...this.c.env, PATH: this.c.toolchainPath },
     );
@@ -482,7 +482,7 @@ SELECT last_insert_rowid();`,
         this.recordMs = Date.now() - this.runStart;
       }
     }
-    if (this.runId !== '') this.planCarry();
+    if (this.runId !== '') await this.planCarry();
 
     const carried: string[] = [];
     for (const cmd of c.commands) {
@@ -690,7 +690,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
   );
   if (budget.warning !== '') stderr(budget.warning);
 
-  const head = gitRun(worktree, ['rev-parse', '--verify', '-q', 'HEAD'], genv);
+  const head = await gitRun(worktree, ['rev-parse', '--verify', '-q', 'HEAD'], genv);
   const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : '';
   const expectedSha = field('commit_sha');
   const commands = block.split('\n').filter((line) => line !== '');

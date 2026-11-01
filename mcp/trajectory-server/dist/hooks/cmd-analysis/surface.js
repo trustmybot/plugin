@@ -24,7 +24,7 @@ export function writeShapes() {
     return WRITE_SHAPES.join(', ');
 }
 /** _tmb_surface_root <abs>: the enclosing .claude/worktrees/<name>, else the main git root of the nearest existing ancestor. */
-export function surfaceRoot(abs, env = process.env) {
+export async function surfaceRoot(abs, env = process.env) {
     if (abs.includes('/.claude/worktrees/'))
         return worktreeRootForTarget(abs);
     const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
@@ -33,7 +33,7 @@ export function surfaceRoot(abs, env = process.env) {
         dir = parent(dir);
     if (dir === '')
         dir = '/';
-    return stripTrailingNewlines(repoGitRoot(dir, env));
+    return stripTrailingNewlines(await repoGitRoot(dir, env));
 }
 /**
  * tmb_is_prompt_surface_path <path> [<root>]: a CLAUDE/CODEX/CURSOR/GEMINI.md
@@ -41,13 +41,19 @@ export function surfaceRoot(abs, env = process.env) {
  * (or .claude/agents|skills|commands|rules/) of <root>, the path's own repo
  * root when none is given.
  */
-export function isPromptSurfacePath(p, root = '', env = process.env) {
+export async function isPromptSurfacePath(p, root = '', env = process.env) {
+    if (root !== '' || !p.startsWith('/') || PROMPT_FILES.has(p.slice(p.lastIndexOf('/') + 1)))
+        return isPromptSurfaceUnder(p, root);
+    return isPromptSurfaceUnder(p, await surfaceRoot(stripTrailingNewlines(pathCanonical(p)), env));
+}
+/** isPromptSurfacePath with <root> already known, which needs no git: the sync analyzer always knows it. */
+export function isPromptSurfaceUnder(p, root) {
     if (PROMPT_FILES.has(p.slice(p.lastIndexOf('/') + 1)))
         return true;
     let rel = '';
     if (p.startsWith('/')) {
         const abs = stripTrailingNewlines(pathCanonical(p));
-        let r = root === '' ? surfaceRoot(abs, env) : root;
+        let r = root;
         if (r !== '') {
             r = stripTrailingNewlines(pathCanonical(r));
             const prefix = `${r.endsWith('/') ? r.slice(0, -1) : r}/`;

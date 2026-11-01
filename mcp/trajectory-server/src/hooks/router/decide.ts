@@ -28,7 +28,7 @@
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import type { Gate, GateResult } from '../gate.js';
-import { armDeadline, disarmDeadline } from '../lib/deadline.js';
+import { runWithDeadline } from '../lib/deadline.js';
 import { type RouterGate, type RouterGroup, ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 import { shGate } from './sh-gate.js';
 
@@ -214,9 +214,8 @@ const LATE = Symbol('late');
 /** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
 async function settle(fn: Gate, payload: string, env: NodeJS.ProcessEnv, limit: number, now: () => number): Promise<{ s: Settled; cut: boolean }> {
   const start = now();
-  armDeadline(start + limit, now);
-  const s = await run(fn, payload, env, limit, now, start);
-  return { s, cut: disarmDeadline() };
+  const { value: s, expired: cut } = await runWithDeadline(start + limit, () => run(fn, payload, env, limit, now, start), now);
+  return { s, cut };
 }
 
 async function run(fn: Gate, payload: string, env: NodeJS.ProcessEnv, limit: number, now: () => number, start: number): Promise<Settled> {

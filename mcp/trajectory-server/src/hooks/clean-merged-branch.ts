@@ -14,7 +14,7 @@
  */
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { dbPath } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
 import { mergeFailed, readMergePayload } from './lib/merge.js';
@@ -37,8 +37,8 @@ function note(text: string): void {
   process.stderr.write(`tmb: ${text}\n`);
 }
 
-function localBranch(root: string, name: string, env: NodeJS.ProcessEnv): boolean {
-  return gitOk(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`], env);
+async function localBranch(root: string, name: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return await gitOk(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`], env);
 }
 
 /** The merge command names a merge (word-boundary grep over its lines). */
@@ -47,7 +47,7 @@ export function namesMerge(cmd: string): boolean {
 }
 
 /** _cmb_branch_from_cmd: the first word after `merge` (per line) that is no flag, URL or number and is a local branch. */
-export function branchFromCmd(cmd: string, root: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function branchFromCmd(cmd: string, root: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const args = cmd
     .split('\n')
     .map((line) => line.replace(MERGE_PREFIX, ''))
@@ -55,7 +55,7 @@ export function branchFromCmd(cmd: string, root: string, env: NodeJS.ProcessEnv 
   for (const tok of args.split(/[ \t\n]+/)) {
     if (tok === '' || tok.startsWith('-') || tok.includes('://')) continue;
     if (/^[0-9]+$/.test(tok)) continue;
-    if (localBranch(root, tok, env)) return tok;
+    if (await localBranch(root, tok, env)) return tok;
   }
   return '';
 }
@@ -72,8 +72,8 @@ function cut(row: string, n: number): string {
 }
 
 /** _cmb_is_protected: the repo's default branch, or a token of its repos.protected_branches. */
-export function isProtected(root: string, branch: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const def = repoDefaultBranch(root, env);
+export async function isProtected(root: string, branch: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  const def = await repoDefaultBranch(root, env);
   if (def !== '' && branch === def) return true;
   const protectedList = cut(repoRow(root, env), 3);
   return (
@@ -86,30 +86,30 @@ export function isProtected(root: string, branch: string, env: NodeJS.ProcessEnv
 }
 
 /** _cmb_base_branch: repos.target_branch, else the repo's default branch. */
-export function baseBranch(root: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function baseBranch(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const target = cut(repoRow(root, env), 1);
-  return target !== '' ? target : repoDefaultBranch(root, env);
+  return target !== '' ? target : await repoDefaultBranch(root, env);
 }
 
 /** _cmb_integrated: <tip>'s work is in <target>: ancestor, a no-op merge-tree, or no `+` line from git cherry. */
-export function integrated(root: string, tip: string, target: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  if (gitOk(root, ['merge-base', '--is-ancestor', tip, target], env)) return true;
-  const merged = gitRun(root, ['merge-tree', '--write-tree', target, tip], env);
+export async function integrated(root: string, tip: string, target: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  if (await gitOk(root, ['merge-base', '--is-ancestor', tip, target], env)) return true;
+  const merged = await gitRun(root, ['merge-tree', '--write-tree', target, tip], env);
   if (merged.code === 0) {
-    const tree = gitRun(root, ['rev-parse', `${target}^{tree}`], env);
+    const tree = await gitRun(root, ['rev-parse', `${target}^{tree}`], env);
     const targetTree = tree.code === 0 ? tree.stdout.replace(/\n+$/, '') : '';
     if (targetTree !== '' && merged.stdout.replace(/\n+$/, '').split('\n')[0] === targetTree) return true;
   }
-  const cherry = gitRun(root, ['cherry', target, tip], env);
+  const cherry = await gitRun(root, ['cherry', target, tip], env);
   if (cherry.code !== 0) return false;
   return !cherry.stdout.split('\n').some((line) => line.startsWith('+'));
 }
 
 /** _cmb_worktree_for_branch: the linked worktree <branch> is checked out in, never the main one. */
-export function worktreeForBranch(root: string, branch: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function worktreeForBranch(root: string, branch: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const want = `refs/heads/${branch}`;
   let wt = '';
-  for (const line of gitRun(root, ['worktree', 'list', '--porcelain'], env).stdout.split('\n')) {
+  for (const line of (await gitRun(root, ['worktree', 'list', '--porcelain'], env)).stdout.split('\n')) {
     if (line.startsWith('worktree ')) wt = line.slice('worktree '.length);
     else if (line.startsWith('branch ') && line.slice('branch '.length) === want && wt !== root) return wt;
   }
@@ -130,52 +130,52 @@ function fetchPrune(root: string, env: NodeJS.ProcessEnv): void {
   }
 }
 
-function clean(payload: string, env: NodeJS.ProcessEnv): void {
+async function clean(payload: string, env: NodeJS.ProcessEnv): Promise<void> {
   const { input, toolName, command: cmd, response } = readMergePayload(payload);
   if (toolName !== 'Bash' || cmd === '') return;
   if (!namesMerge(cmd) || mergeFailed(response)) return;
 
   const cwd = cmdCwd(cmd, input, env);
-  const root = repoGitRoot(cwd, env);
+  const root = await repoGitRoot(cwd, env);
   if (root === '' || !isDir(root)) return;
 
-  let branch = branchFromCmd(cmd, root, env);
-  if (branch === '') branch = gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+  let branch = await branchFromCmd(cmd, root, env);
+  if (branch === '') branch = await gitOut(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
   if (branch === '' || branch === 'HEAD') return;
-  if (!localBranch(root, branch, env)) return;
-  if (isProtected(root, branch, env)) return;
+  if (!await localBranch(root, branch, env)) return;
+  if (await isProtected(root, branch, env)) return;
 
-  const base = baseBranch(root, env);
-  if (base === '' || !localBranch(root, base, env) || branch === base) return;
-  if (!integrated(root, `refs/heads/${branch}`, `refs/heads/${base}`, env)) return;
+  const base = await baseBranch(root, env);
+  if (base === '' || !await localBranch(root, base, env) || branch === base) return;
+  if (!await integrated(root, `refs/heads/${branch}`, `refs/heads/${base}`, env)) return;
 
-  const wt = worktreeForBranch(root, branch, env);
+  const wt = await worktreeForBranch(root, branch, env);
   if (wt !== '' && isDir(wt)) {
-    if (gitRun(wt, ['status', '--porcelain'], env).stdout !== '') {
+    if ((await gitRun(wt, ['status', '--porcelain'], env)).stdout !== '') {
       note(`branch ${branch} is merged but its worktree ${wt} has uncommitted/untracked changes — skipping cleanup (never force)`);
       return;
     }
-    if (!gitOk(root, ['worktree', 'remove', wt], env)) {
+    if (!await gitOk(root, ['worktree', 'remove', wt], env)) {
       note(`worktree remove failed for ${wt} — leaving branch ${branch} in place`);
       return;
     }
   }
 
-  if (gitOk(root, ['branch', '-D', branch], env)) {
-    gitOk(root, ['worktree', 'prune'], env);
+  if (await gitOk(root, ['branch', '-D', branch], env)) {
+    await gitOk(root, ['worktree', 'prune'], env);
     note(`cleaned up merged branch ${branch}${wt !== '' ? ` (worktree ${wt})` : ''}`);
   } else {
     note(`branch delete failed for ${branch} — leaving in place`);
-    gitOk(root, ['worktree', 'prune'], env);
+    await gitOk(root, ['worktree', 'prune'], env);
   }
 
   fetchPrune(root, env);
 }
 
-export const cleanMergedBranch: SyncGate = (payload, env): GateResult => {
+export const cleanMergedBranch: Gate = async (payload, env): Promise<GateResult> => {
   if ((env.TMB_DISABLE_CLEAN_MERGED_BRANCH ?? '0') === '1') return ALLOW;
   try {
-    clean(payload, env);
+    await clean(payload, env);
   } catch {
     /* advisory: every path exits 0 */
   }

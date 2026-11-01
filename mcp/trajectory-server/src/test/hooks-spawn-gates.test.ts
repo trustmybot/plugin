@@ -145,11 +145,11 @@ describe('task-DB Agent-spawn gates (TS)', () => {
   });
 
   describe('divergence: no jq and no sqlite3 CLI on PATH', () => {
-    it('require-task-spec still denies a task id with no tasks row (bash allows)', () => {
+    it('require-task-spec still denies a task id with no tasks row (bash allows)', async () => {
       const db = freshDb((d) => task(d, 1, {}));
       const env = gateEnv(db, gitOnlyPath());
-      assert.deepEqual(requireTaskSpec(payload('swe', 'task_id=1'), env), { stdout: '', code: 0 });
-      assert.match(denyReason(requireTaskSpec(payload('swe', 'task_id=99'), env).stdout), /task_id=99 does not exist in the tasks table/);
+      assert.deepEqual(await requireTaskSpec(payload('swe', 'task_id=1'), env), { stdout: '', code: 0 });
+      assert.match(denyReason((await requireTaskSpec(payload('swe', 'task_id=99'), env)).stdout), /task_id=99 does not exist in the tasks table/);
     });
 
     it('require-spawn-effort still decides on tasks.effort (bash denies "jq not found", or allows with no sqlite3)', () => {
@@ -161,7 +161,7 @@ describe('task-DB Agent-spawn gates (TS)', () => {
       assert.doesNotMatch(reason, /jq not found/);
     });
 
-    it('require-feature-branch-active still denies a missing branch (bash allows)', () => {
+    it('require-feature-branch-active still denies a missing branch (bash allows)', async () => {
       const repo = join(sandbox, 'repo');
       mkdirSync(repo, { recursive: true });
       git(repo, 'init', '-q', '-b', 'dev');
@@ -173,9 +173,9 @@ describe('task-DB Agent-spawn gates (TS)', () => {
         task(d, 4, { branch: 'feat/absent', status: 'pending' });
       });
       const env = gateEnv(db, gitOnlyPath());
-      assert.deepEqual(requireFeatureBranchActive(payload('swe', 'task_id=3'), env), { stdout: '', code: 0 });
+      assert.deepEqual(await requireFeatureBranchActive(payload('swe', 'task_id=3'), env), { stdout: '', code: 0 });
       assert.match(
-        denyReason(requireFeatureBranchActive(payload('swe', 'task_id=4'), env).stdout),
+        denyReason((await requireFeatureBranchActive(payload('swe', 'task_id=4'), env)).stdout),
         /needs branch feat\/absent to exist first .*branch feat\/absent dev/,
       );
     });

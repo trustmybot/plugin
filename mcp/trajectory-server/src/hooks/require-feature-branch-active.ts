@@ -6,7 +6,7 @@
  * resolvable DB or no tasks row allows; a DB read failure denies.
  */
 import { posix } from 'node:path';
-import { ALLOW, type GateResult, type SyncGate } from './gate.js';
+import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, isDir } from './lib/git.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -41,7 +41,7 @@ function resolveRepo(db: string, taskId: string, repo: string, env: NodeJS.Proce
   );
 }
 
-export const requireFeatureBranchActive: SyncGate = (payload, env) => {
+export const requireFeatureBranchActive: Gate = async (payload, env) => {
   if ((env.TMB_ALLOW_BRANCH_MISMATCH ?? '0') === '1') return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'swe') return ALLOW;
   const rawId = /task_id=([0-9]+)/.exec(jqAlternatives(payload, [['tool_input', 'prompt']]))?.[1] ?? '';
@@ -55,9 +55,9 @@ export const requireFeatureBranchActive: SyncGate = (payload, env) => {
   const expected = cutField(row, 1);
   const repoAbs = resolveRepo(db, rawId, cutField(row, 2), env);
   if (typeof repoAbs !== 'string') return repoAbs;
-  if (gitOk(repoAbs, ['show-ref', '--verify', '--quiet', `refs/heads/${expected}`], env, 'inherit')) return ALLOW;
+  if (await gitOk(repoAbs, ['show-ref', '--verify', '--quiet', `refs/heads/${expected}`], env, 'inherit')) return ALLOW;
   const base = cutField(row, 3) || '<base>';
-  const baseRef = gitOk(repoAbs, ['remote', 'get-url', 'origin'], env) ? `origin/${base}` : base;
+  const baseRef = await gitOk(repoAbs, ['remote', 'get-url', 'origin'], env) ? `origin/${base}` : base;
   return denyPreToolUse(
     `BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first — bro pre-creates it ("git -C ${repoAbs} branch ${expected} ${baseRef}") and stays on ${base}; SWE's worktree owns the branch.`,
   );

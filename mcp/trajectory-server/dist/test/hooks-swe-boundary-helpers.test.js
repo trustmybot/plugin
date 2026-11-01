@@ -126,7 +126,7 @@ describe('swe-boundary helpers: the bash originals agree', () => {
         after(() => {
             rmSync(dir, { recursive: true, force: true });
         });
-        it('isPromptSurfacePath matches tmb_is_prompt_surface_path, with and without a root', () => {
+        it('isPromptSurfacePath matches tmb_is_prompt_surface_path, with and without a root', async () => {
             const repo = join(dir, 'repo');
             const wt = join(repo, '.claude/worktrees/by-branch');
             const cases = [
@@ -154,7 +154,7 @@ describe('swe-boundary helpers: the bash originals agree', () => {
             ];
             for (const [p, root] of cases) {
                 const expected = bashLib('tmb_is_prompt_surface_path', [p, root], env).code === 0;
-                assert.equal(isPromptSurfacePath(p, root, env), expected, `${p} root=${root}`);
+                assert.equal(await isPromptSurfacePath(p, root, env), expected, `${p} root=${root}`);
             }
         });
         it('pathDigest matches tmb_path_digest, through a symlink too', () => {
@@ -162,7 +162,7 @@ describe('swe-boundary helpers: the bash originals agree', () => {
                 assert.equal(pathDigest(p), bashLib('tmb_path_digest', [p]).stdout, p);
             }
         });
-        it('resolveTaskIdForTarget matches tmb_resolve_task_id_for_target: branch, slug, then transcript', { skip: !HAVE_SQLITE_CLI && 'the .sh needs the sqlite3 CLI' }, () => {
+        it('resolveTaskIdForTarget matches tmb_resolve_task_id_for_target: branch, slug, then transcript', { skip: !HAVE_SQLITE_CLI && 'the .sh needs the sqlite3 CLI' }, async () => {
             const wts = join(dir, 'repo/.claude/worktrees');
             const withTranscript = JSON.stringify({ agent_transcript_path: join(dir, 'tr/spawn.jsonl') });
             const cases = [
@@ -174,11 +174,11 @@ describe('swe-boundary helpers: the bash originals agree', () => {
             ];
             for (const [target, input] of cases) {
                 const sh = bashLib('tmb_resolve_task_id_for_target', [target, input, db], env).stdout;
-                assert.equal(resolveTaskIdForTarget(target, input, db, env), sh, target);
+                assert.equal(await resolveTaskIdForTarget(target, input, db, env), sh, target);
             }
-            assert.equal(resolveTaskIdForTarget(`${wts}/by-branch/x`, '{}', db, env), '4');
-            assert.equal(resolveTaskIdForTarget(`${wts}/by-slug/x`, '{}', db, env), '6');
-            assert.equal(resolveTaskIdForTarget(`${dir}/repo/src/a.ts`, withTranscript, db, env), '9');
+            assert.equal(await resolveTaskIdForTarget(`${wts}/by-branch/x`, '{}', db, env), '4');
+            assert.equal(await resolveTaskIdForTarget(`${wts}/by-slug/x`, '{}', db, env), '6');
+            assert.equal(await resolveTaskIdForTarget(`${dir}/repo/src/a.ts`, withTranscript, db, env), '9');
         });
     });
 });
