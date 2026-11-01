@@ -10,6 +10,8 @@ export async function runHook(name, findGate, env, io) {
         }
         const result = await gate(io.readStdin(), env);
         io.writeStdout(result.stdout);
+        if (result.stderr)
+            io.writeStderr(result.stderr);
         return result.code;
     }
     catch (err) {

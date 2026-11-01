@@ -3,12 +3,13 @@
 # both ways. Every row names a script that exists under scripts/hooks/ and is
 # registered in hooks.json (a gate dist/hooks-router.txt lists for a router
 # entry's event; the lint also reads `dispatch.sh <name>` and the gates of a
-# chain, scripts/hooks/lib/registrations.sh), so a deleted or unwired
-# hook cannot leave a stale row; every hook hooks.json registers has a row.
+# chain, scripts/hooks/lib/registrations.sh; the Stop entry `dist/hooks.js
+# liveness-sentinel` is the one registration outside the router), so a deleted or
+# unwired hook cannot leave a stale row; every hook hooks.json registers has a row.
 # A gate born in TypeScript (no .sh) has a `<name>.ts` row naming its
 # mcp/trajectory-server/src/hooks/<name>.ts source; a ported gate may too.
 # scripts/hooks/README.md opens its entry-point section with the router as every
-# registration, not dispatch.sh (GH 1692).
+# registration but that sentinel, not dispatch.sh (GH 1692).
 #
 # Usage: hooks-doc-fresh.sh [<root>]   (default: this repo; self-tests first)
 
@@ -31,6 +32,7 @@ registered() {
     for name in $(grep -oE 'dist/hooks\.js\\" [A-Za-z]+' "$1/hooks/hooks.json" | sed -E 's/.* //' | sort -u); do
       tmb_router_gates "$1" "$name"
     done
+    grep -oE 'dist/hooks\.js\\" liveness-sentinel"' "$1/hooks/hooks.json" | sed -E 's/.* (.*)"/\1/'
   } | sort -u
 }
 

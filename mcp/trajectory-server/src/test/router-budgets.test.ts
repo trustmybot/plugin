@@ -33,6 +33,8 @@ const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
   hooks: Record<string, { matcher?: string; hooks: { command: string; timeout: number; onFailure?: string; if?: string }[] }[]>;
 };
+const isLivenessSentinel = (entry: { hooks: { command: string }[] }): boolean => entry.hooks.every((h) => h.command.endsWith('dist/hooks.js" liveness-sentinel'));
+const routerEntries = (event: string) => HOOKS.hooks[event].filter((g) => !isLivenessSentinel(g));
 
 describe('router budgets.json (GH 1861)', () => {
   const gates = [...new Map(ROUTER_GROUPS.flatMap((g) => g.gates).map((g) => [g.name, g])).values()];
@@ -93,7 +95,7 @@ describe('router budgets.json (GH 1861)', () => {
     });
 
     it(`${key}: one hooks.json registration whose matcher, timeout and onFailure are the registry's, and no if`, () => {
-      const entries = HOOKS.hooks[group.event].filter((g) => (g.matcher ?? '') === group.matcher);
+      const entries = routerEntries(group.event).filter((g) => (g.matcher ?? '') === group.matcher);
       assert.equal(entries.length, 1);
       const parts = ROUTER_GROUPS.filter((g) => g.event === group.event && g.matcher === group.matcher);
       assert.equal(entries[0].hooks.length, parts.length);
@@ -109,10 +111,10 @@ describe('router budgets.json (GH 1861)', () => {
     });
   }
 
-  it('the routed groups are the only router entries of their events', () => {
+  it('the routed groups are the only router entries of their events, the Stop liveness-sentinel apart', () => {
     for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate']) {
       const matchers = [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort();
-      assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), matchers, event);
+      assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), matchers, event);
     }
   });
 
@@ -126,7 +128,7 @@ describe('router budgets.json (GH 1861)', () => {
         ['SessionStart', undefined, ['ensure-gitignore', 'mcp-health-check', 'deferred-tools-drift-warn', 'plugin-hooks-marker', 'ensure-mcp-deps-installed', 'substrate-preflight', 'orphan-scan']],
         ['SessionStart', 'persona', ['session-start-persona']],
         ['SessionStart', 'prescan', ['session-start-prescan']],
-        ['UserPromptSubmit', undefined, ['rework-waiver-capture', 'activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert']],
+        ['UserPromptSubmit', undefined, ['rework-waiver-capture', 'activation-routine', 'session-log-capture', 'prompt-intent-hints', 'task-overrun-alert', 'liveness-alert']],
         ['UserPromptSubmit', 'persona', ['user-prompt-persona']],
         ['UserPromptSubmit', 'roundtable', ['roundtable-slash-detect']],
         ['WorktreeCreate', undefined, ['worktree-create']],
@@ -139,7 +141,7 @@ describe('router budgets.json (GH 1861)', () => {
       assert.deepEqual(namesOf('UserPromptSubmit', 'persona'), ['user-prompt-persona']);
       assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
       assert.equal(namesOf('SessionStart').length, 7);
-      assert.equal(namesOf('UserPromptSubmit').length, 5);
+      assert.equal(namesOf('UserPromptSubmit').length, 6);
       assert.deepEqual(namesOf('Stop', 'handoff'), ['session-handoff']);
       assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
       assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);
@@ -147,7 +149,7 @@ describe('router budgets.json (GH 1861)', () => {
     });
 
     it('hooks.json holds one command per group of the event', () => {
-      const commands = (event: string): string[] => HOOKS.hooks[event].flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
+      const commands = (event: string): string[] => routerEntries(event).flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
       assert.deepEqual(commands('SessionStart'), ['SessionStart', 'SessionStart persona', 'SessionStart prescan']);
       assert.deepEqual(commands('UserPromptSubmit'), ['UserPromptSubmit', 'UserPromptSubmit persona', 'UserPromptSubmit roundtable']);
       assert.deepEqual(commands('Stop'), ['Stop', 'Stop handoff']);
@@ -157,8 +159,9 @@ describe('router budgets.json (GH 1861)', () => {
 
   it('the post-tool and stop groups keep one registration per matcher', () => {
     for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
-      assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort(), event);
+      assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort(), event);
     }
+    assert.equal(HOOKS.hooks.Stop.length, routerEntries('Stop').length + 1);
   });
 
   it('onFailure block holds on SubagentStop alone among the routed events past PreToolUse', () => {

@@ -488,12 +488,12 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.deepEqual(names('SubagentStop', ''), ['consultant-persistence-gate', 'swe-atomic-close']);
     });
     it('the post-tool groups run in the order the spec names, each tool-filtered gate only for its tools', () => {
-        assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert']);
-        assert.deepEqual(names('PostToolUse', mcp('validation_record')), ['cleanup-worktree-on-task-close', 'task-overrun-alert']);
-        assert.deepEqual(names('PostToolUse', mcp('roundtable_close')), ['roundtable-cleanup-postcheck', 'task-overrun-alert']);
-        assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-task-close-rescan', 'post-atomic-close-readme', 'task-overrun-alert']);
-        assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert']);
-        assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('validation_record')), ['cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('roundtable_close')), ['roundtable-cleanup-postcheck', 'task-overrun-alert', 'liveness-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-task-close-rescan', 'post-atomic-close-readme', 'task-overrun-alert', 'liveness-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
+        assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
         assert.deepEqual(names('PostToolUse', 'Bash'), ['attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
         assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
         assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);
@@ -506,7 +506,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
             return ALLOW;
         };
         await decide('PostToolUse', JSON.stringify({ tool_name: mcp('issue_list'), tool_input: {} }), {}, { findGate: spy });
-        assert.deepEqual(ran, ['task-overrun-alert']);
+        assert.deepEqual(ran, ['task-overrun-alert', 'liveness-alert']);
     });
     it('the table is one line per row, an empty matcher as its sentinel, six columns and a seventh for a part', () => {
         const lines = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n');
@@ -763,7 +763,7 @@ describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', (
     it('every gate of the R4 events runs under the switch but those born in TypeScript, dropped and logged', async () => {
         const events = ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate'];
         const gates = ROUTER_GROUPS.filter((g) => events.includes(g.event)).flatMap((g) => g.gates.map((x) => x.name));
-        assert.deepEqual(gates.filter((name) => !existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${name}.sh`))), ['rework-waiver-capture', 'task-overrun-alert']);
+        assert.deepEqual(gates.filter((name) => !existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${name}.sh`))), ['rework-waiver-capture', 'task-overrun-alert', 'liveness-alert']);
         const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-events-')));
         const env = { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, PWD: dir, TMB_SKIP_MCP_DEPS_INSTALL: '1', TRAJECTORY_DB_PATH: join(dir, 'absent.db') };
         try {

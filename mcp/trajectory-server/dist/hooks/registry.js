@@ -22,6 +22,8 @@ import { GATE_NAME as SWE_BOUNDARY_GATE, sweBoundary } from './swe-boundary.js';
 import { GATE_NAME as SWE_RESUME_GATE, sweResumeGate } from './swe-resume-gate.js';
 import { GATE_NAME as SWE_STOP_CAUSE_GATE, sweStopCause } from './swe-stop-cause.js';
 import { GATE_NAME as OVERRUN_GATE, taskOverrunAlert } from './task-overrun-alert.js';
+import { GATE_NAME as LIVENESS_ALERT_GATE, livenessAlert } from './liveness-alert.js';
+import { GATE_NAME as LIVENESS_SENTINEL_GATE, livenessSentinel } from './liveness-sentinel.js';
 import { GATE_NAME as ACTIVATION_GATE, activationRoutine } from './activation-routine.js';
 import { GATE_NAME as DEBUG_TRAJECTORY_GATE, debugTrajectory } from './debug-trajectory.js';
 import { GATE_NAME as PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker } from './plugin-hooks-marker.js';
@@ -91,6 +93,8 @@ const GATES = new Map([
     [SWE_RESUME_GATE, sweResumeGate],
     [SWE_STOP_CAUSE_GATE, sweStopCause],
     [OVERRUN_GATE, taskOverrunAlert],
+    [LIVENESS_ALERT_GATE, livenessAlert],
+    [LIVENESS_SENTINEL_GATE, livenessSentinel],
     [ACTIVATION_GATE, activationRoutine],
     [DEBUG_TRAJECTORY_GATE, debugTrajectory],
     [PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker],
@@ -211,6 +215,7 @@ export const ROUTER_GROUPS = [
         routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
         routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
         routerGate(OVERRUN_GATE, 'advisory'),
+        routerGate(LIVENESS_ALERT_GATE, 'advisory'),
     ]),
     eventGroup('PostToolUse', 'Bash', [routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
     eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
@@ -235,6 +240,7 @@ export const ROUTER_GROUPS = [
         routerGate(SESSION_LOG_GATE, 'advisory'),
         routerGate(PROMPT_INTENT_GATE, 'advisory'),
         routerGate(OVERRUN_GATE, 'advisory'),
+        routerGate(LIVENESS_ALERT_GATE, 'advisory'),
     ]),
     eventGroup('UserPromptSubmit', '', [routerGate(USER_PROMPT_PERSONA_GATE, 'advisory')], { part: 'persona' }),
     eventGroup('UserPromptSubmit', '', [routerGate(RT_SLASH_GATE, 'advisory')], { part: 'roundtable' }),
