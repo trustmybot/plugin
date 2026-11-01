@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { payloadCwd } from './cmd-analysis/path.js';
 import { ALLOW } from './gate.js';
+import { noteSpawn, spawnLimit, spawnOptions } from './lib/deadline.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
 import { awkSpace, grepAlnum, grepMultibyte, grepSpace, JqError, jqIndex, jqPath, jqRawLines, jqRawOr, jqTruthy, shellCapture, wellFormed, } from './lib/lint-shell.js';
 import { isDir } from './lib/git.js';
@@ -61,7 +62,9 @@ function onPath(name, env) {
     return null;
 }
 function run(file, args, cwd, env) {
-    const r = spawnSync(file, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
+    const limit = spawnLimit();
+    const r = spawnSync(file, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+    noteSpawn(limit, r);
     return { stdout: r.stdout ?? '', ok: r.error === undefined && r.status === 0 };
 }
 /** `jq -r '.description // ""'` over glab's JSON, null when jq exits non-zero (pipefail ends the hook). */
