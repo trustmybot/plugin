@@ -278,7 +278,7 @@ sequenceDiagram
 
 ### 2. Code-touching task (canonical chain)
 
-This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G9`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
+This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G10`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
 
 Bro is both planner AND task gate: a task closes as soon as SWE returns and bro verifies it. code-reviewer then reviews each closed task, and `git-push-guard` holds any push whose task commits lack a passing review. `composites.ts`, `issues.ts`, `tasks.ts`, `validation.ts` and `scan.ts` below live in `mcp/trajectory-server/src/tools/`.
 
@@ -286,7 +286,7 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 
 | Id | Actor | Tool or hook | Reads → writes | Source |
 |---|---|---|---|---|
-| S1 | <a id="S1"></a>Human → bro | Chat message, then the `UserPromptSubmit` hooks: `user-prompt-persona`, `activation-routine`, `session-log-capture`, `prompt-intent-hints`, `roundtable-slash-detect`, `task-overrun-alert` (G8) | `plugin_config`, the open issue → none (the hooks inject bro's persona and the open issue) | `hooks/hooks.json` (UserPromptSubmit); `src/hooks/user-prompt-persona.ts`; `src/hooks/activation-routine.ts` |
+| S1 | <a id="S1"></a>Human → bro | Chat message, then the `UserPromptSubmit` hooks: `user-prompt-persona`, `activation-routine`, `session-log-capture`, `prompt-intent-hints`, `roundtable-slash-detect`, `task-overrun-alert` (G8), `liveness-alert` (G10) | `plugin_config`, the open issue → none (the hooks inject bro's persona and the open issue) | `hooks/hooks.json` (UserPromptSubmit); `src/hooks/user-prompt-persona.ts`; `src/hooks/activation-routine.ts` |
 | S2 | <a id="S2"></a>bro | `world_model_get(depth=2)`, `world_model_search(query, mode='hybrid')`, `world_model_symbol`; each call writes one `wm_tool_called` audit row (tool, agent, task, result count, empty, latency). **In flight (PR 2010):** the row also logs the `impact` and `source` arguments (GH 1986). **Planned (GH 1988):** the world model becomes the codebase DAG, so impact reaches every downstream consumer (table readers, prompts, hooks). | `wm_directories`, `wm_files`, `wm_symbols` → audit `wm_tool_called` | `skills/tmb_planning/SKILL.md:11-13`; `docs/architecture/WORLD_MODEL.md` ("Measuring WM use") |
 | S3 | <a id="S3"></a>bro → Human | `AskUserQuestion`: which base branch; PreToolUse `askuserquestion-length-lint` | none → none (the answer stays in the transcript) | `skills/tmb_planning/SKILL.md:36`; `src/hooks/askuserquestion-length-lint.ts` |
 | S4 | <a id="S4"></a>bro → Human | `branch_id_propose`, AUQ "Proceed with branch_id X?", then `intent_start` | the Human's intent → `issues` row, `discussions` kind=intent and the planning note in one transaction; audit `branch_id_proposed` | `skills/tmb_planning/SKILL.md:38`; `composites.ts:746,813` |
@@ -338,6 +338,7 @@ Hooks that fire across many steps rather than at one.
 | G7 | <a id="G7"></a>`bro-turn-usage` | Stop | Meters bro's own turn into its `agent_runs` session row. **In flight (PR 2047):** also records bro's tool-output sizes. | `src/hooks/bro-turn-usage.ts` |
 | G8 | <a id="G8"></a>`task-overrun-alert` | UserPromptSubmit, PostToolUse trajectory-server | Tells bro once per task when a `running` task passes `TMB_TASK_OVERRUN_MIN` minutes (default 60), with its attempts and current blocker | `src/hooks/task-overrun-alert.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
+| G10 | <a id="G10"></a>`liveness-alert`, `liveness-sentinel` | UserPromptSubmit, PostToolUse trajectory-server; Stop (`asyncRewake`) | Reports a subagent run silent past `TMB_RUN_SILENT_MIN` minutes (default 30, scaled by load) or a hung `tail -f` watcher to bro, once per finding (`liveness_finding_reported`): during a turn as context, while idle by waking an attended session. Reports only: kills, closes and fails nothing | `src/hooks/liveness-probe.ts`; `src/hooks/liveness-alert.ts`; `src/hooks/liveness-sentinel.ts` |
 
 **Planned (GH 1861):** `dispatch.sh` records each gate's run time, sets timeouts from the p99, and retries a timed-out gate once.
 

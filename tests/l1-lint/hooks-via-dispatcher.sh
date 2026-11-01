@@ -12,6 +12,8 @@
 #   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>,
 # which holds the same per-call dedupe: each gate dist/hooks-router.txt lists
 # for <Event> must have a .sh or a src/hooks TypeScript source.
+# The named exception is liveness-sentinel (GH 2205): its exit 2 is an asyncRewake
+# wake, which dispatch.sh would replay under its lock and audit as hook_denied.
 
 set -euo pipefail
 
@@ -51,6 +53,14 @@ while IFS= read -r cmd; do
         FAIL=$((FAIL + 1))
       }
     done
+    continue
+  fi
+  if [ "$cmd" = 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" liveness-sentinel' ]; then
+    GATES=$((GATES + 1))
+    ts_only liveness-sentinel || {
+      printf "hooks-via-dispatcher: liveness-sentinel has no source or manifest line\n" >&2
+      FAIL=$((FAIL + 1))
+    }
     continue
   fi
   gate="${cmd#"$PREFIX"}"

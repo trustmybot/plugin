@@ -73,6 +73,7 @@ sync_skipped	bro
 task_effort_raised	bro
 task_escalated_by_issue_close	bro
 task_escalated_repair	server
+liveness_finding_reported	hook
 task_overrun_alerted	hook
 task_recovered	bro
 task_reopened	bro

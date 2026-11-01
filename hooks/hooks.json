@@ -90,6 +90,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" task-overrun-alert",
             "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" liveness-alert",
+            "timeout": 6
           }
         ]
       }
@@ -223,6 +228,17 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" Stop",
             "timeout": 9
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" liveness-sentinel",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }

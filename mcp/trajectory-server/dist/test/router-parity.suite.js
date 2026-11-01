@@ -25,9 +25,9 @@ function eventOf(gate) {
     assert.ok(group, `${gate} is in a router group`);
     return group.event;
 }
-/** task-overrun-alert prints the minutes a task has run, which can tick over between the two sides. */
+/** task-overrun-alert and liveness-alert print minutes elapsed, which can tick over between the two sides. */
 function minutesMasked(output) {
-    return JSON.parse(JSON.stringify(output).replace(/has been running \d+ min/g, 'has been running N min'));
+    return JSON.parse(JSON.stringify(output).replace(/has been running \d+ min/g, 'has been running N min').replace(/silent \d+ min/g, 'silent N min'));
 }
 function isJson(text) {
     try {

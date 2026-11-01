@@ -26,6 +26,7 @@ registered() {
     for name in $(grep -oE 'dist/hooks\.js\\" [A-Za-z]+"' "$1/hooks/hooks.json" | sed -E 's/.* (.*)"/\1/' | sort -u); do
       tmb_router_gates "$1" "$name"
     done
+    grep -oE 'dist/hooks\.js\\" liveness-sentinel"' "$1/hooks/hooks.json" | sed -E 's/.* (.*)"/\1/'
   } | sort -u
 }
 

@@ -40,8 +40,8 @@
     },
     "PostToolUse:mcp__.*trajectory-server__.*": {
       "max_budget_ms": 11840,
-      "p99_sum_ms": 10480.7,
-      "group_budget_ms": 15722
+      "p99_sum_ms": 10495.7,
+      "group_budget_ms": 15744
     },
     "PostToolUse:Bash": {
       "max_budget_ms": 23300,
@@ -526,6 +526,22 @@
       "bench_load_avg": 46.55,
       "transcript_p99": 1646,
       "transcript_samples": 31,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-01"
+    },
+    "liveness-alert": {
+      "kind": "advisory",
+      "bench_p50": 4.4,
+      "bench_p95": 9.8,
+      "bench_p99": 15,
+      "bench_runs": 320,
+      "bench_load_avg": 6.13,
+      "transcript_p99": null,
+      "reason": "no liveness-alert hook attachment yet: the gate is new in GH 2205",
+      "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,
       "floor_ms": 6000,

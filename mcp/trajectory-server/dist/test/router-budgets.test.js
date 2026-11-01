@@ -9,6 +9,8 @@ import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_ROUT
 import { PLUGIN_ROOT } from './router-sandboxes.js';
 const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json'), 'utf8'));
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8'));
+const isLivenessSentinel = (entry) => entry.hooks.every((h) => h.command.endsWith('dist/hooks.js" liveness-sentinel'));
+const routerEntries = (event) => HOOKS.hooks[event].filter((g) => !isLivenessSentinel(g));
 describe('router budgets.json (GH 1861)', () => {
     const gates = [...new Map(ROUTER_GROUPS.flatMap((g) => g.gates).map((g) => [g.name, g])).values()];
     it('comes from a bench of at least 20 rounds on 4 workers', () => {
@@ -66,7 +68,7 @@ describe('router budgets.json (GH 1861)', () => {
             assert.equal(group.groupBudgetMs, b.group_budget_ms, 'ROUTER_GROUPS reads budgets.json');
         });
         it(`${key}: one hooks.json entry whose matcher, timeout and onFailure are the registry's, and no if`, () => {
-            const entries = HOOKS.hooks[group.event].filter((g) => (g.matcher ?? '') === group.matcher);
+            const entries = routerEntries(group.event).filter((g) => (g.matcher ?? '') === group.matcher);
             assert.equal(entries.length, 1);
             assert.equal(entries[0].hooks.length, 1);
             const { timeout, command, onFailure } = entries[0].hooks[0];
@@ -78,10 +80,11 @@ describe('router budgets.json (GH 1861)', () => {
             assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[key].group_budget_ms) / 1000) + 1);
         });
     }
-    it('the post-tool and stop groups are the only router entries of their events', () => {
+    it('the post-tool and stop groups are the only router entries of their events, the Stop liveness-sentinel apart', () => {
         for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
-            assert.deepEqual(HOOKS.hooks[event].map((g) => g.matcher ?? '').sort(), ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher).sort(), event);
+            assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher).sort(), event);
         }
+        assert.equal(HOOKS.hooks.Stop.length, routerEntries('Stop').length + 1);
     });
     it('onFailure block holds on SubagentStop alone among the post-tool and stop events', () => {
         const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));

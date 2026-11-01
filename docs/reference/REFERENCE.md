@@ -72,6 +72,9 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 - `TMB_DISABLE_REMOTE_SYNC=1` — overrides `issue_sync` config to off (defense-in-depth)
 - `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (step 1 of [the DB location rule](./TRAJECTORY_DB_LOCATION.md))
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
+- `TMB_RUN_SILENT_MIN` — minutes of silence before the liveness probe suspects a run or watcher (default 30), times clamp(load1/ncpu, 1, 4)
+- `TMB_LIVENESS_POLL_S` — seconds between `liveness-sentinel` polls (default 60)
+- `CLAUDE_CODE_SESSION_ATTENDED` — set by CC; `liveness-sentinel` arms only at `1`, since a pending `asyncRewake` blocks `claude -p`
 
 ## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / SubagentStop / WorktreeCreate)
 
@@ -96,6 +99,8 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |
 | `swe-resume-gate.ts` | PreToolUse SendMessage | Judge a message to a swe (an agent id that is the `spawn_id` of an agent_runs swe row) as a resume of its task: deny it at the rework limit with `rework-limit`'s reason, and deny it when the swe's latest run has an effort other than the task's current one, naming a fresh spawn at the task's effort. Other targets and a swe of a closed task pass with no output; a DB read failure denies |
 | `task-overrun-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro, once per task, that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since `created_at`: minutes, swe spawns and the blocker (the latest FAIL's first line, else the status); the `task_overrun_alerted` audit row is the once-marker. Bro only, never denies |
+| `liveness-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro about a subagent run past `TMB_RUN_SILENT_MIN` minutes or a hung `tail -f` watcher (`liveness-probe.ts`), at most one probe per 5 minutes per session; the `liveness_finding_reported` audit row is the once-marker, shared with `liveness-sentinel`. Reports only. Bro only, never denies |
+| `liveness-sentinel.ts` | Stop (`asyncRewake`, direct, not via `dispatch.sh`) | Write the session's background task snapshot; under `CLAUDE_CODE_SESSION_ATTENDED=1`, poll every `TMB_LIVENESS_POLL_S` seconds while bro is idle and wake it with exit 2 and the report on stderr on a claimed finding. Exits 0 when its generation token is superseded, its parent changed or nothing of its session is left to watch. Reports only |
 | `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
 | `git-push-guard.sh` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |
 | `swe-boundary.sh` | PreToolUse Bash + Edit/Write | Keep SWE inside its worktree and assigned scope |

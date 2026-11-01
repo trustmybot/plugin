@@ -2,8 +2,9 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate and task-overrun-alert have no hook-corpus
- * directory (they were born in TypeScript), so their cases are built here.
+ * router benches. swe-resume-gate, task-overrun-alert and liveness-alert have
+ * no hook-corpus directory (they were born in TypeScript), so their cases are
+ * built here.
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -65,6 +66,7 @@ export const ROUTER_CORPUS_GATES = [
   'post-atomic-close-readme',
   'post-task-create-spawn-hint',
   'task-overrun-alert',
+  'liveness-alert',
   'attribution-footer',
   'clean-merged-branch',
   'close-issue-on-merge',
@@ -420,6 +422,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   }
 
   if (want('task-overrun-alert')) cases.push(...overrunCases(join(root, 'task-overrun-alert'), emptyProject));
+  if (want('liveness-alert')) cases.push(...livenessCases(join(root, 'liveness-alert'), emptyProject));
 
   if (want('agent-spawn-dispatch')) {
     const dir = join(root, 'agent-spawn/sandbox');
@@ -486,6 +489,40 @@ function overrunCases(dir: string, cwd: string): RouterCase[] {
     cwd,
     fakeUid: false,
     reset: () => build(typeof createdAt === 'function' ? createdAt() : createdAt),
+  }));
+}
+
+/** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */
+function livenessCases(dir: string, cwd: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  mkdirSync(dir, { recursive: true });
+  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const build = (startedAt: string | null): void => {
+    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
+    rmSync(join(dir, 'sessions'), { recursive: true, force: true });
+    const d = new DatabaseSync(db);
+    d.exec(schema);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
+    if (startedAt !== null) d.prepare("INSERT INTO agent_runs (issue_id, agent_type, started_at, spawn_id, session_id) VALUES (9, 'swe', ?, 'agent-swe-1', 's')").run(startedAt);
+    d.close();
+  };
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
+  const payload = (extra: object): string => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', tool_name: 'mcp__plugin_tmb_trajectory-server__task_list', tool_input: {}, ...extra });
+  const longAgo = '2020-01-01T00:00:00.000Z';
+  const scenarios: readonly (readonly [string, string | null | (() => string), string])[] = [
+    ['dead-run-reports-to-bro', longAgo, payload({})],
+    ['non-bro-caller', longAgo, payload({ agent_type: 'tmb:swe', agent_id: 'a1' })],
+    ['recent-run', () => new Date().toISOString(), payload({})],
+    ['no-open-run', null, payload({})],
+  ];
+  return scenarios.map(([file, startedAt, input]) => ({
+    gate: 'liveness-alert',
+    file,
+    input,
+    env,
+    cwd,
+    fakeUid: false,
+    reset: () => build(typeof startedAt === 'function' ? startedAt() : startedAt),
   }));
 }
 
