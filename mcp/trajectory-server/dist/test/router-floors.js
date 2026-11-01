@@ -44,6 +44,7 @@ export const PRE_ROUTER_TIMEOUT_S = Object.freeze({
     'swe-spawn-bind': 6,
     'swe-spawn-rollback': 6,
     'bro-turn-usage': 6,
+    'session-handoff': 6,
     'swe-atomic-close': 6,
     'consultant-persistence-gate': 6,
     'ensure-gitignore': 6,

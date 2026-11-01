@@ -22,7 +22,7 @@ import { commandSubstitution, setlocaleUtf8 } from './lib/project-env.js';
 export const GATE_NAME = 'activation-routine';
 export const HALT_TEXT = '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
-const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
+export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
 const TOOL_CALLS_LIMIT = 150;
 const CONTEXT_PER_CALL_LIMIT = 60000;
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
@@ -121,15 +121,22 @@ export function activationContext(onboardedCount, pending) {
     }
     return `[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${pendingLine}`;
 }
-export function usageWarning(toolUses, cacheReadTokens) {
+function limitsPassed(toolUses, cacheReadTokens) {
     if (toolUses <= 0)
-        return '';
+        return [];
     const contextPerCall = Math.ceil(cacheReadTokens / toolUses);
     const passed = [];
     if (toolUses > TOOL_CALLS_LIMIT)
         passed.push(`${toolUses} tool calls (limit ${TOOL_CALLS_LIMIT})`);
     if (contextPerCall > CONTEXT_PER_CALL_LIMIT)
         passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
+    return passed;
+}
+export function pastUsageLimits(toolUses, cacheReadTokens) {
+    return limitsPassed(toolUses, cacheReadTokens).length > 0;
+}
+export function usageWarning(toolUses, cacheReadTokens) {
+    const passed = limitsPassed(toolUses, cacheReadTokens);
     if (passed.length === 0)
         return '';
     return `⚠️ This bro session is past its usage limits: ${passed.join(', ')}. Finish what is in flight, then end the session and resume cold from the DB.`;
@@ -146,6 +153,12 @@ function sessionUsageWarning(db, sessionId, env) {
         return '';
     }
 }
+/** The issue of the handoff <sessionId> consumed, while that issue is open; '' otherwise. */
+function handoffPending(db, sessionId, env) {
+    if (!SESSION_ID_LINE.test(sessionId))
+        return '';
+    return sqliteRo(db, `SELECT i.id, COALESCE(i.objective, '') FROM session_handoffs h JOIN issues i ON i.id = h.issue_id WHERE h.consumed_by_session = '${sessionId}' AND i.status = 'open' AND i.id > 0 ORDER BY h.consumed_at DESC LIMIT 1;`, env);
+}
 export function activationRoutine(payload, env) {
     try {
         const echoed = `${commandSubstitution(payload)}\n`;
@@ -160,11 +173,12 @@ export function activationRoutine(payload, env) {
         if (db === null || !haveSqlite(env))
             return haltOnly();
         const onboarded = sqliteRo(db, "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';", env);
-        const pending = sqliteRo(db, "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;", env);
+        const sessionId = field('session_id');
+        const pending = handoffPending(db, sessionId, env) ||
+            sqliteRo(db, "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;", env);
         let context = activationContext(onboarded, pending);
         if (halt !== '')
             context = `${halt} ${context}`;
-        const sessionId = field('session_id');
         if (sessionId.split('\n').some((line) => SESSION_ID_LINE.test(line)))
             context = `${context} session_id=${sessionId}`;
         const warning = sessionUsageWarning(db, sessionId, env);

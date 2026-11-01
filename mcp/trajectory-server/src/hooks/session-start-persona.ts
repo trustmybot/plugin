@@ -2,11 +2,13 @@
  * SessionStart hook (GH 1692), the port of scripts/hooks/session-start-persona.sh:
  * injects bro's persona, the plugin's CLAUDE.md, as additionalContext (raw
  * text when jq is not on PATH, as the .sh prints it) and marks the session so
- * user-prompt-persona does not inject it again. Never blocks: exit 0.
+ * user-prompt-persona does not inject it again, with a prior session's handoff
+ * appended when this one takes it (session-handoff). Never blocks: exit 0.
  */
 import { ALLOW, type GateResult } from './gate.js';
 import { personaContext, personaEmit, personaInit, personaMark, personaSessionId } from './lib/persona.js';
 import { commandSubstitution } from './lib/project-env.js';
+import { withHandoff } from './session-handoff.js';
 
 export const GATE_NAME = 'session-start-persona';
 
@@ -17,7 +19,7 @@ export function sessionStartPersona(payload: string, env: NodeJS.ProcessEnv): Ga
     if (persona === null) return ALLOW;
     const context = personaContext(persona, env);
     if (context === null) return ALLOW;
-    const stdout = personaEmit(persona, 'SessionStart', context);
+    const stdout = personaEmit(persona, 'SessionStart', withHandoff(context, payload, env));
     personaMark(persona, personaSessionId(input, persona.haveJq), 'persona');
     return { stdout, code: 0 };
   } catch {
