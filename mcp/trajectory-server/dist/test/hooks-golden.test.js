@@ -7,9 +7,9 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expandRoots, GENERIC_CASE_PREFIX, GOLDEN_DIR, goldenBash, goldenGates, goldenLocales, goldenRoots, goldenStore, sandboxSha, settledTree, tokenizeRoots, } from './golden.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -65,6 +65,51 @@ function coverageProblems(gates, goldenDir) {
         return [...missing, ...stale, ...thin, ...uneven];
     });
 }
+function spansOf(text, opener) {
+    return [...text.matchAll(new RegExp(opener.source, 'g'))].flatMap((match) => {
+        const start = match.index + match[0].length - 1;
+        const [open, close] = text[start] === '(' ? ['(', ')'] : ['{', '}'];
+        let depth = 0;
+        for (let at = start; at < text.length; at++) {
+            if (text[at] === open)
+                depth++;
+            else if (text[at] === close && --depth === 0)
+                return [[start, at]];
+        }
+        return [];
+    });
+}
+const SCRIPT_PATH = /\b(?:join|resolve)\([^)]*scripts\/hooks[^)]*\.sh\b/;
+const BASH_SPAWN = /\brun\((?:'bash'|BASH),/;
+const COMMENT_LINE = /^\s*(?:\/\/|\/?\*)/;
+/** A `const` whose only calls build the path names the script without touching it: its uses are what count. */
+function isPathOnly(line) {
+    return /^\s*const \w+ =/.test(line) && !/\b(?!join\b|resolve\b)\w+\(/.test(line);
+}
+function scriptAliases(lines) {
+    return lines.filter((line) => SCRIPT_PATH.test(line) && isPathOnly(line)).map((line) => /const (\w+) =/.exec(line)[1]);
+}
+/** Each line of a suite that spawns, reads or copies a gate .sh where default mode would run it: outside every goldenBash thunk and every `name === 'bash'` line of runSide, unless isRecording() guards it. */
+function scriptTouchesOutsideGolden(text) {
+    const lines = text.split('\n');
+    const thunks = spansOf(text, /\bgoldenBash(?:<[^>\n]*>)?\(/);
+    const runSides = spansOf(text, /\bconst runSide = [^\n]*\{/);
+    const within = (spans, at) => spans.some(([start, end]) => start <= at && at <= end);
+    const aliasUses = scriptAliases(lines).map((alias) => new RegExp(`[(\\[,]\\s*${alias}\\b`));
+    let offset = 0;
+    return lines.flatMap((line, i) => {
+        const lineStart = offset;
+        offset += line.length + 1;
+        if (COMMENT_LINE.test(line) || /\bisRecording\(\)/.test(line))
+            return [];
+        const touches = [BASH_SPAWN, ...aliasUses, ...(isPathOnly(line) ? [] : [SCRIPT_PATH])].map((touch) => line.search(touch)).filter((column) => column >= 0);
+        const outside = touches.some((column) => {
+            const at = lineStart + column;
+            return !within(thunks, at) && !(within(runSides, at) && line.includes("name === 'bash'"));
+        });
+        return outside ? [`line ${i + 1}: ${line.trim()}`] : [];
+    });
+}
 describe('hook golden recordings', () => {
     describe('coverage', () => {
         const gates = readdirSync(CORPUS_ROOT).sort();
@@ -110,20 +155,61 @@ describe('hook golden recordings', () => {
             assert.ok(suites.length >= 24, `${suites.length} suites`);
         });
         for (const suite of suites) {
-            it(`${suite} spawns a .sh only inside a goldenBash thunk`, () => {
+            it(`${suite} spawns, reads or copies a .sh only inside a goldenBash thunk`, () => {
                 const text = readFileSync(join(SUITES, suite), 'utf8');
                 assert.match(text, /goldenBash\(/);
-                const lines = text.split('\n');
-                const spawns = lines.flatMap((line, i) => (/run\((?:'bash'|BASH),/.test(line) ? [i] : []));
-                assert.ok(spawns.length > 0, 'the suite names its live side');
-                for (const i of spawns) {
-                    const opened = lines.slice(Math.max(0, i - 20), i + 1).join('\n');
-                    assert.ok(/goldenBash\(|runSide = /.test(opened), `line ${i + 1} spawns outside goldenBash`);
-                }
+                assert.match(text, BASH_SPAWN, 'the suite names its live side');
+                assert.deepEqual(scriptTouchesOutsideGolden(text), []);
                 if (suite.includes('task-close'))
                     assert.match(text, /goldenBash\([^\n]*runSide\('bash'\)\)/);
             });
         }
+    });
+    describe('the .sh check', () => {
+        const flagged = (body) => scriptTouchesOutsideGolden(body).length;
+        it('flags a spawn, a read or a copy of a gate .sh outside a thunk', () => {
+            assert.equal(flagged("run('bash', [join(PLUGIN_ROOT, 'scripts/hooks/x.sh')], c);"), 1);
+            assert.equal(flagged("cpSync(join(PLUGIN_ROOT, `scripts/hooks/${RESCAN_GATE}.sh`), join(plugin, `scripts/hooks/${RESCAN_GATE}.sh`));"), 1);
+            assert.equal(flagged("const text = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), 'utf8');"), 1);
+            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/x.sh');\nconst text = readFileSync(HOOK_SH, 'utf8');"), 1);
+            assert.equal(flagged("goldenBash(g, f, l, r, () => 1);\ncpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);"), 1);
+            assert.equal(flagged("const runSide = (name) => {\n  cpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);\n};"), 1);
+        });
+        it('passes one inside a thunk, on the bash line of runSide, or guarded by record mode', () => {
+            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/x.sh');\ngoldenBash(g, f, l, r, () => {\n  return run('bash', [HOOK_SH], c);\n});"), 0);
+            assert.equal(flagged("goldenBash(g, f, l, r, () => run('bash', [join(PLUGIN_ROOT, 'scripts/hooks/x.sh')], c));"), 0);
+            assert.equal(flagged("const runSide = (name) => {\n  if (name === 'bash') cpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);\n};"), 0);
+            assert.equal(flagged("const gates = all.filter((g) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${g}.sh`)) : true));"), 0);
+            assert.equal(flagged("const ps = ['bash /x/scripts/hooks/orphan-scan.sh'];"), 0);
+        });
+    });
+    describe('with the gate scripts gone', () => {
+        it('the task-close parity suite passes in default mode, its sandbox setup included', { timeout: 300_000 }, () => {
+            const dir = mkdtempSync(join(tmpdir(), 'tmb-golden-no-sh-'));
+            const scripts = join(PLUGIN_ROOT, 'scripts/hooks');
+            try {
+                cpSync(PLUGIN_ROOT, dir, {
+                    recursive: true,
+                    filter: (src) => {
+                        const name = basename(src);
+                        if (src !== PLUGIN_ROOT && ['node_modules', '.git', '.claude'].includes(name))
+                            return false;
+                        return !(dirname(src) === scripts && name.endsWith('.sh') && name !== 'dispatch.sh');
+                    },
+                });
+                const tests = join(dir, 'mcp/trajectory-server/dist/test');
+                const shards = readdirSync(tests).filter((f) => /^hooks-task-close-parity.*\.test\.js$/.test(f));
+                assert.ok(shards.length > 0, 'the task-close shards');
+                const env = { ...process.env };
+                delete env.NODE_TEST_CONTEXT;
+                delete env.TMB_HOOK_GOLDEN;
+                const r = spawnSync(process.execPath, ['--experimental-sqlite', '--test', ...shards.map((f) => join(tests, f))], { cwd: join(dir, 'mcp/trajectory-server'), env, encoding: 'utf8' });
+                assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+            }
+            finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        });
     });
     describe('goldenBash', () => {
         let dir;

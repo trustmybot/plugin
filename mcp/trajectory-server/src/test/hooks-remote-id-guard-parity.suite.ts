@@ -112,10 +112,10 @@ interface Run {
   stderr: string;
 }
 
-/** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
 /** bash's `set -m` prints this, with a pid, when a background child beats its setpgid. */
 const BASH_JOB_CONTROL_RACE = /^.*child setpgid .*\n/gm;
 
+/** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
 function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string): Run {
   const dir = mkdtempSync(join(tmpdir(), 'tmb-rig-stdin-'));
   const file = join(dir, 'stdin');

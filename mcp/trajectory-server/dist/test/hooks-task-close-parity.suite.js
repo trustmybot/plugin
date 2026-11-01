@@ -60,6 +60,8 @@ const TS_RE = /\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(\.\d+)?Z?/g;
 const PROJECT_DB = 'project/.claude/tmb/trajectory.db';
 const CLOSE_GATE = 'swe-atomic-close';
 const RESCAN_GATE = 'post-task-close-rescan';
+/** lib/ for both sides and the .sh for the bash side alone; what it lists follows the checkout, so a snapshot skips it. */
+const RESCAN_SCRIPTS = 'plugin/scripts/hooks';
 const MIN_CORPUS = { [CLOSE_GATE]: 12, [RESCAN_GATE]: 4 };
 export const TASK_CLOSE_GATES = [RESCAN_GATE, CLOSE_GATE];
 const UNSET = [
@@ -250,7 +252,6 @@ export function buildRescanSandbox(s) {
     writeFileSync(join(plugin, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"9.9.9-parity"}\n');
     mkdirSync(join(plugin, 'scripts/maintenance'), { recursive: true });
     cpSync(join(PLUGIN_ROOT, 'scripts/hooks/lib'), join(plugin, 'scripts/hooks/lib'), { recursive: true });
-    cpSync(join(PLUGIN_ROOT, `scripts/hooks/${RESCAN_GATE}.sh`), join(plugin, `scripts/hooks/${RESCAN_GATE}.sh`));
     writeFileSync(join(plugin, 'scripts/maintenance/run-scan.mjs'), FAKE_INVOKER);
     mkdirSync(join(plugin, 'mcp/trajectory-server/dist'), { recursive: true });
     cpSync(HOOKS_BUNDLE, join(plugin, 'mcp/trajectory-server/dist/hooks.js'));
@@ -296,6 +297,8 @@ function snapshot(root) {
             if (/-(wal|shm|journal)$/.test(name))
                 continue;
             const rel = relative(root, path);
+            if (rel === RESCAN_SCRIPTS)
+                continue;
             if (statSync(path).isDirectory()) {
                 out[`${rel}/`] = null;
                 walk(path);
@@ -440,6 +443,8 @@ export function taskCloseParityShard(k, n) {
                     restore(gate);
                     const setup = snapshot(s);
                     const hook = gate === RESCAN_GATE ? join(s, 'plugin/scripts/hooks', `${gate}.sh`) : join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`);
+                    if (name === 'bash' && gate === RESCAN_GATE)
+                        cpSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), hook);
                     const bundle = gate === RESCAN_GATE ? join(s, 'plugin/mcp/trajectory-server/dist/hooks.js') : HOOKS_BUNDLE;
                     const r = name === 'bash' ? run('bash', [hook], c, env) : run(process.execPath, [bundle, gate], c, env);
                     const unreleased = !existsSync(records.record);

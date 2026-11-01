@@ -82,9 +82,9 @@ export function materialize(file, s, paths) {
     const { corpus_env: env = {}, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, expect, divergent };
 }
-/** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
 /** bash's `set -m` prints this, with a pid, when a background child beats its setpgid. */
 const BASH_JOB_CONTROL_RACE = /^.*child setpgid .*\n/gm;
+/** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
 function run(cmd, args, input, env, cwd) {
     const dir = mkdtempSync(join(tmpdir(), 'tmb-rig-stdin-'));
     const file = join(dir, 'stdin');
