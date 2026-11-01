@@ -15,12 +15,12 @@ import { parseArgs } from 'node:util';
 import { ALLOW } from '../hooks/gate.js';
 import { routerMain } from '../hooks/router/main.js';
 import { percentile } from './hook-transcripts.js';
-import { PLUGIN_ROOT, ROUTER_CORPUS_GATES } from './router-sandboxes.js';
+import { PLUGIN_ROOT, ROUTER_BASH_GATES } from './router-sandboxes.js';
 const P95_LIMIT_MS = 40;
 const LOAD_LIMIT = 30;
 function bashPayloads() {
     const out = [];
-    for (const gate of ROUTER_CORPUS_GATES) {
+    for (const gate of ROUTER_BASH_GATES) {
         const dir = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus', gate);
         for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
             let o;

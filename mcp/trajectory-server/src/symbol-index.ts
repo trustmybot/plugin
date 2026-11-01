@@ -31,10 +31,10 @@ import {
   type SourceLanguage,
   type SymbolKind,
 } from './parsing/extract.js';
-import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH } from './parsing/hooks.js';
+import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 export const IMPACT_REF_CAP = 200;
@@ -361,6 +361,14 @@ function registrationChains(repoPath: string): Map<string, string[]> {
   }
 }
 
+function routerTable(repoPath: string): string {
+  try {
+    return readSource(repoPath, ROUTER_TABLE_PATH);
+  } catch {
+    return '';
+  }
+}
+
 interface StoredEdge {
   rowid: number;
   path: string;
@@ -430,7 +438,7 @@ export async function indexRepoSymbols(
       [repo, version, version, FAILED_SUFFIX],
     )
     .filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get<StaleFile & { size_bytes: number }>(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH],
@@ -451,7 +459,7 @@ export async function indexRepoSymbols(
     try {
       const src = readSource(repoPath, file.path);
       const extraction = isHooks
-        ? extractHooks(src, registrationChains(repoPath))
+        ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath))
         : extractFile(parsers, file.path, lang as SourceLanguage, src);
       parsed.push({ file, extraction });
     } catch (e) {

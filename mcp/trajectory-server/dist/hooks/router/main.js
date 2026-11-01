@@ -1,18 +1,18 @@
 /**
  * `node dist/hooks.js <event>`: the router entry. The install this project
  * runs (activeInstall) answers when it is another install whose dist ships
- * the router; else this one decides: under dispatch.sh's per-call dedupe when
+ * the router and serves the call's tool; else this one decides: under dispatch.sh's per-call dedupe when
  * the project has TMB state, then prints the decision and writes its records.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { haveSqlite, stateDir } from '../lib/db.js';
 import { activeInstall, canonicalDir } from '../lib/install.js';
 import { installRoot } from '../lib/project-env.js';
-import { routerTimeoutS } from '../registry.js';
-import { ROUTER_NAME, decide, denyOutput, failClosedReason } from './decide.js';
+import { matcherFits, routerGroup, routerTimeoutS } from '../registry.js';
+import { ROUTER_NAME, decide, denyOutput, failClosedReason, payloadTool } from './decide.js';
 import { Dedupe, dedupeKey } from './dedupe.js';
 import { auditCall, recordBashDeny } from './records.js';
 export const ROUTER_MANIFEST = 'mcp/trajectory-server/dist/hooks-router.txt';
@@ -34,6 +34,26 @@ function hopTo(root, event, payload, env) {
     }
     return { stdout: r.stdout, stderr: r.stderr, code: r.status };
 }
+/**
+ * Whether <root>'s router table has a group for the call. A router predating a
+ * group would allow its tools unjudged, so it never answers for them; a payload
+ * with no tool name is left to the router the call hops to.
+ */
+function servesCall(root, event, tool) {
+    if (tool === null)
+        return true;
+    let table;
+    try {
+        table = readFileSync(`${root}/${ROUTER_MANIFEST}`, 'utf8');
+    }
+    catch {
+        return false;
+    }
+    return table.split('\n').some((line) => {
+        const f = line.split(' ');
+        return f[3] === event && (f[4] ?? '').split(',').some((m) => matcherFits(m, tool));
+    });
+}
 function lockBase(env) {
     if (!haveSqlite(env))
         return null;
@@ -42,11 +62,12 @@ function lockBase(env) {
 }
 export async function routerMain(event, env, io, opts = {}) {
     const payload = io.readStdin();
+    const tool = payloadTool(payload);
     const self = opts.selfRoot ?? ownRoot(env);
     if (opts.hop !== false && env[HOP_ENV] !== '1') {
         const root = activeInstall(env, io.writeStderr);
         if (root !== '' && self !== '' && canonicalDir(root) !== canonicalDir(self)) {
-            if (existsSync(`${root}/${ROUTER_MANIFEST}`) && existsSync(`${root}/${BUNDLE}`)) {
+            if (existsSync(`${root}/${ROUTER_MANIFEST}`) && existsSync(`${root}/${BUNDLE}`) && servesCall(root, event, tool)) {
                 const out = hopTo(root, event, payload, env);
                 io.writeStderr(out.stderr);
                 await io.writeStdout(out.stdout);
@@ -61,7 +82,7 @@ export async function routerMain(event, env, io, opts = {}) {
     let dedupe = null;
     let lock = null;
     if (locks !== null && key !== null) {
-        dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groupBudgetMs), gateEnv);
+        dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: opts.groupBudgetMs ?? routerGroup(event, tool ?? '', opts.groups)?.groupBudgetMs ?? 0 }), gateEnv);
         try {
             mkdirSync(dedupe.base, { recursive: true });
             const claim = await dedupe.claim(key);

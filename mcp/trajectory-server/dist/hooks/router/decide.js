@@ -1,23 +1,26 @@
 /**
- * One router decision (GH 1692 R1): once the bash parser the gates share is
- * loaded, the gates of the matching ROUTER_GROUPS run on the payload one at a
- * time, each on its own clock, so a gate's budget and recorded ms count only
+ * One router decision (GH 1692): once the bash parser the Bash gates share is
+ * loaded, the gates of the matching ROUTER_GROUPS entry run on the payload one
+ * at a time, each on its own clock, so a gate's budget and recorded ms count only
  * its own work (decision 919): the gate bodies are synchronous on one event
  * loop, so running them together would only charge one gate's work to its
  * siblings. Each gate's deadline is its start plus the smaller of its budget
  * and the group budget left (decision 922); every sync spawn it makes times
  * out there, so a hung child ends the gate at its deadline. Sync gates are
- * judged on return, async gates raced against their deadline. The first deny
- * in group order is the answer, with that gate's output; with none, the
+ * judged on return, async gates raced against their deadline. A tool no group
+ * matches runs nothing, and a group marked stopAtFirstDeny runs no gate after
+ * a deny. The first deny in group order is the answer, with that gate's output; with none, the
  * allowing gates' outputs merge as dispatch.sh's run_chain merges a chain's
  * context. Fail-closed as dispatch.sh is: an enforcement gate that throws,
  * exits other than 0 or 2 without a deny, prints unparseable output, is
  * unknown, runs past its deadline, or is left no group budget denies, naming
- * the gate; an advisory gate's failure is dropped and logged.
+ * the gate; an advisory gate's failure is dropped and logged. Under the
+ * TMB_HOOKS_IMPL=bash kill switch each gate runs as its .sh (router/sh-gate.ts).
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import { armDeadline, disarmDeadline } from '../lib/deadline.js';
-import { ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
+import { ROUTER_GROUPS, findGate, routerGates, routerGroup } from '../registry.js';
+import { shGate } from './sh-gate.js';
 export const ROUTER_NAME = 'router';
 const DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
 function oneLine(text) {
@@ -70,20 +73,46 @@ function parses(stdout) {
         return false;
     }
 }
-/** run_chain's merge: one output as is, more joined into one additionalContext. */
+const asRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+const DECISION_KEYS = new Set(['permissionDecision', 'permissionDecisionReason']);
+const SPECIFIC_KEY = new Set(['hookSpecificOutput']);
+function firstWins(records, into, skip) {
+    for (const record of records) {
+        for (const [key, value] of Object.entries(record)) {
+            if (!skip.has(key) && !(key in into))
+                into[key] = value;
+        }
+    }
+    return into;
+}
+/**
+ * run_chain's merge of the gates that did not deny: one output as is, more
+ * joined into one additionalContext. No gate's decision is lost: the first
+ * permissionDecision other than allow, with its own reason, beats an allow, as
+ * in Claude Code's own precedence; every other key keeps its first value.
+ */
 export function mergeContext(outputs) {
     if (outputs.length === 0)
         return '';
     if (outputs.length === 1)
         return `${outputs[0]}\n`;
-    const parsed = outputs.map((o) => JSON.parse(o));
-    const event = parsed.map((p) => p.hookSpecificOutput?.hookEventName).find((e) => typeof e === 'string' && e !== '') ?? 'PreToolUse';
-    const context = parsed
-        .map((p) => p.hookSpecificOutput?.additionalContext)
+    const parsed = outputs.map((o) => asRecord(JSON.parse(o)));
+    const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
+    const event = specifics.map((p) => p.hookEventName).find((e) => typeof e === 'string' && e !== '') ?? 'PreToolUse';
+    const context = specifics
+        .map((p) => p.additionalContext)
         .filter((c) => c !== undefined && c !== null && c !== false)
         .map((c) => (typeof c === 'string' ? c : JSON.stringify(c)))
         .join('\n\n');
-    return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context } })}\n`;
+    const specific = firstWins(specifics, { hookEventName: event, additionalContext: context }, DECISION_KEYS);
+    const decided = specifics.filter((p) => p.permissionDecision !== undefined);
+    const winner = decided.find((p) => p.permissionDecision !== 'allow') ?? decided[0];
+    if (winner) {
+        specific.permissionDecision = winner.permissionDecision;
+        if (winner.permissionDecisionReason !== undefined)
+            specific.permissionDecisionReason = winner.permissionDecisionReason;
+    }
+    return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}\n`;
 }
 const LATE = Symbol('late');
 /** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
@@ -183,11 +212,14 @@ export async function decide(event, payload, env, deps = {}) {
             denied: { gate: ROUTER_NAME, reason },
         };
     }
-    const find = deps.findGate ?? findGate;
-    const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
-    if (tool === 'Bash' && gates.length > 0)
+    const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
+    const find = deps.findGate ?? (bashImpl ? shGate : findGate);
+    const groups = deps.groups ?? ROUTER_GROUPS;
+    const group = routerGroup(event, tool, groups);
+    const gates = routerGates(event, tool, groups);
+    if (tool === 'Bash' && gates.length > 0 && !bashImpl)
         await bashParser().catch(() => undefined);
-    const groupBudgetMs = deps.groupBudgetMs ?? ROUTER_GROUP_BUDGET_MS;
+    const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
     const groupStart = now();
     const done = [];
     let spent = false;
@@ -207,7 +239,10 @@ export async function decide(event, payload, env, deps = {}) {
         }
         const { s, cut } = await settle(fn, payload, env, b.limit, now);
         spent = b.byGroup && (cut || s.kind === 'late' || s.ms >= b.limit);
-        done.push({ gate, s, j: judge(gate, s, cut, b) });
+        const j = judge(gate, s, cut, b);
+        done.push({ gate, s, j });
+        if (group?.stopAtFirstDeny && j.outcome === 'deny')
+            break;
     }
     const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
     const stderr = done.map(({ j }) => j.stderr).join('');

@@ -42,7 +42,9 @@ const SETTINGS_REL = ['.claude', 'settings.local.json'];
 // first in its group). Keep all genuine deny gates: no-source-edit-from-main,
 // swe-boundary, git-guards, git-push-guard,
 // no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
-// agent-spawn-dispatch, swe-verification-gate, roundtable-auq-shape.
+// agent-spawn-dispatch, swe-resume-gate, roundtable-auq-shape, and the
+// trajectory-gates chain, which runs swe-brief-gate and swe-verification-gate
+// in its own order.
 const ADVISORY_HOOK_DENYLIST = new Set([
     'swe-brief-gate',
     'naming-lint',
@@ -107,7 +109,7 @@ function readPreToolUseFromHooksJson(pluginRoot) {
     for (const group of pre) {
         const hooks = [];
         for (const h of group.hooks ?? []) {
-            const gates = routerGateHooks(pluginRoot, h);
+            const gates = routerGateHooks(pluginRoot, group.matcher ?? '', h);
             if (gates !== null && 'reason' in gates)
                 return gates;
             hooks.push(...(gates ?? [h]));
@@ -117,12 +119,17 @@ function readPreToolUseFromHooksJson(pluginRoot) {
     return groups;
 }
 const ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
-// The router entry (GH 1692 R1) as one `dispatch.sh <gate>` entry per gate
-// dist/hooks-router.txt lists for its event, timed out at the gate's budget,
-// so the shim runs each gate as it ran before the router; null for any other
-// entry, and a reason when the manifest is unreadable or lists no gate for the
-// event, so no shim is written without the router's gates.
-function routerGateHooks(pluginRoot, h) {
+// The chain a router group's tool-filtered gates run through outside the
+// router: the shim's separate entries could not keep their order or filter.
+const GROUP_CHAIN = { 'mcp__.*trajectory-server__.*': 'trajectory-gates' };
+// A router entry (GH 1692) as one `dispatch.sh <gate>` entry per gate
+// dist/hooks-router.txt lists for its event and matcher, timed out at the
+// gate's budget, so the shim runs each gate as it ran before the router; a
+// group with a chain as one `dispatch.sh <chain>` entry, timed out at its
+// gates in sequence (every unfiltered one plus the largest filtered one). Null
+// for any other entry, and a reason when the manifest is unreadable or lists
+// no gate for the group, so no shim is written without the router's gates.
+function routerGateHooks(pluginRoot, matcher, h) {
     const event = ROUTER_COMMAND.exec(h.command ?? '')?.[1];
     if (event === undefined)
         return null;
@@ -133,14 +140,20 @@ function routerGateHooks(pluginRoot, h) {
     catch {
         return { reason: 'dist/hooks-router.txt missing or unreadable' };
     }
-    const gates = manifest
+    const rows = manifest
         .split('\n')
         .map((line) => line.split(' '))
-        .filter((f) => f.length >= 4 && f[3] === event && /^[a-z0-9-]+$/.test(f[0]))
-        .map(([gate, budgetMs]) => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${gate}`, timeout: Math.ceil(Number(budgetMs) / 1000) }));
-    if (gates.length === 0)
-        return { reason: `dist/hooks-router.txt lists no gate for ${event}` };
-    return gates;
+        .filter((f) => f.length >= 5 && f[3] === event && f[4] === matcher && /^[a-z0-9-]+$/.test(f[0]));
+    if (rows.length === 0)
+        return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
+    const dispatched = (name, budgetMs) => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name}`, timeout: Math.ceil(budgetMs / 1000) });
+    const chain = GROUP_CHAIN[matcher];
+    if (chain === undefined)
+        return rows.map(([gate, budgetMs]) => dispatched(gate, Number(budgetMs)));
+    const filtered = (f) => (f[5] ?? '*') !== '*';
+    const unfilteredMs = rows.filter((f) => !filtered(f)).reduce((n, f) => n + Number(f[1]), 0);
+    const largestFilteredMs = Math.max(0, ...rows.filter(filtered).map((f) => Number(f[1])));
+    return [dispatched(chain, unfilteredMs + largestFilteredMs)];
 }
 function keptHooks(group) {
     return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));

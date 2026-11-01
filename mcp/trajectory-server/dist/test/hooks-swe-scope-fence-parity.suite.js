@@ -84,7 +84,7 @@ export function buildScopeSandbox(s) {
 function byLocale(expect, locale) {
     return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
-function caseEnv(s, locale, extra, cwd) {
+export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

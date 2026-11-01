@@ -34815,6 +34815,8 @@ function extractFile(parsers, relPath, lang, src) {
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
+var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
+var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
 var EVENT_ORDER = [
   "SessionStart",
   "UserPromptSubmit",
@@ -34844,7 +34846,10 @@ function eventRanks(events) {
   return new Map(order.map((e, i2) => [e, i2 + 1]));
 }
 var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-function extractHooks(src, chains) {
+function routerGatesOf(table, event, matcher) {
+  return table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] === matcher).map((f) => f[0]);
+}
+function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -34865,11 +34870,13 @@ function extractHooks(src, chains) {
         const cmd = hook.command ?? "";
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
-        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        const routed = cmd.match(/dist\/hooks\.js"?\s+(\S+)\s*$/)?.[1] === event ? routerGatesOf(routerTable2, event, matcher) : [];
+        const isRouted = routed.length > 0;
+        const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = gate ? chains.get(gate) : void 0;
-        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -34878,7 +34885,7 @@ function extractHooks(src, chains) {
           doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
           start_line: line,
           end_line: line,
-          body_hash: md5(`${matcher}\0${cmd}`),
+          body_hash: md5(isRouted ? `${matcher}\0${cmd}\0${routed.join(" ")}` : `${matcher}\0${cmd}`),
           exported: 1,
           run_order: rank * 100 + pos
         });
@@ -34895,7 +34902,7 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 2;
+var EXTRACTOR_VERSION = 3;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
@@ -35092,6 +35099,13 @@ function registrationChains(repoPath) {
     return /* @__PURE__ */ new Map();
   }
 }
+function routerTable(repoPath) {
+  try {
+    return readSource(repoPath, ROUTER_TABLE_PATH);
+  } catch {
+    return "";
+  }
+}
 var toPending = (r) => ({
   from: r.path,
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
@@ -35131,7 +35145,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -35150,7 +35164,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     }
     try {
       const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
       parsed.push({ file: file2, extraction });
     } catch (e) {
       failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });

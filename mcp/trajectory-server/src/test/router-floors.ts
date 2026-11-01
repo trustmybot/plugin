@@ -1,9 +1,11 @@
 /**
- * Each Bash router gate's budget floor (GH 1861): the timeout, in seconds, of
- * the hooks.json registration it ran under before R1 (origin/dev 619ce711).
- * Every gate was its own registration, so its share is that whole timeout.
+ * Each router gate's budget floor (GH 1861): the timeout, in seconds, of the
+ * hooks.json registration it ran under before the router took it (the Bash
+ * gates at origin/dev 619ce711, the rest at 9cc886e8). Every gate was its own
+ * registration, so its share is that whole timeout; a trajectory-gates chain
+ * member's is its chain-table budget.
  */
-export const PRE_R1_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
+export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
   'git-guards': 11,
   'git-push-guard': 6,
@@ -15,11 +17,24 @@ export const PRE_R1_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze(
   'no-remote-auth-guard': 6,
   'remote-id-guard': 6,
   'debug-trajectory': 4,
+  'swe-brief-gate': 6,
+  'no-source-edit-from-main': 6,
+  'swe-scope-fence': 6,
+  'naming-lint': 4,
+  'code-quality-lint': 4,
+  'agent-spawn-dispatch': 16,
+  'swe-resume-gate': 6,
+  'agent-arg-matches-caller': 6,
+  'swe-verification-gate': 1830,
+  'reviewer-identity-observe': 6,
+  'cheatcode-install-approval': 6,
+  'askuserquestion-length-lint': 6,
+  'roundtable-auq-shape': 6,
 });
 
 export function floorMs(gate: string): number {
-  const s = PRE_R1_TIMEOUT_S[gate];
-  if (s === undefined) throw new Error(`no pre-R1 timeout for gate '${gate}'`);
+  const s = PRE_ROUTER_TIMEOUT_S[gate];
+  if (s === undefined) throw new Error(`no pre-router timeout for gate '${gate}'`);
   return s * 1000;
 }
 

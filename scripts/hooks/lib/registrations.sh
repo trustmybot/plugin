@@ -4,17 +4,16 @@
 #
 #   tmb_registration <hooks.json> <name>  — "<timeout> <fail-closed 1|0>"
 #
-# Chains: one hooks.json registration `dispatch.sh <chain>` that
-# runs several gates in a fixed order and stops at the first deny. Claude Code
-# runs the entries of a matcher in parallel, so ordering lives here.
+# Chains: `dispatch.sh <chain>` runs several gates in a fixed order and stops
+# at the first deny. The router's trajectory-server group (GH 1692 R2) runs the
+# same gates in-process; this table is what the bash path and the headless shim
+# run, and a test holds the two equal.
 #
 # A chain table has one line per gate, in run order:
 #   <gate> <timeout s> <tool>
 # <tool> is `*` (every call) or the tool-name suffix after `trajectory-server__`
 # the gate runs for. <timeout s> is the gate's own budget: the dispatcher's
-# duplicate wait and stale-lock age for that gate. The chain's hooks.json
-# timeout covers every `*` gate plus the largest tool-specific one
-# (tests/l1-lint/hook-timeout-budget.sh).
+# duplicate wait and stale-lock age for that gate.
 #
 #   tmb_chain_table <name>              — the table; empty when <name> is no chain
 #   tmb_chain_gates <name> <tool_name>  — the gates one call runs, in order
@@ -49,13 +48,16 @@ tmb_chain_gates() {
 # order, so `"${CLAUDE_PLUGIN_ROOT}/…/dispatch.sh" <name>` and the unquoted
 # form match alike.
 # A gate with no `dispatch.sh <name>` registration that the router serves
-# (a `<gate> <budget ms> <kind> <event> <tools>` line of
+# (a `<gate> <budget ms> <kind> <event> <matcher> <tool suffix|*>` line of
 # mcp/trajectory-server/dist/hooks-router.txt next to <hooks.json>'s plugin
 # root) reads "<budget in whole s> <1 when its kind is enforcement>".
+# A chain with no registration reads "<every * gate plus the largest
+# tool-specific one, in s> 1": chains fail closed.
 tmb_registration() {
-  local router
+  local router table
   router="$(dirname "$1")/../mcp/trajectory-server/dist/hooks-router.txt"
-  awk -v g="$2" -v router="$router" '
+  table=$(tmb_chain_table "$2")
+  TMB_CHAIN_TABLE="$table" awk -v g="$2" -v router="$router" '
     { s = s $0 "\n" }
     END {
       gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", s)
@@ -81,16 +83,28 @@ tmb_registration() {
           break
         }
       }
+      if (t == "" && b == 0 && ENVIRON["TMB_CHAIN_TABLE"] != "") {
+        n = split(ENVIRON["TMB_CHAIN_TABLE"], lines, "\n"); sum = 0; largest = 0
+        for (i = 1; i <= n; i++) {
+          split(lines[i], f, " ")
+          if (f[3] == "*") sum += f[2]; else if (f[2] + 0 > largest) largest = f[2] + 0
+        }
+        t = sum + largest; b = 1
+      }
       print t " " b
     }' "$1" 2>/dev/null
 }
 
-# The router (GH 1692 R1): one exec-form registration per event,
+# The router (GH 1692): one exec-form registration per matcher group,
 #   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>
-# runs the gates dist/hooks-router.txt lists for <Event>, in order.
+# runs the gates dist/hooks-router.txt lists for <Event> and that matcher, in
+# order; a line whose last column is not `*` runs only for a tool name ending
+# in `trajectory-server__<that column>`.
 #
-#   tmb_router_event <command>             — <Event> when <command> is the router, else nothing
-#   tmb_router_gates <plugin root> <Event> — the gates it runs, one per line
+#   tmb_router_event <command> — <Event> when <command> is the router, else nothing
+#   tmb_router_gates <plugin root> <Event> [<matcher> [<tool name>]]
+#     — its gates, one per line, once each: every group's, one group's, or the
+#       ones that group runs for <tool name>
 tmb_router_event() {
   case "$1" in
     'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" '*)
@@ -104,10 +118,13 @@ tmb_router_event() {
 }
 
 tmb_router_gates() {
-  awk -v e="$2" '$4 == e { print $1 }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+  awk -v e="$2" -v m="${3-}" -v t="${4-}" '
+    function serves() { return $6 == "*" || t == "" || (length(t) >= length(s = "trajectory-server__" $6) && substr(t, length(t) - length(s) + 1) == s) }
+    $4 == e && (m == "" || $5 == m) && serves() && !seen[$1]++ { print $1 }
+  ' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }
 
-#   tmb_router_budget_max <plugin root> <Event> — the largest of its gates' budget ms
+#   tmb_router_budget_max <plugin root> <Event> <matcher> — the largest of that group's gate budgets, in ms
 tmb_router_budget_max() {
-  awk -v e="$2" '$4 == e && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+  awk -v e="$2" -v g="$3" '$4 == e && $5 == g && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }

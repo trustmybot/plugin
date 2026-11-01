@@ -7,6 +7,7 @@
  * router's one exec-form entry.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -72,25 +73,47 @@ describe('hooks.json registration shape', () => {
     assert.equal(shapeViolations({ hooks: { Stop: [{ matcher: '', hooks: [{ type: 'prompt', onFailure: 'block' }] }] } }).length, 1, 'a prompt-type hook');
   });
 
-  it('Bash PreToolUse is one group, matcher Bash, one exec-form router entry that fails closed at the router timeout', () => {
-    const bash = HOOKS.hooks.PreToolUse.filter((g) => g.matcher.split('|').includes('Bash'));
-    assert.equal(bash.length, 1);
-    assert.equal(bash[0].matcher, 'Bash');
-    assert.equal(bash[0].hooks.length, 1);
-    const [r] = bash[0].hooks;
-    assert.equal(r.type, 'command');
-    assert.match(r.command ?? '', ROUTER);
-    assert.ok(r.command?.endsWith('dist/hooks.js" PreToolUse'));
-    assert.equal(r.onFailure, 'block');
-    assert.equal(r.timeout, routerTimeoutS());
-    assert.equal('if' in r, false);
+  it('every PreToolUse entry is one router group: its matcher, timeout and onFailure are the registry\'s, in exec form with no if', () => {
+    const groups = ROUTER_GROUPS.filter((g) => g.event === 'PreToolUse');
+    assert.deepEqual(HOOKS.hooks.PreToolUse.map((g) => g.matcher).sort(), groups.map((g) => g.matcher).sort());
+    for (const group of groups) {
+      const [entry] = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === group.matcher);
+      assert.equal(entry.hooks.length, 1, group.matcher);
+      const [r] = entry.hooks;
+      assert.equal(r.type, 'command');
+      assert.match(r.command ?? '', ROUTER);
+      assert.ok(r.command?.endsWith('dist/hooks.js" PreToolUse'), group.matcher);
+      assert.equal(r.timeout, routerTimeoutS(group), group.matcher);
+      assert.equal(r.onFailure, group.gates.some((g) => g.kind === 'enforcement') ? 'block' : undefined, group.matcher);
+      assert.equal('if' in r, false, group.matcher);
+    }
   });
 
-  it('containment-guard and debug-trajectory no longer register for Bash', () => {
-    for (const gate of ['containment-guard', 'debug-trajectory']) {
-      const groups = HOOKS.hooks.PreToolUse.filter((g) => g.hooks.some((r) => (r.command ?? '').endsWith(`dispatch.sh" ${gate}`)));
-      assert.ok(groups.length > 0, `${gate} still registers for its other tools`);
-      for (const g of groups) assert.equal(g.matcher.split('|').includes('Bash'), false, `${gate}: ${g.matcher}`);
+  it('no tool name appears in two PreToolUse matchers, and the advisory groups cannot block', () => {
+    const names = HOOKS.hooks.PreToolUse.flatMap((g) => g.matcher.split('|'));
+    assert.equal(names.length, new Set(names).size, names.join(' '));
+    for (const matcher of ['AskUserQuestion', 'Read|Skill']) {
+      const [entry] = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === matcher);
+      assert.equal(entry.hooks[0].onFailure, undefined, matcher);
+    }
+  });
+
+  it('the trajectory-gates chain table is the router group: names, order, tool filter and budget floor', () => {
+    const table = execFileSync('bash', ['-c', '. "$0"; tmb_chain_table trajectory-gates', join(PLUGIN_ROOT, 'scripts/hooks/lib/registrations.sh')], { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((line) => line.split(' '));
+    const group = ROUTER_GROUPS.find((g) => g.matcher === 'mcp__.*trajectory-server__.*');
+    assert.deepEqual(table.map(([name, , tool]) => [name, tool]), group?.gates.map((g) => [g.name, g.toolSuffix ?? '*']));
+    for (const [name, timeoutS] of table) {
+      const budgetMs = group?.gates.find((g) => g.name === name)?.budgetMs ?? 0;
+      assert.ok(budgetMs >= Number(timeoutS) * 1000, `${name}: ${budgetMs} ms under its ${timeoutS} s`);
+    }
+  });
+
+  it('no PreToolUse gate registers through dispatch.sh any more', () => {
+    for (const g of HOOKS.hooks.PreToolUse) {
+      for (const r of g.hooks) assert.doesNotMatch(r.command ?? '', /dispatch\.sh/, g.matcher);
     }
   });
 });

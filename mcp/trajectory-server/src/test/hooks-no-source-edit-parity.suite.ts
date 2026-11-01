@@ -116,7 +116,7 @@ interface Placeholders {
   noSqlite: string;
 }
 
-function materialize(file: string, p: Placeholders): Case {
+export function materialize(file: string, p: Placeholders): Case {
   const text = readFileSync(file, 'utf8')
     .replaceAll('@SANDBOX@', p.sandbox)
     .replaceAll('@HARNESS_TMP@', p.harnessTmp)
@@ -143,7 +143,7 @@ function byLocale(expect: SideExpect, locale: string): string {
   return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
 
-function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
+export function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of UNSET) delete env[key];
   Object.assign(env, {

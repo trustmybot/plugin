@@ -1,0 +1,4 @@
+// The swe-scope-fence gate of router-parity.suite.ts, run as its own node --test process (GH 2118).
+import { routerParityGate } from './router-parity.suite.js';
+routerParityGate('swe-scope-fence');
+//# sourceMappingURL=router-parity.swe-scope-fence.test.js.map

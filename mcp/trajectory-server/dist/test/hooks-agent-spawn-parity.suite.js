@@ -231,7 +231,7 @@ function snapshot(root) {
     walk(root, false);
     return out;
 }
-function caseEnv(s, locale, extra, cwd) {
+export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

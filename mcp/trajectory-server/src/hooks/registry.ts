@@ -151,9 +151,11 @@ export function gateNames(): string[] {
 }
 
 /*
- * The router (GH 1692 R1): `node dist/hooks.js <event>` runs every gate of the
- * groups whose event and tool match the payload, one after another in this
- * order, each within its budget from router/budgets.json.
+ * The router (GH 1692): `node dist/hooks.js <event>` runs the gates of the one
+ * group whose event and matcher fit the payload, one after another in this
+ * order, each within its budget from router/budgets.json. A matcher is the
+ * text of that group's hooks.json entry; matchers do not overlap, so each call
+ * starts one process. A tool no group matches runs no gates.
  */
 import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
 
@@ -163,56 +165,96 @@ export interface RouterGate {
   readonly name: string;
   readonly kind: RouterGateKind;
   readonly budgetMs: number;
+  /** Runs only for a tool_name ending in `trajectory-server__<toolSuffix>`; absent, for every tool of its group. */
+  readonly toolSuffix?: string;
 }
 
 export interface RouterGroup {
   readonly event: string;
-  readonly tools: readonly string[];
+  readonly matcher: string;
   readonly gates: readonly RouterGate[];
+  /**
+   * The time one call's gates share (decision 922): each gate's deadline is the
+   * smaller of its budget and what is left of this, and a gate that starts with
+   * none left is not run.
+   */
+  readonly groupBudgetMs: number;
+  /** The first deny ends the call, as a dispatch.sh chain does: the later gates' side effects never happen. */
+  readonly stopAtFirstDeny?: boolean;
 }
 
-function routerGate(name: string, kind: RouterGateKind): RouterGate {
+function routerGate(name: string, kind: RouterGateKind, toolSuffix?: string): RouterGate {
   const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
-  return { name, kind, budgetMs: budgets[name].budget_ms };
+  return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }) };
+}
+
+function preToolUseGroup(matcher: string, gates: readonly RouterGate[], opts: { stopAtFirstDeny?: boolean } = {}): RouterGroup {
+  const budgets: Record<string, { group_budget_ms: number }> = ROUTER_BUDGETS.groups;
+  return { event: 'PreToolUse', matcher, gates, groupBudgetMs: budgets[matcher].group_budget_ms, ...opts };
 }
 
 export const ROUTER_GROUPS: readonly RouterGroup[] = [
-  {
-    event: 'PreToolUse',
-    tools: ['Bash'],
-    gates: [
-      routerGate('containment-guard', 'enforcement'),
-      routerGate(GIT_GUARDS_GATE, 'enforcement'),
-      routerGate(PUSH_GUARD_GATE, 'enforcement'),
-      routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
-      routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),
-      routerGate(STAY_ON_BASE_GATE, 'enforcement'),
-      routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
-      routerGate(COMMIT_MSG_GATE, 'advisory'),
-      routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
-      routerGate(REMOTE_ID_GATE, 'enforcement'),
-      routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
+  preToolUseGroup('Write|Edit|MultiEdit|NotebookEdit', [
+    routerGate('containment-guard', 'enforcement'),
+    routerGate(SWE_BRIEF_GATE, 'enforcement'),
+    routerGate(NO_SOURCE_EDIT_GATE, 'enforcement'),
+    routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
+    routerGate(SWE_SCOPE_FENCE_GATE, 'advisory'),
+    routerGate(NAMING_LINT_GATE, 'advisory'),
+    routerGate(CQ_LINT_GATE, 'advisory'),
+    routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
+  ]),
+  preToolUseGroup('Bash', [
+    routerGate('containment-guard', 'enforcement'),
+    routerGate(GIT_GUARDS_GATE, 'enforcement'),
+    routerGate(PUSH_GUARD_GATE, 'enforcement'),
+    routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
+    routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),
+    routerGate(STAY_ON_BASE_GATE, 'enforcement'),
+    routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
+    routerGate(COMMIT_MSG_GATE, 'advisory'),
+    routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
+    routerGate(REMOTE_ID_GATE, 'enforcement'),
+    routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
+  ]),
+  preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
+  preToolUseGroup('SendMessage', [routerGate(SWE_RESUME_GATE, 'enforcement')]),
+  preToolUseGroup(
+    'mcp__.*trajectory-server__.*',
+    [
+      routerGate(AGENT_ARG_GATE, 'enforcement'),
+      routerGate(SWE_BRIEF_GATE, 'enforcement'),
+      routerGate(SWE_VERIFICATION_GATE, 'enforcement', 'task_update_status'),
+      routerGate(REVIEWER_IDENTITY_GATE, 'enforcement', 'validation_record'),
+      routerGate(CHEATCODE_APPROVAL_GATE, 'enforcement', 'cheatcode_install'),
     ],
-  },
+    { stopAtFirstDeny: true },
+  ),
+  preToolUseGroup('AskUserQuestion', [routerGate('askuserquestion-length-lint', 'advisory'), routerGate(RT_AUQ_SHAPE_GATE, 'advisory')]),
+  preToolUseGroup('Read|Skill', [routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
 ];
 
 export function routerEvents(): ReadonlySet<string> {
   return new Set(ROUTER_GROUPS.map((g) => g.event));
 }
 
-/** The gates a call runs: those of every group matching its event and tool_name, in group order. */
-export function routerGates(event: string, tool: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): RouterGate[] {
-  return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
+/** Whether <matcher>, hooks.json regex text, matches the whole of <tool>. */
+export function matcherFits(matcher: string, tool: string): boolean {
+  return new RegExp(`^(?:${matcher})$`).test(tool);
 }
 
-/**
- * The time one call's gates share (decision 922): each gate's deadline is the
- * smaller of its budget and what is left of this, and a gate that starts with
- * none left is not run.
- */
-export const ROUTER_GROUP_BUDGET_MS: number = ROUTER_BUDGETS.group_budget_ms;
+/** The group serving a call: the first whose event and matcher fit. */
+export function routerGroup(event: string, tool: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): RouterGroup | undefined {
+  return groups.find((g) => g.event === event && matcherFits(g.matcher, tool));
+}
 
-/** The router's hooks.json timeout (s): the parse allowance plus the group budget, rounded up, plus 1 s. */
-export function routerTimeoutS(groupBudgetMs: number = ROUTER_GROUP_BUDGET_MS): number {
-  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + groupBudgetMs) / 1000) + 1;
+/** The gates a call runs: its group's, less those whose tool filter excludes <tool>, in group order. */
+export function routerGates(event: string, tool: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): RouterGate[] {
+  const gates = routerGroup(event, tool, groups)?.gates ?? [];
+  return gates.filter((g) => g.toolSuffix === undefined || tool.endsWith(`trajectory-server__${g.toolSuffix}`));
+}
+
+/** The router's hooks.json timeout (s) for <group>: the parse allowance plus its group budget, rounded up, plus 1 s. */
+export function routerTimeoutS(group: Pick<RouterGroup, 'groupBudgetMs'>): number {
+  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + group.groupBudgetMs) / 1000) + 1;
 }

@@ -140,7 +140,7 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
         cpSync(s, pristine, { recursive: true, verbatimSymlinks: true });
     });
     beforeEach(() => {
-        rmSync(s, { recursive: true, force: true });
+        rmSync(s, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         cpSync(pristine, s, { recursive: true, verbatimSymlinks: true });
     });
     after(() => rmSync(base, { recursive: true, force: true }));

@@ -81,18 +81,18 @@ export TMB_INSTALLED_JSON="$SANDBOX/no-installed-plugins.json"
 . "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
 
 # gates <tool> — every PreToolUse gate hooks.json registers for <tool>, the
-# router entry's gates (dist/hooks-router.txt) included.
+# gates the router runs for it (dist/hooks-router.txt) included.
 gates() {
-  local cmd event
-  while IFS= read -r cmd; do
+  local matcher cmd event
+  while IFS=$'\t' read -r matcher cmd; do
     event=$(tmb_router_event "$cmd")
     if [ -n "$event" ]; then
-      tmb_router_gates "$PLUGIN_ROOT" "$event"
+      tmb_router_gates "$PLUGIN_ROOT" "$event" "$matcher" "$1"
     else
       printf '%s\n' "$cmd" | sed -nE 's/.*dispatch\.sh"? ([a-z0-9-]+).*/\1/p'
     fi
   done < <(jq -r --arg t "$1" '.hooks.PreToolUse[] | select(.matcher as $m | $t | test("^(" + $m + ")$"))
-                      | .hooks[].command' "$PLUGIN_ROOT/hooks/hooks.json")
+                      | .matcher as $m | .hooks[] | [$m, .command] | @tsv' "$PLUGIN_ROOT/hooks/hooks.json")
 }
 
 SEQ_FILE="$SANDBOX/seq"
