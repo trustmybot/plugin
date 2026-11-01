@@ -4,6 +4,7 @@ Design rationale for how the TMB plugin is built — the schema, the workflow ga
 
 | File | Purpose |
 |---|---|
+| [`MEMORY.md`](./MEMORY.md) | The key principle of TMB's memory system for every agent: the trajectory DB is cold storage, session context is hot storage |
 | [`PHILOSOPHY.md`](./PHILOSOPHY.md) | The design principles behind the plugin and the rules for how it is developed |
 | [`ERD.md`](./ERD.md) | Trajectory DB entity-relationship diagram — the SQLite schema, table groups, and where the DB lives on disk |
 | [`FLOWS.md`](./FLOWS.md) | The Human → bro → SWE decision chain and the two gates (bro = task gate, code-reviewer = push gate) |
