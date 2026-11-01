@@ -3,45 +3,10 @@
  * with jq 1.7's stream semantics: the input is a sequence of JSON values, a
  * value whose filter errors (indexing a string, an array, a number) is skipped
  * and the next one runs, and a parse error ends the stream after the values
- * before it.
+ * before it. Objects keep jq's key order (jq-key-order.ts).
  */
+import { isRawJson, keysInOrder, parseKeepingKeyOrder, stringifyInOrder, valueEnd, type JsonReviver } from './jq-key-order.js';
 import { jqRawText } from './project-env.js';
-
-function valueEnd(text: string, start: number): number {
-  const first = text[start];
-  if (first === '"') {
-    let i = start + 1;
-    while (i < text.length) {
-      if (text[i] === '\\') i += 2;
-      else if (text[i] === '"') return i + 1;
-      else i += 1;
-    }
-    return -1;
-  }
-  if (first === '{' || first === '[') {
-    let depth = 0;
-    let i = start;
-    while (i < text.length) {
-      const ch = text[i];
-      if (ch === '"') {
-        const end = valueEnd(text, i);
-        if (end < 0) return -1;
-        i = end;
-        continue;
-      }
-      if (ch === '{' || ch === '[') depth += 1;
-      else if (ch === '}' || ch === ']') {
-        depth -= 1;
-        if (depth === 0) return i + 1;
-      }
-      i += 1;
-    }
-    return -1;
-  }
-  let i = start;
-  while (i < text.length && !/[\s{}[\]",]/.test(text[i])) i += 1;
-  return i === start ? -1 : i;
-}
 
 /** The JSON values of a jq input stream, up to the first one that fails to parse. */
 export function jsonValues(text: string, reviver?: JsonReviver): unknown[] {
@@ -53,7 +18,7 @@ export function jsonValues(text: string, reviver?: JsonReviver): unknown[] {
     const end = valueEnd(text, i);
     if (end < 0) return values;
     try {
-      values.push(JSON.parse(text.slice(i, end), reviver));
+      values.push(parseKeepingKeyOrder(text.slice(i, end), reviver));
     } catch {
       return values;
     }
@@ -74,7 +39,7 @@ export function jsonStream(text: string): { values: unknown[]; complete: boolean
     const end = valueEnd(text, i);
     if (end < 0) return { values, complete: false };
     try {
-      values.push(JSON.parse(text.slice(i, end)));
+      values.push(parseKeepingKeyOrder(text.slice(i, end)));
     } catch {
       return { values, complete: false };
     }
@@ -87,15 +52,12 @@ export function jqRawElements(text: string): string {
   const out: string[] = [];
   for (const value of jsonStream(text).values) {
     if (value === null || typeof value !== 'object') continue;
-    for (const v of Array.isArray(value) ? value : Object.values(value)) out.push(jqRawText(v));
+    for (const v of Array.isArray(value) ? value : keysInOrder(value).map((key) => (value as Record<string, unknown>)[key])) out.push(jqRawText(v));
   }
   return out.join('\n');
 }
 
 class JqError extends Error {}
-
-const isRawJson = (value: unknown): boolean =>
-  (JSON as unknown as { isRawJSON?: (v: unknown) => boolean }).isRawJSON?.(value) ?? false;
 
 function index(value: unknown, key: string): unknown {
   if (value === null || value === undefined) return null;
@@ -174,7 +136,7 @@ export function jqContentStrings(text: string): string[] {
     try {
       const v = getPath(value, ['message', 'content']);
       const content = truthy(v) ? v : [];
-      out.push(typeof content === 'string' ? content : JSON.stringify(content));
+      out.push(typeof content === 'string' ? content : stringifyInOrder(content));
     } catch (e) {
       if (!(e instanceof JqError)) throw e;
     }
@@ -184,10 +146,8 @@ export function jqContentStrings(text: string): string[] {
 
 /** `jq -c` output of a JSON value: JSON.stringify, with DEL escaped as jq does. */
 export function jqCompact(value: unknown): string {
-  return JSON.stringify(value).replace(/\x7f/g, '\\u007f');
+  return stringifyInOrder(value).replace(/\x7f/g, '\\u007f');
 }
-
-type JsonReviver = (this: unknown, key: string, value: unknown, context?: { source?: string }) => unknown;
 
 /**
  * A JSON number literal as jq 1.7 prints it: the decNumber scientific string
