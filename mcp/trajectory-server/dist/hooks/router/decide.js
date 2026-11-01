@@ -24,10 +24,12 @@
  * context, so plain text is an output there, kept as is; only text shaped as JSON
  * that fails to parse is dropped. WorktreeCreate reads stdout as the path and
  * fails creation on any non-zero exit, so it prints the gate's bare path or
- * nothing, and every failure there exits 1 naming the cause.
+ * nothing, and every failure there exits 1 naming the cause. The call's gates
+ * share one memo of read-only git (lib/git.ts).
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import { runWithDeadline } from '../lib/deadline.js';
+import { runWithGitMemo } from '../lib/git.js';
 import { ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 import { shGate } from './sh-gate.js';
 export const ROUTER_NAME = 'router';
@@ -249,6 +251,9 @@ export function payloadTool(payload) {
     return typeof tool === 'string' ? tool : '';
 }
 export async function decide(event, payload, env, deps = {}) {
+    return await runWithGitMemo(env, () => decideCall(event, payload, env, deps));
+}
+async function decideCall(event, payload, env, deps) {
     const now = deps.now ?? (() => performance.now());
     const tool = payloadTool(payload);
     const groups = deps.groups ?? ROUTER_GROUPS;

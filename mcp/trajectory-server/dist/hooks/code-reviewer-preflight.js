@@ -23,9 +23,9 @@ import { ALLOW } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
 import { gitSpawn } from './lib/git.js';
+import { resolveBaseRef, resolveRepoDefaultBranch } from './lib/git-refs.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
-import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 export const GATE_NAME = 'code-reviewer-preflight';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 const GIT_TIMEOUT_MS = 10_000;
@@ -228,15 +228,15 @@ function readTask(db, taskId, env) {
     return { commitSha, parentBranch, branch: branch.join('|') };
 }
 /** The ref of the task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
-function prTargetRef(repo, targetBranch, parentBranch) {
-    for (const candidate of [targetBranch, parentBranch, resolveRepoDefaultBranch(repo)]) {
+async function prTargetRef(repo, targetBranch, parentBranch, env) {
+    for (const candidate of [targetBranch, parentBranch]) {
         if (candidate === '')
             continue;
-        const ref = resolveBaseRef(repo, candidate);
+        const ref = await resolveBaseRef(repo, candidate, env);
         if (ref)
             return ref;
     }
-    return null;
+    return await resolveBaseRef(repo, await resolveRepoDefaultBranch(repo, env), env);
 }
 async function preflight(db, taskId, env) {
     const task = readTask(db, taskId, env);
@@ -278,7 +278,7 @@ async function preflight(db, taskId, env) {
     const targetRow = gateRead(db, `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(location.repo)}';`, env);
     if (targetRow === GATE_READ_ERROR)
         return dbUnavailable(env);
-    const targetRef = prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch);
+    const targetRef = await prTargetRef(repo, targetRow.split('\n')[0], task.parentBranch, env);
     const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
     if (targetRef === null || targetTip === null) {
         return deny({
