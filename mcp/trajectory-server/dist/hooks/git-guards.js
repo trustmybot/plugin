@@ -175,14 +175,14 @@ class GitGuards {
         this.landings = inlineLandings(stripTrailingNewlines(lines.map((l) => (l.includes('\t') ? l.slice(l.indexOf('\t') + 1) : l)).join('\n')));
         this.dbReadable = db !== '' && isFile(db) && haveSqlite(env);
     }
-    git(dir, ...args) {
-        return gitOut(dir, args, this.env);
+    async git(dir, ...args) {
+        return await gitOut(dir, args, this.env);
     }
-    gitOk(dir, ...args) {
-        return gitOk(dir, args, this.env);
+    async gitOk(dir, ...args) {
+        return await gitOk(dir, args, this.env);
     }
     /** load_policy: the repos row of <root>, or false for no root or an unregistered repo. */
-    loadPolicy(root) {
+    async loadPolicy(root) {
         if (root === '')
             return false;
         this.gitRoot = root;
@@ -195,7 +195,7 @@ class GitGuards {
             this.prTarget = cutField(row, 1);
             raw = cutField(row, 3);
         }
-        const defaultBranch = repoDefaultBranch(root, this.env);
+        const defaultBranch = await repoDefaultBranch(root, this.env);
         this.prTarget ||= defaultBranch;
         raw ||= jqCompact([defaultBranch]);
         const parsed = jsonStream(raw);
@@ -208,14 +208,14 @@ class GitGuards {
         return this.protectedBranches.split('\n').includes(branch);
     }
     /** dir_branch: the branch checked out in <dir>, else the newest task whose branch_id ends in /<basename of dir>. */
-    dirBranch(dir) {
-        const branch = this.git(dir, 'branch', '--show-current');
+    async dirBranch(dir) {
+        const branch = await this.git(dir, 'branch', '--show-current');
         if (branch !== '' || !this.dbReadable)
             return branch;
         return taskBySlug(this.db, posixBasename(dir), 'branch_id', '', this.env, (line) => process.stderr.write(`${line}\n`)).replace(/\n/g, '');
     }
-    dirInWorktree(dir) {
-        const top = this.git(dir, 'rev-parse', '--show-toplevel');
+    async dirInWorktree(dir) {
+        const top = await this.git(dir, 'rev-parse', '--show-toplevel');
         return top !== '' && physicalDir(top) !== physicalDir(this.gitRoot);
     }
     /** need_dir: deny an ambiguous dir; false for an unknown or missing one. */
@@ -239,16 +239,16 @@ class GitGuards {
         }
         return new Set(out.filter((b) => !/^[ \t\n\v\f\r]*$/.test(b)));
     }
-    rule2Recovery(dir) {
+    async rule2Recovery(dir) {
         if (dir === '-' || dir === '?' || dir === '' || !isDir(dir))
             return '';
-        if (this.git(dir, 'remote', '-v') !== '') {
+        if (await this.git(dir, 'remote', '-v') !== '') {
             return ` Push your feature branch and open a PR into ${this.prTarget}: git push origin <branch> && gh pr create --base ${this.prTarget} --head <branch>.`;
         }
         return ' This repo has no remote — leave the branch unmerged and surface it to the Human for integration.';
     }
     /** ff_sync_switch: the local branch statement <i> switches to right before `&&` and the merge, "" otherwise. */
-    ffSyncSwitch(i, dir) {
+    async ffSyncSwitch(i, dir) {
         if (i < 0 || (this.dirs[i] ?? '') !== dir)
             return '';
         const stmt = this.stmts[i];
@@ -264,7 +264,7 @@ class GitGuards {
         const name = w[k] ?? '';
         if (name === '' || name.startsWith('-') || k + 1 !== w.length)
             return '';
-        if (!this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`))
+        if (!await this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`))
             return '';
         if (NON_ASCII.test(this.command))
             return '';
@@ -280,7 +280,7 @@ class GitGuards {
         return head === '' || head.endsWith(';') || head.endsWith('&&') ? name : '';
     }
     /** ff_upstream_sync: statement <idx> fast-forwards a branch to its own remote-tracking upstream. */
-    ffUpstreamSync(idx, dir, sub) {
+    async ffUpstreamSync(idx, dir, sub) {
         const own = this.dirs[idx] ?? '';
         if (own === '-' || own === '?' || own === '')
             return false;
@@ -300,7 +300,7 @@ class GitGuards {
         }
         if (!ff || target === '')
             return false;
-        let branch = this.ffSyncSwitch(idx - 1, own);
+        let branch = await this.ffSyncSwitch(idx - 1, own);
         const skip = branch === '' ? -1 : idx - 1;
         for (let j = 0; j < this.stmts.length; j++) {
             if (j === idx || j === skip || this.stmts[j] === '')
@@ -308,20 +308,20 @@ class GitGuards {
             if (!ffSyncOtherOk(this.stmts[j]))
                 return false;
         }
-        branch ||= this.git(dir, 'branch', '--show-current');
-        if (branch === '' || !this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`))
+        branch ||= await this.git(dir, 'branch', '--show-current');
+        if (branch === '' || !await this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`))
             return false;
-        const remote = this.git(dir, 'config', '--get', `branch.${branch}.remote`);
+        const remote = await this.git(dir, 'config', '--get', `branch.${branch}.remote`);
         if (remote === '' || remote === '.')
             return false;
-        const up = this.git(dir, 'rev-parse', '--symbolic-full-name', `${branch}@{u}`);
+        const up = await this.git(dir, 'rev-parse', '--symbolic-full-name', `${branch}@{u}`);
         if (!/^refs\/remotes\/[\s\S]/.test(up))
             return false;
         if (target === '@{u}' || target === '@{upstream}')
             return true;
-        return this.git(dir, 'rev-parse', '--symbolic-full-name', target) === up;
+        return await this.git(dir, 'rev-parse', '--symbolic-full-name', target) === up;
     }
-    ghRule(stmt, dir, unresolved) {
+    async ghRule(stmt, dir, unresolved) {
         const pr = this.prTarget;
         const base = optionValue(stmt, `--base[= ]${NONSPACE}+`, '--base[= ]+');
         if (base !== '' && base === pr)
@@ -329,7 +329,7 @@ class GitGuards {
         if (pr === 'dev' && base === 'main') {
             let head = optionValue(stmt, `--head[= ]${NONSPACE}+`, '--head[= ]+');
             if (head === '' && this.needDir(dir, stmt, unresolved))
-                head = this.git(dir, 'branch', '--show-current');
+                head = await this.git(dir, 'branch', '--show-current');
             if (head !== 'dev') {
                 throw deny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${pr}: gh pr create --base ${pr} --head <branch>. Got --head=${head}.`);
             }
@@ -337,7 +337,7 @@ class GitGuards {
         }
         throw deny(`BLOCKED: PRs must target ${pr} branch. Use: gh pr create --base ${pr} --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)`);
     }
-    glabRule(stmt, dir, unresolved) {
+    async glabRule(stmt, dir, unresolved) {
         const pr = this.prTarget;
         const target = optionValue(stmt, `--target-branch[= ]${NONSPACE}+`, '--target-branch[= ]+') ||
             optionValue(stmt, `(^|${SPACE})-b[= ]${NONSPACE}+`, `^${SPACE}*-b[= ]+`);
@@ -347,7 +347,7 @@ class GitGuards {
             return;
         if (pr === 'dev' && target === 'main') {
             if (source === '' && this.needDir(dir, stmt, unresolved))
-                source = this.git(dir, 'branch', '--show-current');
+                source = await this.git(dir, 'branch', '--show-current');
             if (source !== 'dev') {
                 throw deny(`BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to ${pr}: glab mr create --target-branch ${pr} --source-branch <branch>. Got --source-branch=${source}.`);
             }
@@ -355,18 +355,18 @@ class GitGuards {
         }
         throw deny(`BLOCKED: MRs must target ${pr} branch. Use: glab mr create --target-branch ${pr} --source-branch <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)`);
     }
-    integrationRule(idx, sub, stmt, dir, unresolved) {
-        if (!this.needDir(dir, stmt, unresolved) || this.dirInWorktree(dir))
+    async integrationRule(idx, sub, stmt, dir, unresolved) {
+        if (!this.needDir(dir, stmt, unresolved) || await this.dirInWorktree(dir))
             return;
-        const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.${this.rule2Recovery(dir)}`;
+        const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.${await this.rule2Recovery(dir)}`;
         if (sub === 'merge' || sub.startsWith('merge ')) {
-            if (this.ffUpstreamSync(idx, dir, sub))
+            if (await this.ffUpstreamSync(idx, dir, sub))
                 return;
             throw deny(`${reason} To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.`);
         }
         throw deny(reason);
     }
-    commitRule(stmt, dir, unresolved) {
+    async commitRule(stmt, dir, unresolved) {
         const bases = this.rule2ProtectedBases();
         let branch;
         if (this.landings !== '') {
@@ -375,14 +375,14 @@ class GitGuards {
         else {
             if (!this.needDir(dir, stmt, unresolved))
                 return;
-            branch = this.dirBranch(dir);
+            branch = await this.dirBranch(dir);
             if (!bases.has(branch))
                 branch = '';
         }
         if (branch !== '')
-            throw deny(`BLOCKED: ${branch} is a shared workflow base — no direct commits/merges/rebases.${this.rule2Recovery(dir)}`);
+            throw deny(`BLOCKED: ${branch} is a shared workflow base — no direct commits/merges/rebases.${await this.rule2Recovery(dir)}`);
     }
-    forcePushRule(sub, stmt, dir, unresolved) {
+    async forcePushRule(sub, stmt, dir, unresolved) {
         let force = false;
         const pos = [];
         for (const a of words(sub.startsWith('push') ? sub.slice(4) : sub)) {
@@ -397,18 +397,18 @@ class GitGuards {
         if (target === '') {
             if (!this.needDir(dir, stmt, unresolved))
                 return;
-            target = this.git(dir, 'branch', '--show-current');
+            target = await this.git(dir, 'branch', '--show-current');
         }
         if (target !== '' && this.branchIsProtected(target))
             throw deny(`BLOCKED: Force push to ${target} is forbidden. This is destructive and irreversible.`);
     }
-    newBranchRule(stmt, dir, unresolved) {
+    async newBranchRule(stmt, dir, unresolved) {
         if (!this.needDir(dir, stmt, unresolved))
             return;
-        const branch = this.dirBranch(dir);
+        const branch = await this.dirBranch(dir);
         let t = this.prTarget;
-        if (!this.gitOk(dir, 'rev-parse', '--verify', '--quiet', t) && !this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `origin/${t}`)) {
-            const fallback = repoDefaultBranch(this.gitRoot, this.env);
+        if (!await this.gitOk(dir, 'rev-parse', '--verify', '--quiet', t) && !await this.gitOk(dir, 'rev-parse', '--verify', '--quiet', `origin/${t}`)) {
+            const fallback = await repoDefaultBranch(this.gitRoot, this.env);
             if (fallback !== '')
                 t = fallback;
         }
@@ -417,15 +417,15 @@ class GitGuards {
         }
         if (branch === '')
             throw deny(`BLOCKED: Detached HEAD detected. Run: git checkout -B ${t} origin/${t} to reattach, then create your feature branch.`);
-        if (this.git(dir, 'remote', 'get-url', 'origin') === '')
+        if (await this.git(dir, 'remote', 'get-url', 'origin') === '')
             return;
-        gitRun(dir, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', 'origin', t, '--quiet'], this.env);
-        const local = this.git(dir, 'rev-parse', '--verify', t);
-        const remote = this.git(dir, 'rev-parse', '--verify', `origin/${t}`);
+        await gitRun(dir, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', 'origin', t, '--quiet'], this.env);
+        const local = await this.git(dir, 'rev-parse', '--verify', t);
+        const remote = await this.git(dir, 'rev-parse', '--verify', `origin/${t}`);
         if (local !== '' && remote !== '' && local !== remote)
             throw deny(`BLOCKED: Local ${t} is behind origin/${t}. Run: git pull origin ${t} first.`);
     }
-    judge(idx) {
+    async judge(idx) {
         const stmt = this.stmts[idx];
         if (stmt === '')
             return;
@@ -441,27 +441,27 @@ class GitGuards {
         let unresolved = false;
         if (dir === '-') {
             unresolved = true;
-            dir = cwdState(this.cwd, this.env);
+            dir = await cwdState(this.cwd, this.env);
         }
-        if (!this.loadPolicy(stmtRepoRoot(dir, this.cwd, this.env)))
+        if (!await this.loadPolicy(await stmtRepoRoot(dir, this.cwd, this.env)))
             return;
         if (forge === 'gh')
-            return this.ghRule(stmt, dir, unresolved);
+            return await this.ghRule(stmt, dir, unresolved);
         if (forge === 'glab')
-            return this.glabRule(stmt, dir, unresolved);
+            return await this.glabRule(stmt, dir, unresolved);
         if (INTEGRATION_SUB.test(sub))
-            return this.integrationRule(idx, sub, stmt, dir, unresolved);
+            return await this.integrationRule(idx, sub, stmt, dir, unresolved);
         if (sub === 'commit' || sub.startsWith('commit '))
-            return this.commitRule(stmt, dir, unresolved);
+            return await this.commitRule(stmt, dir, unresolved);
         if (sub === 'push' || sub.startsWith('push '))
-            return this.forcePushRule(sub, stmt, dir, unresolved);
+            return await this.forcePushRule(sub, stmt, dir, unresolved);
         if (sub.startsWith('checkout -b ') || sub.startsWith('switch -c '))
-            return this.newBranchRule(stmt, dir, unresolved);
+            return await this.newBranchRule(stmt, dir, unresolved);
     }
-    run() {
+    async run() {
         try {
             for (let idx = 0; idx < this.lines.length; idx++)
-                this.judge(idx);
+                await this.judge(idx);
         }
         catch (e) {
             if (e instanceof Denied)
@@ -490,6 +490,6 @@ export const gitGuards = async (payload, env) => {
     const text = stripTrailingNewlines(listed.statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
     if (text === '')
         return ALLOW;
-    return new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n')).run();
+    return await new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n')).run();
 };
 //# sourceMappingURL=git-guards.js.map

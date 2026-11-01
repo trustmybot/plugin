@@ -169,8 +169,8 @@ class Boundary {
     return dbPath(this.env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   }
 
-  taskFor(target: string, db: string): string {
-    return this.callerTask !== '' ? this.callerTask : resolveTaskIdForTarget(target, this.input, db, this.env);
+  async taskFor(target: string, db: string): Promise<string> {
+    return this.callerTask !== '' ? this.callerTask : await resolveTaskIdForTarget(target, this.input, db, this.env);
   }
 
   wtOf(path: string): string {
@@ -226,7 +226,7 @@ class Boundary {
         rel = path;
       }
       if (wt !== '' && rel === 'CLAUDE.md') rootClaudeMd = path;
-      if (surface === '' && isPromptSurfacePath(rel, wt, this.env)) {
+      if (surface === '' && await isPromptSurfacePath(rel, wt, this.env)) {
         surface = path;
         anchor = wt === '' ? '' : path;
       }
@@ -240,7 +240,7 @@ class Boundary {
 
     let lifted = false;
     if (surface !== '' || unresolved !== '') {
-      const task = this.taskFor(anchor, db);
+      const task = await this.taskFor(anchor, db);
       if (task !== '' && db !== '' && haveSqlite(this.env)) {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
@@ -274,7 +274,7 @@ class Boundary {
       const wt = this.wtOf(path);
       if (wt !== fenceWt) {
         fenceWt = wt;
-        fenceTask = this.taskFor(path, db);
+        fenceTask = await this.taskFor(path, db);
         scope.load(db, fenceTask);
       }
       if (scope.state !== 'ok') continue;
@@ -310,7 +310,7 @@ class Boundary {
     return found.length === 1 ? found[0] : fallback;
   }
 
-  bypassCheck(): GateResult {
+  async bypassCheck(): Promise<GateResult> {
     const session = sessionOf(this.input);
     if (session === '') return ALLOW;
     const state = stateDir(this.env);
@@ -341,7 +341,7 @@ class Boundary {
     if (Math.floor(Date.now() / 1000) - at > windowMin * 60) return drop();
     const db = capture(dbPath(this.env) ?? '');
     if (db === '' || !haveSqlite(this.env)) return ALLOW;
-    const task = this.taskFor(this.target, db);
+    const task = await this.taskFor(this.target, db);
     let issue = '-1';
     if (task !== '') issue = sqlInt(capture(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${task};`, this.env))) || '-1';
     const rel = this.wtD === '' ? this.target : stripDir(this.target, this.wtD);
@@ -376,7 +376,7 @@ class Boundary {
     );
   }
 
-  edit(): GateResult {
+  async edit(): Promise<GateResult> {
     this.target = field(this.input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
     const target = this.target;
     if (target === '') return ALLOW;
@@ -406,16 +406,16 @@ class Boundary {
       subject = this.wtD === '' ? target : stripDir(target, this.wtD);
     }
     if (this.wtD !== '' && subject === 'CLAUDE.md') return deny(claudeMdReason(target));
-    if (!isPromptSurfacePath(subject, this.wtD, this.env)) return this.bypassCheck();
+    if (!await isPromptSurfacePath(subject, this.wtD, this.env)) return await this.bypassCheck();
 
     const db = this.dbPath();
     if (dbState(this.env) === 'error') return this.dbDenied();
     if (db !== '' && haveSqlite(this.env)) {
-      const task = this.taskFor(target, db);
+      const task = await this.taskFor(target, db);
       if (task !== '') {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
-        if (pb === '1') return this.bypassCheck();
+        if (pb === '1') return await this.bypassCheck();
       }
     }
     return deny(
@@ -428,10 +428,10 @@ export const sweBoundary: Gate = async (payload, env) => {
   const b = new Boundary(payload, env);
   const early = b.resolve();
   if (early) return early;
-  if (b.toolName === 'Bash' && b.swe) return b.bash();
+  if (b.toolName === 'Bash' && b.swe) return await b.bash();
   if (!EDIT_TOOLS.has(b.toolName) || !b.swe) return ALLOW;
   try {
-    return b.edit();
+    return await b.edit();
   } catch (e) {
     if (!(e instanceof ArithmeticAbort)) throw e;
     process.stderr.write(`${e.message}\n`);

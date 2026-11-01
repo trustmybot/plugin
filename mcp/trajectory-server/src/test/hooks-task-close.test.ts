@@ -109,8 +109,8 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
   });
   after(() => rmSync(base, { recursive: true, force: true }));
 
-  it('auto-completes a running task whose worktree carries a commit', () => {
-    assert.deepEqual(sweAtomicClose(stop('30'), { ...env }), ALLOWED);
+  it('auto-completes a running task whose worktree carries a commit', async () => {
+    assert.deepEqual(await sweAtomicClose(stop('30'), { ...env }), ALLOWED);
     const d = db();
     try {
       const task = d.prepare('SELECT status, commit_sha FROM tasks WHERE id = 30').get() as { status: string; commit_sha: string };
@@ -125,18 +125,18 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     }
   });
 
-  it('warns bro when a running task stopped without commits', () => {
-    const r = sweAtomicClose(stop('32'), { ...env });
+  it('warns bro when a running task stopped without commits', async () => {
+    const r = await sweAtomicClose(stop('32'), { ...env });
     assert.match(r.stdout, /"hookEventName":"SubagentStop".*stopped without committing in worktree/);
   });
 
-  it('names a hook block after the run', () => {
-    const r = sweAtomicClose(stop('37'), { ...env });
+  it('names a hook block after the run', async () => {
+    const r = await sweAtomicClose(stop('37'), { ...env });
     assert.match(r.stdout, /ended on a hook block with no completion report \(\\"PreToolUse:Bash hook error: BLOCKED: policy second line\\"\)/);
   });
 
-  it('meters a code-reviewer stop at reviewer_effort and leaves the task alone', () => {
-    assert.deepEqual(sweAtomicClose(stop('43', 'code-reviewer'), { ...env }), ALLOWED);
+  it('meters a code-reviewer stop at reviewer_effort and leaves the task alone', async () => {
+    assert.deepEqual(await sweAtomicClose(stop('43', 'code-reviewer'), { ...env }), ALLOWED);
     const d = db();
     try {
       const run = d.prepare("SELECT effort, tokens_in, usage_source, completed_at IS NOT NULL AS closed FROM agent_runs WHERE spawn_id = 'agent-43'").get();
@@ -147,9 +147,9 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     }
   });
 
-  it('records an unbound swe spawn as agent_runs_capture_skipped and ignores any other subagent', () => {
-    assert.deepEqual(sweAtomicClose(stop('unbound'), { ...env }), ALLOWED);
-    assert.deepEqual(sweAtomicClose(stop('30', 'consultant'), { ...env }), ALLOWED);
+  it('records an unbound swe spawn as agent_runs_capture_skipped and ignores any other subagent', async () => {
+    assert.deepEqual(await sweAtomicClose(stop('unbound'), { ...env }), ALLOWED);
+    assert.deepEqual(await sweAtomicClose(stop('30', 'consultant'), { ...env }), ALLOWED);
     const d = db();
     try {
       assert.deepEqual({ ...d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'agent_runs_capture_skipped'").get() }, { n: 1 });

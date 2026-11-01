@@ -27,7 +27,7 @@
  * nothing, and every failure there exits 1 naming the cause.
  */
 import { bashParser } from '../cmd-analysis/parser.js';
-import { armDeadline, disarmDeadline } from '../lib/deadline.js';
+import { runWithDeadline } from '../lib/deadline.js';
 import { ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 import { shGate } from './sh-gate.js';
 export const ROUTER_NAME = 'router';
@@ -167,9 +167,8 @@ const LATE = Symbol('late');
 /** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
 async function settle(fn, payload, env, limit, now) {
     const start = now();
-    armDeadline(start + limit, now);
-    const s = await run(fn, payload, env, limit, now, start);
-    return { s, cut: disarmDeadline() };
+    const { value: s, expired: cut } = await runWithDeadline(start + limit, () => run(fn, payload, env, limit, now, start), now);
+    return { s, cut };
 }
 async function run(fn, payload, env, limit, now, start) {
     let out;

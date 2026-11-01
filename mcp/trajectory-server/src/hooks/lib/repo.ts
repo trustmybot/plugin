@@ -93,32 +93,32 @@ export function forgeCommandDir(cmd: string, input: string, env: NodeJS.ProcessE
  * that dir: a removed worktree resolves to its main checkout, a submodule or
  * a live linked worktree to itself, so origin is the command's own remote.
  */
-export function forgeRepoDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function forgeRepoDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   let dir = forgeCommandDir(cmd, input, env);
   if (dir === '') return '';
   while (!isDir(dir) && dir !== '/' && dir !== '.') dir = posixDirname(dir);
-  return gitOut(dir, ['rev-parse', '--show-toplevel'], env) || dir;
+  return await gitOut(dir, ['rev-parse', '--show-toplevel'], env) || dir;
 }
 
 /** tmb_repo_default_branch <root>: origin/HEAD's branch, else main / master / dev, else HEAD's, else main. */
-export function repoDefaultBranch(root: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function repoDefaultBranch(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (root === '') return '';
-  const remote = gitOut(root, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], env).replace(/^origin\//gm, '');
+  const remote = (await gitOut(root, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], env)).replace(/^origin\//gm, '');
   if (remote !== '') return remote;
   for (const cand of ['main', 'master', 'dev']) {
-    if (gitOk(root, ['show-ref', '--verify', '--quiet', `refs/heads/${cand}`], env)) return cand;
+    if (await gitOk(root, ['show-ref', '--verify', '--quiet', `refs/heads/${cand}`], env)) return cand;
   }
-  return gitOut(root, ['symbolic-ref', '--short', 'HEAD'], env) || 'main';
+  return await gitOut(root, ['symbolic-ref', '--short', 'HEAD'], env) || 'main';
 }
 
 /** tmb_repo_git_root <dir>: the main checkout of the repo <dir> (or its nearest existing parent) is in, "" when none. */
-export function repoGitRoot(target: string, env: NodeJS.ProcessEnv = process.env): string {
+export async function repoGitRoot(target: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   if (target === '') return '';
   while (!isDir(target) && target !== '/' && target !== '.') target = posixDirname(target);
   if (!isDir(target)) return '';
-  const common = gitOut(target, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env);
+  const common = await gitOut(target, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env);
   if (common !== '') return cdPwd(posixDirname(common), shellPwd(env));
-  return gitOut(target, ['rev-parse', '--show-toplevel'], env);
+  return await gitOut(target, ['rev-parse', '--show-toplevel'], env);
 }
 
 /** tmb_repo_name_for_root <db> <root>: the repos row naming <root>, by exact path, else by physical dir. */

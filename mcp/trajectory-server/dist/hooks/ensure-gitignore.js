@@ -66,12 +66,12 @@ export function candidateDirs(env) {
     }
     return dirs;
 }
-export const ensureGitignore = (_payload, env) => {
+export const ensureGitignore = async (_payload, env) => {
     const seen = new Set();
     for (const d of candidateDirs(env)) {
         if (!isDir(d))
             continue;
-        const r = gitRun(d, ['rev-parse', '--show-toplevel'], env);
+        const r = await gitRun(d, ['rev-parse', '--show-toplevel'], env);
         if (r.code !== 0)
             continue;
         const root = r.stdout.replace(/\n+$/, '');

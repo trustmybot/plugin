@@ -8,7 +8,7 @@
  * PATH; this gate reads it through node:sqlite as well.
  */
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { ALLOW, type SyncGate } from './gate.js';
+import { ALLOW, type Gate } from './gate.js';
 import { dbPath, haveSqlite, projectRoot, repoPathAbs, sqliteRo } from './lib/db.js';
 import { gitRun, isDir } from './lib/git.js';
 
@@ -65,11 +65,11 @@ export function candidateDirs(env: NodeJS.ProcessEnv): string[] {
   return dirs;
 }
 
-export const ensureGitignore: SyncGate = (_payload, env) => {
+export const ensureGitignore: Gate = async (_payload, env) => {
   const seen = new Set<string>();
   for (const d of candidateDirs(env)) {
     if (!isDir(d)) continue;
-    const r = gitRun(d, ['rev-parse', '--show-toplevel'], env);
+    const r = await gitRun(d, ['rev-parse', '--show-toplevel'], env);
     if (r.code !== 0) continue;
     const root = r.stdout.replace(/\n+$/, '');
     if (root === '' || seen.has(root)) continue;

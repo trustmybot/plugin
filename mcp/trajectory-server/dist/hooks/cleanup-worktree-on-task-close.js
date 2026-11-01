@@ -46,8 +46,8 @@ function slugMatcher(slug) {
     }
 }
 /** The first linked worktree of `git worktree list --porcelain` that `matches` accepts. */
-function listedWorktree(repoRoot, matches, env) {
-    for (const line of gitOut(repoRoot, ['worktree', 'list', '--porcelain'], env).split('\n')) {
+async function listedWorktree(repoRoot, matches, env) {
+    for (const line of (await gitOut(repoRoot, ['worktree', 'list', '--porcelain'], env)).split('\n')) {
         if (!line.startsWith(WORKTREE_LINE))
             continue;
         const wt = line.slice(WORKTREE_LINE.length);
@@ -64,19 +64,19 @@ function taskRepoRoot(db, taskId, env) {
         return repoPathByName(db, taskRepo, env) || `${workspace}/${taskRepo}`;
     return repoSinglePath(db, env) || workspace;
 }
-function resetHead(db, repoRoot, taskId, env, stderr) {
+async function resetHead(db, repoRoot, taskId, env, stderr) {
     const target = repoResolve(db, repoRoot, env).split('|')[0] || DEFAULT_PR_TARGET;
-    const current = gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
-    if (!gitOk(repoRoot, ['rev-parse', '--verify', target], env) || current === target)
+    const current = await gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+    if (!await gitOk(repoRoot, ['rev-parse', '--verify', target], env) || current === target)
         return;
-    if (gitOk(repoRoot, ['checkout', target], env)) {
+    if (await gitOk(repoRoot, ['checkout', target], env)) {
         stderr(`tmb: checked out ${target} after task #${taskId} closed (was on ${current})\n`);
     }
     else {
         stderr(`tmb: post-close checkout of ${target} failed — leaving on ${current}\n`);
     }
 }
-export function cleanupWorktree(payload, env, stderr) {
+export async function cleanupWorktree(payload, env, stderr) {
     const input = jqInput(payload);
     const tool = jqCapture(input, ['tool_name']);
     if (!TOOL.test(tool))
@@ -118,18 +118,18 @@ export function cleanupWorktree(payload, env, stderr) {
     const repoRoot = taskRepoRoot(db, safeId, env);
     if (!isDir(`${repoRoot}/.git`))
         return ALLOW;
-    const worktree = listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
+    const worktree = await listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
     if (worktree === '' || worktree === repoRoot)
         return ALLOW;
-    if (!gitOk(repoRoot, ['worktree', 'remove', worktree, '--force'], env)) {
+    if (!await gitOk(repoRoot, ['worktree', 'remove', worktree, '--force'], env)) {
         stderr(`tmb: worktree remove failed for ${worktree} — leaving in place\n`);
         return ALLOW;
     }
-    gitOk(repoRoot, ['worktree', 'prune'], env);
+    await gitOk(repoRoot, ['worktree', 'prune'], env);
     if (env[KEEP_HEAD_ENV] !== '1')
-        resetHead(db, repoRoot, taskId, env, stderr);
+        await resetHead(db, repoRoot, taskId, env, stderr);
     stderr(`tmb: cleaned up worktree ${worktree} after task #${taskId} closed\n`);
     return ALLOW;
 }
-export const cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env, (line) => process.stderr.write(line));
+export const cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 //# sourceMappingURL=cleanup-worktree-on-task-close.js.map

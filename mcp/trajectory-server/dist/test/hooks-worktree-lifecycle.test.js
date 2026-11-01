@@ -46,17 +46,17 @@ describe('cleanup-worktree-on-task-close and worktree-create (GH 1692, GH 2032)'
     after(() => {
         rmSync(base, { recursive: true, force: true });
     });
-    it('keeps a worktree the task adopted (worktree_adopted=1) and says so', () => {
+    it('keeps a worktree the task adopted (worktree_adopted=1) and says so', async () => {
         const lines = [];
-        const r = cleanupWorktree(closePayload(1), hookEnv(db), (line) => lines.push(line));
+        const r = await cleanupWorktree(closePayload(1), hookEnv(db), (line) => lines.push(line));
         assert.deepEqual(r, { stdout: '', code: 0 });
         assert.ok(existsSync(adopted), 'the adopted worktree stays');
         assert.match(git(repo, 'worktree', 'list', '--porcelain'), /\.claude\/worktrees\/adopted/);
         assert.deepEqual(lines, [`tmb: kept adopted worktree ${adopted} after task #1 closed (GH 2032)\n`]);
     });
-    it('removes a provisioned worktree (worktree_adopted=0)', () => {
+    it('removes a provisioned worktree (worktree_adopted=0)', async () => {
         const lines = [];
-        const r = cleanupWorktree(closePayload(2), hookEnv(db), (line) => lines.push(line));
+        const r = await cleanupWorktree(closePayload(2), hookEnv(db), (line) => lines.push(line));
         assert.deepEqual(r, { stdout: '', code: 0 });
         assert.ok(!existsSync(provisioned), 'the provisioned worktree is removed');
         assert.doesNotMatch(git(repo, 'worktree', 'list', '--porcelain'), /\.claude\/worktrees\/provisioned/);
@@ -67,14 +67,14 @@ describe('cleanup-worktree-on-task-close and worktree-create (GH 1692, GH 2032)'
         const copy = /_CWC_HAS_PASS="([\s\S]*?)"\n/.exec(sh)?.[1]?.replaceAll('\\$', '$');
         assert.equal(copy, HAS_PASS_SQL);
     });
-    it('worktree-create prints the bare worktree path and exits 0, a failure exits 1 with stdout empty', () => {
+    it('worktree-create prints the bare worktree path and exits 0, a failure exits 1 with stdout empty', async () => {
         const lines = [];
-        const ok = worktreeCreateRun(JSON.stringify({ hook_event_name: 'WorktreeCreate', branch: 'feat/new' }), hookEnv(db), (line) => lines.push(line));
+        const ok = await worktreeCreateRun(JSON.stringify({ hook_event_name: 'WorktreeCreate', branch: 'feat/new' }), hookEnv(db), (line) => lines.push(line));
         const path = join(repo, '.claude/worktrees/new');
         assert.deepEqual(ok, { stdout: `${path}\n`, code: 0 });
         assert.ok(existsSync(join(path, '.git')));
         assert.deepEqual(lines, [`tmb worktree-create: auto-created branch feat/new in ${repo}\n`, `tmb worktree-create: created worktree ${path} for branch feat/new in repo ${repo}\n`]);
-        const failed = worktreeCreateRun('{}', hookEnv(db), () => undefined);
+        const failed = await worktreeCreateRun('{}', hookEnv(db), () => undefined);
         assert.deepEqual(failed, { stdout: '', code: 1 });
     });
     it('both gates are registered', () => {

@@ -120,7 +120,7 @@ function manifestName(manifest) {
     }
 }
 /** _target_is_plugin_source_repo: the target's git root carries a manifest named like the running plugin's. */
-function targetIsPluginSourceRepo(target, input, env) {
+async function targetIsPluginSourceRepo(target, input, env) {
     const pluginRoot = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath(import.meta.url))) || '';
     const running = `${pluginRoot}/.claude-plugin/plugin.json`;
     let start;
@@ -132,7 +132,7 @@ function targetIsPluginSourceRepo(target, input, env) {
     else {
         start = posixDirname(`${payloadCwd(input, env)}/${target}`);
     }
-    const root = repoGitRoot(start, env);
+    const root = await repoGitRoot(start, env);
     if (root === '')
         return false;
     const repoManifest = `${root}/.claude-plugin/plugin.json`;
@@ -183,12 +183,12 @@ async function bashRule(input, env) {
         const path = judgedPath(line);
         if (path === null || path === '')
             continue;
-        if (isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots)))
+        if (await isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots)))
             return deny(BASH_REASON);
     }
     return ALLOW;
 }
-function editRule(input, env) {
+async function editRule(input, env) {
     const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
     if (db === null)
         return ALLOW;
@@ -200,7 +200,7 @@ function editRule(input, env) {
     if (target.startsWith('/')) {
         const dir = posixDirname(target);
         if (haveSqlite(env) && isDir(dir)) {
-            const root = repoGitRoot(dir, env);
+            const root = await repoGitRoot(dir, env);
             if (root === '')
                 return ALLOW;
             if (gateRead(db, 'SELECT COUNT(*) FROM repos;', env) === GATE_READ_ERROR)
@@ -209,7 +209,7 @@ function editRule(input, env) {
                 return ALLOW;
         }
     }
-    if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env))
+    if (isEnforcementSurface(target) && await targetIsPluginSourceRepo(target, input, env))
         return deny(SURFACE_REASON);
     if (allowlisted(target))
         return ALLOW;
@@ -217,14 +217,14 @@ function editRule(input, env) {
         return ALLOW;
     return deny(sourceReason(env));
 }
-export const noSourceEditFromMain = (payload, env) => {
+export const noSourceEditFromMain = async (payload, env) => {
     const toolName = field(payload, ['tool_name']);
     if (!JUDGED_TOOLS.has(toolName))
         return ALLOW;
     if (toolName === 'Bash')
-        return bashRule(payload, env);
+        return await bashRule(payload, env);
     if ((env.TMB_ALLOW_SOURCE_EDIT ?? '0') === '1')
         return ALLOW;
-    return editRule(payload, env);
+    return await editRule(payload, env);
 };
 //# sourceMappingURL=no-source-edit-from-main.js.map

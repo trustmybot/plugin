@@ -5212,18 +5212,24 @@ import { accessSync as accessSync2, constants as constants2 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // src/hooks/lib/deadline.ts
+import { AsyncLocalStorage } from "node:async_hooks";
 import { performance as performance2 } from "node:perf_hooks";
-var armed = null;
-function armDeadline(at2, now = () => performance2.now()) {
-  armed = { at: at2, now, expired: false };
+var MAX_TIMER_MS = 2 ** 31 - 1;
+var scopes = new AsyncLocalStorage();
+function msLeft(at2, now) {
+  return Math.max(1, Math.ceil(at2 - now()));
 }
-function disarmDeadline() {
-  const expired = armed?.expired ?? false;
-  armed = null;
-  return expired;
+async function runWithDeadline(at2, body2, now = () => performance2.now()) {
+  const scope = { at: at2, now, expired: false, signal: AbortSignal.timeout(Math.min(MAX_TIMER_MS, msLeft(at2, now))) };
+  const value = await scopes.run(scope, body2);
+  return { value, expired: scope.expired };
+}
+function deadlineSignal() {
+  return scopes.getStore()?.signal;
 }
 function spawnLimit(ownMs, killSignal = "SIGTERM") {
-  const left = armed ? Math.max(1, Math.ceil(armed.at - armed.now())) : void 0;
+  const scope = scopes.getStore();
+  const left = scope ? msLeft(scope.at, scope.now) : void 0;
   if (left === void 0 || ownMs !== void 0 && ownMs < left) {
     return ownMs === void 0 ? null : { timeout: ownMs, killSignal, byDeadline: false };
   }
@@ -5234,7 +5240,8 @@ function spawnOptions(limit) {
 }
 function noteSpawn(limit, r) {
   const cut4 = r.error?.code === "ETIMEDOUT" || r.signal !== null;
-  if (cut4 && limit?.byDeadline && armed) armed.expired = true;
+  const scope = scopes.getStore();
+  if (cut4 && limit?.byDeadline && scope) scope.expired = true;
   return cut4;
 }
 
@@ -6680,7 +6687,7 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync3 } from "node:child_process";
 import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
@@ -6822,27 +6829,82 @@ function preToolContext(ctx) {
 }
 
 // src/hooks/lib/git.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import { statSync as statSync7 } from "node:fs";
 var GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
-  const limit = spawnLimit();
-  const r = spawnSync3("git", ["-C", dir, ...args2], {
-    encoding: "utf8",
-    env,
-    input,
-    maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2],
-    ...spawnOptions(limit)
+function codedError(message, code) {
+  return Object.assign(new Error(message), { code });
+}
+function collector() {
+  const chunks = [];
+  let size = 0;
+  return {
+    add(chunk) {
+      if (size <= GIT_MAX_BUFFER) chunks.push(chunk.subarray(0, GIT_MAX_BUFFER - size + 1));
+      size += chunk.length;
+    },
+    bytes: () => Buffer.concat(chunks).subarray(0, GIT_MAX_BUFFER),
+    over: () => size > GIT_MAX_BUFFER
+  };
+}
+async function gitSpawn(dir, args2, options = {}) {
+  const { env = process.env, input = "", stderr: stderr2 = "ignore", timeoutMs } = options;
+  const limit = spawnLimit(timeoutMs);
+  const signal2 = limit === null ? void 0 : limit.byDeadline ? deadlineSignal() : AbortSignal.timeout(limit.timeout);
+  const timedOut = () => codedError(`git ${args2[0] ?? ""} timed out`, "ETIMEDOUT");
+  if (signal2?.aborted) {
+    const error = timedOut();
+    noteSpawn(limit, { error, signal: null });
+    return { code: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error };
+  }
+  return new Promise((resolve4) => {
+    const child = spawn2("git", ["-C", dir, ...args2], { env, stdio: ["pipe", "pipe", stderr2], signal: signal2 });
+    const out2 = collector();
+    const err2 = collector();
+    let cut4;
+    let done = false;
+    const dropOutput = () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
+    const finish = (code, killedBy, failure2) => {
+      if (done) return;
+      done = true;
+      const overflow = out2.over() || err2.over() ? codedError(`git ${args2[0] ?? ""} passed its output limit`, "ENOBUFS") : void 0;
+      const error = failure2 ?? cut4 ?? overflow;
+      noteSpawn(limit, { error, signal: killedBy });
+      resolve4({ code: error || code === null ? -1 : code, stdout: out2.bytes(), stderr: err2.bytes(), error });
+    };
+    const take = (into, chunk) => {
+      into.add(chunk);
+      if (!into.over()) return;
+      dropOutput();
+      child.kill();
+    };
+    for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.on("error", () => void 0);
+    child.stdout?.on("data", (chunk) => take(out2, chunk));
+    child.stderr?.on("data", (chunk) => take(err2, chunk));
+    child.on("error", (failure2) => {
+      if (failure2.name !== "AbortError") {
+        finish(null, null, failure2);
+        return;
+      }
+      cut4 = timedOut();
+      dropOutput();
+    });
+    child.on("close", (code, killedBy) => finish(code, killedBy));
+    child.stdin?.end(input);
   });
-  noteSpawn(limit, r);
-  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
 }
-function gitOut(dir, args2, env = process.env, input = "") {
-  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
+async function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const r = await gitSpawn(dir, args2, { env, input, stderr: stderr2 });
+  return { code: r.code, stdout: r.stdout.toString("utf8") };
 }
-function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
-  return gitRun(dir, args2, env, "", stderr2).code === 0;
+async function gitOut(dir, args2, env = process.env, input = "") {
+  return (await gitRun(dir, args2, env, input)).stdout.replace(/\n+$/, "");
+}
+async function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
+  return (await gitRun(dir, args2, env, "", stderr2)).code === 0;
 }
 function isDir(path) {
   if (path === "") return false;
@@ -6903,7 +6965,7 @@ function onPath3(name3, env) {
   return null;
 }
 function run2(file, args2, cwd, env) {
-  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
+  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
 function glabDescription(json) {
@@ -8174,10 +8236,10 @@ function listing(parser2, cmd, base2, depth, home) {
   }
   return out2;
 }
-function cwdState(cwd, env = process.env) {
+async function cwdState(cwd, env = process.env) {
   if (!isDir(cwd)) return "-";
-  if (gitOk(cwd, ["rev-parse", "--git-dir"], env)) {
-    const n3 = gitOut(cwd, ["worktree", "list", "--porcelain"], env).split("\n").filter((l) => l.startsWith("worktree ")).length;
+  if (await gitOk(cwd, ["rev-parse", "--git-dir"], env)) {
+    const n3 = (await gitOut(cwd, ["worktree", "list", "--porcelain"], env)).split("\n").filter((l) => l.startsWith("worktree ")).length;
     if (n3 > 1) return "?";
   }
   return cwd;
@@ -8187,11 +8249,13 @@ async function cmdStatements(command, cwd, env = process.env) {
   const listed2 = listing(parser2, command, "@", 0, env.HOME ?? "");
   if (listed2 === null) return { ok: false };
   let state;
-  const statements2 = listed2.map(({ dir, stmt }) => {
+  const statements2 = [];
+  for (const { dir: listedDir, stmt } of listed2) {
+    let dir = listedDir;
     if (dir.startsWith("@/")) dir = isDir(cwd) ? `${cwd.replace(/\/$/, "")}${dir.slice(1)}` : "-";
-    else if (dir === "@") dir = state ??= cwdState(cwd, env);
-    return { dir, stmt: stmt.replace(HD_MARK2, "<<").replace(ENCODED, "_") };
-  });
+    else if (dir === "@") dir = state ??= await cwdState(cwd, env);
+    statements2.push({ dir, stmt: stmt.replace(HD_MARK2, "<<").replace(ENCODED, "_") });
+  }
   return { ok: true, statements: statements2 };
 }
 function gitSubcommand(stmt) {
@@ -8206,7 +8270,7 @@ function gitSubcommand(stmt) {
   }
   return k < w.length ? w.slice(k).join(" ") : "";
 }
-function stmtRepoRoot(dir, cwd, env = process.env) {
+async function stmtRepoRoot(dir, cwd, env = process.env) {
   if (dir === "?") dir = cwd || shellPwd(env);
   else if (dir === "-" || dir === "") return "";
   while (!isDir(dir)) {
@@ -8214,10 +8278,10 @@ function stmtRepoRoot(dir, cwd, env = process.env) {
     if (slash < 0) return "";
     dir = dir.slice(0, slash) || "/";
   }
-  const common = gitOut(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  const common = await gitOut(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
   if (common === "") return "";
   if (common.endsWith("/.git")) return cdPwd(common.slice(0, -5), shellPwd(env));
-  return gitOut(dir, ["rev-parse", "--show-toplevel"], env);
+  return await gitOut(dir, ["rev-parse", "--show-toplevel"], env);
 }
 function denyAmbiguousGitTarget(stmt, unresolved = false) {
   const what = stmt || "git";
@@ -8359,28 +8423,28 @@ function forgeCommandDir(cmd, input, env = process.env) {
   if (cdPath === null) return base2;
   return cdPath.startsWith("/") ? cdPath : `${base2.replace(/\/$/, "")}/${cdPath}`;
 }
-function forgeRepoDir(cmd, input, env = process.env) {
+async function forgeRepoDir(cmd, input, env = process.env) {
   let dir = forgeCommandDir(cmd, input, env);
   if (dir === "") return "";
   while (!isDir(dir) && dir !== "/" && dir !== ".") dir = posixDirname(dir);
-  return gitOut(dir, ["rev-parse", "--show-toplevel"], env) || dir;
+  return await gitOut(dir, ["rev-parse", "--show-toplevel"], env) || dir;
 }
-function repoDefaultBranch(root, env = process.env) {
+async function repoDefaultBranch(root, env = process.env) {
   if (root === "") return "";
-  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
+  const remote = (await gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env)).replace(/^origin\//gm, "");
   if (remote !== "") return remote;
   for (const cand of ["main", "master", "dev"]) {
-    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
+    if (await gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
   }
-  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
+  return await gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
 }
-function repoGitRoot(target, env = process.env) {
+async function repoGitRoot(target, env = process.env) {
   if (target === "") return "";
   while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
   if (!isDir(target)) return "";
-  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  const common = await gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
   if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
-  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
+  return await gitOut(target, ["rev-parse", "--show-toplevel"], env);
 }
 function repoNameForRoot(db, root, env = process.env) {
   if (!readable2(db, env) || root === "") return "";
@@ -8600,12 +8664,12 @@ function worktreeRootForTarget(target) {
     target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
   );
 }
-function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
+async function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
   const resolved = db !== "" ? db : dbPath(env) ?? "";
   const wt = worktreeRootForTarget(target);
   let task = "";
   if (resolved !== "" && haveSqlite(env) && wt !== "") {
-    const branch = gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+    const branch = await gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
     if (branch !== "" && branch !== "HEAD") {
       task = sqlInt(
         sqliteRo(
@@ -8671,20 +8735,24 @@ var PROMPT_FILES = /* @__PURE__ */ new Set(["CLAUDE.md", "CODEX.md", "CURSOR.md"
 function writeShapes() {
   return WRITE_SHAPES.join(", ");
 }
-function surfaceRoot(abs, env = process.env) {
+async function surfaceRoot(abs, env = process.env) {
   if (abs.includes("/.claude/worktrees/")) return worktreeRootForTarget(abs);
   const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
   let dir = parent(abs);
   while (dir !== "" && !isDir(dir)) dir = parent(dir);
   if (dir === "") dir = "/";
-  return stripTrailingNewlines(repoGitRoot(dir, env));
+  return stripTrailingNewlines(await repoGitRoot(dir, env));
 }
-function isPromptSurfacePath(p, root = "", env = process.env) {
+async function isPromptSurfacePath(p, root = "", env = process.env) {
+  if (root !== "" || !p.startsWith("/") || PROMPT_FILES.has(p.slice(p.lastIndexOf("/") + 1))) return isPromptSurfaceUnder(p, root);
+  return isPromptSurfaceUnder(p, await surfaceRoot(stripTrailingNewlines(pathCanonical(p)), env));
+}
+function isPromptSurfaceUnder(p, root) {
   if (PROMPT_FILES.has(p.slice(p.lastIndexOf("/") + 1))) return true;
   let rel = "";
   if (p.startsWith("/")) {
     const abs = stripTrailingNewlines(pathCanonical(p));
-    let r = root === "" ? surfaceRoot(abs, env) : root;
+    let r = root;
     if (r !== "") {
       r = stripTrailingNewlines(pathCanonical(r));
       const prefix = `${r.endsWith("/") ? r.slice(0, -1) : r}/`;
@@ -9109,7 +9177,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
       if (!(w + "/").startsWith(trimSlash(bound) + "/")) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
       const at2 = git2 ? trimSlash(p) : trimSlash(v);
-      if (isPromptSurfacePath(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at2}/*.md`);
+      if (isPromptSurfaceUnder(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at2}/*.md`);
       else if (cmd !== "ls") {
         const rel = w.replace(/^\//, "");
         for (const d of SURFACES) {
@@ -13862,14 +13930,14 @@ var GitGuards = class {
   gitRoot = "";
   prTarget = "";
   protectedBranches = "";
-  git(dir, ...args2) {
-    return gitOut(dir, args2, this.env);
+  async git(dir, ...args2) {
+    return await gitOut(dir, args2, this.env);
   }
-  gitOk(dir, ...args2) {
-    return gitOk(dir, args2, this.env);
+  async gitOk(dir, ...args2) {
+    return await gitOk(dir, args2, this.env);
   }
   /** load_policy: the repos row of <root>, or false for no root or an unregistered repo. */
-  loadPolicy(root) {
+  async loadPolicy(root) {
     if (root === "") return false;
     this.gitRoot = root;
     this.prTarget = "";
@@ -13880,7 +13948,7 @@ var GitGuards = class {
       this.prTarget = cutField(row, 1);
       raw = cutField(row, 3);
     }
-    const defaultBranch = repoDefaultBranch(root, this.env);
+    const defaultBranch = await repoDefaultBranch(root, this.env);
     this.prTarget ||= defaultBranch;
     raw ||= jqCompact([defaultBranch]);
     const parsed = jsonStream(raw);
@@ -13892,14 +13960,14 @@ var GitGuards = class {
     return this.protectedBranches.split("\n").includes(branch);
   }
   /** dir_branch: the branch checked out in <dir>, else the newest task whose branch_id ends in /<basename of dir>. */
-  dirBranch(dir) {
-    const branch = this.git(dir, "branch", "--show-current");
+  async dirBranch(dir) {
+    const branch = await this.git(dir, "branch", "--show-current");
     if (branch !== "" || !this.dbReadable) return branch;
     return taskBySlug(this.db, posixBasename(dir), "branch_id", "", this.env, (line) => process.stderr.write(`${line}
 `)).replace(/\n/g, "");
   }
-  dirInWorktree(dir) {
-    const top = this.git(dir, "rev-parse", "--show-toplevel");
+  async dirInWorktree(dir) {
+    const top = await this.git(dir, "rev-parse", "--show-toplevel");
     return top !== "" && physicalDir(top) !== physicalDir(this.gitRoot);
   }
   /** need_dir: deny an ambiguous dir; false for an unknown or missing one. */
@@ -13929,15 +13997,15 @@ var GitGuards = class {
     }
     return new Set(out2.filter((b) => !/^[ \t\n\v\f\r]*$/.test(b)));
   }
-  rule2Recovery(dir) {
+  async rule2Recovery(dir) {
     if (dir === "-" || dir === "?" || dir === "" || !isDir(dir)) return "";
-    if (this.git(dir, "remote", "-v") !== "") {
+    if (await this.git(dir, "remote", "-v") !== "") {
       return ` Push your feature branch and open a PR into ${this.prTarget}: git push origin <branch> && gh pr create --base ${this.prTarget} --head <branch>.`;
     }
     return " This repo has no remote \u2014 leave the branch unmerged and surface it to the Human for integration.";
   }
   /** ff_sync_switch: the local branch statement <i> switches to right before `&&` and the merge, "" otherwise. */
-  ffSyncSwitch(i2, dir) {
+  async ffSyncSwitch(i2, dir) {
     if (i2 < 0 || (this.dirs[i2] ?? "") !== dir) return "";
     const stmt = this.stmts[i2];
     const w = words(stmt);
@@ -13948,7 +14016,7 @@ var GitGuards = class {
     if (w[k] === "-q" || w[k] === "--quiet") k += 1;
     const name3 = w[k] ?? "";
     if (name3 === "" || name3.startsWith("-") || k + 1 !== w.length) return "";
-    if (!this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${name3}`)) return "";
+    if (!await this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${name3}`)) return "";
     if (NON_ASCII.test(this.command)) return "";
     const flat = stripLiterals(this.command).replace(/\n/g, ";").replace(/[ \t]+/g, " ");
     const needle = `${stmt} && ${this.stmts[i2 + 1] ?? ""}`;
@@ -13960,7 +14028,7 @@ var GitGuards = class {
     return head === "" || head.endsWith(";") || head.endsWith("&&") ? name3 : "";
   }
   /** ff_upstream_sync: statement <idx> fast-forwards a branch to its own remote-tracking upstream. */
-  ffUpstreamSync(idx, dir, sub) {
+  async ffUpstreamSync(idx, dir, sub) {
     const own = this.dirs[idx] ?? "";
     if (own === "-" || own === "?" || own === "") return false;
     let target = "";
@@ -13973,28 +14041,28 @@ var GitGuards = class {
       else target = w;
     }
     if (!ff || target === "") return false;
-    let branch = this.ffSyncSwitch(idx - 1, own);
+    let branch = await this.ffSyncSwitch(idx - 1, own);
     const skip2 = branch === "" ? -1 : idx - 1;
     for (let j = 0; j < this.stmts.length; j++) {
       if (j === idx || j === skip2 || this.stmts[j] === "") continue;
       if (!ffSyncOtherOk(this.stmts[j])) return false;
     }
-    branch ||= this.git(dir, "branch", "--show-current");
-    if (branch === "" || !this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`)) return false;
-    const remote = this.git(dir, "config", "--get", `branch.${branch}.remote`);
+    branch ||= await this.git(dir, "branch", "--show-current");
+    if (branch === "" || !await this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`)) return false;
+    const remote = await this.git(dir, "config", "--get", `branch.${branch}.remote`);
     if (remote === "" || remote === ".") return false;
-    const up = this.git(dir, "rev-parse", "--symbolic-full-name", `${branch}@{u}`);
+    const up = await this.git(dir, "rev-parse", "--symbolic-full-name", `${branch}@{u}`);
     if (!/^refs\/remotes\/[\s\S]/.test(up)) return false;
     if (target === "@{u}" || target === "@{upstream}") return true;
-    return this.git(dir, "rev-parse", "--symbolic-full-name", target) === up;
+    return await this.git(dir, "rev-parse", "--symbolic-full-name", target) === up;
   }
-  ghRule(stmt, dir, unresolved) {
+  async ghRule(stmt, dir, unresolved) {
     const pr = this.prTarget;
     const base2 = optionValue(stmt, `--base[= ]${NONSPACE}+`, "--base[= ]+");
     if (base2 !== "" && base2 === pr) return;
     if (pr === "dev" && base2 === "main") {
       let head = optionValue(stmt, `--head[= ]${NONSPACE}+`, "--head[= ]+");
-      if (head === "" && this.needDir(dir, stmt, unresolved)) head = this.git(dir, "branch", "--show-current");
+      if (head === "" && this.needDir(dir, stmt, unresolved)) head = await this.git(dir, "branch", "--show-current");
       if (head !== "dev") {
         throw deny(
           `BLOCKED: only 'dev \u2192 main' is permitted as a release merge. Feature branches must PR to ${pr}: gh pr create --base ${pr} --head <branch>. Got --head=${head}.`
@@ -14006,13 +14074,13 @@ var GitGuards = class {
       `BLOCKED: PRs must target ${pr} branch. Use: gh pr create --base ${pr} --head <branch>. (Dev \u2192 main release merges are allowed when PR_TARGET=dev.)`
     );
   }
-  glabRule(stmt, dir, unresolved) {
+  async glabRule(stmt, dir, unresolved) {
     const pr = this.prTarget;
     const target = optionValue(stmt, `--target-branch[= ]${NONSPACE}+`, "--target-branch[= ]+") || optionValue(stmt, `(^|${SPACE})-b[= ]${NONSPACE}+`, `^${SPACE}*-b[= ]+`);
     let source = optionValue(stmt, `--source-branch[= ]${NONSPACE}+`, "--source-branch[= ]+") || optionValue(stmt, `(^|${SPACE})-s[= ]${NONSPACE}+`, `^${SPACE}*-s[= ]+`);
     if (target === pr) return;
     if (pr === "dev" && target === "main") {
-      if (source === "" && this.needDir(dir, stmt, unresolved)) source = this.git(dir, "branch", "--show-current");
+      if (source === "" && this.needDir(dir, stmt, unresolved)) source = await this.git(dir, "branch", "--show-current");
       if (source !== "dev") {
         throw deny(
           `BLOCKED: only 'dev \u2192 main' is permitted as a release merge. Feature branches must MR to ${pr}: glab mr create --target-branch ${pr} --source-branch <branch>. Got --source-branch=${source}.`
@@ -14024,28 +14092,28 @@ var GitGuards = class {
       `BLOCKED: MRs must target ${pr} branch. Use: glab mr create --target-branch ${pr} --source-branch <branch>. (Dev \u2192 main release merges are allowed when PR_TARGET=dev.)`
     );
   }
-  integrationRule(idx, sub, stmt, dir, unresolved) {
-    if (!this.needDir(dir, stmt, unresolved) || this.dirInWorktree(dir)) return;
-    const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed \u2014 integration is PR-only.${this.rule2Recovery(dir)}`;
+  async integrationRule(idx, sub, stmt, dir, unresolved) {
+    if (!this.needDir(dir, stmt, unresolved) || await this.dirInWorktree(dir)) return;
+    const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed \u2014 integration is PR-only.${await this.rule2Recovery(dir)}`;
     if (sub === "merge" || sub.startsWith("merge ")) {
-      if (this.ffUpstreamSync(idx, dir, sub)) return;
+      if (await this.ffUpstreamSync(idx, dir, sub)) return;
       throw deny(`${reason} To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.`);
     }
     throw deny(reason);
   }
-  commitRule(stmt, dir, unresolved) {
+  async commitRule(stmt, dir, unresolved) {
     const bases = this.rule2ProtectedBases();
     let branch;
     if (this.landings !== "") {
       branch = this.landings.split("\n").find((b) => bases.has(b)) ?? "";
     } else {
       if (!this.needDir(dir, stmt, unresolved)) return;
-      branch = this.dirBranch(dir);
+      branch = await this.dirBranch(dir);
       if (!bases.has(branch)) branch = "";
     }
-    if (branch !== "") throw deny(`BLOCKED: ${branch} is a shared workflow base \u2014 no direct commits/merges/rebases.${this.rule2Recovery(dir)}`);
+    if (branch !== "") throw deny(`BLOCKED: ${branch} is a shared workflow base \u2014 no direct commits/merges/rebases.${await this.rule2Recovery(dir)}`);
   }
-  forcePushRule(sub, stmt, dir, unresolved) {
+  async forcePushRule(sub, stmt, dir, unresolved) {
     let force = false;
     const pos = [];
     for (const a of words(sub.startsWith("push") ? sub.slice(4) : sub)) {
@@ -14056,29 +14124,29 @@ var GitGuards = class {
     let target = pos[0] === "origin" || pos[0] === "upstream" ? pos[1] ?? "" : "";
     if (target === "") {
       if (!this.needDir(dir, stmt, unresolved)) return;
-      target = this.git(dir, "branch", "--show-current");
+      target = await this.git(dir, "branch", "--show-current");
     }
     if (target !== "" && this.branchIsProtected(target)) throw deny(`BLOCKED: Force push to ${target} is forbidden. This is destructive and irreversible.`);
   }
-  newBranchRule(stmt, dir, unresolved) {
+  async newBranchRule(stmt, dir, unresolved) {
     if (!this.needDir(dir, stmt, unresolved)) return;
-    const branch = this.dirBranch(dir);
+    const branch = await this.dirBranch(dir);
     let t = this.prTarget;
-    if (!this.gitOk(dir, "rev-parse", "--verify", "--quiet", t) && !this.gitOk(dir, "rev-parse", "--verify", "--quiet", `origin/${t}`)) {
-      const fallback = repoDefaultBranch(this.gitRoot, this.env);
+    if (!await this.gitOk(dir, "rev-parse", "--verify", "--quiet", t) && !await this.gitOk(dir, "rev-parse", "--verify", "--quiet", `origin/${t}`)) {
+      const fallback = await repoDefaultBranch(this.gitRoot, this.env);
       if (fallback !== "") t = fallback;
     }
     if (branch !== "" && branch !== t) {
       throw deny(`BLOCKED: New branches must be created from ${t}. Currently on '${branch}'. Run: git checkout ${t} && git pull origin ${t} first.`);
     }
     if (branch === "") throw deny(`BLOCKED: Detached HEAD detected. Run: git checkout -B ${t} origin/${t} to reattach, then create your feature branch.`);
-    if (this.git(dir, "remote", "get-url", "origin") === "") return;
-    gitRun(dir, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", t, "--quiet"], this.env);
-    const local = this.git(dir, "rev-parse", "--verify", t);
-    const remote = this.git(dir, "rev-parse", "--verify", `origin/${t}`);
+    if (await this.git(dir, "remote", "get-url", "origin") === "") return;
+    await gitRun(dir, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", t, "--quiet"], this.env);
+    const local = await this.git(dir, "rev-parse", "--verify", t);
+    const remote = await this.git(dir, "rev-parse", "--verify", `origin/${t}`);
     if (local !== "" && remote !== "" && local !== remote) throw deny(`BLOCKED: Local ${t} is behind origin/${t}. Run: git pull origin ${t} first.`);
   }
-  judge(idx) {
+  async judge(idx) {
     const stmt = this.stmts[idx];
     if (stmt === "") return;
     const sub = gitSubcommand(stmt);
@@ -14090,19 +14158,19 @@ var GitGuards = class {
     let unresolved = false;
     if (dir === "-") {
       unresolved = true;
-      dir = cwdState(this.cwd, this.env);
+      dir = await cwdState(this.cwd, this.env);
     }
-    if (!this.loadPolicy(stmtRepoRoot(dir, this.cwd, this.env))) return;
-    if (forge === "gh") return this.ghRule(stmt, dir, unresolved);
-    if (forge === "glab") return this.glabRule(stmt, dir, unresolved);
-    if (INTEGRATION_SUB.test(sub)) return this.integrationRule(idx, sub, stmt, dir, unresolved);
-    if (sub === "commit" || sub.startsWith("commit ")) return this.commitRule(stmt, dir, unresolved);
-    if (sub === "push" || sub.startsWith("push ")) return this.forcePushRule(sub, stmt, dir, unresolved);
-    if (sub.startsWith("checkout -b ") || sub.startsWith("switch -c ")) return this.newBranchRule(stmt, dir, unresolved);
+    if (!await this.loadPolicy(await stmtRepoRoot(dir, this.cwd, this.env))) return;
+    if (forge === "gh") return await this.ghRule(stmt, dir, unresolved);
+    if (forge === "glab") return await this.glabRule(stmt, dir, unresolved);
+    if (INTEGRATION_SUB.test(sub)) return await this.integrationRule(idx, sub, stmt, dir, unresolved);
+    if (sub === "commit" || sub.startsWith("commit ")) return await this.commitRule(stmt, dir, unresolved);
+    if (sub === "push" || sub.startsWith("push ")) return await this.forcePushRule(sub, stmt, dir, unresolved);
+    if (sub.startsWith("checkout -b ") || sub.startsWith("switch -c ")) return await this.newBranchRule(stmt, dir, unresolved);
   }
-  run() {
+  async run() {
     try {
-      for (let idx = 0; idx < this.lines.length; idx++) this.judge(idx);
+      for (let idx = 0; idx < this.lines.length; idx++) await this.judge(idx);
     } catch (e) {
       if (e instanceof Denied) return e.result;
       throw e;
@@ -14125,7 +14193,7 @@ var gitGuards = async (payload, env) => {
   if (!listed2.ok) return deny(PARSE_REASON).result;
   const text = stripTrailingNewlines(listed2.statements.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
   if (text === "") return ALLOW;
-  return new GitGuards(command, cwd, dbPath(env) ?? "", env, text.split("\n")).run();
+  return await new GitGuards(command, cwd, dbPath(env) ?? "", env, text.split("\n")).run();
 };
 
 // src/hooks/commit-msg-lint.ts
@@ -14501,7 +14569,7 @@ function containmentGuardWith(analyze2) {
 var containmentGuard = containmentGuardWith(writePaths);
 
 // src/hooks/deferred-tools-drift-warn.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { lstatSync as lstatSync5, readdirSync as readdirSync2, statSync as statSync14 } from "node:fs";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 var GATE_NAME8 = "deferred-tools-drift-warn";
@@ -14512,7 +14580,7 @@ var INT64_MIN = -(2n ** 63n);
 var ArithError = class extends Error {
 };
 function run3(cmd, args2, env) {
-  const r = spawnSync5(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync4(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function testInt(text) {
@@ -14732,11 +14800,11 @@ function candidateDirs(env) {
   }
   return dirs;
 }
-var ensureGitignore = (_payload, env) => {
+var ensureGitignore = async (_payload, env) => {
   const seen = /* @__PURE__ */ new Set();
   for (const d of candidateDirs(env)) {
     if (!isDir(d)) continue;
-    const r = gitRun(d, ["rev-parse", "--show-toplevel"], env);
+    const r = await gitRun(d, ["rev-parse", "--show-toplevel"], env);
     if (r.code !== 0) continue;
     const root = r.stdout.replace(/\n+$/, "");
     if (root === "" || seen.has(root)) continue;
@@ -14787,8 +14855,8 @@ var Guard2 = class {
     return gateRead(this.db, sql, this.env);
   }
   /** paths_sig: `<\037-joined changed paths>\t<sha>` per commit of <input> that changes something within the pathspec. */
-  pathsSig(dir, input, spec) {
-    const out2 = gitRun(dir, ["diff-tree", "--stdin", "-r", "--root", "--name-only", "--format=commit %H", ...spec], this.env, input).stdout;
+  async pathsSig(dir, input, spec) {
+    const out2 = (await gitRun(dir, ["diff-tree", "--stdin", "-r", "--root", "--name-only", "--format=commit %H", ...spec], this.env, input)).stdout;
     const sigs = [];
     let sha = "";
     let files = "";
@@ -14812,16 +14880,16 @@ var Guard2 = class {
     return sigs;
   }
   /** pair_by_paths: `<sha> <task sha>...` per commit of <shas> sharing its changed-path set with task commits. */
-  pairByPaths(dir, taskRows2, shas, spec) {
+  async pairByPaths(dir, taskRows2, shas, spec) {
     const bySet = /* @__PURE__ */ new Map();
     const taskInput = `${lines(taskRows2).map((r) => field2(r, 1)).join("\n")}
 `;
-    for (const sig of this.pathsSig(dir, taskInput, spec)) {
+    for (const sig of await this.pathsSig(dir, taskInput, spec)) {
       const [files, sha = ""] = sig.split("	");
       bySet.set(files, `${bySet.get(files) ?? ""} ${sha}`);
     }
     const out2 = [];
-    for (const sig of this.pathsSig(dir, `${shas}
+    for (const sig of await this.pathsSig(dir, `${shas}
 `, spec)) {
       const [files, sha = ""] = sig.split("	");
       const tasks = bySet.get(files);
@@ -14830,11 +14898,11 @@ var Guard2 = class {
     return out2.join("\n");
   }
   /** task_matches: `<sha>|<task_id>|<branch_id>|<reviewed>` per paired commit whose patch-id equals a task commit's, a reviewed task preferred. */
-  taskMatches(dir, taskRows2, pairs, spec) {
+  async taskMatches(dir, taskRows2, pairs, spec) {
     const shas = [...new Set(pairs.split(/[ \n]/))].sort();
-    const patch = gitRun(dir, ["diff-tree", "--stdin", "-p", "-r", "--root", ...spec], this.env, `${shas.join("\n")}
-`).stdout;
-    const ids = stripTrailingNewlines(gitRun(dir, ["patch-id", "--stable"], this.env, patch).stdout);
+    const patch = (await gitRun(dir, ["diff-tree", "--stdin", "-p", "-r", "--root", ...spec], this.env, `${shas.join("\n")}
+`)).stdout;
+    const ids = stripTrailingNewlines((await gitRun(dir, ["patch-id", "--stable"], this.env, patch)).stdout);
     if (ids === "") return [];
     const pid = /* @__PURE__ */ new Map();
     for (const row of lines(ids)) {
@@ -14870,7 +14938,7 @@ var Guard2 = class {
    * per pushed rebase of a task commit that is not reviewed or has no passing
    * verification run of its own; __ERR__ when a DB read fails.
    */
-  uncheckedRebases(dir, pushed) {
+  async uncheckedRebases(dir, pushed) {
     const values = hexLines(pushed).map((sha) => `('${sha}')`);
     if (values.length === 0) return "";
     const taskCommits = this.read(
@@ -14879,7 +14947,7 @@ var Guard2 = class {
     if (taskCommits === GATE_READ_ERROR) return GATE_READ_ERROR;
     const fresh = without(pushed, taskCommits);
     if (fresh === "") return "";
-    const name3 = repoNameForRoot(this.db, repoGitRoot(dir, this.env), this.env);
+    const name3 = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
     const repoFilter = name3 === "" ? "" : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name3)}')`;
     const tasks = this.read(
       `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass') FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`
@@ -14888,13 +14956,13 @@ var Guard2 = class {
     if (tasks === "") return "";
     const taskLines = lines(tasks);
     const checked = lines(
-      gitRun(
+      (await gitRun(
         dir,
         ["cat-file", "--batch-check=%(objectname) %(objecttype)"],
         this.env,
         `${taskLines.map((r) => field2(r, 1)).join("\n")}
 `
-      ).stdout.replace(/\n$/, "")
+      )).stdout.replace(/\n$/, "")
     );
     const fullRows = [];
     const n3 = Math.max(checked.length, taskLines.length);
@@ -14907,14 +14975,14 @@ var Guard2 = class {
     const full = fullRows.join("\n");
     if (full === "") return "";
     let matches = [];
-    let pairs = this.pairByPaths(dir, full, fresh, []);
-    if (pairs !== "") matches = this.taskMatches(dir, full, pairs, []).map((m) => `${m}|full`);
+    let pairs = await this.pairByPaths(dir, full, fresh, []);
+    if (pairs !== "") matches = (await this.taskMatches(dir, full, pairs, [])).map((m) => `${m}|full`);
     let srcMatches = [];
     const rest = without(fresh, matches.map((m) => field2(m, 1)).join("\n"));
     if (rest !== "") {
       const spec = ["--", ...SOURCE_PATHS];
-      pairs = this.pairByPaths(dir, full, rest, spec);
-      if (pairs !== "") srcMatches = this.taskMatches(dir, full, pairs, spec).map((m) => `${m}|src`);
+      pairs = await this.pairByPaths(dir, full, rest, spec);
+      if (pairs !== "") srcMatches = (await this.taskMatches(dir, full, pairs, spec)).map((m) => `${m}|src`);
     }
     const all = [...matches, ...srcMatches].filter((m) => m !== "");
     if (all.length === 0) return "";
@@ -14930,32 +14998,37 @@ var Guard2 = class {
     return all.filter((m) => field2(m, 4) !== "1" || !passed.has(field2(m, 1))).join("\n");
   }
   /** The base the commits of a branch with no upstream are counted from: the target branch's ref, else the remote default's, else "". */
-  baseRef(dir) {
-    let target = field2(repoResolve(this.db, stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
+  async baseRef(dir) {
+    let target = field2(repoResolve(this.db, await stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
     if (target === "") {
       const sole = repoSinglePath(this.db, this.env);
       if (sole !== "") target = field2(repoResolve(this.db, sole, this.env), 1);
     }
-    const remoteDefault = () => gitOut(dir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], this.env).replace(/^origin\//gm, "");
-    if (target === "") target = remoteDefault();
+    const remoteDefault = async () => (await gitOut(dir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], this.env)).replace(/^origin\//gm, "");
+    if (target === "") target = await remoteDefault();
     target ||= "main";
-    const existing = (branch) => [`origin/${branch}`, branch].find((cand) => gitOk(dir, ["rev-parse", "--verify", "--quiet", cand], this.env)) ?? "";
-    let base2 = existing(target);
+    const existing = async (branch) => {
+      for (const cand of [`origin/${branch}`, branch]) {
+        if (await gitOk(dir, ["rev-parse", "--verify", "--quiet", cand], this.env)) return cand;
+      }
+      return "";
+    };
+    let base2 = await existing(target);
     if (base2 === "") {
-      const fallback = remoteDefault();
-      if (fallback !== "") base2 = existing(fallback);
+      const fallback = await remoteDefault();
+      if (fallback !== "") base2 = await existing(fallback);
     }
     return base2;
   }
-  pushedShas(dir) {
-    const upstream = gitOut(dir, ["log", "@{u}..HEAD", "--pretty=%H"], this.env);
+  async pushedShas(dir) {
+    const upstream = await gitOut(dir, ["log", "@{u}..HEAD", "--pretty=%H"], this.env);
     if (upstream !== "") return upstream;
-    const base2 = this.baseRef(dir);
-    return gitOut(dir, ["log", base2 === "" ? "HEAD" : `${base2}..HEAD`, "--pretty=%H"], this.env);
+    const base2 = await this.baseRef(dir);
+    return await gitOut(dir, ["log", base2 === "" ? "HEAD" : `${base2}..HEAD`, "--pretty=%H"], this.env);
   }
   /** The deny for one push, or null when it may go. */
-  judge(dir) {
-    const pushed = this.pushedShas(dir);
+  async judge(dir) {
+    const pushed = await this.pushedShas(dir);
     if (pushed === "") return null;
     const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
     if (shaList.length === 0) return null;
@@ -14975,7 +15048,7 @@ Run: @bro review before push
 bro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`
       );
     }
-    const unchecked = this.uncheckedRebases(dir, pushed);
+    const unchecked = await this.uncheckedRebases(dir, pushed);
     if (unchecked === GATE_READ_ERROR) return deny2(DB_REASON);
     if (unchecked === "") return null;
     const rows = lines(unchecked);
@@ -15015,14 +15088,14 @@ var gitPushGuard = async (payload, env) => {
     if (dir === "-") return { stdout: denyAmbiguousGitTarget(stmt, true), code: 0 };
     if (dir.includes("/.claude/worktrees/")) return deny2(WORKTREE_REASON);
     if (db === "" || !haveSqlite(env)) continue;
-    const verdict = guard2.judge(dir);
+    const verdict = await guard2.judge(dir);
     if (verdict) return verdict;
   }
   return ALLOW;
 };
 
 // src/hooks/mcp-health-check.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync17, writeFileSync as writeFileSync3 } from "node:fs";
 
 // src/hooks/lib/install.ts
@@ -15389,7 +15462,7 @@ function sampleCount(raw) {
   return Number(v);
 }
 function pgrepLines(pattern, env) {
-  const r = spawnSync6("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync5("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return (r.stdout ?? "").split("\n").length - 1;
 }
 function samplePgrep(env) {
@@ -15509,11 +15582,8 @@ ${part}` : part;
   };
 };
 
-// src/hooks/code-reviewer-preflight.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
-
 // src/utils/git-refs.ts
-import { execFileSync, spawnSync as spawnSync7 } from "node:child_process";
+import { execFileSync, spawnSync as spawnSync6 } from "node:child_process";
 
 // src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
@@ -15541,7 +15611,7 @@ function resolveBaseRef(repoPath, rawBase) {
   return null;
 }
 function gitOut2(repoPath, args2) {
-  const res = spawnSync7("git", ["-C", repoPath, ...args2], {
+  const res = spawnSync6("git", ["-C", repoPath, ...args2], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -15562,24 +15632,18 @@ function resolveRepoDefaultBranch(repoPath) {
 var GATE_NAME12 = "code-reviewer-preflight";
 var BYPASS_ENV = "TMB_SKIP_CODE_REVIEWER_PREFLIGHT";
 var GIT_TIMEOUT_MS = 1e4;
-var GIT_MAX_BUFFER2 = 256 * 1024 * 1024;
 var MAX_LISTED = 10;
 var DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
 var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
 var REGEN_DRIVER = "tmb-regen";
-function git(repo, args2, env) {
-  const r = spawnSync8("git", ["-C", repo, ...args2], {
-    encoding: "utf8",
-    env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
-    timeout: GIT_TIMEOUT_MS,
-    maxBuffer: GIT_MAX_BUFFER2
-  });
-  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "", stderr: (r.stderr ?? "") || (r.error?.message ?? "") };
+async function git(repo, args2, env) {
+  const r = await gitSpawn(repo, args2, { env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
+  return { code: r.code, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") || (r.error?.message ?? "") };
 }
-function revParse(repo, rev, env) {
-  const r = git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
+async function revParse(repo, rev, env) {
+  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
   const sha = r.stdout.trim();
   return r.code === 0 && sha !== "" ? sha : null;
 }
@@ -15609,8 +15673,8 @@ function dbUnavailable(env) {
   return { stdout: `${denyDbUnavailable(GATE_NAME12, env)}
 `, code: 0 };
 }
-function treeBlobs(repo, rev, env) {
-  const r = git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
+async function treeBlobs(repo, rev, env) {
+  const r = await git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
   if (r.code !== 0) return null;
   const blobs = /* @__PURE__ */ new Map();
   for (const entry of nulFields(r.stdout)) {
@@ -15620,17 +15684,17 @@ function treeBlobs(repo, rev, env) {
   }
   return blobs;
 }
-function readBlobs(repo, oids, env) {
+async function readBlobs(repo, oids, env) {
   const contents = /* @__PURE__ */ new Map();
   if (oids.length === 0) return contents;
-  const r = spawnSync8("git", ["-C", repo, "cat-file", "--batch"], {
+  const r = await gitSpawn(repo, ["cat-file", "--batch"], {
     input: `${oids.join("\n")}
 `,
     env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
-    timeout: GIT_TIMEOUT_MS,
-    maxBuffer: GIT_MAX_BUFFER2
+    stderr: "pipe",
+    timeoutMs: GIT_TIMEOUT_MS
   });
-  if (r.error || r.status !== 0) return null;
+  if (r.code !== 0) return null;
   const out2 = r.stdout;
   let at2 = 0;
   while (at2 < out2.length) {
@@ -15666,8 +15730,8 @@ function dirOf(path) {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
 }
-function removedInDiff(repo, base2, commit, env) {
-  const diff = git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
+async function removedInDiff(repo, base2, commit, env) {
+  const diff = await git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
   if (diff.code !== 0) return `git diff ${base2}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
   const paths = [];
@@ -15682,23 +15746,23 @@ function removedInDiff(repo, base2, commit, env) {
     if (status === "D" || status.startsWith("R")) paths.push(from);
   }
   if (!touchesTools) return { paths, tools: [] };
-  const before2 = treeBlobs(repo, base2, env);
-  const after2 = treeBlobs(repo, commit, env);
+  const before2 = await treeBlobs(repo, base2, env);
+  const after2 = await treeBlobs(repo, commit, env);
   if (!before2 || !after2) return `git ls-tree of ${base2} or ${commit} failed`;
   const sources = (blobs) => [...blobs].filter(([p]) => TOOL_SOURCE.test(p) && !p.includes("/test/")).map(([, oid]) => oid);
-  const contents = readBlobs(repo, [.../* @__PURE__ */ new Set([...sources(before2), ...sources(after2)])], env);
+  const contents = await readBlobs(repo, [.../* @__PURE__ */ new Set([...sources(before2), ...sources(after2)])], env);
   if (!contents) return "git cat-file of the tool sources failed";
   const kept = toolNames(after2, contents);
   return { paths, tools: [...toolNames(before2, contents)].filter((t) => !kept.has(t)).sort() };
 }
-function staleDocRefs(repo, base2, commit, env) {
-  const removed = removedInDiff(repo, base2, commit, env);
+async function staleDocRefs(repo, base2, commit, env) {
+  const removed = await removedInDiff(repo, base2, commit, env);
   if (typeof removed === "string") return removed;
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
-  const blobs = treeBlobs(repo, commit, env);
+  const blobs = await treeBlobs(repo, commit, env);
   if (!blobs) return `git ls-tree of ${commit} failed`;
   const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const contents = readBlobs(repo, docs.map(([, oid]) => oid), env);
+  const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
   if (!contents) return "git cat-file of the docs failed";
   const tools = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
   const paths = removed.paths.map((p) => ({ p, re: pathPattern(p) }));
@@ -15716,12 +15780,12 @@ function staleDocRefs(repo, base2, commit, env) {
   }
   return hits;
 }
-function hasChangelogDir(repo, rev, env) {
-  const r = git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
+async function hasChangelogDir(repo, rev, env) {
+  const r = await git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== "";
 }
-function nonRegenPaths(repo, rev, paths, env) {
-  const r = git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
+async function nonRegenPaths(repo, rev, paths, env) {
+  const r = await git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
   if (r.code !== 0) return null;
   const fields = nulFields(r.stdout);
   if (fields.length % 3 !== 0) return null;
@@ -15750,7 +15814,7 @@ function prTargetRef(repo, targetBranch, parentBranch) {
   }
   return null;
 }
-function preflight(db, taskId, env) {
+async function preflight(db, taskId, env) {
   const task = readTask(db, taskId, env);
   if (task === GATE_READ_ERROR) return dbUnavailable(env);
   if (task === null) return ALLOW;
@@ -15762,8 +15826,8 @@ function preflight(db, taskId, env) {
   }
   const repo = location.repoRoot;
   const branch = task.branch;
-  const tip = revParse(repo, `refs/heads/${branch}`, env);
-  const commit = recorded === "" ? null : revParse(repo, recorded, env);
+  const tip = await revParse(repo, `refs/heads/${branch}`, env);
+  const commit = recorded === "" ? null : await revParse(repo, recorded, env);
   if (commit === null || tip !== commit) {
     return deny3({
       check: "sha_mismatch",
@@ -15798,7 +15862,7 @@ function preflight(db, taskId, env) {
   );
   if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
   const targetRef = prTargetRef(repo, targetRow.split("\n")[0], task.parentBranch);
-  const targetTip = targetRef === null ? null : revParse(repo, targetRef, env);
+  const targetTip = targetRef === null ? null : await revParse(repo, targetRef, env);
   if (targetRef === null || targetTip === null) {
     return deny3({
       check: "base_conflict",
@@ -15806,10 +15870,10 @@ function preflight(db, taskId, env) {
       actual: `no PR target ref resolves in ${repo}`
     });
   }
-  const merge = git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
+  const merge = await git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
-    const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
+    const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
     if (blocking === null || blocking.length > 0) {
       return deny3({
         check: "base_conflict",
@@ -15818,7 +15882,7 @@ function preflight(db, taskId, env) {
       });
     }
   }
-  const mergeBase = git(repo, ["merge-base", targetTip, commit], env).stdout.trim();
+  const mergeBase = (await git(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
   if (mergeBase === "") {
     return deny3({
       check: "base_conflict",
@@ -15826,7 +15890,7 @@ function preflight(db, taskId, env) {
       actual: "no merge-base"
     });
   }
-  const stale = staleDocRefs(repo, mergeBase, commit, env);
+  const stale = await staleDocRefs(repo, mergeBase, commit, env);
   if (typeof stale === "string" || stale.length > 0) {
     return deny3({
       check: "stale_doc_ref",
@@ -15834,8 +15898,8 @@ function preflight(db, taskId, env) {
       actual: typeof stale === "string" ? stale : listed(stale)
     });
   }
-  if (hasChangelogDir(repo, commit, env) || hasChangelogDir(repo, mergeBase, env)) {
-    const added = git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
+  if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
+    const added = await git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === "") {
       return deny3({
         check: "missing_changelog",
@@ -15846,7 +15910,7 @@ function preflight(db, taskId, env) {
   }
   return ALLOW;
 }
-var codeReviewerPreflight = (payload, env) => {
+var codeReviewerPreflight = async (payload, env) => {
   if (env[BYPASS_ENV] === "1") return ALLOW;
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "code-reviewer") return ALLOW;
@@ -15856,7 +15920,7 @@ var codeReviewerPreflight = (payload, env) => {
   const db = dbPath(env);
   if (db === null) return ALLOW;
   if (!haveSqlite(env)) return dbUnavailable(env);
-  return preflight(db, taskId, env);
+  return await preflight(db, taskId, env);
 };
 
 // src/success-criteria.ts
@@ -16010,7 +16074,7 @@ function resolveRepo(db, taskId, repo, env) {
     `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.`
   );
 }
-var requireFeatureBranchActive = (payload, env) => {
+var requireFeatureBranchActive = async (payload, env) => {
   if ((env.TMB_ALLOW_BRANCH_MISMATCH ?? "0") === "1") return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
   const rawId = /task_id=([0-9]+)/.exec(jqAlternatives(payload, [["tool_input", "prompt"]]))?.[1] ?? "";
@@ -16024,9 +16088,9 @@ var requireFeatureBranchActive = (payload, env) => {
   const expected = cutField2(row, 1);
   const repoAbs = resolveRepo(db, rawId, cutField2(row, 2), env);
   if (typeof repoAbs !== "string") return repoAbs;
-  if (gitOk(repoAbs, ["show-ref", "--verify", "--quiet", `refs/heads/${expected}`], env, "inherit")) return ALLOW;
+  if (await gitOk(repoAbs, ["show-ref", "--verify", "--quiet", `refs/heads/${expected}`], env, "inherit")) return ALLOW;
   const base2 = cutField2(row, 3) || "<base>";
-  const baseRef = gitOk(repoAbs, ["remote", "get-url", "origin"], env) ? `origin/${base2}` : base2;
+  const baseRef = await gitOk(repoAbs, ["remote", "get-url", "origin"], env) ? `origin/${base2}` : base2;
   return denyPreToolUse(
     `BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first \u2014 bro pre-creates it ("git -C ${repoAbs} branch ${expected} ${baseRef}") and stays on ${base2}; SWE's worktree owns the branch.`
   );
@@ -16088,12 +16152,12 @@ function rawField(value) {
 function deny5(reason) {
   return denyPreToolUse(reason);
 }
-function worktreeState(repo, branch, env) {
+async function worktreeState(repo, branch, env) {
   const ref = `branch refs/heads/${branch}`;
   let entry = 0;
   let main = false;
   let linked = false;
-  for (const line of gitOut(repo, ["worktree", "list", "--porcelain"], env).split("\n")) {
+  for (const line of (await gitOut(repo, ["worktree", "list", "--porcelain"], env)).split("\n")) {
     if (line.startsWith("worktree ")) entry += 1;
     if (line === ref) {
       if (entry === 1) main = true;
@@ -16102,7 +16166,7 @@ function worktreeState(repo, branch, env) {
   }
   return linked ? "linked" : main ? "main" : "none";
 }
-function worktreeDeny(db, taskId, safeId, env) {
+async function worktreeDeny(db, taskId, safeId, env) {
   const wt = gateRead(
     db,
     `SELECT json_object('branch', COALESCE(t.branch_id, ''),
@@ -16121,8 +16185,8 @@ function worktreeDeny(db, taskId, safeId, env) {
   const path = rawField(row.path);
   const repo = path === "" ? env.CLAUDE_PROJECT_DIR ?? "" : repoPathAbs(db, path);
   if (repo === "" || branch === "") return null;
-  if (gitOut(repo, ["rev-parse", "--is-inside-work-tree"], env) !== "true") return null;
-  const state = worktreeState(repo, branch, env);
+  if (await gitOut(repo, ["rev-parse", "--is-inside-work-tree"], env) !== "true") return null;
+  const state = await worktreeState(repo, branch, env);
   if (state === "linked") return null;
   const expected = `${repo.replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
   const sw = state === "main" ? ` The main checkout currently has ${branch} checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere).` : "";
@@ -16175,7 +16239,7 @@ function specShapeVerdict(db, taskId, safeId, env) {
     `BLOCKED: task_id=${taskId} adds a column, field, tool, table or migration, and its spec_body is missing a ${missing} line. Under ## Success Criteria, name each new item with \`Writer: <tool/hook/function>\` and \`Populated: <verification[] command proving a non-null sample or count > 0>\`, or \`Nullable: <reason>\`; fix it with task_update_spec. To waive, bro first records audit_append(event_type="spec_shape_gate_waived", from_node="bro", issue_id=${issue}, branch_id="${branch}", summary=<why>, content_json={"task_id":${taskId},"gate":"spec_shape","reason":"<why, >= 10 chars>"}) and then respawns.`
   );
 }
-var requireTaskSpec = (payload, env) => {
+var requireTaskSpec = async (payload, env) => {
   if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
   const taskId = promptTaskId(jqAlternatives(payload, [["tool_input", "prompt"]]));
   if (taskId === "") {
@@ -16221,7 +16285,7 @@ var requireTaskSpec = (payload, env) => {
     );
   }
   if (status === "pending") {
-    const blocked = worktreeDeny(db, taskId, safeId, env);
+    const blocked = await worktreeDeny(db, taskId, safeId, env);
     if (blocked !== null) return blocked;
   }
   return specShapeVerdict(db, taskId, safeId, env);
@@ -16328,16 +16392,16 @@ function noRemoteUrl(remotesJson) {
   }
   return out2.join("\n") === "false";
 }
-function offlineNote(env) {
+async function offlineNote(env) {
   if (!commandOnPath("sqlite3", env) || !commandOnPath("jq", env)) return "";
   const db = dbPath(env);
   if (db === null || db === "") return "";
-  const remotes = repoRemotes(db, repoGitRoot(projectRoot(env), env), env);
+  const remotes = repoRemotes(db, await repoGitRoot(projectRoot(env), env), env);
   return remotes !== "" && noRemoteUrl(remotes) ? OFFLINE_NOTE : "";
 }
-var substratePreflight = (_payload, env) => {
+var substratePreflight = async (_payload, env) => {
   const missing = PROBES.filter(([bin]) => !commandOnPath(bin, env)).map(([bin, why]) => `missing ${bin} \u2014 ${why}`);
-  const offline = offlineNote(env);
+  const offline = await offlineNote(env);
   if (missing.length === 0 && offline === "") return ALLOW;
   const parts2 = [];
   if (missing.length > 0) parts2.push(`TMB DEGRADED: ${missing.join("; ")}. Install the missing tools to restore enforcement.`);
@@ -16617,8 +16681,8 @@ var Boundary = class {
     return dbPath(this.env, (line) => process.stderr.write(`${line}
 `)) ?? "";
   }
-  taskFor(target, db) {
-    return this.callerTask !== "" ? this.callerTask : resolveTaskIdForTarget(target, this.input, db, this.env);
+  async taskFor(target, db) {
+    return this.callerTask !== "" ? this.callerTask : await resolveTaskIdForTarget(target, this.input, db, this.env);
   }
   wtOf(path) {
     return ctxInWorktree(path, this.worktree) ? this.worktree : worktreeRootForTarget(path);
@@ -16672,7 +16736,7 @@ var Boundary = class {
         rel = path;
       }
       if (wt !== "" && rel === "CLAUDE.md") rootClaudeMd = path;
-      if (surface2 === "" && isPromptSurfacePath(rel, wt, this.env)) {
+      if (surface2 === "" && await isPromptSurfacePath(rel, wt, this.env)) {
         surface2 = path;
         anchor = wt === "" ? "" : path;
       }
@@ -16683,7 +16747,7 @@ var Boundary = class {
     if ((surface2 !== "" || unresolved !== "") && dbState(this.env) === "error") return this.dbDenied();
     let lifted = false;
     if (surface2 !== "" || unresolved !== "") {
-      const task = this.taskFor(anchor, db);
+      const task = await this.taskFor(anchor, db);
       if (task !== "" && db !== "" && haveSqlite(this.env)) {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
@@ -16716,7 +16780,7 @@ var Boundary = class {
       const wt = this.wtOf(path);
       if (wt !== fenceWt) {
         fenceWt = wt;
-        fenceTask = this.taskFor(path, db);
+        fenceTask = await this.taskFor(path, db);
         scope.load(db, fenceTask);
       }
       if (scope.state !== "ok") continue;
@@ -16749,7 +16813,7 @@ var Boundary = class {
     const found = names.map((n3) => `${base2}/${n3}/${session}/scratchpad`).filter(ownDir);
     return found.length === 1 ? found[0] : fallback;
   }
-  bypassCheck() {
+  async bypassCheck() {
     const session = sessionOf(this.input);
     if (session === "") return ALLOW;
     const state = stateDir(this.env);
@@ -16780,7 +16844,7 @@ var Boundary = class {
     if (Math.floor(Date.now() / 1e3) - at2 > windowMin * 60) return drop();
     const db = capture2(dbPath(this.env) ?? "");
     if (db === "" || !haveSqlite(this.env)) return ALLOW;
-    const task = this.taskFor(this.target, db);
+    const task = await this.taskFor(this.target, db);
     let issue = "-1";
     if (task !== "") issue = sqlInt(capture2(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${task};`, this.env))) || "-1";
     const rel = this.wtD === "" ? this.target : stripDir(this.target, this.wtD);
@@ -16815,7 +16879,7 @@ var Boundary = class {
       written.stdout
     );
   }
-  edit() {
+  async edit() {
     this.target = field4(this.input, ["tool_input", "file_path"], ["tool_input", "notebook_path"]);
     const target = this.target;
     if (target === "") return ALLOW;
@@ -16844,15 +16908,15 @@ var Boundary = class {
       subject = this.wtD === "" ? target : stripDir(target, this.wtD);
     }
     if (this.wtD !== "" && subject === "CLAUDE.md") return deny6(claudeMdReason(target));
-    if (!isPromptSurfacePath(subject, this.wtD, this.env)) return this.bypassCheck();
+    if (!await isPromptSurfacePath(subject, this.wtD, this.env)) return await this.bypassCheck();
     const db = this.dbPath();
     if (dbState(this.env) === "error") return this.dbDenied();
     if (db !== "" && haveSqlite(this.env)) {
-      const task = this.taskFor(target, db);
+      const task = await this.taskFor(target, db);
       if (task !== "") {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
-        if (pb === "1") return this.bypassCheck();
+        if (pb === "1") return await this.bypassCheck();
       }
     }
     return deny6(
@@ -16864,10 +16928,10 @@ var sweBoundary = async (payload, env) => {
   const b = new Boundary(payload, env);
   const early = b.resolve();
   if (early) return early;
-  if (b.toolName === "Bash" && b.swe) return b.bash();
+  if (b.toolName === "Bash" && b.swe) return await b.bash();
   if (!EDIT_TOOLS.has(b.toolName) || !b.swe) return ALLOW;
   try {
-    return b.edit();
+    return await b.edit();
   } catch (e) {
     if (!(e instanceof ArithmeticAbort)) throw e;
     process.stderr.write(`${e.message}
@@ -17092,7 +17156,7 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
 var taskOverrunAlert = makeTaskOverrunAlert();
 
 // src/hooks/activation-routine.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { readFileSync as readFileSync13, statSync as statSync20 } from "node:fs";
 
 // src/hooks/cmd-analysis/harness-turn.ts
@@ -17340,7 +17404,7 @@ function saysBro(prompt, grep) {
 function serverDown(env) {
   if (!commandOnPath2("pgrep", env)) return false;
   try {
-    return spawnSync9("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+    return spawnSync7("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
   } catch {
     return false;
   }
@@ -18989,7 +19053,7 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn2, spawnSync as spawnSync10 } from "node:child_process";
+import { spawn as spawn3, spawnSync as spawnSync8 } from "node:child_process";
 import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync7, mkdtempSync, openSync as openSync3, readFileSync as readFileSync15, rmSync as rmSync4, statSync as statSync24, writeFileSync as writeFileSync5 } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { resolve as resolve3 } from "node:path";
@@ -19059,30 +19123,30 @@ function passedInSource(db, runId, env) {
   const commands = parseCommands(out2 === "" ? "[]" : out2);
   return commands === null ? "error" : new Set(commands);
 }
-function changedPaths(worktree, from, to, env) {
-  const r = gitRun(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to, "--"], env);
+async function changedPaths(worktree, from, to, env) {
+  const r = await gitRun(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to, "--"], env);
   if (r.code !== 0) return null;
   return r.stdout.split("\0").filter((p) => p !== "");
 }
-function planCarry(req, env = process.env) {
+async function planCarry(req, env = process.env) {
   const taskId = sqlInt(req.taskId);
   const head = req.head.toLowerCase();
   const commands = parseCommands(req.commandsJson);
   if (req.db === "" || taskId === "" || req.worktree === "" || !SHA_RE.test(head) || commands === null) return refuse("bad_input");
-  const actualHead = gitRun(req.worktree, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], env);
+  const actualHead = await gitRun(req.worktree, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], env);
   if (actualHead.code !== 0 || actualHead.stdout.trim().toLowerCase() !== head) return refuse("head_mismatch");
   const source = sourceRun(req.db, taskId, head, env);
   if (source === "error") return refuse("db_unreadable");
   if (source === null) return refuse("no_source_run");
-  if (gitRun(req.worktree, ["merge-base", "--is-ancestor", source.sha, head], env).code !== 0) return refuse("not_ancestor", source);
-  const merges = gitRun(req.worktree, ["rev-list", "--merges", `${source.sha}..${head}`], env);
+  if ((await gitRun(req.worktree, ["merge-base", "--is-ancestor", source.sha, head], env)).code !== 0) return refuse("not_ancestor", source);
+  const merges = await gitRun(req.worktree, ["rev-list", "--merges", `${source.sha}..${head}`], env);
   if (merges.code !== 0 || merges.stdout.trim() !== "") return refuse("merge_in_range", source);
-  const status = gitRun(req.worktree, ["status", "--porcelain"], env);
+  const status = await gitRun(req.worktree, ["status", "--porcelain"], env);
   if (status.code !== 0 || status.stdout.trim() !== "") return refuse("dirty_worktree", source);
-  const changed = changedPaths(req.worktree, source.sha, head, env);
+  const changed = await changedPaths(req.worktree, source.sha, head, env);
   if (changed === null) return refuse("diff_failed", source);
   if (changed.includes(VERIFICATION_INPUTS_PATH)) return refuse("map_changed", source);
-  const mapText = gitRun(req.worktree, ["show", `${head}:${VERIFICATION_INPUTS_PATH}`], env);
+  const mapText = await gitRun(req.worktree, ["show", `${head}:${VERIFICATION_INPUTS_PATH}`], env);
   if (mapText.code !== 0) return refuse("map_missing", source);
   const entries = parseInputsMap(mapText.stdout);
   if (typeof entries === "string") return refuse(entries, source);
@@ -19106,9 +19170,9 @@ function planCarry(req, env = process.env) {
     commands: decisions
   };
 }
-function planCarrySafe(req, env = process.env) {
+async function planCarrySafe(req, env = process.env) {
   try {
-    return planCarry(req, env);
+    return await planCarry(req, env);
   } catch {
     return refuse("error");
   }
@@ -19125,7 +19189,7 @@ function isMainModule() {
 }
 if (isMainModule()) {
   const [db = "", taskId = "", worktree = "", head = "", commandsJson = ""] = process.argv.slice(2);
-  process.stdout.write(`${JSON.stringify(planCarrySafe({ db, taskId, worktree, head, commandsJson }))}
+  process.stdout.write(`${JSON.stringify(await planCarrySafe({ db, taskId, worktree, head, commandsJson }))}
 `);
 }
 
@@ -19309,7 +19373,7 @@ function executable(path) {
   }
 }
 function capture3(cmd, args2, dir, env) {
-  const r = spawnSync10(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync8(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function toolchainDirs(env, worktree) {
@@ -19504,8 +19568,8 @@ ${command}
 Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`
     );
   }
-  planCarry() {
-    const plan = planCarrySafe(
+  async planCarry() {
+    const plan = await planCarrySafe(
       { db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson },
       { ...this.c.env, PATH: this.c.toolchainPath }
     );
@@ -19530,7 +19594,7 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
         clearTimeout(timer);
         done({ rc, fired });
       };
-      const child = spawn2("bash", ["-c", command], {
+      const child = spawn3("bash", ["-c", command], {
         cwd: this.c.worktree,
         env: { ...this.c.env, PATH: this.c.toolchainPath, PWD: this.c.worktree },
         stdio: ["ignore", fd, fd],
@@ -19591,7 +19655,7 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
         this.recordMs = Date.now() - this.runStart;
       }
     }
-    if (this.runId !== "") this.planCarry();
+    if (this.runId !== "") await this.planCarry();
     const carried = [];
     for (const cmd of c.commands) {
       if (this.carryOrdinals.has(this.ordinal + 1)) {
@@ -19796,7 +19860,7 @@ var sweVerificationGate = async (payload, env) => {
     genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
   );
   if (budget.warning !== "") stderr(budget.warning);
-  const head = gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
+  const head = await gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
   const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
   const expectedSha = field6("commit_sha");
   const commands = block2.split("\n").filter((line) => line !== "");
@@ -20266,7 +20330,7 @@ var stayOnBaseGuard = async (payload, env) => {
     if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
     if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
     const loc = taskLocation(db, openTask, env);
-    const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
+    const wt = loc.code === 0 ? loc.worktree : `${await repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
     return denyResult(
       `the main checkout stays on the base; SWE work lives in worktrees \u2014 use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`
     );
@@ -20277,8 +20341,8 @@ var stayOnBaseGuard = async (payload, env) => {
 // src/hooks/branch-up-to-date-with-remote.ts
 var GATE_NAME49 = "branch-up-to-date-with-remote";
 var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
-function behindCount(root, range, env) {
-  const r = gitRun(root, ["rev-list", "--count", range], env);
+async function behindCount(root, range, env) {
+  const r = await gitRun(root, ["rev-list", "--count", range], env);
   return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}?
 `);
 }
@@ -20305,7 +20369,7 @@ var branchUpToDateWithRemote = async (payload, env) => {
   if (CREATES_BRANCH.some((flag) => ` ${wtSub} `.includes(flag))) return ALLOW;
   const branch = wtSub.slice(wtSub.lastIndexOf(" ") + 1);
   if (branch === "") return ALLOW;
-  const root = stmtRepoRoot(wtDir, cwd, env);
+  const root = await stmtRepoRoot(wtDir, cwd, env);
   if (root === "") return ALLOW;
   const db = dbPath(env, (line) => process.stderr.write(`${line}
 `));
@@ -20317,12 +20381,12 @@ var branchUpToDateWithRemote = async (payload, env) => {
 `, code: 0 };
   if (row === "") return ALLOW;
   const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
-  if (!gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
-  if (gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
-  gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
-  if (!gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
-  if (gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
-  const behind = behindCount(root, `${branch}..origin/${prTarget}`, env);
+  if (!await gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
+  if (await gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
+  await gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
+  if (!await gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
+  if (await gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
+  const behind = await behindCount(root, `${branch}..origin/${prTarget}`, env);
   return denyResult(
     `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`
   );
@@ -20406,7 +20470,7 @@ var noRemoteAuthGuard = async (payload, env) => {
   const db = dbPath(env);
   if (db === null) return ALLOW;
   if (!haveSqlite(env)) return ALLOW;
-  const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
+  const remotes = repoRemotes(db, await stmtRepoRoot(matchedDir, cwd, env), env);
   if (remotes === "") return ALLOW;
   if (hasRemoteUrl(remotes) !== "false") return ALLOW;
   return denyResult(
@@ -20468,7 +20532,7 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/orphan-scan.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync16, rmSync as rmSync5, statSync as statSync26 } from "node:fs";
 var GATE_NAME53 = "orphan-scan";
 var DEADLINE_S = 4;
@@ -20504,7 +20568,7 @@ function isCcCommand2(command) {
   return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
 }
 function capture4(cmd, args2, env) {
-  const r = spawnSync11(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync9(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.error ? "" : r.stdout ?? "";
 }
 function procPpid2(pid, env) {
@@ -20769,7 +20833,7 @@ var orphanScan = (_payload, env) => {
 };
 
 // src/hooks/session-start-prescan.ts
-import { spawn as spawn3 } from "node:child_process";
+import { spawn as spawn4 } from "node:child_process";
 import { readdirSync as readdirSync6, readFileSync as readFileSync17, statSync as statSync27 } from "node:fs";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 var GATE_NAME54 = "session-start-prescan";
@@ -20967,8 +21031,8 @@ function detectStacks(dir, env) {
   if (n3 > SUBDIR_STACKS_MAX) s += `, +${n3 - SUBDIR_STACKS_MAX} more`;
   return s || "(none detected)";
 }
-function gitOr(dir, args2, fallback, env) {
-  const r = gitRun(dir, args2, env);
+async function gitOr(dir, args2, fallback, env) {
+  const r = await gitRun(dir, args2, env);
   return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}${fallback}
 `);
 }
@@ -21063,7 +21127,7 @@ function doctorState(root, db, env) {
   return "healthy";
 }
 function startInitialScan(invoker, db, env) {
-  const child = spawn3("node", ["--experimental-sqlite", invoker], {
+  const child = spawn4("node", ["--experimental-sqlite", invoker], {
     env: { ...env, TRAJECTORY_DB_PATH: db },
     detached: true,
     stdio: "ignore"
@@ -21082,7 +21146,7 @@ function coldNote(root, db, env) {
 function pluginRoot2() {
   return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
 }
-function sessionStartPrescanRun(env, root, stderr2) {
+async function sessionStartPrescanRun(env, root, stderr2) {
   if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
   const db = dbPathAdvisory(GATE_NAME54, env, (line) => stderr2(`${line}
 `));
@@ -21103,12 +21167,12 @@ function sessionStartPrescanRun(env, root, stderr2) {
       continue;
     }
     stacks.push(`${name3}: ${detectStacks(path, env)}`);
-    const branch = gitOr(path, ["rev-parse", "--abbrev-ref", "HEAD"], "unknown", env);
-    const commits = gitOr(path, ["rev-list", "--count", "HEAD"], "0", env);
-    const dirty = lineCount2(gitRun(path, ["status", "--porcelain"], env).stdout);
+    const branch = await gitOr(path, ["rev-parse", "--abbrev-ref", "HEAD"], "unknown", env);
+    const commits = await gitOr(path, ["rev-list", "--count", "HEAD"], "0", env);
+    const dirty = lineCount2((await gitRun(path, ["status", "--porcelain"], env)).stdout);
     branches.push(`${name3}: ${branch} (${commits} commits, ${dirty} dirty paths)`);
     const prefix = repoN > 1 ? `  [${name3}] ` : "  ";
-    const log = records(gitRun(path, ["log", "--oneline", "-5"], env).stdout).map((l) => `${prefix}${l}`);
+    const log = records((await gitRun(path, ["log", "--oneline", "-5"], env)).stdout).map((l) => `${prefix}${l}`);
     if (log.length > 0) last5.push(log.join("\n"));
   }
   const counts = sqliteRo(
@@ -21122,7 +21186,7 @@ function sessionStartPrescanRun(env, root, stderr2) {
   let sourceFiles = 0;
   for (const { name: name3, path } of repos) {
     if (name3 === "" || !isDir7(path)) continue;
-    sourceFiles += records(gitRun(path, ["ls-files"], env).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
+    sourceFiles += records((await gitRun(path, ["ls-files"], env)).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
   }
   const scanRow = sqliteRo(
     db,
@@ -21169,16 +21233,16 @@ Plugin: ${userSettingsJson(env)} holds ${legacy.hooks.length} pre-1.1.0 TMB hook
   return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: inventory } })}
 `, code: 0 };
 }
-var sessionStartPrescan = (_payload, env) => {
+var sessionStartPrescan = async (_payload, env) => {
   try {
-    return sessionStartPrescanRun(env, pluginRoot2(), (text) => process.stderr.write(text));
+    return await sessionStartPrescanRun(env, pluginRoot2(), (text) => process.stderr.write(text));
   } catch {
     return ALLOW;
   }
 };
 
 // src/hooks/clean-merged-branch.ts
-import { spawn as spawn4 } from "node:child_process";
+import { spawn as spawn5 } from "node:child_process";
 import { statSync as statSync28 } from "node:fs";
 
 // src/hooks/lib/merge.ts
@@ -21221,18 +21285,18 @@ function note(text) {
   process.stderr.write(`tmb: ${text}
 `);
 }
-function localBranch(root, name3, env) {
-  return gitOk(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${name3}`], env);
+async function localBranch(root, name3, env) {
+  return await gitOk(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${name3}`], env);
 }
 function namesMerge(cmd) {
   return MERGE_CMD.test(cmd);
 }
-function branchFromCmd(cmd, root, env = process.env) {
+async function branchFromCmd(cmd, root, env = process.env) {
   const args2 = cmd.split("\n").map((line) => line.replace(MERGE_PREFIX, "")).join("\n");
   for (const tok of args2.split(/[ \t\n]+/)) {
     if (tok === "" || tok.startsWith("-") || tok.includes("://")) continue;
     if (/^[0-9]+$/.test(tok)) continue;
-    if (localBranch(root, tok, env)) return tok;
+    if (await localBranch(root, tok, env)) return tok;
   }
   return "";
 }
@@ -21243,32 +21307,32 @@ function repoRow(root, env) {
 function cut(row, n3) {
   return row.includes("|") ? row.split("|")[n3 - 1] ?? "" : row;
 }
-function isProtected(root, branch, env = process.env) {
-  const def = repoDefaultBranch(root, env);
+async function isProtected(root, branch, env = process.env) {
+  const def = await repoDefaultBranch(root, env);
   if (def !== "" && branch === def) return true;
   const protectedList = cut(repoRow(root, env), 3);
   return protectedList !== "" && protectedList.replace(/[\][",]/g, " ").split(/[ \t\n]+/).includes(branch);
 }
-function baseBranch(root, env = process.env) {
+async function baseBranch(root, env = process.env) {
   const target = cut(repoRow(root, env), 1);
-  return target !== "" ? target : repoDefaultBranch(root, env);
+  return target !== "" ? target : await repoDefaultBranch(root, env);
 }
-function integrated(root, tip, target, env = process.env) {
-  if (gitOk(root, ["merge-base", "--is-ancestor", tip, target], env)) return true;
-  const merged = gitRun(root, ["merge-tree", "--write-tree", target, tip], env);
+async function integrated(root, tip, target, env = process.env) {
+  if (await gitOk(root, ["merge-base", "--is-ancestor", tip, target], env)) return true;
+  const merged = await gitRun(root, ["merge-tree", "--write-tree", target, tip], env);
   if (merged.code === 0) {
-    const tree = gitRun(root, ["rev-parse", `${target}^{tree}`], env);
+    const tree = await gitRun(root, ["rev-parse", `${target}^{tree}`], env);
     const targetTree = tree.code === 0 ? tree.stdout.replace(/\n+$/, "") : "";
     if (targetTree !== "" && merged.stdout.replace(/\n+$/, "").split("\n")[0] === targetTree) return true;
   }
-  const cherry = gitRun(root, ["cherry", target, tip], env);
+  const cherry = await gitRun(root, ["cherry", target, tip], env);
   if (cherry.code !== 0) return false;
   return !cherry.stdout.split("\n").some((line) => line.startsWith("+"));
 }
-function worktreeForBranch(root, branch, env = process.env) {
+async function worktreeForBranch(root, branch, env = process.env) {
   const want = `refs/heads/${branch}`;
   let wt = "";
-  for (const line of gitRun(root, ["worktree", "list", "--porcelain"], env).stdout.split("\n")) {
+  for (const line of (await gitRun(root, ["worktree", "list", "--porcelain"], env)).stdout.split("\n")) {
     if (line.startsWith("worktree ")) wt = line.slice("worktree ".length);
     else if (line.startsWith("branch ") && line.slice("branch ".length) === want && wt !== root) return wt;
   }
@@ -21276,7 +21340,7 @@ function worktreeForBranch(root, branch, env = process.env) {
 }
 function fetchPrune(root, env) {
   try {
-    const child = spawn4("git", ["-C", root, "fetch", "--prune", "--quiet"], {
+    const child = spawn5("git", ["-C", root, "fetch", "--prune", "--quiet"], {
       detached: true,
       stdio: "ignore",
       env: { ...env, GIT_TERMINAL_PROMPT: "0" }
@@ -21287,52 +21351,52 @@ function fetchPrune(root, env) {
   } catch {
   }
 }
-function clean(payload, env) {
+async function clean(payload, env) {
   const { input, toolName: toolName2, command: cmd, response } = readMergePayload(payload);
   if (toolName2 !== "Bash" || cmd === "") return;
   if (!namesMerge(cmd) || mergeFailed(response)) return;
   const cwd = cmdCwd(cmd, input, env);
-  const root = repoGitRoot(cwd, env);
+  const root = await repoGitRoot(cwd, env);
   if (root === "" || !isDir(root)) return;
-  let branch = branchFromCmd(cmd, root, env);
-  if (branch === "") branch = gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  let branch = await branchFromCmd(cmd, root, env);
+  if (branch === "") branch = await gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (branch === "" || branch === "HEAD") return;
-  if (!localBranch(root, branch, env)) return;
-  if (isProtected(root, branch, env)) return;
-  const base2 = baseBranch(root, env);
-  if (base2 === "" || !localBranch(root, base2, env) || branch === base2) return;
-  if (!integrated(root, `refs/heads/${branch}`, `refs/heads/${base2}`, env)) return;
-  const wt = worktreeForBranch(root, branch, env);
+  if (!await localBranch(root, branch, env)) return;
+  if (await isProtected(root, branch, env)) return;
+  const base2 = await baseBranch(root, env);
+  if (base2 === "" || !await localBranch(root, base2, env) || branch === base2) return;
+  if (!await integrated(root, `refs/heads/${branch}`, `refs/heads/${base2}`, env)) return;
+  const wt = await worktreeForBranch(root, branch, env);
   if (wt !== "" && isDir(wt)) {
-    if (gitRun(wt, ["status", "--porcelain"], env).stdout !== "") {
+    if ((await gitRun(wt, ["status", "--porcelain"], env)).stdout !== "") {
       note(`branch ${branch} is merged but its worktree ${wt} has uncommitted/untracked changes \u2014 skipping cleanup (never force)`);
       return;
     }
-    if (!gitOk(root, ["worktree", "remove", wt], env)) {
+    if (!await gitOk(root, ["worktree", "remove", wt], env)) {
       note(`worktree remove failed for ${wt} \u2014 leaving branch ${branch} in place`);
       return;
     }
   }
-  if (gitOk(root, ["branch", "-D", branch], env)) {
-    gitOk(root, ["worktree", "prune"], env);
+  if (await gitOk(root, ["branch", "-D", branch], env)) {
+    await gitOk(root, ["worktree", "prune"], env);
     note(`cleaned up merged branch ${branch}${wt !== "" ? ` (worktree ${wt})` : ""}`);
   } else {
     note(`branch delete failed for ${branch} \u2014 leaving in place`);
-    gitOk(root, ["worktree", "prune"], env);
+    await gitOk(root, ["worktree", "prune"], env);
   }
   fetchPrune(root, env);
 }
-var cleanMergedBranch = (payload, env) => {
+var cleanMergedBranch = async (payload, env) => {
   if ((env.TMB_DISABLE_CLEAN_MERGED_BRANCH ?? "0") === "1") return ALLOW;
   try {
-    clean(payload, env);
+    await clean(payload, env);
   } catch {
   }
   return ALLOW;
 };
 
 // src/hooks/close-issue-on-merge.ts
-import { spawnSync as spawnSync12 } from "node:child_process";
+import { spawnSync as spawnSync10 } from "node:child_process";
 import { statSync as statSync29 } from "node:fs";
 
 // src/review-sql.ts
@@ -21381,7 +21445,7 @@ function isFile16(path) {
   }
 }
 function gh(args2, repoDir, env) {
-  const r = spawnSync12("gh", args2, {
+  const r = spawnSync10("gh", args2, {
     cwd: repoDir,
     encoding: "utf8",
     env,
@@ -21630,7 +21694,7 @@ function syncOn(db, env = process.env) {
   );
   return mode !== "" && mode !== "off";
 }
-function close(payload, env) {
+async function close(payload, env) {
   const { input, toolName: toolName2, command: cmd, response } = readMergePayload(payload);
   if (toolName2 !== "Bash" || cmd === "") return;
   const args2 = mergeArgs(cmd);
@@ -21639,9 +21703,9 @@ function close(payload, env) {
   const db = dbPath(env);
   if (db === null || !isFile16(db) || !haveSqlite(env)) return;
   let ref = refFromArgs(commandSubstitution(args2.join("\n")).split("\n"));
-  if (ref === "") ref = gitOut(forgeCommandDir(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (ref === "") ref = await gitOut(forgeCommandDir(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (ref === "" || ref === "HEAD") return;
-  const repoDir = forgeRepoDir(cmd, input, env);
+  const repoDir = await forgeRepoDir(cmd, input, env);
   const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, "headRefName"));
   if (head === "" && /[^0-9]/.test(ref) && !ref.includes("://")) head = ref;
@@ -21656,10 +21720,10 @@ function close(payload, env) {
   }
   merge.closeRemotes();
 }
-var closeIssueOnMerge = (payload, env) => {
+var closeIssueOnMerge = async (payload, env) => {
   if ((env.TMB_DISABLE_CLOSE_ISSUE_ON_MERGE ?? "0") === "1") return ALLOW;
   try {
-    close(payload, env);
+    await close(payload, env);
   } catch {
   }
   return ALLOW;
@@ -21906,7 +21970,7 @@ function skipUnbound(db, transcript, spawnId, taskId, env, out2) {
   if (!r.ok) process.stderr.write(`${r.error}
 `);
 }
-var sweAtomicClose = (payload, env) => {
+var sweAtomicClose = async (payload, env) => {
   const inputText = commandSubstitution2(payload);
   const input = jqInput(payload);
   const log = Log.open(env);
@@ -22024,43 +22088,48 @@ SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTo
   repoRoot = realdir(repoRoot);
   const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
   const safeRootDir = sqlQuote(wtPath);
-  let wtHead = gitOut(wtPath, ["rev-parse", "HEAD"], env);
-  const headWithin = (head, ...tips) => tips.some((tip) => tip !== "" && gitOk(repoRoot, ["merge-base", "--is-ancestor", head, tip], env));
-  const verify = (ref) => gitOut(repoRoot, ["rev-parse", "-q", "--verify", `${ref}^{commit}`], env);
+  let wtHead = await gitOut(wtPath, ["rev-parse", "HEAD"], env);
+  const headWithin = async (head, ...tips) => {
+    for (const tip of tips) {
+      if (tip !== "" && await gitOk(repoRoot, ["merge-base", "--is-ancestor", head, tip], env)) return true;
+    }
+    return false;
+  };
+  const verify = async (ref) => await gitOut(repoRoot, ["rev-parse", "-q", "--verify", `${ref}^{commit}`], env);
   let hasCommits = false;
   let parentTipLocal = "";
   let parentTipOrigin = "";
   if (parentBranch !== "") {
-    parentTipLocal = verify(`refs/heads/${parentBranch}`);
-    parentTipOrigin = verify(`refs/remotes/origin/${parentBranch}`);
+    parentTipLocal = await verify(`refs/heads/${parentBranch}`);
+    parentTipOrigin = await verify(`refs/remotes/origin/${parentBranch}`);
   }
   if (wtHead !== "") {
     let headInParent = false;
     if (`${parentTipLocal}${parentTipOrigin}` !== "") {
-      if (headWithin(wtHead, parentTipLocal, parentTipOrigin)) headInParent = true;
+      if (await headWithin(wtHead, parentTipLocal, parentTipOrigin)) headInParent = true;
       else hasCommits = true;
     }
     if (!hasCommits && !headInParent) {
-      const localFeature = verify(`refs/heads/${branch}`);
-      if (localFeature !== "" && !headWithin(wtHead, localFeature)) hasCommits = true;
+      const localFeature = await verify(`refs/heads/${branch}`);
+      if (localFeature !== "" && !await headWithin(wtHead, localFeature)) hasCommits = true;
       if (!hasCommits && parentBranch === "" && localFeature !== "" && wtHead === localFeature) {
         let base2 = cutField3(repoResolve(db, repoRoot, env), 1);
-        if (base2 === "") base2 = repoDefaultBranch(repoRoot, env);
+        if (base2 === "") base2 = await repoDefaultBranch(repoRoot, env);
         if (base2 !== "") {
-          parentTipLocal = verify(`refs/heads/${base2}`);
-          parentTipOrigin = verify(`refs/remotes/origin/${base2}`);
-          let ahead = gitOut(wtPath, ["rev-list", "--count", `origin/${base2}..HEAD`], env);
-          if (ahead === "") ahead = gitOut(wtPath, ["rev-list", "--count", `${base2}..HEAD`], env);
+          parentTipLocal = await verify(`refs/heads/${base2}`);
+          parentTipOrigin = await verify(`refs/remotes/origin/${base2}`);
+          let ahead = await gitOut(wtPath, ["rev-list", "--count", `origin/${base2}..HEAD`], env);
+          if (ahead === "") ahead = await gitOut(wtPath, ["rev-list", "--count", `${base2}..HEAD`], env);
           if (!/^[0-9]+$/.test(ahead)) ahead = "0";
-          if (Number(ahead) > 0 && !headWithin(wtHead, parentTipLocal, parentTipOrigin)) hasCommits = true;
+          if (Number(ahead) > 0 && !await headWithin(wtHead, parentTipLocal, parentTipOrigin)) hasCommits = true;
         }
       }
     }
   } else {
-    const rootBranch = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+    const rootBranch = await gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
     if (rootBranch === branch && `${parentTipLocal}${parentTipOrigin}` !== "") {
-      const rootHead = gitOut(repoRoot, ["rev-parse", "HEAD"], env);
-      if (rootHead !== "" && !headWithin(rootHead, parentTipLocal, parentTipOrigin)) {
+      const rootHead = await gitOut(repoRoot, ["rev-parse", "HEAD"], env);
+      if (rootHead !== "" && !await headWithin(rootHead, parentTipLocal, parentTipOrigin)) {
         hasCommits = true;
         wtHead = rootHead;
       }
@@ -22204,7 +22273,7 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 };
 
 // src/hooks/post-task-close-rescan.ts
-import { spawn as spawn5 } from "node:child_process";
+import { spawn as spawn6 } from "node:child_process";
 import { statSync as statSync31 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME58 = "post-task-close-rescan";
@@ -22228,7 +22297,7 @@ function launchDetached(spawner, invoker, db, env) {
   child.on("error", () => void 0);
   child.unref();
 }
-function rescan(payload, env, spawner = spawn5, root = pluginRoot3()) {
+function rescan(payload, env, spawner = spawn6, root = pluginRoot3()) {
   const toolName2 = jqCapture(jqInput(payload), ["tool_name"]);
   if (!CLOSE_TOOL.test(toolName2)) return ALLOW;
   if ((env.TMB_SKIP_AUTO_RESCAN || "0") === "1") return ALLOW;
@@ -22282,14 +22351,14 @@ function touchedDirs(paths, env) {
 function isDistDir(dir) {
   return dir.split("/").includes("dist");
 }
-function staleDirs(repoPath, sha, repo, paths, env) {
+async function staleDirs(repoPath, sha, repo, paths, env) {
   const changed = new Set(paths);
   const out2 = [];
   for (const dir of touchedDirs(paths, env)) {
     if (isDistDir(dir)) continue;
     const readme = dir === ROOT_DIR ? "README.md" : `${dir}/README.md`;
     const label = dir === ROOT_DIR ? repo === "" ? "<repo root>" : `${repo}/` : dir;
-    if (!gitOk(repoPath, ["cat-file", "-e", `${sha}:${readme}`], env)) out2.push(`${label} (no README.md)`);
+    if (!await gitOk(repoPath, ["cat-file", "-e", `${sha}:${readme}`], env)) out2.push(`${label} (no README.md)`);
     else if (!changed.has(readme)) out2.push(`${label} (README.md older than the commit)`);
   }
   return out2;
@@ -22302,13 +22371,13 @@ ${stale}
 
 For each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call \u2014 skip it when the change doesn't alter what the README describes.`;
 }
-function resolveRepoPath(db, repo, env) {
+async function resolveRepoPath(db, repo, env) {
   let path = repoResolvePath(db, repo, env);
   if (path === "" && repo === "") path = posixDirname(posixDirname(posixDirname(db)));
-  if (path !== "" && !gitOk(path, ["rev-parse", "--git-dir"], env)) path = "";
+  if (path !== "" && !await gitOk(path, ["rev-parse", "--git-dir"], env)) path = "";
   return path;
 }
-function surface(payload, env) {
+async function surface(payload, env) {
   if (env[BYPASS_ENV7] === "1") return ALLOW;
   const input = jqInput(payload);
   if (!ATOMIC_CLOSE_TOOL.test(jqCapture(input, ["tool_name"]))) return ALLOW;
@@ -22325,12 +22394,12 @@ function surface(payload, env) {
   if (row === "") return ALLOW;
   const task = parseTaskRow(row);
   if (!/^[0-9a-fA-F]+$/.test(task.commitSha)) return ALLOW;
-  const repoPath = resolveRepoPath(db, task.repo, env);
+  const repoPath = await resolveRepoPath(db, task.repo, env);
   if (repoPath === "") return ALLOW;
-  if (!gitOk(repoPath, ["cat-file", "-e", `${task.commitSha}^{commit}`], env)) return ALLOW;
-  const paths = gitOut(repoPath, ["show", "--name-only", "--pretty=format:", task.commitSha], env).split("\n").filter((line) => line !== "");
+  if (!await gitOk(repoPath, ["cat-file", "-e", `${task.commitSha}^{commit}`], env)) return ALLOW;
+  const paths = (await gitOut(repoPath, ["show", "--name-only", "--pretty=format:", task.commitSha], env)).split("\n").filter((line) => line !== "");
   if (paths.length === 0) return ALLOW;
-  const stale = staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+  const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
   if (stale.length === 0) return ALLOW;
   const staleText = stale.join("\n");
   const staleLines = staleText.split("\n");
@@ -22352,9 +22421,9 @@ function surface(payload, env) {
   return { stdout: `${w.stdout}${out2}
 `, code: 0 };
 }
-var postAtomicCloseReadme = (payload, env) => {
+var postAtomicCloseReadme = async (payload, env) => {
   try {
-    return surface(payload, env);
+    return await surface(payload, env);
   } catch {
     return ALLOW;
   }
@@ -22427,21 +22496,21 @@ function recordedWorktree(db, taskId, branch, env) {
   if (loc.code !== 0 || loc.worktree === `${loc.repoRoot}/.claude/worktrees/${branchSlug(branch)}`) return "";
   return existsSync13(loc.worktree) ? loc.worktree : "";
 }
-function registered(repoRoot, slug, env) {
+async function registered(repoRoot, slug, env) {
   let pattern;
   try {
     pattern = new RegExp(`^worktree .*/\\.claude/worktrees/${slug}$`);
   } catch {
     return false;
   }
-  return gitRun(repoRoot, ["worktree", "list", "--porcelain"], env).stdout.split("\n").some((line) => pattern.test(line));
+  return (await gitRun(repoRoot, ["worktree", "list", "--porcelain"], env)).stdout.split("\n").some((line) => pattern.test(line));
 }
 function skip(line) {
   process.stderr.write(`ensure-swe-worktree: ${line}
 `);
   return ALLOW;
 }
-var ensureSweWorktree = (payload, env) => {
+var ensureSweWorktree = async (payload, env) => {
   if (env.TMB_DISABLE_ENSURE_SWE_WORKTREE === "1") return ALLOW;
   const taskId = sweSpawnTaskId(jqInput(commandSubstitution(payload)));
   if (taskId === "") return ALLOW;
@@ -22458,9 +22527,9 @@ var ensureSweWorktree = (payload, env) => {
   if (!isDir(`${repoRoot}/.git`)) return skip(`repo root '${repoRoot}' is not a git repo \u2014 skipping`);
   const wtRel = `.claude/worktrees/${slug}`;
   const wtAbs = `${repoRoot}/${wtRel}`;
-  if (registered(repoRoot, slug, env)) return ALLOW;
+  if (await registered(repoRoot, slug, env)) return ALLOW;
   if (existsSync13(wtAbs)) return skip(`'${wtAbs}' exists but is not a registered worktree \u2014 skipping`);
-  if (gitOk(repoRoot, ["worktree", "add", wtRel, branch], env)) {
+  if (await gitOk(repoRoot, ["worktree", "add", wtRel, branch], env)) {
     return skip(`created worktree ${wtAbs} for branch ${branch}`);
   }
   return skip(`'git worktree add ${wtRel} ${branch}' failed \u2014 skipping (non-isolated fallback)`);
@@ -22575,8 +22644,8 @@ function slugMatcher(slug) {
     return () => false;
   }
 }
-function listedWorktree(repoRoot, matches, env) {
-  for (const line of gitOut(repoRoot, ["worktree", "list", "--porcelain"], env).split("\n")) {
+async function listedWorktree(repoRoot, matches, env) {
+  for (const line of (await gitOut(repoRoot, ["worktree", "list", "--porcelain"], env)).split("\n")) {
     if (!line.startsWith(WORKTREE_LINE)) continue;
     const wt = line.slice(WORKTREE_LINE.length);
     if (matches(wt)) return wt;
@@ -22589,11 +22658,11 @@ function taskRepoRoot(db, taskId, env) {
   if (taskRepo !== "") return repoPathByName(db, taskRepo, env) || `${workspace}/${taskRepo}`;
   return repoSinglePath(db, env) || workspace;
 }
-function resetHead(db, repoRoot, taskId, env, stderr2) {
+async function resetHead(db, repoRoot, taskId, env, stderr2) {
   const target = repoResolve(db, repoRoot, env).split("|")[0] || DEFAULT_PR_TARGET;
-  const current = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
-  if (!gitOk(repoRoot, ["rev-parse", "--verify", target], env) || current === target) return;
-  if (gitOk(repoRoot, ["checkout", target], env)) {
+  const current = await gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (!await gitOk(repoRoot, ["rev-parse", "--verify", target], env) || current === target) return;
+  if (await gitOk(repoRoot, ["checkout", target], env)) {
     stderr2(`tmb: checked out ${target} after task #${taskId} closed (was on ${current})
 `);
   } else {
@@ -22601,7 +22670,7 @@ function resetHead(db, repoRoot, taskId, env, stderr2) {
 `);
   }
 }
-function cleanupWorktree(payload, env, stderr2) {
+async function cleanupWorktree(payload, env, stderr2) {
   const input = jqInput(payload);
   const tool = jqCapture(input, ["tool_name"]);
   if (!TOOL.test(tool)) return ALLOW;
@@ -22632,23 +22701,23 @@ function cleanupWorktree(payload, env, stderr2) {
   }
   const repoRoot = taskRepoRoot(db, safeId, env);
   if (!isDir(`${repoRoot}/.git`)) return ALLOW;
-  const worktree = listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
+  const worktree = await listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
   if (worktree === "" || worktree === repoRoot) return ALLOW;
-  if (!gitOk(repoRoot, ["worktree", "remove", worktree, "--force"], env)) {
+  if (!await gitOk(repoRoot, ["worktree", "remove", worktree, "--force"], env)) {
     stderr2(`tmb: worktree remove failed for ${worktree} \u2014 leaving in place
 `);
     return ALLOW;
   }
-  gitOk(repoRoot, ["worktree", "prune"], env);
-  if (env[KEEP_HEAD_ENV] !== "1") resetHead(db, repoRoot, taskId, env, stderr2);
+  await gitOk(repoRoot, ["worktree", "prune"], env);
+  if (env[KEEP_HEAD_ENV] !== "1") await resetHead(db, repoRoot, taskId, env, stderr2);
   stderr2(`tmb: cleaned up worktree ${worktree} after task #${taskId} closed
 `);
   return ALLOW;
 }
-var cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env, (line) => process.stderr.write(line));
+var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { spawnSync as spawnSync13 } from "node:child_process";
+import { spawnSync as spawnSync11 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync9, readFileSync as readFileSync19, statSync as statSync34 } from "node:fs";
 import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME64 = "worktree-create";
@@ -22669,8 +22738,8 @@ function isFile21(path) {
 function pluginRoot4() {
   return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
 }
-function installMergeDriver(dir, env, stderr2) {
-  const top = gitRun(dir, ["rev-parse", "--show-toplevel"], env);
+async function installMergeDriver(dir, env, stderr2) {
+  const top = await gitRun(dir, ["rev-parse", "--show-toplevel"], env);
   if (top.code !== 0) return;
   const root = top.stdout.replace(/\n+$/, "");
   let attributes;
@@ -22680,11 +22749,11 @@ function installMergeDriver(dir, env, stderr2) {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync13("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
+  const r = spawnSync11("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
   if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
-function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
+async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
   try {
     mkdirSync9(posixDirname(worktree), { recursive: true });
   } catch {
@@ -22692,21 +22761,21 @@ function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr
   if (existsSync14(`${worktree}/.git`)) {
     stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
 `);
-    installMergeDriver(repo, env, stderr2);
+    await installMergeDriver(repo, env, stderr2);
     return { stdout: `${worktree}
 `, code: 0 };
   }
-  if (!gitOk(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], env)) {
-    if (!gitOk(repo, ["branch", branch, "HEAD"], env)) {
+  if (!await gitOk(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], env)) {
+    if (!await gitOk(repo, ["branch", branch, "HEAD"], env)) {
       return fail(stderr2, `tmb worktree-create: could not create branch ${branch} in ${repo}
 `);
     }
     stderr2(`tmb worktree-create: auto-created branch ${branch} in ${repo}
 `);
   }
-  if (!gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
+  if (!await gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
   stderr2(created2);
-  installMergeDriver(repo, env, stderr2);
+  await installMergeDriver(repo, env, stderr2);
   return { stdout: `${worktree}
 `, code: 0 };
 }
@@ -22718,7 +22787,7 @@ function branchRepo(db, branch, env) {
   const repo = sqliteRo(db, `SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='${safe}' LIMIT 1;`, env);
   return repoResolvePath(db, repo, env) || workspace;
 }
-function worktreeCreateRun(payload, env, stderr2) {
+async function worktreeCreateRun(payload, env, stderr2) {
   const branch = jqCapture(jqInput(payload), ["branch"]);
   if (branch === "") return fail(stderr2, NO_BRANCH);
   const slug = branchSlug(branch);
@@ -22726,11 +22795,11 @@ function worktreeCreateRun(payload, env, stderr2) {
   if (db === null || db === "" || !isFile21(db)) {
     const cwd = shellPwd(env);
     const worktree2 = `${cwd}/.claude/worktrees/${slug}`;
-    if (!gitOk(cwd, ["rev-parse", "--is-inside-work-tree"], env)) {
+    if (!await gitOk(cwd, ["rev-parse", "--is-inside-work-tree"], env)) {
       return fail(stderr2, `tmb worktree-create: no trajectory DB and cwd ${cwd} is not a git repo
 `);
     }
-    return ensureWorktree(
+    return await ensureWorktree(
       cwd,
       worktree2,
       branch,
@@ -22745,11 +22814,11 @@ function worktreeCreateRun(payload, env, stderr2) {
   if (!haveSqlite(env)) return fail(stderr2, "tmb worktree-create: sqlite3 unavailable\n");
   const repo = branchRepo(db, branch, env);
   const worktree = `${repo}/.claude/worktrees/${slug}`;
-  if (!gitOk(repo, ["rev-parse", "--is-inside-work-tree"], env)) {
+  if (!await gitOk(repo, ["rev-parse", "--is-inside-work-tree"], env)) {
     return fail(stderr2, `tmb worktree-create: resolved repo ${repo} is not a git work tree
 `);
   }
-  return ensureWorktree(
+  return await ensureWorktree(
     repo,
     worktree,
     branch,
@@ -22761,7 +22830,7 @@ function worktreeCreateRun(payload, env, stderr2) {
     stderr2
   );
 }
-var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
+var worktreeCreate = async (payload, env) => await worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/remote-id-guard.ts
 import { statSync as statSync35 } from "node:fs";
@@ -23048,7 +23117,7 @@ function manifestName2(manifest) {
     return "";
   }
 }
-function targetIsPluginSourceRepo(target, input, env) {
+async function targetIsPluginSourceRepo(target, input, env) {
   const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
   const running = `${pluginRoot5}/.claude-plugin/plugin.json`;
   let start2;
@@ -23058,7 +23127,7 @@ function targetIsPluginSourceRepo(target, input, env) {
   } else {
     start2 = posixDirname(`${payloadCwd(input, env)}/${target}`);
   }
-  const root = repoGitRoot(start2, env);
+  const root = await repoGitRoot(start2, env);
   if (root === "") return false;
   const repoManifest = `${root}/.claude-plugin/plugin.json`;
   if (!isFile23(running) || !isFile23(repoManifest)) return false;
@@ -23097,11 +23166,11 @@ async function bashRule(input, env) {
   for (const line of lines2) {
     const path = judgedPath(line);
     if (path === null || path === "") continue;
-    if (isPromptSurfacePath(path, "", env) && !inWorktreeDir(projectRelative(path, roots))) return deny10(BASH_REASON);
+    if (await isPromptSurfacePath(path, "", env) && !inWorktreeDir(projectRelative(path, roots))) return deny10(BASH_REASON);
   }
   return ALLOW;
 }
-function editRule(input, env) {
+async function editRule(input, env) {
   const db = dbPath(env, (line) => process.stderr.write(`${line}
 `));
   if (db === null) return ALLOW;
@@ -23111,23 +23180,23 @@ function editRule(input, env) {
   if (target.startsWith("/")) {
     const dir = posixDirname(target);
     if (haveSqlite(env) && isDir(dir)) {
-      const root = repoGitRoot(dir, env);
+      const root = await repoGitRoot(dir, env);
       if (root === "") return ALLOW;
       if (gateRead(db, "SELECT COUNT(*) FROM repos;", env) === GATE_READ_ERROR) return dbDenied(env);
       if (repoNameForRoot(db, root, env) === "") return ALLOW;
     }
   }
-  if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny10(SURFACE_REASON);
+  if (isEnforcementSurface(target) && await targetIsPluginSourceRepo(target, input, env)) return deny10(SURFACE_REASON);
   if (allowlisted(target)) return ALLOW;
   if (agentRole(input) === "swe") return ALLOW;
   return deny10(sourceReason(env));
 }
-var noSourceEditFromMain = (payload, env) => {
+var noSourceEditFromMain = async (payload, env) => {
   const toolName2 = field5(payload, ["tool_name"]);
   if (!JUDGED_TOOLS2.has(toolName2)) return ALLOW;
-  if (toolName2 === "Bash") return bashRule(payload, env);
+  if (toolName2 === "Bash") return await bashRule(payload, env);
   if ((env.TMB_ALLOW_SOURCE_EDIT ?? "0") === "1") return ALLOW;
-  return editRule(payload, env);
+  return await editRule(payload, env);
 };
 
 // src/hooks/router/budgets.json
@@ -24281,20 +24350,20 @@ function routerTimeoutS(group) {
 }
 
 // src/hooks/router/main.ts
-import { spawnSync as spawnSync15 } from "node:child_process";
+import { spawnSync as spawnSync13 } from "node:child_process";
 import { existsSync as existsSync17, mkdirSync as mkdirSync12, readFileSync as readFileSync22 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
 
 // src/hooks/router/sh-gate.ts
-import { spawnSync as spawnSync14 } from "node:child_process";
+import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync15 } from "node:fs";
 function shGate(name3) {
   return (payload, env) => {
     const script = `${env.CLAUDE_PLUGIN_ROOT ?? ""}/scripts/hooks/${name3}.sh`;
     if (!existsSync15(script)) throw new Error(`no ${script} (TMB_HOOKS_IMPL=bash runs only .sh gates) \u2014 not run`);
     const limit = spawnLimit(void 0, "SIGKILL");
-    const r = spawnSync14("bash", [script], {
+    const r = spawnSync12("bash", [script], {
       input: payload,
       env,
       encoding: "utf8",
@@ -24419,9 +24488,8 @@ function blockKeepingContext(event, deny11, contexts) {
 var LATE = /* @__PURE__ */ Symbol("late");
 async function settle(fn, payload, env, limit, now) {
   const start2 = now();
-  armDeadline(start2 + limit, now);
-  const s = await run4(fn, payload, env, limit, now, start2);
-  return { s, cut: disarmDeadline() };
+  const { value: s, expired: cut4 } = await runWithDeadline(start2 + limit, () => run4(fn, payload, env, limit, now, start2), now);
+  return { s, cut: cut4 };
 }
 async function run4(fn, payload, env, limit, now, start2) {
   let out2;
@@ -24905,7 +24973,7 @@ function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, part, payload, env) {
-  const r = spawnSync15(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
+  const r = spawnSync13(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",

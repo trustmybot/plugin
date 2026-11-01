@@ -29,7 +29,7 @@
  * this gate needs neither.
  */
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs';
-import type { SyncGate } from './gate.js';
+import type { Gate } from './gate.js';
 import { pluginVersion, jqCompare, jqIntText } from './bro-turn-usage.js';
 import { taskLocation } from './lib/agent-context.js';
 import { auditAppend, auditSql, dbWrite, nowIso } from './lib/audit.js';
@@ -339,7 +339,7 @@ function skipUnbound(db: string, transcript: string, spawnId: string, taskId: st
   if (!r.ok) process.stderr.write(`${r.error}\n`);
 }
 
-export const sweAtomicClose: SyncGate = (payload, env) => {
+export const sweAtomicClose: Gate = async (payload, env) => {
   const inputText = commandSubstitution(payload);
   const input = jqInput(payload);
   const log = Log.open(env);
@@ -478,45 +478,49 @@ SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTo
   const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
   const safeRootDir = sqlQuote(wtPath);
 
-  let wtHead = gitOut(wtPath, ['rev-parse', 'HEAD'], env);
-  const headWithin = (head: string, ...tips: string[]): boolean =>
-    tips.some((tip) => tip !== '' && gitOk(repoRoot, ['merge-base', '--is-ancestor', head, tip], env));
-  const verify = (ref: string): string => gitOut(repoRoot, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], env);
+  let wtHead = await gitOut(wtPath, ['rev-parse', 'HEAD'], env);
+  const headWithin = async (head: string, ...tips: string[]): Promise<boolean> => {
+    for (const tip of tips) {
+      if (tip !== '' && (await gitOk(repoRoot, ['merge-base', '--is-ancestor', head, tip], env))) return true;
+    }
+    return false;
+  };
+  const verify = async (ref: string): Promise<string> => await gitOut(repoRoot, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], env);
 
   let hasCommits = false;
   let parentTipLocal = '';
   let parentTipOrigin = '';
   if (parentBranch !== '') {
-    parentTipLocal = verify(`refs/heads/${parentBranch}`);
-    parentTipOrigin = verify(`refs/remotes/origin/${parentBranch}`);
+    parentTipLocal = await verify(`refs/heads/${parentBranch}`);
+    parentTipOrigin = await verify(`refs/remotes/origin/${parentBranch}`);
   }
   if (wtHead !== '') {
     let headInParent = false;
     if (`${parentTipLocal}${parentTipOrigin}` !== '') {
-      if (headWithin(wtHead, parentTipLocal, parentTipOrigin)) headInParent = true;
+      if (await headWithin(wtHead, parentTipLocal, parentTipOrigin)) headInParent = true;
       else hasCommits = true;
     }
     if (!hasCommits && !headInParent) {
-      const localFeature = verify(`refs/heads/${branch}`);
-      if (localFeature !== '' && !headWithin(wtHead, localFeature)) hasCommits = true;
+      const localFeature = await verify(`refs/heads/${branch}`);
+      if (localFeature !== '' && !await headWithin(wtHead, localFeature)) hasCommits = true;
       if (!hasCommits && parentBranch === '' && localFeature !== '' && wtHead === localFeature) {
         let base = cutField(repoResolve(db, repoRoot, env), 1);
-        if (base === '') base = repoDefaultBranch(repoRoot, env);
+        if (base === '') base = await repoDefaultBranch(repoRoot, env);
         if (base !== '') {
-          parentTipLocal = verify(`refs/heads/${base}`);
-          parentTipOrigin = verify(`refs/remotes/origin/${base}`);
-          let ahead = gitOut(wtPath, ['rev-list', '--count', `origin/${base}..HEAD`], env);
-          if (ahead === '') ahead = gitOut(wtPath, ['rev-list', '--count', `${base}..HEAD`], env);
+          parentTipLocal = await verify(`refs/heads/${base}`);
+          parentTipOrigin = await verify(`refs/remotes/origin/${base}`);
+          let ahead = await gitOut(wtPath, ['rev-list', '--count', `origin/${base}..HEAD`], env);
+          if (ahead === '') ahead = await gitOut(wtPath, ['rev-list', '--count', `${base}..HEAD`], env);
           if (!/^[0-9]+$/.test(ahead)) ahead = '0';
-          if (Number(ahead) > 0 && !headWithin(wtHead, parentTipLocal, parentTipOrigin)) hasCommits = true;
+          if (Number(ahead) > 0 && !await headWithin(wtHead, parentTipLocal, parentTipOrigin)) hasCommits = true;
         }
       }
     }
   } else {
-    const rootBranch = gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+    const rootBranch = await gitOut(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
     if (rootBranch === branch && `${parentTipLocal}${parentTipOrigin}` !== '') {
-      const rootHead = gitOut(repoRoot, ['rev-parse', 'HEAD'], env);
-      if (rootHead !== '' && !headWithin(rootHead, parentTipLocal, parentTipOrigin)) {
+      const rootHead = await gitOut(repoRoot, ['rev-parse', 'HEAD'], env);
+      if (rootHead !== '' && !await headWithin(rootHead, parentTipLocal, parentTipOrigin)) {
         hasCommits = true;
         wtHead = rootHead;
       }

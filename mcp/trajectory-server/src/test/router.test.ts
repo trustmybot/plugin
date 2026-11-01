@@ -9,7 +9,7 @@ import { after, before, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
-import { armDeadline, disarmDeadline, noteSpawn, spawnLimit } from '../hooks/lib/deadline.js';
+import { noteSpawn, runWithDeadline, spawnLimit } from '../hooks/lib/deadline.js';
 import { gitRun } from '../hooks/lib/git.js';
 import { eventHoldsEnforcement, matcherFits, type RouterGroup, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
 import { decide, denyOutput, mergeContext } from '../hooks/router/decide.js';
@@ -678,8 +678,8 @@ describe('per-group budgets (GH 1692 R2)', () => {
   const VERIFICATION_FLOOR_MS = 1_830_000;
   let bin: string;
   let env: NodeJS.ProcessEnv;
-  const viaGit: Gate = (_payload, gateEnv) => {
-    gitRun('/', ['status'], gateEnv);
+  const viaGit: Gate = async (_payload, gateEnv) => {
+    await gitRun('/', ['status'], gateEnv);
     return ALLOW;
   };
 
@@ -717,8 +717,8 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
   const HANG_S = 30;
   let bin: string;
   let env: NodeJS.ProcessEnv;
-  const viaGit: Gate = (_payload, gateEnv) => {
-    gitRun('/', ['status'], gateEnv);
+  const viaGit: Gate = async (_payload, gateEnv) => {
+    await gitRun('/', ['status'], gateEnv);
     return ALLOW;
   };
 
@@ -768,28 +768,27 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
     assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate cut-by-group ran out of the router's 300 ms group budget/);
   });
 
-  it('outside a gate, git runs with no timeout of its own', () => {
+  it('outside a gate, git runs with no timeout of its own', async () => {
     assert.equal(spawnLimit(), null);
-    assert.equal(gitRun('/', ['--version']).code, 0);
+    assert.equal((await gitRun('/', ['--version'])).code, 0);
   });
 
-  it('a spawn takes the sooner of its own limit and the deadline left, at least 1 ms', () => {
+  it('a spawn takes the sooner of its own limit and the deadline left, at least 1 ms', async () => {
     let t = 1000;
-    armDeadline(1050, () => t);
-    try {
+    const clock = (): number => t;
+    const byCaller = await runWithDeadline(1050, () => {
       assert.deepEqual(spawnLimit(), { timeout: 50, killSignal: 'SIGTERM', byDeadline: true });
       assert.deepEqual(spawnLimit(10, 'SIGKILL'), { timeout: 10, killSignal: 'SIGKILL', byDeadline: false });
       assert.deepEqual(spawnLimit(500, 'SIGKILL'), { timeout: 50, killSignal: 'SIGKILL', byDeadline: true });
       assert.equal(noteSpawn(spawnLimit(10), { signal: 'SIGKILL' }), true);
-      assert.equal(disarmDeadline(), false, 'a cut by the caller limit is not the deadline');
-      armDeadline(1050, () => t);
+    }, clock);
+    assert.equal(byCaller.expired, false, 'a cut by the caller limit is not the deadline');
+    const byDeadline = await runWithDeadline(1050, () => {
       t = 2000;
       assert.equal(spawnLimit()?.timeout, 1);
       assert.equal(noteSpawn(spawnLimit(), { error: Object.assign(new Error('x'), { code: 'ETIMEDOUT' }), signal: null }), true);
-      assert.equal(disarmDeadline(), true);
-    } finally {
-      disarmDeadline();
-    }
+    }, clock);
+    assert.equal(byDeadline.expired, true);
   });
 });
 
