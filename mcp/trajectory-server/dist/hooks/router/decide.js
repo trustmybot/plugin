@@ -1,15 +1,19 @@
 /**
- * One router decision (GH 1692): once the bash parser the Bash gates share is
- * loaded, the gates of the matching ROUTER_GROUPS entry run on the payload one
- * at a time, each on its own clock, so a gate's budget and recorded ms count only
- * its own work (decision 919): the gate bodies are synchronous on one event
- * loop, so running them together would only charge one gate's work to its
- * siblings. Each gate's deadline is its start plus the smaller of its budget
- * and the group budget left (decision 922); every sync spawn it makes times
- * out there, so a hung child ends the gate at its deadline. Sync gates are
+ * One router decision (GH 1692): the Bash gates' shared parser gets up to
+ * parse_allowance_ms to load, and past it the gates start anyway, a gate still
+ * awaiting it being cut at its own deadline. The gates of the matching
+ * ROUTER_GROUPS entry then run on the payload. A group marked concurrent
+ * (decisions 937 and 1136) starts them all in registry order and awaits all, so
+ * their git waits overlap; each gate's deadline is its own start plus the
+ * smaller of its budget and the group budget, and a sibling's synchronous work
+ * counts in its ms. Any other group, and every group under TMB_HOOKS_IMPL=bash,
+ * runs them one at a time, each on its own clock (decision 919), with a deadline
+ * at its start plus the smaller of its budget and the group budget left
+ * (decision 922). A hung child ends a gate at its deadline. Sync gates are
  * judged on return, async gates raced against their deadline. A tool no group
  * matches runs nothing, and a group marked stopAtFirstDeny runs no gate after
- * a deny. The first deny in group order is the answer, with that gate's output; with none, the
+ * a deny. Outcomes, stderr and context stay in registry order however the gates
+ * finish. The first deny in group order is the answer, with that gate's output; with none, the
  * allowing gates' outputs merge as dispatch.sh's run_chain merges a chain's
  * context; a block on any event but PreToolUse keeps the allowing gates' context
  * in its one output, since as separate registrations each of them reached Claude
@@ -27,6 +31,7 @@
  * nothing, and every failure there exits 1 naming the cause. The call's gates
  * share one memo of read-only git (lib/git.ts).
  */
+import ROUTER_BUDGETS from './budgets.json' with { type: 'json' };
 import { bashParser } from '../cmd-analysis/parser.js';
 import { runWithDeadline } from '../lib/deadline.js';
 import { runWithGitMemo } from '../lib/git.js';
@@ -250,6 +255,77 @@ export function payloadTool(payload) {
     const tool = parsed.tool_name;
     return typeof tool === 'string' ? tool : '';
 }
+/** The wait for the parser, bounded: a parser that never loads does not stop the gates starting. */
+async function parserReady(wait) {
+    let timer;
+    const allowance = new Promise((resolve) => {
+        timer = setTimeout(resolve, ROUTER_BUDGETS.parse_allowance_ms);
+        timer.unref();
+    });
+    try {
+        await Promise.race([wait().catch(() => undefined), allowance]);
+    }
+    finally {
+        clearTimeout(timer);
+    }
+}
+function unknownRun(gate, event) {
+    return { gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate, event) };
+}
+function unrun(gate, b) {
+    const s = { kind: 'unrun', ms: 0 };
+    return { gate, s, j: judge(gate, s, false, b) };
+}
+async function runInTurn(gates, call, stopAtFirstDeny) {
+    const { event, payload, env, now, groupBudgetMs } = call;
+    const groupStart = now();
+    const done = [];
+    let spent = false;
+    for (const gate of gates) {
+        const budget = call.budgetOf(gate);
+        const left = groupBudgetMs - (now() - groupStart);
+        const b = { event, limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
+        const fn = call.find(gate.name);
+        if (!fn) {
+            done.push(unknownRun(gate, event));
+            continue;
+        }
+        if (spent || left <= 0) {
+            done.push(unrun(gate, b));
+            continue;
+        }
+        const { s, cut } = await settle(fn, payload, env, b.limit, now);
+        spent = b.byGroup && (cut || s.kind === 'late' || s.ms >= b.limit);
+        const j = judge(gate, s, cut, b);
+        done.push({ gate, s, j });
+        if (stopAtFirstDeny && j.outcome === 'deny')
+            break;
+    }
+    return done;
+}
+async function runTogether(gates, call) {
+    const { event, payload, env, now, groupBudgetMs } = call;
+    const bound = (gate) => {
+        const budget = call.budgetOf(gate);
+        return { event, limit: Math.min(budget, groupBudgetMs), budget, groupBudgetMs, byGroup: groupBudgetMs < budget };
+    };
+    const settled = await Promise.allSettled(gates.map(async (gate) => {
+        const fn = call.find(gate.name);
+        if (!fn)
+            return unknownRun(gate, event);
+        const b = bound(gate);
+        if (groupBudgetMs <= 0)
+            return unrun(gate, b);
+        const { s, cut } = await settle(fn, payload, env, b.limit, now);
+        return { gate, s, j: judge(gate, s, cut, b) };
+    }));
+    return settled.map((r, i) => {
+        if (r.status === 'fulfilled')
+            return r.value;
+        const s = { kind: 'threw', error: r.reason instanceof Error ? r.reason.message : String(r.reason), ms: 0 };
+        return { gate: gates[i], s, j: judge(gates[i], s, false, bound(gates[i])) };
+    });
+}
 export async function decide(event, payload, env, deps = {}) {
     return await runWithGitMemo(env, () => decideCall(event, payload, env, deps));
 }
@@ -274,36 +350,20 @@ async function decideCall(event, payload, env, deps) {
         };
     }
     const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
-    const find = deps.findGate ?? (bashImpl ? shGate : findGate);
     const group = routerGroup(event, tool, groups, deps.part);
     const gates = routerGates(event, tool, groups, deps.part);
     if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0 && !bashImpl)
-        await bashParser().catch(() => undefined);
-    const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
-    const groupStart = now();
-    const done = [];
-    let spent = false;
-    for (const gate of gates) {
-        const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
-        const left = groupBudgetMs - (now() - groupStart);
-        const b = { event, limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
-        const fn = find(gate.name);
-        if (!fn) {
-            done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate, event) });
-            continue;
-        }
-        if (spent || left <= 0) {
-            const s = { kind: 'unrun', ms: 0 };
-            done.push({ gate, s, j: judge(gate, s, false, b) });
-            continue;
-        }
-        const { s, cut } = await settle(fn, payload, env, b.limit, now);
-        spent = b.byGroup && (cut || s.kind === 'late' || s.ms >= b.limit);
-        const j = judge(gate, s, cut, b);
-        done.push({ gate, s, j });
-        if (group?.stopAtFirstDeny && j.outcome === 'deny')
-            break;
-    }
+        await parserReady(deps.parserWait ?? bashParser);
+    const call = {
+        event,
+        payload,
+        env,
+        now,
+        find: deps.findGate ?? (bashImpl ? shGate : findGate),
+        budgetOf: (gate) => deps.budgetMs?.(gate) ?? gate.budgetMs,
+        groupBudgetMs: deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0,
+    };
+    const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
     const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
     const stderr = done.map(({ j }) => j.stderr).join('');
     const deny = done.find(({ j }) => j.outcome === 'deny');

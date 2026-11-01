@@ -3,7 +3,9 @@
  * project runs (activeInstall) answers when it is another install whose dist
  * ships the router and serves the call's event, part and tool; else this one
  * decides: under dispatch.sh's per-call dedupe when the project has TMB state,
- * then prints the decision and writes its records.
+ * then prints the decision and writes its records. The event loop stays open
+ * until the decision: every deadline timer is unref'd, so a wait with no live
+ * handle behind it would otherwise end the process with no answer.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
@@ -114,7 +116,14 @@ export async function routerMain(event, env, io, opts = {}) {
             lock = null;
         }
     }
-    const d = await decide(event, payload, gateEnv, opts);
+    const holdOpen = setInterval(() => undefined, 60_000);
+    let d;
+    try {
+        d = await decide(event, payload, gateEnv, opts);
+    }
+    finally {
+        clearInterval(holdOpen);
+    }
     if (lock !== null)
         Dedupe.store(lock, d);
     io.writeStderr(d.stderr);

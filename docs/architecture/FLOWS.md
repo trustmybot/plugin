@@ -339,7 +339,7 @@ Hooks that fire across many steps rather than at one.
 | G8 | <a id="G8"></a>`task-overrun-alert` | UserPromptSubmit, PostToolUse trajectory-server | Tells bro once per task when a `running` task passes `TMB_TASK_OVERRUN_MIN` minutes (default 60), with its attempts and current blocker | `src/hooks/task-overrun-alert.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 
-**Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped.
+**Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped. A group's gates run one at a time, except PreToolUse Bash and Write, which start them together and read the answer in group order.
 
 #### Metering
 

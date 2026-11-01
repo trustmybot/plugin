@@ -152,8 +152,10 @@ export function gateNames(): string[] {
 
 /*
  * The router (GH 1692): `node dist/hooks.js <event> [part]` runs the gates of
- * the one group whose event, part and matcher fit the payload, one after another
- * in this order, each within its budget from router/budgets.json. A matcher is
+ * the one group whose event, part and matcher fit the payload, each within its
+ * budget from router/budgets.json: one after another in this order, or, in a
+ * group marked concurrent, all started in this order and awaited together, with
+ * the answer still read in this order. A matcher is
  * the text of that group's hooks.json entry, empty for every call of its event
  * as in Claude Code; an event's matchers do not overlap. A part is a registration
  * of its own under one event, for a gate whose context must meet Claude Code's
@@ -181,11 +183,15 @@ export interface RouterGroup {
   /**
    * The time one call's gates share (decision 922): each gate's deadline is the
    * smaller of its budget and what is left of this, and a gate that starts with
-   * none left is not run.
+   * none left is not run. In a concurrent group it is the critical path, the
+   * largest gate budget, and each gate's deadline is the smaller of its budget
+   * and this, from its own start.
    */
   readonly groupBudgetMs: number;
   /** The first deny ends the call, as a dispatch.sh chain does: the later gates' side effects never happen. */
   readonly stopAtFirstDeny?: boolean;
+  /** Every gate starts at once and all are awaited (decisions 937 and 1136); absent, they run one at a time. An allowlist, and never with stopAtFirstDeny, whose purpose it would defeat. */
+  readonly concurrent?: boolean;
 }
 
 function routerGate(name: string, kind: RouterGateKind, toolSuffix?: string): RouterGate {
@@ -198,12 +204,12 @@ export function routerGroupKey(group: Pick<RouterGroup, 'event' | 'matcher' | 'p
   return group.part === undefined ? `${group.event}:${group.matcher}` : `${group.event}:${group.matcher}:${group.part}`;
 }
 
-function eventGroup(event: string, matcher: string, gates: readonly RouterGate[], opts: { stopAtFirstDeny?: boolean; part?: string } = {}): RouterGroup {
+function eventGroup(event: string, matcher: string, gates: readonly RouterGate[], opts: { stopAtFirstDeny?: boolean; concurrent?: boolean; part?: string } = {}): RouterGroup {
   const budgets: Record<string, { group_budget_ms: number }> = ROUTER_BUDGETS.groups;
   return { event, matcher, gates, groupBudgetMs: budgets[routerGroupKey({ event, matcher, part: opts.part })].group_budget_ms, ...opts };
 }
 
-function preToolUseGroup(matcher: string, gates: readonly RouterGate[], opts: { stopAtFirstDeny?: boolean } = {}): RouterGroup {
+function preToolUseGroup(matcher: string, gates: readonly RouterGate[], opts: { stopAtFirstDeny?: boolean; concurrent?: boolean } = {}): RouterGroup {
   return eventGroup('PreToolUse', matcher, gates, opts);
 }
 
@@ -217,7 +223,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(NAMING_LINT_GATE, 'advisory'),
     routerGate(CQ_LINT_GATE, 'advisory'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
-  ]),
+  ], { concurrent: true }),
   preToolUseGroup('Bash', [
     routerGate('containment-guard', 'enforcement'),
     routerGate(GIT_GUARDS_GATE, 'enforcement'),
@@ -230,7 +236,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
-  ]),
+  ], { concurrent: true }),
   preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
   preToolUseGroup('SendMessage', [routerGate(SWE_RESUME_GATE, 'enforcement')]),
   preToolUseGroup(

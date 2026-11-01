@@ -6,12 +6,12 @@
         "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
             "max_budget_ms": 8090,
             "p99_sum_ms": 18264.7,
-            "group_budget_ms": 27398
+            "group_budget_ms": 8090
         },
         "PreToolUse:Bash": {
             "max_budget_ms": 16000,
             "p99_sum_ms": 21657.5,
-            "group_budget_ms": 32487
+            "group_budget_ms": 16000
         },
         "PreToolUse:Agent": {
             "max_budget_ms": 16000,
