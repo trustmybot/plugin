@@ -2133,7 +2133,7 @@ describe('task_brief (#300)', () => {
       ],
     } as unknown as WorldModelGraph;
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
-    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'scope' })) as RawResult;
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'scope', response_format: 'detailed' })) as RawResult;
     const out = parse(r) as Record<string, unknown>;
     assert.equal(out['world_model_warning'], undefined);
     const scope = out['scope_world_model'] as Array<{ dir: string; summary: string | null; children: Array<{ path: string }> }>;
@@ -2260,7 +2260,7 @@ describe('task_brief (#300)', () => {
       [longBody],
     );
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'history' })) as RawResult;
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'history', response_format: 'detailed' })) as RawResult;
     const out = parse(r) as Record<string, unknown>;
     const disc = out['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
 
@@ -4180,7 +4180,8 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
         [`note ${i}`, at(10 + i)],
       );
     }
-    const disc = (await brief(db, taskId!))['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
+    const detailed = parse((await compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null).handlers['task_brief']!({ agent: 'bro', task_id: taskId!, response_format: 'detailed' })) as RawResult);
+    const disc = detailed['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
     const intent = disc.find((d) => d.kind === 'intent');
     assert.ok(intent);
     assert.equal(intent!.truncated, true);

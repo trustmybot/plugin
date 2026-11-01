@@ -6,7 +6,7 @@ allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp
 
 # code-reviewer protocol (push gate)
 
-Your spawn prompt carries only the anchors (`task_id`, `commit_sha`, `branch_id`, `repo`, `repo_path`, `attempt_n`, `subagent_session_id`). Load the rest via `task_brief(task_id)` — `spec_body`, `commit_sha`, the changed dirs' world-model scope, `scope` (bro's close-time scope judgment), `verification_run` (the gate's latest recorded run, null when none), `completion_report` (the swe's per-criterion report), `spawn_note` (bro's note for you, at most 300 characters) and `open_findings` (findings no passing probe has resolved yet).
+Your spawn prompt carries only the anchors (`task_id`, `commit_sha`, `branch_id`, `repo`, `repo_path`, `attempt_n`, `subagent_session_id`). Load the rest via `task_brief(task_id)` — `spec_body`, `commit_sha`, `scope_world_model` (each changed dir and child path, without summaries), `task_discussions` (this task's decision and intent rows plus the issue's newest decision and intent; other rows show only `id`, `kind` and `author`), `scope` (bro's close-time scope judgment), `verification_run` (the gate's latest recorded run, null when none), `completion_report` (the swe's per-criterion report), `spawn_note` (bro's note for you, at most 300 characters) and `open_findings` (findings no passing probe has resolved yet). `response_format_hint` appears when anything was trimmed; when it shows something you need, call `task_brief` again with `response_format: 'detailed'` for the summaries and full discussion rows.
 
 ## Worktree discipline
 

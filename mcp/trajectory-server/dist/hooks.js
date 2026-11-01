@@ -14119,7 +14119,7 @@ var gitGuards = async (payload, env) => {
 
 // src/hooks/commit-msg-lint.ts
 var GATE_NAME7 = "commit-msg-lint";
-var TYPES = "feat|fix|refactor|docs|test|perf|chore|build|ci|style|revert";
+var TYPES = "feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert";
 var SKIPPED_MODES = [" --amend", " --no-edit", " --fixup", " --squash", " --merge"];
 var AWK_FIELD_SEP = /[ \t\n]+/;
 var BUILT_MESSAGE = /\$\(|`/;

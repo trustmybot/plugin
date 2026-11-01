@@ -85,6 +85,18 @@ describe('lint hooks: the TypeScript gates', () => {
     });
   });
 
+  describe('commit-msg-lint commit types (GH 2194)', () => {
+    it('accepts the improvement type', async () => {
+      const result = await commitMsgLint(bashPayload('git commit -m "⚡ improvement(scope): description"'), process.env);
+      assert.deepEqual(result, { stdout: '', code: 0 });
+    });
+
+    it('still warns on an unknown type', async () => {
+      const result = await commitMsgLint(bashPayload('git commit -m "⚡ nonsense(scope): description"'), process.env);
+      assert.match(context(result.stdout).text, /^commit-msg-lint: commit subject does not match/);
+    });
+  });
+
   describe('with no jq on PATH, where each .sh exits silently', () => {
     it('commit-msg-lint still warns', async () => {
       const env = { ...process.env, PATH: noJq, LC_ALL: 'C' };
