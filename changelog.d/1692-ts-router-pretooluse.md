@@ -7,6 +7,3 @@
   - `TMB_HOOKS_IMPL=bash` now takes effect in the router too, in every group: each gate runs its `scripts/hooks/<gate>.sh` under the same deadline. A gate with no `.sh` is not run, so an enforcement gate denies (`swe-resume-gate` on `SendMessage`, as `dispatch.sh` does).
   - When several gates in a group answer without a deny, their outputs merge without losing a decision: `ask` beats `allow`, with its reason.
   - `debug-trajectory` now also records `NotebookEdit`.
-
-### Fixed
-- **The world model shows which gates each router entry runs** (GH 2185). A router entry in the L1 hook index is now named `<Event>#<pos>:<first gate>`, lists its gates and has one `runs` edge per gate. The extractor version is bumped, so the next scan re-parses every file once.
