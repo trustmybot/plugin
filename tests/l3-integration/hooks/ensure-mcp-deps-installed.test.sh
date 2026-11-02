@@ -40,6 +40,11 @@ EOF
 done
 NO_PM_PATH=$(no_cmd_path "$BASE/shadow-bun" bun)
 NO_PM_PATH=$(PATH="$NO_PM_PATH" no_cmd_path "$BASE/shadow-npm" npm)
+# A version-manager shim for node (mise) puts the real npm back on PATH, so the
+# hook runs the node binary itself from a directory holding nothing else.
+NODE_BIN="$BASE/node-bin"
+mkdir -p "$NODE_BIN"
+ln -s "$(node -p process.execPath)" "$NODE_BIN/node"
 
 # fake_root <name> — a plugin root holding mcp/trajectory-server/package.json.
 fake_root() {
@@ -64,7 +69,7 @@ run_hook() {
   shift 2
   RC=0
   OUT=$(echo '{"hook_event_name":"SessionStart","session_id":"s1"}' \
-    | env PATH="$path" CLAUDE_PLUGIN_ROOT="$root" "$@" bash "$HOOK" 2>&1) || RC=$?
+    | env PATH="$NODE_BIN:$path" CLAUDE_PLUGIN_ROOT="$root" "$@" bash "$HOOK" 2>&1) || RC=$?
 }
 
 test_case "installed: transformers resolves from the MCP dir → no installer, no output"
