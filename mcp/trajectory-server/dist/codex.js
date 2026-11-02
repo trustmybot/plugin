@@ -34856,6 +34856,7 @@ var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
 var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
 var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
+var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
 var EVENT_ORDER = [
   "SessionStart",
   "UserPromptSubmit",
@@ -34884,7 +34885,7 @@ function eventRanks(events) {
   const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown2, ...EVENT_ORDER.slice(stop2 + 1)];
   return new Map(order.map((e, i2) => [e, i2 + 1]));
 }
-var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
+var gateModule = (gate) => `${GATE_MODULE_DIR}/${gate}.ts`;
 function routerGatesOf(table, event, matcher, part) {
   const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
   return [...new Set(rows)];
@@ -34917,7 +34918,7 @@ function extractHooks(src, chains, routerTable2 = "") {
         const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
         const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
-        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -34932,9 +34933,9 @@ function extractHooks(src, chains, routerTable2 = "") {
         });
         const at = out2.symbols.length - 1;
         if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
+          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
-          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
+          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
       }
     }
@@ -34943,7 +34944,7 @@ function extractHooks(src, chains, routerTable2 = "") {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 3;
+var EXTRACTOR_VERSION = 4;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;

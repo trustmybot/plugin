@@ -1,6 +1,6 @@
 /**
  * Byte-for-byte parity of the TypeScript swe-boundary with
- * scripts/hooks/swe-boundary.sh (GH 1692) over
+ * the bash swe-boundary.sh (GH 1692) over
  * tests/fixtures/hook-corpus/swe-boundary/, in a sandbox project with three
  * worktrees and a trajectory DB: task 10 (files[] with mixed-case entries,
  * prompt_bearing 0, a git checkout on its branch), task 11 (prompt_bearing 1),
@@ -27,7 +27,7 @@ import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/swe-boundary');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/swe-boundary.sh');
+const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'swe-boundary.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];

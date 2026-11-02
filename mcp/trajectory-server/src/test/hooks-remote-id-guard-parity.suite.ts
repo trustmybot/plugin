@@ -1,6 +1,6 @@
 /**
  * Byte-for-byte parity of the TypeScript remote-id-guard with
- * scripts/hooks/remote-id-guard.sh (GH 1692) over
+ * the bash remote-id-guard.sh (GH 1692) over
  * tests/fixtures/hook-corpus/remote-id-guard/, against a sandbox trajectory DB
  * of local issues: 5 (gh 42, a title with a bar), 7 (gl 88), 9 (no remote
  * iid), 10 (gh 50, gl 60), 11 (gh 77, a title of printf escapes), 12 (gh 78, a
@@ -31,7 +31,7 @@ import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/remote-id-guard');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/remote-id-guard.sh');
+const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'remote-id-guard.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];

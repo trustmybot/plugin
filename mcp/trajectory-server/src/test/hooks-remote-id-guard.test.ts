@@ -1,6 +1,6 @@
 /**
  * The TypeScript remote-id-guard's in-process deadline (GH 1821, GH 1861) and
- * the decision-703 divergences from scripts/hooks/remote-id-guard.sh. The
+ * the decision-703 divergences from the bash remote-id-guard.sh. The
  * overrun path is reached through TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1, which
  * makes the budget read as spent from the start: no test waits on the clock.
  */

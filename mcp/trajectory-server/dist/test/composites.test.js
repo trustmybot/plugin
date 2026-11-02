@@ -797,7 +797,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     });
     it('dev advancing with unrelated files after the task base does not count: close passes', async () => {
         const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], {
-            devAdvance: ['docs/elsewhere.md', 'scripts/hooks/other.sh'],
+            devAdvance: ['docs/elsewhere.md', 'scripts/hooks/lib/other.sh'],
         });
         try {
             const r = await call(composites.handlers, 'bro_atomic_close', {
@@ -813,15 +813,15 @@ describe('bro_atomic_close — scope gate (#157)', () => {
         }
     });
     it('refusal names only the task commit path outside files[], grouped by surface', async () => {
-        const { composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'scripts/hooks/rogue.sh'], { devAdvance: ['docs/elsewhere.md'] });
+        const { composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'scripts/hooks/lib/rogue.sh'], { devAdvance: ['docs/elsewhere.md'] });
         try {
             const r = await call(composites.handlers, 'bro_atomic_close', {
                 agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
             });
             assert.equal(r.isError, true);
             const out = parse(r);
-            assert.deepEqual(out['extras_by_surface'], { scripts: { count: 1, paths: ['scripts/hooks/rogue.sh'] } });
-            assert.match(out['error'], /scripts \(1\): scripts\/hooks\/rogue\.sh/);
+            assert.deepEqual(out['extras_by_surface'], { scripts: { count: 1, paths: ['scripts/hooks/lib/rogue.sh'] } });
+            assert.match(out['error'], /scripts \(1\): scripts\/hooks\/lib\/rogue\.sh/);
             assert.doesNotMatch(out['error'], /elsewhere/);
             assert.match(out['error'], /scope_waiver_reason/);
         }

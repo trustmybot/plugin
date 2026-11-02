@@ -98,7 +98,7 @@ describe('planCarry (GH 1950)', () => {
         git(repo, 'init', '-q', '-b', 'dev');
         base = commit(repo, {
             [VERIFICATION_INPUTS_PATH]: JSON.stringify(MAP),
-            'scripts/hooks/gate.sh': 'echo gate\n',
+            'scripts/hooks/lib/gate.sh': 'echo gate\n',
             'tests/hooks.test.sh': 'echo test\n',
             'docs/x.md': 'docs\n',
         });
@@ -129,7 +129,7 @@ describe('planCarry (GH 1950)', () => {
     });
     it('a renamed file counts at both its old and new path', async () => {
         seedRun(base, greenRows());
-        git(repo, 'mv', 'scripts/hooks/gate.sh', 'docs/gate.txt');
+        git(repo, 'mv', 'scripts/hooks/lib/gate.sh', 'docs/gate.txt');
         const head = commit(repo, {});
         const plan = await planCarry(request(head));
         assert.deepEqual(plan.carry, []);
