@@ -13,6 +13,76 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 targets() { tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$1")" | tr '\n' ',' ; }
 
+# run_bounded <secs> <cmd>...: the command in its own process group, the whole
+# group killed on timeout (exit 124), on INT or TERM to this helper, and when
+# the shell that called it dies, so nothing it backgrounded outlives the suite.
+# A suite's INT or TERM reaches the helper as the death of that shell.
+run_bounded() {
+  perl -e '
+    use strict; use warnings;
+    use POSIX ":sys_wait_h";
+    my $caller = shift @ARGV;
+    my $deadline = time + shift @ARGV;
+    my $pid = fork() // exit 1;
+    if ($pid == 0) {
+      setpgrp(0, 0);
+      open STDIN, "<", "/dev/null";
+      exec @ARGV or exit 127;
+    }
+    setpgrp($pid, $pid);
+    my $reap = sub { kill "KILL", -$pid; waitpid($pid, 0); exit $_[0] };
+    $SIG{INT} = sub { $reap->(130) };
+    $SIG{TERM} = sub { $reap->(143) };
+    until (waitpid($pid, WNOHANG) == $pid) {
+      $reap->(124) if time >= $deadline;
+      $reap->(143) unless kill 0, $caller;
+      select(undef, undef, undef, 0.05);
+    }
+    my $status = $?;
+    exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+  ' "$$" "$@"
+}
+export -f run_bounded
+
+test_case "run_bounded kills the whole process group"
+RB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cmd-analysis.XXXXXX")
+# shellcheck disable=SC2016 # expanded by the bash each case runs
+RB_BODY='echo $PPID > "$1/helper"; sleep 60 & echo $! > "$1/sleep"; wait'
+rb_poll() {
+  local i
+  for ((i = 0; i < 100; i++)); do
+    "$@" && return 0
+    perl -e 'select(undef, undef, undef, 0.05)'
+  done
+  return 1
+}
+rb_alive() { kill -0 "$(cat "$RB_DIR/sleep")" 2>/dev/null; }
+rb_gone() { ! rb_alive; }
+rb_started() { [ -s "$RB_DIR/sleep" ]; }
+rb_status=0
+run_bounded 1 bash -c "$RB_BODY" _ "$RB_DIR" || rb_status=$?
+assert_eq 124 "$rb_status" "a command past its timeout exits 124"
+assert_eq gone "$(rb_alive && echo alive || echo gone)" "the sleep it backgrounded is gone once the helper returns"
+assert_eq 3 "$(run_bounded 10 bash -c 'exit 3' || echo $?)" "a finished command keeps its exit code"
+for sig in INT TERM; do
+  rm -f "$RB_DIR/helper" "$RB_DIR/sleep"
+  run_bounded 30 bash -c "$RB_BODY" _ "$RB_DIR" &
+  rb_job=$!
+  rb_poll rb_started || true
+  kill "-$sig" "$(cat "$RB_DIR/helper")"
+  wait "$rb_job" || true
+  assert_eq gone "$(rb_poll rb_gone && echo gone || echo alive)" "$sig to the helper kills the group"
+done
+rm -f "$RB_DIR/helper" "$RB_DIR/sleep"
+# shellcheck disable=SC2016 # expanded by the suite stand-in
+bash -c 'run_bounded 30 bash -c "$1" _ "$2"' _ "$RB_BODY" "$RB_DIR" &
+rb_job=$!
+rb_poll rb_started || true
+kill -KILL "$rb_job"
+wait "$rb_job" 2>/dev/null || true
+assert_eq gone "$(rb_poll rb_gone && echo gone || echo alive)" "the group dies with the suite that started it"
+rm -rf "$RB_DIR"
+
 test_case "tmb_cmd_strip_literals drops heredoc bodies and neutralizes quoted operators"
 assert_eq "cat <<EOF > out.txt|echo done" \
   "$(tmb_cmd_strip_literals "$(printf '%s\n' "cat <<'EOF' > out.txt" 'x > /tmp/z' 'EOF' 'echo done')" | paste -sd'|' -)" \
@@ -602,11 +672,10 @@ assert_eq "" "$(pyw 'import subprocess' 'try:' "    subprocess.check_call(['make
 assert_eq "" "$(pyw 'from os import path' "print(path.join('a', 'b'))")" "other os names"
 
 test_case "_tmb_cmd_prog_calls: every child_process import form finishes (GH 1531)"
-. "$PLUGIN_ROOT/tests/l5-l6/lib/timeout-shim.sh"
 for imp in "import cp from 'child_process'" 'import cp from "child_process"' "import cp from 'node:child_process'" \
   'import cp from "node:child_process"' "import * as cp from 'child_process'" "import cp, { execSync } from 'child_process'" \
   "import { execSync } from 'child_process'" "const cp = require('child_process')" "const { execSync: x } = require(\"node:child_process\")"; do
-  out=$(_l5_timeout 5 bash -c '. "$1/scripts/hooks/lib/cmd-analysis.sh"; _tmb_cmd_prog_calls node "$2" | paste -sd, -' _ "$PLUGIN_ROOT" "$imp; cp.execSync('touch x')")
+  out=$(run_bounded 5 bash -c '. "$1/scripts/hooks/lib/cmd-analysis.sh"; _tmb_cmd_prog_calls node "$2" | paste -sd, -' _ "$PLUGIN_ROOT" "$imp; cp.execSync('touch x')")
   assert_eq "0" "$?" "finishes within 5s: $imp"
   assert_contains "$out" "S	touch x" "resolves the import: $imp"
 done
@@ -941,7 +1010,7 @@ assert_eq '/w/f,/f' "$(wpaths 'cd /w; while :; do echo > f; cd ..; done' /w)" "c
 
 test_case "GH 1977 (F210-1): a drifting loop-body cd stays bounded and fails closed"
 for c in "while :; do echo > f1; cd d1; done; while :; do echo > f2; cd d2; done; while :; do echo > f3; cd d3; done; while :; do echo > f4; cd d4; done; echo > g" "while :; do cd n1; while :; do cd n2; echo > g; done; done"; do
-  assert_eq 0 "$(perl -e 'alarm 10; exec @ARGV' bash -c '. "$1"; out=$(tmb_cmd_write_paths "$2" /w "" /w); grep -q "^UNRESOLVED:" <<<"$out"' _ "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh" "$c"; echo $?)" "within 10 s and UNRESOLVED: $c"
+  assert_eq 0 "$(run_bounded 10 bash -c '. "$1"; out=$(tmb_cmd_write_paths "$2" /w "" /w); grep -q "^UNRESOLVED:" <<<"$out"' _ "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh" "$c"; echo $?)" "within 10 s and UNRESOLVED: $c"
 done
 assert_eq 'UNRESOLVED:PWD:$PWD/f1,UNRESOLVED:PWD:$PWD/f2,UNRESOLVED:PWD:$PWD/f3,UNRESOLVED:PWD:$PWD/f4,UNRESOLVED:PWD:$PWD/g' "$(wpaths 'while :; do echo > f1; cd d1; done; while :; do echo > f2; cd d2; done; while :; do echo > f3; cd d3; done; while :; do echo > f4; cd d4; done; echo > g' /w)" "4 sequential drifting loops"
 assert_eq 'UNRESOLVED:PWD:$PWD/g' "$(wpaths 'while :; do cd n1; while :; do cd n2; while :; do cd n3; echo > g; done; done; done' /w)" "3 nested drifting loops"

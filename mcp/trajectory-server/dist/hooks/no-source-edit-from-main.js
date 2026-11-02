@@ -24,13 +24,15 @@
  *     registration check and guards an unregistered repo.
  *   - The analyzer's never-judged targets (`$(parse)`, `$(computed)`,
  *     `$(unproven)`, which the .sh's analyzer never prints) are
- *     containment-guard's to deny, not Rule 2's.
+ *     containment-guard's to deny, not Rule 2's. The analyzer's cap line
+ *     (GH 2090) is the one Rule 2 denies itself: its padding could hide a
+ *     write to a prompt-surface path. The .sh's analyzer has no cap.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ALLOW } from './gate.js';
 import { harnessTmp, NEVER_JUDGED } from './containment-guard.js';
-import { isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { CAP_REASON, isCapLine, isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, realdir, stripTrailingNewlines } from './lib/db.js';
 import { isDir } from './lib/git.js';
@@ -179,6 +181,8 @@ async function bashRule(input, env) {
     const proj = capture(projectRoot(env));
     const roots = [proj, proj === '' ? '' : realdir(proj)];
     const lines = capture((await writePaths(command, { cwd: payloadCwd(input, env), env })).join('\n')).split('\n');
+    if (lines.some(isCapLine))
+        return deny(CAP_REASON);
     for (const line of lines) {
         const path = judgedPath(line);
         if (path === null || path === '')

@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
+import { CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
 import { GATE_NAME, PARSE_REASON, sweBoundary } from '../hooks/swe-boundary.js';
@@ -140,6 +140,14 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     );
     const r = await sweBoundary(payload('Bash', { command }), env);
     assert.equal(r.stdout, '');
+  });
+
+  it('denies a command past the analyzer cap, naming the cap, on a stack shape and a work shape (GH 2090)', async () => {
+    for (const depth of [5000, 2000]) {
+      const r = await sweBoundary(payload('Bash', { command: `echo ${'$('.repeat(depth)}x${')'.repeat(depth)}` }), env);
+      assert.equal(r.code, 0);
+      assert.equal(decision(r.stdout)?.permissionDecisionReason, CAP_REASON);
+    }
   });
 
   it('drops the Edit/Write as bash does on a deny record whose time is not valid octal: no output, exit 0', async () => {

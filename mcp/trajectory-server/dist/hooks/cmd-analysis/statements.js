@@ -18,7 +18,7 @@
  * The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
-import { ENC, HD_DATA, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
+import { ENC, HD_DATA, NO_CHARGE, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 export const SEP = '\x12';
 export const LOOP_OPEN = '{';
@@ -102,11 +102,12 @@ function srcmark(body, dir) {
         return '';
     return SEP + dir + SEP + body;
 }
-export function statementsEnc(buf, base, home, assign) {
+export function statementsEnc(buf, base, home, assign, charge = NO_CHARGE) {
     const frames = { ext: [], runs: [], grew: new Set(), lost: new Set() };
     for (;;) {
         frames.grew.clear();
-        const records = scan(buf, base, home, assign, frames);
+        charge(buf.length);
+        const records = scan(buf, base, home, assign, frames, charge);
         if (frames.grew.size === 0)
             return records;
         for (const fo of frames.grew)
@@ -114,7 +115,7 @@ export function statementsEnc(buf, base, home, assign) {
                 frames.lost.add(fo);
     }
 }
-function scan(buf, base, home, assign, frames) {
+function scan(buf, base, home, assign, frames, charge) {
     const records = [];
     let old = '-';
     let cwhy = '';
@@ -155,7 +156,10 @@ function scan(buf, base, home, assign, frames) {
     const astack = [];
     const oastack = [];
     const q = [];
-    const emit = (dir, text) => records.push({ dir, stmt: text });
+    const emit = (dir, text) => {
+        charge(dir.length);
+        records.push({ dir, stmt: text });
+    };
     const loops = [];
     const fids = [];
     const fent = [];

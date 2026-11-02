@@ -18,7 +18,7 @@
  * The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
-import { ENC, HD_DATA, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
+import { type Charge, ENC, HD_DATA, NO_CHARGE, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 
 export const SEP = '\x12';
@@ -111,17 +111,18 @@ interface Frames {
   lost: Set<number>;
 }
 
-export function statementsEnc(buf: string, base: string, home: string, assign: boolean): Record[] {
+export function statementsEnc(buf: string, base: string, home: string, assign: boolean, charge: Charge = NO_CHARGE): Record[] {
   const frames: Frames = { ext: [], runs: [], grew: new Set(), lost: new Set() };
   for (;;) {
     frames.grew.clear();
-    const records = scan(buf, base, home, assign, frames);
+    charge(buf.length);
+    const records = scan(buf, base, home, assign, frames, charge);
     if (frames.grew.size === 0) return records;
     for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
   }
 }
 
-function scan(buf: string, base: string, home: string, assign: boolean, frames: Frames): Record[] {
+function scan(buf: string, base: string, home: string, assign: boolean, frames: Frames, charge: Charge): Record[] {
   const records: Record[] = [];
   let old = '-';
   let cwhy = '';
@@ -164,7 +165,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   const oastack: string[][] = [];
   const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string) => records.push({ dir, stmt: text });
+  const emit = (dir: string, text: string) => {
+    charge(dir.length);
+    records.push({ dir, stmt: text });
+  };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g'> = [];
   const fids: number[] = [];
   const fent: Array<{ cur: string; why: string; alts: string[] }> = [];
