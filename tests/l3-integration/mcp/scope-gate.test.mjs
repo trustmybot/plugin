@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, serverEnv, seedHumanRow } from './harness.mjs';
 
-const SLASH_HOOK = fileURLToPath(new URL('../../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
+const SLASH_HOOK = fileURLToPath(new URL('../../lib/ts-hooks/roundtable-slash-detect.sh', import.meta.url));
 
 test('issue_create returns a single id (no issue_string_id ghost field)', async (t) => {
   const { client, close } = await startClient();

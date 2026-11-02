@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/reviewer-identity-observe.sh, or its TypeScript port under
-# TMB_HOOK_TEST_IMPL=ts (PreToolUse on
+# Tests for the TypeScript reviewer-identity-observe gate (PreToolUse on
 # validation_record):
 #   1. a code-reviewer subagent payload (agent_id + agent_type code-reviewer, bare
 #      or plugin-prefixed) writes one reviewer_identity_observed row on the
@@ -11,7 +10,7 @@
 #   3. every observed call is allowed
 #   4. an unreadable DB denies with the db-unavailable reason
 #   5. without jq it allows with a stderr note and writes nothing
-#   6. through the trajectory-gates chain, a reviewer retry (first
+#   6. through the PreToolUse router chain, a reviewer retry (first
 #      validation_record fails on bad args, the second succeeds) leaves one
 #      consumed and one superseded row; a main-loop validation_record with
 #      agent='code-reviewer' is denied by agent-arg-matches-caller and leaves the
@@ -21,13 +20,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/reviewer-identity-observe.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/reviewer-identity-observe.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/reviewer-identity-observe.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-reviewer-identity-observe.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -121,23 +116,16 @@ assert_eq "allow" "$(decision "$OUT")" "unresolved DB: allowed"
 NOJQ=$(no_jq_path "$TMPDIR/nojq")
 rc=0
 ERR=$(cd "$PROJ" && payload code-reviewer e1b2c3d4e5f6a7b8c | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1 >/dev/null) || rc=$?
-if [ "$HOOK_IMPL" = ts ]; then
-  test_case "no jq: the TypeScript port needs none and records the caller"
-  assert_eq "0" "$rc" "exit 0"
-  assert_eq "" "$ERR" "no stderr note"
-  assert_eq "4" "$(rows)" "the row is written"
-  sqlite3 "$DB" "DELETE FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.agent_id') = 'e1b2c3d4e5f6a7b8c';"
-else
-  test_case "no jq: allowed with a stderr note, nothing written"
-  assert_eq "0" "$rc" "exit 0"
-  assert_contains "$ERR" "jq not found" "stderr names jq"
-  assert_eq "3" "$(rows)" "no row"
-fi
+test_case "no jq: the TypeScript port needs none and records the caller"
+assert_eq "0" "$rc" "exit 0"
+assert_eq "" "$ERR" "no stderr note"
+assert_eq "4" "$(rows)" "the row is written"
+sqlite3 "$DB" "DELETE FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.agent_id') = 'e1b2c3d4e5f6a7b8c';"
 
-# chain <payload> — the payload through the trajectory-gates registration.
+# chain <payload> — the payload through the PreToolUse router registration.
 chain() {
   (cd "$PROJ" && printf '%s' "$1" \
-    | CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+    | CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" PreToolUse 2>/dev/null || true)
 }
 
 # server <payload> — the payload's tool_input through the built validation_record handler.
@@ -153,9 +141,11 @@ server() {
   " 2>&1)
 }
 
-# state <attempt_n> — consumed|superseded|superseded_by per observation row, oldest first.
+# state <attempt_n> — consumed|superseded|superseded_by per observation row, oldest
+# first; superseded_by is the 0-based position of the superseding observation row,
+# since the router's own audit rows interleave with the observation rows.
 state() {
-  sqlite3 "$DB" "SELECT group_concat(s, ' ') FROM (SELECT json_extract(content_json, '$.consumed') || '|' || COALESCE(json_extract(content_json, '$.superseded'), '-') || '|' || COALESCE(json_extract(content_json, '$.superseded_by') - (SELECT MIN(id) FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.attempt_n') = $1), '-') AS s FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.attempt_n') = $1 ORDER BY id);"
+  sqlite3 "$DB" "SELECT group_concat(s, ' ') FROM (SELECT json_extract(content_json, '$.consumed') || '|' || COALESCE(json_extract(content_json, '$.superseded'), '-') || '|' || CASE WHEN json_extract(content_json, '$.superseded_by') IS NULL THEN '-' ELSE (SELECT COUNT(*) FROM audit o WHERE o.event_type = 'reviewer_identity_observed' AND json_extract(o.content_json, '$.attempt_n') = $1 AND o.id < json_extract(audit.content_json, '$.superseded_by')) END AS s FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.attempt_n') = $1 ORDER BY id);"
 }
 
 test_case "a reviewer retry through the chain leaves one consumed and one superseded row"

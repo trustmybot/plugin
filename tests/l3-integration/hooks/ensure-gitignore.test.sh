@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/ensure-gitignore.sh.
+# Tests for the TypeScript ensure-gitignore gate.
 # Hook contract: SessionStart hook ensures .claude/ is in repo's .gitignore.
 # Creates .gitignore if missing; appends if rule absent; idempotent if present.
 # Silent no-op when not in a git repo.
@@ -8,9 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-gitignore.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-gitignore.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-gitignore.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-ensure-gitignore.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

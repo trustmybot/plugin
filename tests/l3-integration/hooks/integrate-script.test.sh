@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 SCRIPT="$PLUGIN_ROOT/skills/tmb_planning/scripts/integrate.sh"
-GUARDS="$PLUGIN_ROOT/scripts/hooks/git-guards.sh"
+GUARDS="$PLUGIN_ROOT/tests/lib/ts-hooks/git-guards.sh"
 
 PASSING='["test -f a.txt", "test -f m.txt"]'
 FAILING='["test -f a.txt", "echo broken; exit 7"]'

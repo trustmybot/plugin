@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # L3 tests (GH 1499): the swe fences resolve the caller from the payload
 # agent_id (its agent_runs row, spawn_id = agent_id), never from the cwd or the
-# target path. Every payload runs through dispatch.sh for each PreToolUse gate
+# target path. Every payload runs through dist/hooks.js for each PreToolUse gate
 # hooks.json registers for its tool, against a project with two task
 # worktrees (A, B) where swe row A is bound to agent_id agA.
 #
@@ -31,7 +31,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-DISPATCH="$PLUGIN_ROOT/scripts/hooks/dispatch.sh"
+HOOKS_JS="$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js"
+# The sandbox sits under the harness's /tmp/claude-<uid>, which the gates allow as
+# scratch; a preloaded fake uid keeps that allowance from covering the sandbox.
+export NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs"
 
 SANDBOX=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-hook-caller-identity.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
@@ -98,7 +101,7 @@ gates() {
 SEQ_FILE="$SANDBOX/seq"
 echo 0 > "$SEQ_FILE"
 # run <cwd> <agent_type|''> <agent_id|''> <tool> <tool_input-json> — every gate
-# for <tool> through dispatch.sh; prints one `<gate><TAB><decision><TAB><reason>`
+# for <tool> through dist/hooks.js <gate>; prints one `<gate><TAB><decision><TAB><reason>`
 # line per gate.
 run() {
   local payload gate out seq
@@ -109,7 +112,7 @@ run() {
      + (if $at == "" then {} else {agent_type:$at} end)
      + (if $id == "" then {} else {agent_id:$id} end)')
   for gate in $(gates "$4"); do
-    out=$(cd "$1" && printf '%s' "$payload" | CLAUDE_CONFIG_DIR="" TMPDIR="$HOST_TMP" bash "$DISPATCH" "$gate" 2>/dev/null)
+    out=$(cd "$1" && printf '%s' "$payload" | CLAUDE_CONFIG_DIR="" TMPDIR="$HOST_TMP" node "$HOOKS_JS" "$gate" 2>/dev/null)
     [ -n "$out" ] || out='{}'
     printf '%s\t%s\t%s\n' "$gate" \
       "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null || echo allow)" \
@@ -151,7 +154,7 @@ assert_eq "" "$(denied_by "$OUT")" "no gate denies"
 NOTE=$(cd "$PROJECT" && jq -nc --arg p "$WT_A/notes/m.md" \
   '{hook_event_name:"PreToolUse", session_id:"sess-main", tool_use_id:"toolu_note", cwd:"'"$PROJECT"'", tool_name:"Write",
     agent_type:"swe", agent_id:"agA", tool_input:{file_path:$p, content:"x"}}' \
-  | bash "$DISPATCH" swe-scope-fence 2>/dev/null)
+  | node "$HOOKS_JS" swe-scope-fence 2>/dev/null)
 assert_contains "$NOTE" "notes/m.md is outside this task's files[]" "swe-scope-fence judges task A's files[] with cwd = main checkout"
 
 test_case "(c) Bash touch <worktree B>/x from agA, cwd = main checkout → denied"

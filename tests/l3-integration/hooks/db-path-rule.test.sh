@@ -16,7 +16,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOKS="$PLUGIN_ROOT/scripts/hooks"
+HOOKS="$PLUGIN_ROOT/tests/lib/ts-hooks"
+# The sandbox sits under the harness's /tmp/claude-<uid>, which the gates allow as
+# scratch; a preloaded fake uid keeps that allowance from covering the sandbox.
+export NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not installed"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not installed"; exit 0; }

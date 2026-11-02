@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/plugin-hooks-marker.sh — the SessionStart hook that
+# Tests for the TypeScript plugin-hooks-marker gate — the SessionStart hook that
 # marks a session as running the plugin's own hooks, read by the headless shim.
 set -euo pipefail
 
@@ -7,9 +7,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/plugin-hooks-marker.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/plugin-hooks-marker.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/plugin-hooks-marker.sh"
 
 TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-plugin-hooks-marker.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT

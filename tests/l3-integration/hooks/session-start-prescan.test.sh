@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/session-start-prescan.sh.
+# Tests for the TypeScript session-start-prescan gate.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
 # cold world-model banner (cold = empty wm_directories), the Top-level dirs
@@ -11,14 +11,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-prescan.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-prescan.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-start-prescan.XXXXXX")
 
@@ -216,27 +211,22 @@ import { writeFileSync } from 'node:fs';
 writeFileSync(process.env.INVOCATION_FLAG, process.env.TRAJECTORY_DB_PATH ?? '<unset>');
 FAKE
 
-# Build a fake scripts tree: hooks/, maintenance/, and scan.sh (availability sentinel).
+# Build a fake scripts tree: hooks/ (the gate resolves the invoker through it),
+# maintenance/, and scan.sh (availability sentinel).
 FAKE_SCRIPTS="$TMPDIR/fake-scripts"
-mkdir -p "$FAKE_SCRIPTS/hooks/lib"
-cp "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh" "$FAKE_SCRIPTS/hooks/lib/query-task.sh"
-mkdir -p "$FAKE_SCRIPTS/maintenance"
-cp "$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh" "$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
+mkdir -p "$FAKE_SCRIPTS/hooks" "$FAKE_SCRIPTS/maintenance"
 cp "$FAKE_INVOKER_DIR/run-scan-initial.mjs" "$FAKE_SCRIPTS/maintenance/run-scan-initial.mjs"
 # Provide a stub scan.sh so the hook's availability check passes.
 echo '#!/usr/bin/env bash' > "$FAKE_SCRIPTS/scan.sh"
 chmod +x "$FAKE_SCRIPTS/scan.sh"
-FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
 # The TypeScript gate reads scripts/ from the install root holding its bundle.
-if [ "$HOOK_IMPL" = ts ]; then
-  FAKE_ROOT="$TMPDIR/fake-root"
-  mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist"
-  printf '{"name":"tmb"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
-  cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js"
-  cp -R "$FAKE_SCRIPTS" "$FAKE_ROOT/scripts"
-  FAKE_HOOK="$FAKE_ROOT/session-start-prescan.sh"
-  printf '#!/usr/bin/env bash\nexec "$TMB_TEST_NODE" "%s" session-start-prescan\n' "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js" > "$FAKE_HOOK"
-fi
+FAKE_ROOT="$TMPDIR/fake-root"
+mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist"
+printf '{"name":"tmb"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
+cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js"
+cp -R "$FAKE_SCRIPTS" "$FAKE_ROOT/scripts"
+FAKE_HOOK="$FAKE_ROOT/session-start-prescan.sh"
+printf '#!/usr/bin/env bash\nexec "$TMB_TEST_NODE" "%s" session-start-prescan\n' "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js" > "$FAKE_HOOK"
 
 test_case "cold + invoker present: context says scan started"
 kill_fixture_node
@@ -567,7 +557,7 @@ cp "$LEGACY_FIXTURE" "$LEGACY_SETTINGS"
 both_ctx=$( {
   legacy_run
   printf '{"hook_event_name":"SessionStart","session_id":"legacy-1"}' \
-    | env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TMB_MCP_HEALTH_SAMPLES=1 bash "$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh" 2>/dev/null || true
+    | env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TMB_MCP_HEALTH_SAMPLES=1 bash "$PLUGIN_ROOT/tests/lib/ts-hooks/mcp-health-check.sh" 2>/dev/null || true
 } | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)
 assert_eq "1" "$(printf '%s\n' "$both_ctx" | grep -c "$LEGACY_SETTINGS")" "one warning names the settings file"
 for entry in "line 10 git-guards" "line 23 agent-spawn-dispatch" "line 33 swe-scope-guard"; do

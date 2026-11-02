@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/attribution-footer.sh (#601).
+# Tests for the TypeScript attribution-footer gate (#601).
 #
 # The hook normalizes the TMB attribution footer on PR/issue/MR bodies after a
 # successful create command. We exercise:
@@ -13,10 +13,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/attribution-footer.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/attribution-footer.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/attribution-footer.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-attribution-footer.XXXXXX")"
@@ -29,7 +26,7 @@ TMB_FOOTER='🤖 Generated with [Claude Code](https://claude.com/claude-code), p
 BARE_CC='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
 
 # ── normalize_footer (pure function, sourced) ────────────────────────────────
-# shellcheck source=scripts/hooks/attribution-footer.sh
+# shellcheck source=tests/lib/ts-hooks/attribution-footer.sh
 . "$HOOK"
 
 test_case "bare Claude-Code footer is rewritten to the TMB footer"

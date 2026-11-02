@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/git-push-guard.sh
+# Tests for the TypeScript git-push-guard gate
 #
 # Hook contract: block `git push` when commits in the push range are
 # attached to closed tasks (via tasks.commit_sha) that lack a passing
@@ -14,10 +14,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/git-push-guard.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/git-push-guard.sh"
 . "$HERE/fixtures/wal-no-holder.sh"
 
 # ----- helpers ----------------------------------------------------------
@@ -549,7 +546,7 @@ sqlite3 "$db" "INSERT INTO repos (name, path, target_branch) VALUES ('wal', '$RE
 out=$(run_hook "git push origin feat/wal" "$db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "WAL fixture precondition: the push of the signed feature commit is allowed"
 # The WAL cases log the sqlite3 CLI's invocations, so the TS gate reads through it.
-[ "$HOOK_IMPL" != ts ] || export TMB_HOOKS_SQLITE=cli
+export TMB_HOOKS_SQLITE=cli
 wal_gate_cases "git-push-guard" "$HOOK" "$db" "$REPO_PATH" \
   "$(jq -cn '{tool_input:{command:"git push origin feat/wal"}}')" "" '"permissionDecision":"deny"' "$REPO_PATH"
 unset TMB_HOOKS_SQLITE

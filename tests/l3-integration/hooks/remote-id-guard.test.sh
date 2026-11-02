@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/remote-id-guard.sh.
+# Tests for the TypeScript remote-id-guard gate.
 # Hook contract: PreToolUse/Bash hook denies remote-WRITE text (gh/glab
 # create|edit|comment|close|… with author text) that cites a LOCAL trajectory
 # issue id whose remote iid differs — naming the correct remote ref. Fail-open
@@ -23,8 +23,8 @@
 #            notes it on stderr and writes one remote_id_guard_overrun row
 #   corpus: tests/fixtures/hook-corpus/remote-id-guard/, each payload's
 #           corpus_expect (the side's own under corpus_divergent) with its corpus_env
-#   TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate (GH 1692); its overrun cases
-#   set TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1, since the TS analysis is too fast to overrun
+#   The overrun cases set TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1, since the TS
+#   analysis is too fast to overrun (GH 1692)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,11 +32,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/l3-integration/hooks/fixtures/migrated-db.sh
 . "$HERE/fixtures/migrated-db.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/remote-id-guard.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/remote-id-guard.sh"
-OVERRUN_KNOB=""
-[ "$HOOK_IMPL" != ts ] || OVERRUN_KNOB=1
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/remote-id-guard.sh"
+OVERRUN_KNOB=1
 CORPUS="$PLUGIN_ROOT/tests/fixtures/hook-corpus/remote-id-guard"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-remote-id-guard.XXXXXX")
@@ -288,7 +285,7 @@ for f in "$CORPUS"/*.json; do
     printf 'SKIP %s — its PATH without jq or sqlite3 runs in hooks-remote-id-guard-parity\n' "$CURRENT_TEST"
     continue
   fi
-  expect_c=$(jq -r --arg impl "$HOOK_IMPL" '.corpus_expect | if type == "object" then .[$impl] else . end' "$f")
+  expect_c=$(jq -r --arg impl ts '.corpus_expect | if type == "object" then .[$impl] else . end' "$f")
   env_c=()
   while IFS= read -r kv; do env_c+=("$kv"); done < <(corpus_payload "$name" | jq -r '(.corpus_env // {}) | to_entries[] | "\(.key)=\(.value)"')
   rc_c=0
