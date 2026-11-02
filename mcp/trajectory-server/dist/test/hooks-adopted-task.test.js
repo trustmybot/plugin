@@ -29,7 +29,7 @@ const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const T0 = '2026-10-01T10:00:00.000Z';
 const TASK = 5;
 const FAKE_UID = 4242424;
-const ATOMIC_CLOSE_GAP = 'swe-atomic-close reads <repo>/.claude/worktrees/<slug>, not taskLocation().worktree, so an adopted task is judged on the slug path';
+const ATOMIC_CLOSE_GAP = 'GH 2240: swe-atomic-close reads <repo>/.claude/worktrees/<slug>, not taskLocation().worktree, so an adopted task is judged on the slug path';
 const GIT_ENV = {
     GIT_AUTHOR_NAME: 't',
     GIT_AUTHOR_EMAIL: 't@example.com',
