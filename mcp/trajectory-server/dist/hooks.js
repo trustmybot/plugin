@@ -23837,7 +23837,42 @@ function isProseFile(path) {
 var GATE_NAME69 = "no-prose-in-scratch";
 var FILE_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var BODY_FILE_WRITES = /* @__PURE__ */ new Set(["issue create", "issue edit", "issue comment", "pr create", "pr edit", "pr comment"]);
+var GH_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "--title",
+  "-t",
+  "--body",
+  "-b",
+  "--assignee",
+  "-a",
+  "--label",
+  "-l",
+  "--milestone",
+  "-m",
+  "--project",
+  "-p",
+  "--recover",
+  "--template",
+  "-T",
+  "--repo",
+  "-R",
+  "--base",
+  "-B",
+  "--head",
+  "-H",
+  "--reviewer",
+  "-r",
+  "--add-assignee",
+  "--remove-assignee",
+  "--add-label",
+  "--remove-label",
+  "--add-project",
+  "--remove-project",
+  "--add-reviewer",
+  "--remove-reviewer"
+]);
 var REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
+var FLATTENED = /[ \t\n<>|;&()`]/g;
+var LITERAL_NODES = ["raw_string", "ansi_c_string", "heredoc_body", "comment"];
 var BODY_FILE_REASON = "BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.";
 function proseReason(target) {
   return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
@@ -23879,6 +23914,23 @@ function effectiveTmpdir(input, toolName2, env) {
 function words2(stmt) {
   return (stmt.split("\n")[0] ?? "").split(/[ \t]+/).filter((w) => w !== "");
 }
+async function joinContinuations(command) {
+  if (!command.includes("\\\n")) return command;
+  const tree = (await bashParser()).parse(command);
+  if (tree === null) return command;
+  const literals = tree.rootNode.descendantsOfType(LITERAL_NODES).flatMap((node) => node === null ? [] : [[node.startIndex, node.endIndex]]);
+  tree.delete();
+  let next = 0;
+  return command.replace(/\\[\s\S]/g, (pair, at2) => {
+    while (next < literals.length && literals[next][1] <= at2) next += 1;
+    const inLiteral = next < literals.length && literals[next][0] <= at2;
+    return pair === "\\\n" && !inLiteral ? "" : pair;
+  });
+}
+function isStdinValue(value) {
+  const word = value.replace(/<.*$/s, "");
+  return word === "" || word === "-";
+}
 function readsBodyFile(stmt) {
   if (!BODY_FILE_WRITES.has(ghMutation(stmt))) return false;
   const w = words2(stmt);
@@ -23887,18 +23939,26 @@ function readsBodyFile(stmt) {
   for (let k = gh2 + 1; k < w.length; k++) {
     const flag = w[k];
     if (flag === "--") return false;
+    if (GH_VALUE_FLAGS.has(flag)) {
+      k += 1;
+      continue;
+    }
     if (flag === "--body-file" || flag === "-F") {
-      if (k + 1 < w.length && w[k + 1] !== "-") return true;
+      if (k + 1 < w.length && !isStdinValue(w[k + 1])) return true;
       k += 1;
       continue;
     }
     const attached = /^(?:--body-file=|-F=?)(.+)$/s.exec(flag);
-    if (attached && attached[1] !== "-") return true;
+    if (attached && !isStdinValue(attached[1])) return true;
   }
   return false;
 }
 function isRm(stmt) {
   return posixBasename(words2(stmt)[0] ?? "") === "rm";
+}
+function indexOfTarget(lines2, removed) {
+  const exact = lines2.indexOf(removed);
+  return exact >= 0 ? exact : lines2.findIndex((line) => line.replace(FLATTENED, "_") === removed);
 }
 async function withoutRmTargets(lines2, statements2, cwd, env) {
   const kept = [...lines2];
@@ -23906,14 +23966,14 @@ async function withoutRmTargets(lines2, statements2, cwd, env) {
     if (!isRm(stmt)) continue;
     const removed = await writePaths(stmt.replace(REDIRECT, ""), { cwd: dir.startsWith("/") ? dir : cwd, env });
     for (const target of removed) {
-      const at2 = kept.indexOf(target);
+      const at2 = indexOfTarget(kept, target);
       if (at2 >= 0) kept.splice(at2, 1);
     }
   }
   return kept;
 }
 async function bashRule2(input, env) {
-  const command = field6(input, ["tool_input", "command"]);
+  const command = await joinContinuations(field6(input, ["tool_input", "command"]));
   if (command === "") return ALLOW;
   const tmpdir2 = effectiveTmpdir(input, "Bash", env);
   const runEnv = tmpdir2 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir2 };

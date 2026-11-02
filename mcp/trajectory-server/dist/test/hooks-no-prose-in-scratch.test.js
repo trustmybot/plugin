@@ -6,14 +6,15 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTmpdir } from '../hooks/containment-guard.js';
 import { findGate, gateNames } from '../hooks/registry.js';
-import { noProseInScratch } from '../hooks/no-prose-in-scratch.js';
+import { joinContinuations, noProseInScratch } from '../hooks/no-prose-in-scratch.js';
 import { isProseFile } from '../prose-files.js';
+import { PLUGIN_ROOT } from './router-sandboxes.js';
 const OUTSIDE_EVERY_ZONE = '/nonexistent-home/Documents';
 /** os.tmpdir() is /tmp, or under it, on Linux and in a sandboxed run, the only places a test may write there. */
 const CANONICAL_TMP = realpathSync('/tmp');
@@ -150,6 +151,28 @@ describe('no-prose-in-scratch', () => {
             assert.equal(await shell(`${'echo $('.repeat(2000)}x${')'.repeat(2000)} > /tmp/x.md`), '');
             assert.equal(await shell("echo hi > /tmp/x.md; if ( 'unterminated"), '');
         });
+        it('allow removing a quoted path that holds a blank or an operator (F345-5)', async () => {
+            assert.equal(await shell('rm "/tmp/a b.md"'), '');
+            assert.equal(await shell('cd /tmp; rm "a b.md"'), '');
+            assert.equal(await shell('rm ".claude/tmb/scratch/a b.md"'), '');
+            assert.equal(await shell('rm "/tmp/a;b.md"'), '');
+            assert.equal(await shell('rm \\\n  /tmp/x.md'), '');
+        });
+        it('still deny the write beside a flattened rm: each rm takes one target (F345-5)', async () => {
+            assert.match(await shell('rm "/tmp/a b.md"; echo hi > /tmp/a_b.md'), /^BLOCKED: prose file/);
+            assert.match(await shell('rm /tmp/a_b.md; echo hi > "/tmp/a b.md"'), /^BLOCKED: prose file/);
+            assert.match(await shell('rm "/tmp/a b.md"; echo hi > "/tmp/a b.md"'), /^BLOCKED: prose file/);
+        });
+        it('read a target past a line continuation (F345-2)', async () => {
+            assert.match(await shell('cp a \\\n  /tmp/x.md'), /^BLOCKED: prose file.*x\.md/);
+            assert.match(await shell('tee \\\n  /tmp/x.md'), /^BLOCKED: prose file.*x\.md/);
+            assert.equal(await shell('cp a \\\n  /tmp/x.log'), '');
+        });
+        it('take a backslash-newline as text where the shell does (F345-2)', async () => {
+            assert.match(await shell("cat <<'EOF'\nx \\\nEOF\necho hi > /tmp/b.md"), /b\.md/, 'a heredoc body ends at its delimiter');
+            assert.match(await shell('# note \\\necho hi > /tmp/b.md'), /b\.md/, 'a comment does not continue');
+            assert.match(await shell('echo a\\\\\necho hi > /tmp/b.md'), /b\.md/, 'an escaped backslash does not continue');
+        });
         it('leave an UNRESOLVED target to containment-guard', async () => {
             assert.equal(await shell('echo hi > "$(pick-a-name)"'), '');
         });
@@ -174,9 +197,108 @@ describe('no-prose-in-scratch', () => {
                 assert.match(await shell(command), REASON, command);
             }
         });
+        it('read a flag past a line continuation (F345-2)', async () => {
+            for (const command of ['gh issue edit 1 \\\n  --body-file /tmp/b.md', 'gh issue edit 1 \\\n  --body-file=b.md', 'gh pr comment 1 \\\n  -F b.md', 'cd d && gh pr edit 1 \\\n  --body-file b']) {
+                assert.match(await shell(command), REASON, command);
+            }
+            assert.equal(await shell('gh issue edit 1 \\\n  --body-file - <<EOF\nhi\nEOF'), '');
+        });
+        it('take a heredoc run onto the value as stdin (F345-3)', async () => {
+            for (const command of [
+                'gh issue edit 1 --body-file -<<EOF\nhi\nEOF',
+                "gh issue edit 1 --body-file -<<'EOF'\nhi\nEOF",
+                'gh issue edit 1 --body-file=-<<EOF\nhi\nEOF',
+                'gh issue edit 1 -F -<<EOF\nhi\nEOF',
+                'gh issue edit 1 -F=-<<EOF\nhi\nEOF',
+                'gh issue edit 1 --body-file -<<<hi',
+            ]) {
+                assert.equal(await shell(command), '', command);
+            }
+            assert.match(await shell('gh issue edit 1 --body-file b.md<<EOF\nhi\nEOF'), REASON);
+        });
+        it('skip the value of a flag that takes one (F345-4)', async () => {
+            for (const command of [
+                'gh pr create --title "-F x" --body y',
+                'gh pr create --title "-Fix it" --body y',
+                'gh pr create --title "--body-file=x y"',
+                'gh pr create -t "-F x" -b "--body-file y"',
+                'gh issue edit 1 --add-label "-F x"',
+            ]) {
+                assert.equal(await shell(command), '', command);
+            }
+            assert.match(await shell('gh pr create --title "-F x" --body-file b.md'), REASON);
+            assert.match(await shell('gh pr create --title t -F b.md'), REASON);
+        });
         it('leave other gh commands alone', async () => {
             assert.equal(await shell('gh api repos/x/y -F a=b'), '');
             assert.equal(await shell('gh pr review 1 --body-file b'), '');
+        });
+    });
+    describe('joinContinuations', () => {
+        it('drops a continuation outside and inside double quotes, as the shell does', async () => {
+            assert.equal(await joinContinuations('a \\\n  b'), 'a   b');
+            assert.equal(await joinContinuations('ab\\\ncd'), 'abcd');
+            assert.equal(await joinContinuations('echo "a \\\nb"'), 'echo "a b"');
+        });
+        it('keeps a backslash-newline in single quotes, ANSI-C quotes, a heredoc body and a comment', async () => {
+            for (const command of ["echo 'a \\\nb'", "echo $'a \\\nb'", 'cat <<EOF\nx \\\ny\nEOF', "cat <<'EOF'\nx \\\ny\nEOF", '# a \\\nb']) {
+                assert.equal(await joinContinuations(command), command);
+            }
+        });
+        it('keeps the newline after an escaped backslash', async () => {
+            assert.equal(await joinContinuations('a\\\\\nb'), 'a\\\\\nb');
+        });
+        it('judges each one alone, past a literal and past text wider than one code unit', async () => {
+            assert.equal(await joinContinuations("✅ 'a \\\nb' c \\\nd"), "✅ 'a \\\nb' c d");
+            assert.equal(await joinContinuations("x \\\ny 'a \\\nb' z \\\nw"), "x y 'a \\\nb' z w");
+        });
+    });
+    describe('the built gate, as the findings probed it', () => {
+        const gate = (command) => {
+            const input = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: project, tool_name: 'Bash', tool_input: { command } });
+            const run = spawnSync('node', [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'no-prose-in-scratch'], { input, encoding: 'utf8', env });
+            assert.equal(run.status, 0, run.stderr);
+            return run.stdout;
+        };
+        it('F345-2: denies a body file past a line continuation', () => {
+            assert.match(gate('gh issue edit 1 \\\n  --body-file /tmp/b.md'), /body-file - on stdin/);
+        });
+        it('F345-3: allows --body-file -<<EOF', () => {
+            assert.equal(gate('gh issue edit 1 --body-file -<<EOF\nhi\nEOF'), '');
+        });
+        it('F345-4: allows a title that looks like a body-file flag', () => {
+            assert.equal(gate('gh pr create --title "-F x" --body y'), '');
+        });
+        it('F345-5: allows removing a quoted path with a space', () => {
+            assert.equal(gate('rm "/tmp/a b.md"'), '');
+        });
+    });
+    describe('dispatch.sh --shim, the headless entry (F345-1)', () => {
+        const shim = (toolName, toolInput, over = {}) => {
+            const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'probe', cwd: project, tool_name: toolName, tool_input: toolInput });
+            return spawnSync('bash', [join(PLUGIN_ROOT, 'scripts/hooks/dispatch.sh'), 'no-prose-in-scratch', '--shim'], {
+                input,
+                encoding: 'utf8',
+                env: { ...env, CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project, ...over },
+            }).stdout;
+        };
+        const DENY = /"permissionDecision":"deny"/;
+        const SWITCH = { TMB_HOOKS_IMPL: 'bash' };
+        it('allows a harmless call and a prose write under TMB_HOOKS_IMPL=bash', () => {
+            assert.doesNotMatch(shim('Bash', { command: 'ls' }, SWITCH), DENY);
+            assert.doesNotMatch(shim('Write', { file_path: join(project, 'a.ts'), content: 'x' }, SWITCH), DENY);
+            assert.doesNotMatch(shim('Bash', { command: 'echo hi > /tmp/x.md' }, SWITCH), DENY);
+        });
+        it('still denies through the shim in normal mode', () => {
+            assert.match(shim('Bash', { command: 'echo hi > /tmp/x.md' }), DENY);
+            assert.match(shim('Bash', { command: 'gh issue edit 1 --body-file b.md' }), DENY);
+            assert.match(shim('Write', { file_path: scratch('plan.md'), content: 'x' }), DENY);
+            assert.doesNotMatch(shim('Bash', { command: 'ls' }), DENY);
+        });
+        it('lists this gate, and only it, as ts-only in the table', () => {
+            const rows = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n').map((line) => line.split(' '));
+            assert.deepEqual(rows.filter((f) => f[2] === 'ts-only').map((f) => f[0]), ['no-prose-in-scratch', 'no-prose-in-scratch']);
+            assert.equal(rows.filter((f) => f[0] === 'no-prose-in-scratch').length, 2);
         });
     });
     it('lifts entirely under TMB_ALLOW_PROSE_SCRATCH=1, for every tool', async () => {

@@ -180,7 +180,7 @@ export interface RouterGate {
   readonly budgetMs: number;
   /** Runs only for a tool_name ending in `trajectory-server__<toolSuffix>`; absent, for every tool of its group. */
   readonly toolSuffix?: string;
-  /** Has no .sh and is a discipline rule, not containment: TMB_HOOKS_IMPL=bash drops it rather than deny every call for the missing script. */
+  /** Has no .sh and is a discipline rule, not containment: TMB_HOOKS_IMPL=bash drops it rather than deny every call for the missing script, here in the router and in dispatch.sh through its `ts-only` column in dist/hooks-router.txt. */
   readonly tsOnly?: boolean;
 }
 
