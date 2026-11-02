@@ -16,7 +16,8 @@
 #      → exit 2, branch and DB unchanged. Each untracked node_modules of the
 #      main checkout beside a tracked package.json is symlinked into the
 #      worktree (GH 1541).
-#   4. When scripts/maintenance/regen-generated.sh exists and either side of
+#   4. When scripts/maintenance/regen-generated.ts (or, on an older base, its
+#      shell predecessor) exists and either side of
 #      the rebase touched a path the worktree's .gitattributes marks
 #      merge=tmb-regen, the script runs in the worktree (GH 1652); a failure
 #      → exit 2, branch and DB unchanged. Tracked files it changes are
@@ -227,7 +228,21 @@ TIMEOUT_BIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null 
 [ -n "$TIMEOUT_BIN" ] || say "no timeout/gtimeout installed; commands run without the ${TIMEOUT_S}s bound"
 TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
 
-REGEN_SCRIPT=scripts/maintenance/regen-generated.sh
+REGEN_SCRIPT=
+REGEN_RUN=()
+regen_select() {
+  local name
+  for name in regen-generated.ts regen-generated.sh; do
+    [ -f "$WT/scripts/maintenance/$name" ] || continue
+    REGEN_SCRIPT="scripts/maintenance/$name"
+    case "$name" in
+      *.ts) REGEN_RUN=(node --experimental-strip-types --no-warnings) ;;
+      *) REGEN_RUN=(bash) ;;
+    esac
+    return 0
+  done
+  return 1
+}
 REGEN_ATTR="attr:merge=tmb-regen"
 
 regen_touched() {
@@ -239,13 +254,13 @@ regen_touched() {
 }
 
 # A rebase that dropped every task commit leaves HEAD at the base; never amend it.
-if [ "$NEW_SHA" != "$BASE_SHA" ] && [ -f "$WT/$REGEN_SCRIPT" ] && regen_touched; then
+if [ "$NEW_SHA" != "$BASE_SHA" ] && regen_select && regen_touched; then
   say "regenerating generated files with $REGEN_SCRIPT"
   REGEN_RC=0
   if [ -n "$TIMEOUT_BIN" ]; then
-    (cd "$WT" && PATH="$TOOLCHAIN_PATH" "$TIMEOUT_BIN" "$TIMEOUT_S" bash "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
+    (cd "$WT" && PATH="$TOOLCHAIN_PATH" "$TIMEOUT_BIN" "$TIMEOUT_S" "${REGEN_RUN[@]}" "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
   else
-    (cd "$WT" && PATH="$TOOLCHAIN_PATH" bash "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
+    (cd "$WT" && PATH="$TOOLCHAIN_PATH" "${REGEN_RUN[@]}" "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
   fi
   [ "$REGEN_RC" -eq 0 ] || die 2 "$REGEN_SCRIPT exited $REGEN_RC in the rebased worktree; $BRANCH and the DB are unchanged"
   if [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ]; then

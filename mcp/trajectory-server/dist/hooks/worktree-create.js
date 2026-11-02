@@ -9,17 +9,15 @@
  * `merge=tmb-regen` gets the merge driver installed.
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
  */
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { branchSlug, dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { gitOk, gitRun } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
-import { installRoot, posixDirname, shellPwd } from './lib/project-env.js';
+import { installMergeDriver as writeMergeDriver } from './lib/merge-driver.js';
+import { posixDirname, shellPwd } from './lib/project-env.js';
 import { repoResolvePath, repoSinglePath } from './lib/repo.js';
 export const GATE_NAME = 'worktree-create';
 export const MERGE_DRIVER_MARK = 'merge=tmb-regen';
-const MERGE_DRIVER_SCRIPT = 'scripts/maintenance/install-merge-driver.sh';
 const NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field — cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
 const fail = (stderr, line) => {
     stderr(line);
@@ -32,9 +30,6 @@ function isFile(path) {
     catch {
         return false;
     }
-}
-function pluginRoot() {
-    return installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? '';
 }
 /** install_merge_driver <dir>: the tmb-regen driver in <dir>'s top level when its .gitattributes asks for it. */
 async function installMergeDriver(dir, env, stderr) {
@@ -51,8 +46,7 @@ async function installMergeDriver(dir, env, stderr) {
     }
     if (!attributes.includes(MERGE_DRIVER_MARK))
         return;
-    const r = spawnSync('bash', [`${pluginRoot()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: 'ignore' });
-    if (r.error || r.status !== 0)
+    if (writeMergeDriver(root, env) === null)
         stderr(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}\n`);
 }
 /** The worktree of <branch> in <repo>: reused, or added on the branch (created at HEAD when missing). */
