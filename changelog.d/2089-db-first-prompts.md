@@ -1,0 +1,2 @@
+### Changed
+- **Prompts and block messages send plans and notes to the trajectory DB** (GH 2089): bro's prompt has a `Where things go` table, and the planning skill, swe and the consultant templates say that scratch and tmp folders hold throwaway scripts, logs and data dumps only. The containment and main-checkout block messages stop inviting scratch notes and say plans, decisions and analysis go in the trajectory DB. What these hooks allow and deny is unchanged.

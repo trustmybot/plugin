@@ -41,6 +41,8 @@ Get a name from `branch_id_propose` (pass the Human's verbatim intent and a shor
 
 When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
+The plan for a multi-task issue goes in the issue description and the spec in `task_provision`, never in a file; scratch holds throwaway scripts, logs and data dumps only.
+
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
 | Dimension | Principle |
