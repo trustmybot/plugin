@@ -7,7 +7,9 @@
  * gate's detached install worker, which reads no payload.
  * `node dist/hooks.js <event> [part]` (an event of ROUTER_GROUPS, e.g.
  * PreToolUse) is the router: every gate of the group matching the payload and
- * part, one process (router/main.ts). It exits once its decision and records are
+ * part, one process (router/main.ts); a trailing `--shim` marks the headless
+ * shim's call (scripts/lib/resolve-hook.sh), which yields to the plugin's own
+ * hooks. It exits once its decision and records are
  * written, so a gate left running past its budget never holds the hook open.
  */
 import { readFileSync } from 'node:fs';
@@ -17,7 +19,9 @@ import { routerMain } from './router/main.js';
 import { runHook } from './run.js';
 const name = process.argv[2] ?? '';
 if (routerEvents().has(name)) {
-    const part = process.argv[3];
+    const args = process.argv.slice(3);
+    const part = args[0] === '--shim' ? undefined : args[0];
+    const shim = args.includes('--shim');
     const code = await routerMain(name, process.env, {
         readStdin: () => readFileSync(0, 'utf8'),
         writeStdout: (text) => new Promise((resolve) => (text === '' ? resolve() : process.stdout.write(text, () => resolve()))),
@@ -25,7 +29,7 @@ if (routerEvents().has(name)) {
             if (text !== '')
                 process.stderr.write(text);
         },
-    }, part === undefined ? {} : { part });
+    }, { ...(part === undefined ? {} : { part }), ...(shim ? { shim } : {}) });
     await new Promise((resolve) => process.stderr.write('', () => resolve()));
     process.exit(code);
 }

@@ -1278,3 +1278,83 @@ describe('router entry: dedupe and records', () => {
     assert.equal(existsSync(join(dirname(db), 'locks/boundary-denies/sess-unjudged')), false);
   });
 });
+
+describe('router entry: --shim yields to the plugin hooks', () => {
+  let base: string;
+  let project: string;
+  before(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-shim-')));
+    project = join(base, 'project');
+    mkdirSync(join(project, '.claude/tmb/sessions'), { recursive: true });
+    mkdirSync(join(base, 'other'));
+  });
+  after(() => rmSync(base, { recursive: true, force: true }));
+
+  async function call(env: NodeJS.ProcessEnv, payload: string, shim: boolean): Promise<{ code: number; stdout: string; runs: number }> {
+    let stdout = '';
+    let runs = 0;
+    const code = await routerMain('PreToolUse', { PATH: process.env.PATH, ...env }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: () => {} }, {
+      findGate: fakes({ a: () => (runs++, deny('a denies')) }),
+      groups: group(['a', 'enforcement']),
+      hop: false,
+      dedupe: false,
+      record: false,
+      selfRoot: PLUGIN_ROOT,
+      shim,
+    });
+    return { code, stdout, runs };
+  }
+
+  it('another project than TMB_SHIM_PROJECT: exit 0, no output, no gate run', async () => {
+    const r = await call({ CLAUDE_PROJECT_DIR: join(base, 'other'), TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-foreign' }), true);
+    assert.deepEqual(r, { code: 0, stdout: '', runs: 0 });
+  });
+
+  it('a symlink to the shim project is the same project', async () => {
+    const link = join(base, 'project-link');
+    execFileSync('ln', ['-s', project, link]);
+    const r = await call({ CLAUDE_PROJECT_DIR: link, TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-link' }), true);
+    assert.equal(r.runs, 1);
+    assert.equal(reasonOf(r.stdout), 'a denies');
+  });
+
+  it("the session's plugin-hooks marker: exit 0, no output, no gate run, with or without CLAUDE_PROJECT_DIR", async () => {
+    writeFileSync(join(project, '.claude/tmb/sessions/sess-marked.plugin-hooks'), '');
+    const payload = bash('ls', { session_id: 'sess-marked' });
+    assert.deepEqual(await call({ CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project }, payload, true), { code: 0, stdout: '', runs: 0 });
+    assert.deepEqual(await call({ TMB_SHIM_PROJECT: project }, payload, true), { code: 0, stdout: '', runs: 0 });
+  });
+
+  it('otherwise the same decision as without --shim, a marker of another session included', async () => {
+    writeFileSync(join(project, '.claude/tmb/sessions/sess-other.plugin-hooks'), '');
+    for (const env of [{ CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project }, { TMB_SHIM_PROJECT: project }]) {
+      const payload = bash('rm -rf build', { session_id: 'sess-headless' });
+      const shim = await call(env, payload, true);
+      const plain = await call(env, payload, false);
+      assert.equal(shim.runs, 1);
+      assert.deepEqual(shim, plain);
+      assert.equal(reasonOf(shim.stdout), 'a denies');
+    }
+  });
+
+  it('without --shim, a marker or another project changes nothing', async () => {
+    writeFileSync(join(project, '.claude/tmb/sessions/sess-plain.plugin-hooks'), '');
+    const r = await call({ CLAUDE_PROJECT_DIR: join(base, 'other'), TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-plain' }), false);
+    assert.equal(r.runs, 1);
+  });
+
+  it('the bundle reads a trailing --shim after the event, with or without a part', () => {
+    writeFileSync(join(project, '.claude/tmb/sessions/sess-bundle.plugin-hooks'), '');
+    const payload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-bundle', tool_use_id: 'shim-bundle', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'q', multiSelect: false, options: [{ label: 'one two three four five six seven eight' }] }] } });
+    const run = (args: string[]) =>
+      execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), ...args], {
+        input: payload,
+        encoding: 'utf8',
+        cwd: project,
+        env: { PATH: process.env.PATH, HOME: base, CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(base, 'none.json') },
+      });
+    assert.equal(run(['PreToolUse', '--shim']), '');
+    assert.equal(run(['SessionStart', 'persona', '--shim']), '');
+    assert.match(run(['PreToolUse']), /label is 8 words/, 'the same call without --shim decides');
+  });
+});
