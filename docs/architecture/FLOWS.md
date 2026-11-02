@@ -278,7 +278,7 @@ sequenceDiagram
 
 ### 2. Code-touching task (canonical chain)
 
-This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G10`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
+This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G11`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
 
 Bro is both planner AND task gate: a task closes as soon as SWE returns and bro verifies it. code-reviewer then reviews each closed task, and `git-push-guard` holds any push whose task commits lack a passing review. `composites.ts`, `issues.ts`, `tasks.ts`, `validation.ts` and `scan.ts` below live in `mcp/trajectory-server/src/tools/`.
 
@@ -340,6 +340,7 @@ Hooks that fire across many steps rather than at one.
 | G8b | <a id="G8b"></a>`session-handoff` | Stop, SessionStart persona | Past bro's usage limits with no work running in the session, records a handoff and tells the Human once to start a new session. The next startup or clear in that folder takes it in its context. Never blocks | `src/hooks/session-handoff.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 | G10 | <a id="G10"></a>`liveness-alert`, `liveness-sentinel` | UserPromptSubmit, PostToolUse trajectory-server; Stop (`asyncRewake`) | Reports a subagent run silent past `TMB_RUN_SILENT_MIN` minutes (default 30, scaled by load) or a hung `tail -f` watcher to bro, once per finding (`liveness_finding_reported`): during a turn as context, while idle by waking an attended session. Reports only: kills, closes and fails nothing | `src/hooks/liveness-probe.ts`; `src/hooks/liveness-alert.ts`; `src/hooks/liveness-sentinel.ts` |
+| G11 | <a id="G11"></a>`no-prose-in-scratch` | PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash | Denies every agent a prose file in `.claude/<plugin>/scratch/`, and in `/tmp` or `$TMPDIR` outside a git worktree, and a `gh issue\|pr create\|edit\|comment` reading its body from a file; the deny names the trajectory DB tools. `TMB_ALLOW_PROSE_SCRATCH=1` lifts it; it does not run under `TMB_HOOKS_IMPL=bash` | `src/hooks/no-prose-in-scratch.ts` |
 
 **Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped. A group's gates run one at a time, except PreToolUse Bash and Write, which start them together and read the answer in group order.
 

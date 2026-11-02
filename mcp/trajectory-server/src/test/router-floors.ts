@@ -20,6 +20,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'debug-trajectory': 4,
   'swe-brief-gate': 6,
   'no-source-edit-from-main': 6,
+  'no-prose-in-scratch': 6,
   'swe-scope-fence': 6,
   'naming-lint': 4,
   'code-quality-lint': 4,

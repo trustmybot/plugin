@@ -29,6 +29,7 @@ liveness-alert
 liveness-sentinel
 mcp-health-check
 naming-lint
+no-prose-in-scratch
 no-remote-auth-guard
 no-source-edit-from-main
 no-worktree-branch-create

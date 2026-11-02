@@ -119,6 +119,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
+| `no-prose-in-scratch.ts` | PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash | Deny a prose file (`.md`, `.markdown`, `.txt`, `.rst`) in `.claude/<plugin>/scratch/`, and in `/tmp` or `$TMPDIR` outside a git worktree, and a `gh issue\|pr create\|edit\|comment` reading its body from a file; any agent identity. Born in TypeScript: not run under `TMB_HOOKS_IMPL=bash`. `TMB_ALLOW_PROSE_SCRATCH=1` lifts it |
 | `containment-guard.sh` | PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash | Deny a write outside the run's root — the swe's task worktree (`agent_runs.root_dir`), else the project |
 | `swe-scope-fence.sh` | PreToolUse Edit/Write | Note (never deny) an SWE edit outside the task's `files[]`, once per path; scope is judged at close by `bro_atomic_close` |
 | `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |

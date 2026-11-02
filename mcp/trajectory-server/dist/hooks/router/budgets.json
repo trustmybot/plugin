@@ -5,12 +5,12 @@
     "groups": {
         "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
             "max_budget_ms": 8090,
-            "p99_sum_ms": 18264.7,
+            "p99_sum_ms": 18630.2,
             "group_budget_ms": 8090
         },
         "PreToolUse:Bash": {
             "max_budget_ms": 16000,
-            "p99_sum_ms": 21657.5,
+            "p99_sum_ms": 22023,
             "group_budget_ms": 16000
         },
         "PreToolUse:Agent": {
@@ -156,6 +156,22 @@
             "floor_ms": 6000,
             "budget_ms": 6000,
             "date": "2026-10-31"
+        },
+        "no-prose-in-scratch": {
+            "kind": "enforcement",
+            "bench_p50": 113.7,
+            "bench_p95": 342.2,
+            "bench_p99": 365.5,
+            "bench_runs": 640,
+            "bench_load_avg": 1.87,
+            "transcript_p99": null,
+            "reason": "no no-prose-in-scratch PreToolUse hook attachment in 1085 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 6000,
+            "budget_ms": 6000,
+            "date": "2026-11-01"
         },
         "swe-boundary": {
             "kind": "enforcement",

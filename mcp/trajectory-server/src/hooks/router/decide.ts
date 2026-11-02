@@ -428,7 +428,7 @@ async function decideCall(event: string, payload: string, env: NodeJS.ProcessEnv
   }
   const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
   const group = routerGroup(event, tool, groups, deps.part);
-  const gates = routerGates(event, tool, groups, deps.part);
+  const gates = routerGates(event, tool, groups, deps.part).filter((g) => !(bashImpl && g.tsOnly));
   if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
   const call: GateCall = {
     event,

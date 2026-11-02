@@ -311,15 +311,15 @@ async function judgeBash(g, input, analyze) {
     }
 }
 /** The TMPDIR the command runs with: the hook's when absolute, else the sandbox's for a sandboxed Bash call. */
-function runTmpdir(input, g) {
-    const hookTmp = g.env.TMPDIR ?? '';
+export function runTmpdir(input, toolName, env, uid, harnessTmpC) {
+    const hookTmp = env.TMPDIR ?? '';
     if (/^\/./s.test(hookTmp))
         return hookTmp;
-    if (g.toolName !== 'Bash' || g.harnessTmpC === '')
+    if (toolName !== 'Bash' || harnessTmpC === '')
         return hookTmp;
     if (jqField(input, ['tool_input', 'dangerouslyDisableSandbox']) === 'true')
         return hookTmp;
-    return `/tmp/claude-${g.uid}`;
+    return `/tmp/claude-${uid}`;
 }
 async function guard(input, env, analyze) {
     const g = new Guard(env);
@@ -357,7 +357,7 @@ async function guard(input, env, analyze) {
     g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
     g.cacheC = canonical(g.cacheDir);
     g.harnessTmpC = harnessTmp(g.uid);
-    const tmpdir = runTmpdir(input, g);
+    const tmpdir = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
     if (tmpdir !== (env.TMPDIR ?? ''))
         g.runEnv = { ...env, TMPDIR: tmpdir };
     if (/^\/./s.test(tmpdir))

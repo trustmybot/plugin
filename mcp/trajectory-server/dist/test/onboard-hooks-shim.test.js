@@ -230,7 +230,7 @@ describe('project enforcement shim', () => {
         assert.equal(write().written, true);
         const settings = readSettings();
         const gatesOf = (matcher) => groupFor(settings, matcher)?.hooks.map((h) => hookOf(h.command));
-        assert.deepEqual(gatesOf('Write|Edit|MultiEdit|NotebookEdit'), ['containment-guard.sh', 'no-source-edit-from-main.sh', 'swe-boundary.sh', 'swe-scope-fence.sh']);
+        assert.deepEqual(gatesOf('Write|Edit|MultiEdit|NotebookEdit'), ['containment-guard.sh', 'no-source-edit-from-main.sh', 'no-prose-in-scratch.sh', 'swe-boundary.sh', 'swe-scope-fence.sh']);
         assert.deepEqual(gatesOf('Agent'), ['agent-spawn-dispatch.sh']);
         assert.deepEqual(gatesOf('SendMessage'), ['swe-resume-gate.sh']);
         assert.deepEqual(gatesOf('AskUserQuestion'), ['roundtable-auq-shape.sh']);

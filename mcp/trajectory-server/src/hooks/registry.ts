@@ -74,6 +74,7 @@ import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from '
 import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
 import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
+import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scratch.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -146,6 +147,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [WORKTREE_CREATE_GATE, worktreeCreate],
   [REMOTE_ID_GATE, remoteIdGuard],
   [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
+  [NO_PROSE_GATE, noProseInScratch],
 ]);
 
 export function findGate(name: string): Gate | undefined {
@@ -178,6 +180,8 @@ export interface RouterGate {
   readonly budgetMs: number;
   /** Runs only for a tool_name ending in `trajectory-server__<toolSuffix>`; absent, for every tool of its group. */
   readonly toolSuffix?: string;
+  /** Has no .sh and is a discipline rule, not containment: TMB_HOOKS_IMPL=bash drops it rather than deny every call for the missing script. */
+  readonly tsOnly?: boolean;
 }
 
 export interface RouterGroup {
@@ -200,9 +204,11 @@ export interface RouterGroup {
   readonly concurrent?: boolean;
 }
 
+const TS_ONLY_GATES: ReadonlySet<string> = new Set([NO_PROSE_GATE]);
+
 function routerGate(name: string, kind: RouterGateKind, toolSuffix?: string): RouterGate {
   const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
-  return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }) };
+  return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }), ...(TS_ONLY_GATES.has(name) ? { tsOnly: true } : {}) };
 }
 
 /** A group's key in budgets.json: a matcher alone is not unique, Bash and Agent sit under two events, and an event's parts share a matcher. */
@@ -224,6 +230,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate('containment-guard', 'enforcement'),
     routerGate(SWE_BRIEF_GATE, 'enforcement'),
     routerGate(NO_SOURCE_EDIT_GATE, 'enforcement'),
+    routerGate(NO_PROSE_GATE, 'enforcement'),
     routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
     routerGate(SWE_SCOPE_FENCE_GATE, 'advisory'),
     routerGate(NAMING_LINT_GATE, 'advisory'),
@@ -241,6 +248,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(COMMIT_MSG_GATE, 'advisory'),
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
+    routerGate(NO_PROSE_GATE, 'enforcement'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
   ], { concurrent: true }),
   preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),

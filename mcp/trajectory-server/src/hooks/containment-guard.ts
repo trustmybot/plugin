@@ -332,12 +332,12 @@ async function judgeBash(g: Guard, input: string, analyze: WritePathsFn): Promis
 }
 
 /** The TMPDIR the command runs with: the hook's when absolute, else the sandbox's for a sandboxed Bash call. */
-function runTmpdir(input: string, g: Guard): string {
-  const hookTmp = g.env.TMPDIR ?? '';
+export function runTmpdir(input: string, toolName: string, env: NodeJS.ProcessEnv, uid: number, harnessTmpC: string): string {
+  const hookTmp = env.TMPDIR ?? '';
   if (/^\/./s.test(hookTmp)) return hookTmp;
-  if (g.toolName !== 'Bash' || g.harnessTmpC === '') return hookTmp;
+  if (toolName !== 'Bash' || harnessTmpC === '') return hookTmp;
   if (jqField(input, ['tool_input', 'dangerouslyDisableSandbox']) === 'true') return hookTmp;
-  return `/tmp/claude-${g.uid}`;
+  return `/tmp/claude-${uid}`;
 }
 
 async function guard(input: string, env: NodeJS.ProcessEnv, analyze: WritePathsFn): Promise<void> {
@@ -371,7 +371,7 @@ async function guard(input: string, env: NodeJS.ProcessEnv, analyze: WritePathsF
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
   g.harnessTmpC = harnessTmp(g.uid);
-  const tmpdir = runTmpdir(input, g);
+  const tmpdir = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
   if (tmpdir !== (env.TMPDIR ?? '')) g.runEnv = { ...env, TMPDIR: tmpdir };
   if (/^\/./s.test(tmpdir)) g.hostTmpC = canonical(tmpdir);
   if (agentType === '' || agentType === 'bro') {
