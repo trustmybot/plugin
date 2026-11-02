@@ -29,7 +29,9 @@ const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard befo
 export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
 export const RECENT_CALLS = 5;
 export const CONTEXT_LIMIT = 120000;
-const ASSISTANT_MARKER = '"type":"assistant"';
+const ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
+const NEWLINE = 0x0a;
+const SYNTHETIC_MODEL = '<synthetic>';
 
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
 export class LocaleGrep {
@@ -141,8 +143,8 @@ function callContext(line: string): { id: string | null; context: number } | nul
   if (entry === null || typeof entry !== 'object') return null;
   const { type, isSidechain, message } = entry as Record<string, unknown>;
   if (type !== 'assistant' || isSidechain === true || message === null || typeof message !== 'object') return null;
-  const { id, usage } = message as Record<string, unknown>;
-  if (usage === null || typeof usage !== 'object') return null;
+  const { id, model, usage } = message as Record<string, unknown>;
+  if (model === SYNTHETIC_MODEL || usage === null || typeof usage !== 'object') return null;
   const count = (key: string): number => {
     const value = (usage as Record<string, unknown>)[key];
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -153,14 +155,26 @@ function callContext(line: string): { id: string | null; context: number } | nul
   };
 }
 
+function* assistantLines(transcript: Buffer): Generator<string> {
+  let from = 0;
+  for (;;) {
+    const hit = transcript.indexOf(ASSISTANT_MARKER, from);
+    if (hit === -1) return;
+    const start = transcript.lastIndexOf(NEWLINE, hit) + 1;
+    const newline = transcript.indexOf(NEWLINE, hit);
+    const end = newline === -1 ? transcript.length : newline;
+    yield transcript.toString('utf8', start, end);
+    from = end + 1;
+  }
+}
+
 /** The mean input context of the last RECENT_CALLS distinct main-thread assistant calls in <transcript>, and its first call's; null with none. */
 export function recentContext(transcript: Buffer | null): RecentContext | null {
   if (transcript === null) return null;
   const seen = new Set<string>();
   let first: number | null = null;
   const recent: number[] = [];
-  for (const line of transcript.toString('utf8').split('\n')) {
-    if (!line.includes(ASSISTANT_MARKER)) continue;
+  for (const line of assistantLines(transcript)) {
     const call = callContext(line);
     if (call === null) continue;
     if (call.id !== null) {

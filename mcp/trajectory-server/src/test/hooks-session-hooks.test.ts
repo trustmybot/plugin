@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { activationRoutine, HALT_TEXT, LocaleGrep } from '../hooks/activation-routine.js';
+import { constants } from 'node:buffer';
+import { activationRoutine, HALT_TEXT, LocaleGrep, pastContextLimit, recentContext } from '../hooks/activation-routine.js';
 import { argsJson, debugTrajectory } from '../hooks/debug-trajectory.js';
 import { jqNumberLiteral } from '../hooks/lib/jq.js';
 import { commandOnPath, personaContext, personaEmit, personaInit } from '../hooks/lib/persona.js';
@@ -228,6 +229,25 @@ describe('activation-routine usage warning', () => {
       assistantLine('p2', 125000),
     ]);
     assert.deepEqual(warningLines(run().context), [warning(123000, 2, 121000)]);
+  });
+
+  it('<synthetic> model lines are ignored', () => {
+    buildSandbox(s);
+    const synthetic = (id: string): string => JSON.stringify({ type: 'assistant', message: { id, model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 } } });
+    writeTranscript([assistantLine('s1', 125000), synthetic('z1'), synthetic('z2'), assistantLine('s2', 127000), synthetic('z3')]);
+    assert.deepEqual(warningLines(run().context), [warning(126000, 2, 125000)]);
+  });
+
+  it('measures a transcript longer than the maximum string length without throwing (F350-1)', () => {
+    const unit = '{"type":"user"}\n';
+    const line = `${JSON.stringify({ type: 'assistant', message: { id: 'x', usage: { input_tokens: 130000 } } })}\n`;
+    const k = Math.ceil(constants.MAX_STRING_LENGTH / unit.length);
+    const transcript = Buffer.alloc(k * unit.length + line.length);
+    transcript.fill(unit, 0, k * unit.length);
+    transcript.write(line, k * unit.length);
+    const recent = recentContext(transcript);
+    assert.deepEqual(recent, { mean: 130000, calls: 1, first: 130000 });
+    assert.equal(pastContextLimit(recent), true);
   });
 
   it('a line whose top-level type is not assistant is ignored, even when it quotes one', () => {

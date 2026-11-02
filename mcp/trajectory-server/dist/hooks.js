@@ -18008,8 +18008,11 @@ var GATE_NAME27 = "activation-routine";
 var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
 var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
 var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
-var TOOL_CALLS_LIMIT = 150;
-var CONTEXT_PER_CALL_LIMIT = 6e4;
+var RECENT_CALLS = 5;
+var CONTEXT_LIMIT = 12e4;
+var ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
+var NEWLINE = 10;
+var SYNTHETIC_MODEL = "<synthetic>";
 var LocaleGrep = class {
   constructor(utf8) {
     this.utf8 = utf8;
@@ -18096,35 +18099,64 @@ function activationContext(onboardedCount, pending2) {
   }
   return `[tmb activation routine \u2014 pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume \u2014 they would be redundant duplicate reads. ${pendingLine}`;
 }
-function limitsPassed(toolUses2, cacheReadTokens) {
-  if (toolUses2 <= 0) return [];
-  const contextPerCall = Math.ceil(cacheReadTokens / toolUses2);
-  const passed = [];
-  if (toolUses2 > TOOL_CALLS_LIMIT) passed.push(`${toolUses2} tool calls (limit ${TOOL_CALLS_LIMIT})`);
-  if (contextPerCall > CONTEXT_PER_CALL_LIMIT) passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
-  return passed;
-}
-function pastUsageLimits(toolUses2, cacheReadTokens) {
-  return limitsPassed(toolUses2, cacheReadTokens).length > 0;
-}
-function usageWarning(toolUses2, cacheReadTokens) {
-  const passed = limitsPassed(toolUses2, cacheReadTokens);
-  if (passed.length === 0) return "";
-  return `\u26A0\uFE0F This bro session is past its usage limits: ${passed.join(", ")}. Finish what is in flight, then end the session and resume cold from the DB.`;
-}
-function sessionUsageWarning(db, sessionId, env) {
-  if (!SESSION_ID_LINE.test(sessionId)) return "";
+function callContext(line) {
+  let entry;
   try {
-    const row = sqliteRo(
-      db,
-      `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
-      env
-    );
-    const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
-    return usage === null ? "" : usageWarning(Number(usage[1]), Number(usage[2]));
+    entry = JSON.parse(line);
   } catch {
-    return "";
+    return null;
   }
+  if (entry === null || typeof entry !== "object") return null;
+  const { type, isSidechain, message } = entry;
+  if (type !== "assistant" || isSidechain === true || message === null || typeof message !== "object") return null;
+  const { id, model: model3, usage } = message;
+  if (model3 === SYNTHETIC_MODEL || usage === null || typeof usage !== "object") return null;
+  const count = (key2) => {
+    const value = usage[key2];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    id: typeof id === "string" ? id : null,
+    context: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens")
+  };
+}
+function* assistantLines(transcript) {
+  let from = 0;
+  for (; ; ) {
+    const hit = transcript.indexOf(ASSISTANT_MARKER, from);
+    if (hit === -1) return;
+    const start2 = transcript.lastIndexOf(NEWLINE, hit) + 1;
+    const newline = transcript.indexOf(NEWLINE, hit);
+    const end = newline === -1 ? transcript.length : newline;
+    yield transcript.toString("utf8", start2, end);
+    from = end + 1;
+  }
+}
+function recentContext(transcript) {
+  if (transcript === null) return null;
+  const seen = /* @__PURE__ */ new Set();
+  let first = null;
+  const recent = [];
+  for (const line of assistantLines(transcript)) {
+    const call = callContext(line);
+    if (call === null) continue;
+    if (call.id !== null) {
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+    }
+    first ??= call.context;
+    recent.push(call.context);
+    if (recent.length > RECENT_CALLS) recent.shift();
+  }
+  if (first === null) return null;
+  return { mean: Math.ceil(recent.reduce((sum2, c) => sum2 + c, 0) / recent.length), calls: recent.length, first };
+}
+function pastContextLimit(recent) {
+  return recent !== null && recent.mean > CONTEXT_LIMIT;
+}
+function usageWarning(recent) {
+  if (recent === null || !pastContextLimit(recent)) return "";
+  return `\u26A0\uFE0F This bro session's recent context is past its limit: ${recent.mean} mean input context over the last ${recent.calls} calls (limit ${CONTEXT_LIMIT}; its first call took ${recent.first}, the cold-start reference). Finish what is in flight, then end the session and resume cold from the DB.`;
 }
 function handoffPending(db, sessionId, env) {
   if (!SESSION_ID_LINE.test(sessionId)) return "";
@@ -18141,7 +18173,8 @@ function activationRoutine(payload, env) {
     const field7 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
     const prompt = field7("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field7("transcript_path")), grep)) return ALLOW;
+    const transcript = readTranscript3(field7("transcript_path"));
+    if (!saysBro(prompt, grep) && !isStickyBro(transcript, grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
     const db = dbPathAdvisory(GATE_NAME27, env, (line) => process.stderr.write(`${line}
@@ -18153,7 +18186,7 @@ function activationRoutine(payload, env) {
     let context4 = activationContext(onboarded, pending2);
     if (halt !== "") context4 = `${halt} ${context4}`;
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context4 = `${context4} session_id=${sessionId}`;
-    const warning = sessionUsageWarning(db, sessionId, env);
+    const warning = usageWarning(recentContext(transcript));
     if (warning !== "") context4 = `${context4}
 ${warning}`;
     return emit(context4);
@@ -18294,14 +18327,14 @@ function validCwd(value) {
 function blockingOpenRun(sessionSql) {
   return `EXISTS (SELECT 1 FROM agent_runs r WHERE r.session_id = ${sessionSql} AND r.agent_type <> 'bro' AND r.completed_at IS NULL AND r.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','${OPEN_RUN_MAX_AGE}'))`;
 }
-function atBoundary(db, sessionId, env) {
+function atBoundary(db, sessionId, transcriptPath, env) {
+  if (typeof transcriptPath !== "string" || !pastContextLimit(recentContext(readTranscript3(transcriptPath)))) return false;
   const row = sqliteRo(
     db,
-    `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0), ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
+    `SELECT ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
     env
   );
-  const usage = /^([0-9]+)\|([0-9]+)\|0$/.exec(row);
-  return usage !== null && pastUsageLimits(Number(usage[1]), Number(usage[2]));
+  return row === "0";
 }
 function truncated(text, max) {
   if (text.length <= max) return text;
@@ -18339,7 +18372,7 @@ var sessionHandoff = (payload, env) => {
     const cwd = input.cwd;
     if (!validSessionId(sessionId) || !validCwd(cwd)) return ALLOW;
     const db = dbPath(env);
-    if (db === null || !atBoundary(db, sessionId, env)) return ALLOW;
+    if (db === null || !atBoundary(db, sessionId, input.transcript_path, env)) return ALLOW;
     const written = dbWrite(db, upsertSql(sessionId, cwd, input.last_assistant_message), { env, caller: GATE_NAME30 });
     if (!written.ok) return ALLOW;
     const state = JSON.parse(written.stdout);
