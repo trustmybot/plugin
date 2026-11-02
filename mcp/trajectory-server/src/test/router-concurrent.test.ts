@@ -175,8 +175,8 @@ describe('concurrent router group (GH 1692 R-async, decisions 937 and 1136)', ()
     assert.deepEqual(await orderOf(false, {}), ONE_AT_A_TIME);
   });
 
-  it('TMB_HOOKS_IMPL=bash takes the sequential path on a flagged group', async () => {
-    assert.deepEqual(await orderOf(true, { TMB_HOOKS_IMPL: 'bash' }), ONE_AT_A_TIME);
+  it("the caller's env picks no path: a flagged group still starts every gate before any ends (GH 1692)", async () => {
+    assert.deepEqual((await orderOf(true, { ...process.env })).slice(0, 2), ['a start', 'b start']);
   });
 });
 

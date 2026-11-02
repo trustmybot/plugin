@@ -205,7 +205,7 @@ describe('transcript hook durations', () => {
       const now = Date.parse('2026-10-20T12:00:00Z');
       const at = (days: number): string => new Date(now - days * 864e5).toISOString();
       const line = (type: string, gate: string, ms: number, extra: Record<string, unknown> = {}, ts = at(1)): string =>
-        JSON.stringify({ timestamp: ts, attachment: { type, hookEvent: 'PreToolUse', command: `"/x/scripts/hooks/dispatch.sh" ${gate}`, durationMs: ms, ...extra } });
+        JSON.stringify({ timestamp: ts, attachment: { type, hookEvent: 'PreToolUse', command: `"/x/dispatch.sh" ${gate}`, durationMs: ms, ...extra } });
       mkdirSync(join(dir, 'proj/sub'), { recursive: true });
       writeFileSync(
         join(dir, 'proj/a.jsonl'),

@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,7 +75,7 @@ const EVAL: Array<[string, string, string[]]> = [
   [
     'H2',
     'Python hidden-write guard: aliasing a write builtin (o = open; o(...)) is denied with the wrong "process call" message',
-    ['scripts/hooks/containment-guard.sh', 'scripts/hooks/lib/cmd-analysis.sh'],
+    ['mcp/trajectory-server/src/hooks/containment-guard.ts', 'scripts/hooks/lib/cmd-analysis.sh'],
   ],
   [
     'H4',
@@ -867,7 +867,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 3);
+      assert.equal(EXTRACTOR_VERSION, 4);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -896,7 +896,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     assert.ok(gates.includes('swe-boundary'));
     assert.match(x.symbols[at]!.doc, new RegExp(`runs router gates ${gates.join(', ')}$`));
     const edges = x.edges.filter((e) => e.src === at && e.kind === 'runs');
-    assert.deepEqual(edges.map((e) => e.dst_name), gates.map((g) => `scripts/hooks/${g}.sh`));
+    assert.deepEqual(edges.map((e) => e.dst_name), gates.map((g) => `mcp/trajectory-server/src/hooks/${g}.ts`));
     assert.deepEqual(edges.map((e) => e.line), gates.map((_, i) => i + 1));
   });
 
@@ -908,7 +908,17 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
     assert.deepEqual(names.filter((n) => n.startsWith('WorktreeCreate#')), ['WorktreeCreate#1:worktree-create']);
     const persona = x.symbols.findIndex((s) => s.qualified_name === 'SessionStart#2:session-start-persona');
-    assert.deepEqual(x.edges.filter((e) => e.src === persona && e.kind === 'runs').map((e) => e.dst_name), ['scripts/hooks/session-start-persona.sh']);
+    assert.deepEqual(x.edges.filter((e) => e.src === persona && e.kind === 'runs').map((e) => e.dst_name), ['mcp/trajectory-server/src/hooks/session-start-persona.ts']);
+  });
+
+  it('every runs edge of the shipped hooks.json names a gate\'s TypeScript module, never a bash script (GH 1692)', () => {
+    const x = extractHooks(read('hooks/hooks.json'), dispatchChains(read('scripts/hooks/lib/registrations.sh')), read('mcp/trajectory-server/dist/hooks-router.txt'));
+    const runs = x.edges.filter((e) => e.kind === 'runs').map((e) => e.dst_name);
+    assert.ok(runs.length > 0);
+    for (const dst of runs) {
+      assert.match(dst, /^mcp\/trajectory-server\/src\/hooks\/[a-z0-9-]+\.ts$/);
+      assert.ok(existsSync(join(PLUGIN_ROOT, dst)), dst);
+    }
   });
 
   it('every PreToolUse entry of the shipped hooks.json is named by a gate, not by its position', () => {
@@ -951,12 +961,12 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
       writeFileSync(join(root, 'mcp/trajectory-server/dist/hooks-router.txt'), 'a 1 enforcement PreToolUse Bash *\n');
       commit();
       await scan(db, holder, ws);
-      assert.deepEqual(runs(), ['scripts/hooks/a.sh']);
+      assert.deepEqual(runs(), ['mcp/trajectory-server/src/hooks/a.ts']);
       writeFileSync(join(root, 'mcp/trajectory-server/src/hooks/registry.ts'), 'export const A = 2;\n');
       writeFileSync(join(root, 'mcp/trajectory-server/dist/hooks-router.txt'), 'a 1 enforcement PreToolUse Bash *\nb 1 advisory PreToolUse Bash *\n');
       commit();
       await scan(db, holder, ws);
-      assert.deepEqual(runs(), ['scripts/hooks/a.sh', 'scripts/hooks/b.sh']);
+      assert.deepEqual(runs(), ['mcp/trajectory-server/src/hooks/a.ts', 'mcp/trajectory-server/src/hooks/b.ts']);
     } finally {
       db.close();
       rmSync(ws, { recursive: true, force: true });

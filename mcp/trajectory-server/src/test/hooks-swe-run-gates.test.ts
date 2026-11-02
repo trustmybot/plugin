@@ -270,6 +270,16 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
     const none = hint(postTaskCreateSpawnHint(payload, env({ TRAJECTORY_DB_PATH: join(s, 'none.db') })).stdout);
     assert.ok(none.includes('task_id=11 branch_id=feat/unbriefed worktree=unresolved (no trajectory DB)'));
   });
+  it('post-task-create-spawn-hint pre-creates the worktree through the node worktree-create gate (decision 703)', () => {
+    const reason = hintReason('mcp__plugin_tmb_trajectory-server__task_create_batch', '  - task_id=1');
+    assert.ok(
+      reason.includes(
+        "1. Pre-create the worktree: `printf '{\"branch\":\"<branch_id>\"}' | node ${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create` — capture the printed path.\n",
+      ),
+    );
+    assert.doesNotMatch(reason, /\.sh\b/);
+    assert.ok(findGate('worktree-create'));
+  });
   it('post-task-create-spawn-hint is silent on an error, another tool or no tasks', () => {
     const create = (text: string, extra: Record<string, unknown> = {}): string =>
       JSON.stringify({ tool_name: 'mcp__tmb__trajectory-server__task_create_batch', tool_response: { content: [{ type: 'text', text }], ...extra } });

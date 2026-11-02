@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript no-source-edit-from-main gate with
- * scripts/hooks/no-source-edit-from-main.sh (GH 1692) over
+ * the bash no-source-edit-from-main.sh (GH 1692) over
  * tests/fixtures/hook-corpus/no-source-edit-from-main/. Both sides must exit
  * 0 and print the same stdout and stderr byte for byte; the gate writes
  * nothing, so the sandbox is built once per shard and must end as it began.

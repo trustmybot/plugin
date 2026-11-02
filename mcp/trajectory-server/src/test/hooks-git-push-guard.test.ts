@@ -1,6 +1,6 @@
 /**
  * The TypeScript git-push-guard where it is stricter than
- * scripts/hooks/git-push-guard.sh (decision 369): a command naming `push`
+ * the bash git-push-guard.sh (decision 369): a command naming `push`
  * that encode() cannot parse faithfully is denied with PARSE_REASON, where the
  * .sh judges its misread statements (GH 1927). tree-sitter-bash runs a heredoc
  * whose delimiter is quoted mid-word (`<<E"M"`) or whose body holds a lone `$`
