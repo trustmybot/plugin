@@ -238,8 +238,8 @@ function judge(gate, s, cut, b) {
     const context = !text ? out : out.trim() === '' ? '' : s.result.stdout;
     return { outcome: 'allow', stdout: context, code: 0, reason: '', stderr: '' };
 }
-/** The tool_name of a payload that is a JSON object, else null (unparseable). */
-export function payloadTool(payload) {
+/** What the group matcher of a JSON-object payload matches, else null (unparseable): agent_type at SubagentStart, else tool_name. */
+export function payloadTool(payload, event) {
     let parsed;
     try {
         parsed = JSON.parse(payload);
@@ -249,7 +249,7 @@ export function payloadTool(payload) {
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
         return null;
-    const tool = parsed.tool_name;
+    const tool = parsed[event === 'SubagentStart' ? 'agent_type' : 'tool_name'];
     return typeof tool === 'string' ? tool : '';
 }
 /** The wait for the parser, bounded: a parser that never loads does not stop the gates starting. */
@@ -328,12 +328,12 @@ export async function decide(event, payload, env, deps = {}) {
 }
 async function decideCall(event, payload, env, deps) {
     const now = deps.now ?? (() => performance.now());
-    const tool = payloadTool(payload);
+    const tool = payloadTool(payload, event);
     const groups = deps.groups ?? ROUTER_GROUPS;
     if (tool === null) {
         if (stdoutIsPath(event))
             return { stdout: '', stderr: pathFailure(event, 'an unparseable payload'), code: 1, tool: '', gates: [], denied: null };
-        if (!eventHoldsEnforcement(event, groups)) {
+        if (!eventHoldsEnforcement(event, groups, deps.part)) {
             return { stdout: '', stderr: `TMB router: ${event} got an unparseable payload — no gate run\n`, code: 0, tool: '', gates: [], denied: null };
         }
         const reason = failClosedReason(ROUTER_NAME, 'got an unparseable payload');

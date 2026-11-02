@@ -61,7 +61,7 @@ function hopTo(root: string, event: string, part: string | undefined, payload: s
   if (r.error || r.status === null) {
     const cause = `could not run in ${root}`;
     if (stdoutIsPath(event)) return { stdout: '', stderr: pathFailure(event, cause), code: 1 };
-    if (!eventHoldsEnforcement(event)) return { stdout: '', stderr: `TMB router: ${event} ${cause} — no gate run\n`, code: 0 };
+    if (!eventHoldsEnforcement(event, undefined, part)) return { stdout: '', stderr: `TMB router: ${event} ${cause} — no gate run\n`, code: 0 };
     return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause), event), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} — failing closed\n`, code: 0 };
   }
   if (stdoutIsPath(event) && (r.status !== 0 || !isBarePath(r.stdout))) {
@@ -114,7 +114,7 @@ function lockBase(env: NodeJS.ProcessEnv): string | null {
 
 export async function routerMain(event: string, env: NodeJS.ProcessEnv, io: RouterIo, opts: RouterOptions = {}): Promise<number> {
   const payload = io.readStdin();
-  const tool = payloadTool(payload);
+  const tool = payloadTool(payload, event);
   const self = opts.selfRoot ?? ownRoot(env);
   const gateEnv = self === '' ? env : { ...env, CLAUDE_PLUGIN_ROOT: self };
   if (opts.shim === true && shimYields(payload, gateEnv)) return 0;

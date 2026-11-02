@@ -10,8 +10,9 @@
 # Checks agents/{swe,code-reviewer}.md:
 #   - both bodies reference task_brief (the contract is the mention + tool grant;
 #     the call shape lives in the tool schema and the brief gate's deny message)
-#   - swe's `tools:` line is narrowed: no task_get / world_model_get /
-#     discussion_search (swe gets context ONLY via task_brief). code-reviewer
+#   - swe's `tools:` line is narrowed: no task_get / discussion_search (swe gets
+#     its task context ONLY via task_brief; the world-model tools came back in
+#     GH 1990 for the impact walk on reshaped symbols). code-reviewer
 #     keeps the full MCP namespace by design (needs discussion/audit search).
 set -uo pipefail
 
@@ -37,7 +38,7 @@ done
 # swe must be narrowed to task_brief for context — the retired per-call read
 # tools must not reappear in its tools: line.
 swe_tools=$(grep -m1 '^tools:' agents/swe.md || true)
-for retired in task_get world_model_get discussion_search; do
+for retired in task_get discussion_search; do
   if printf '%s' "$swe_tools" | grep "$retired" >/dev/null; then
     printf 'agent-task-brief-contract: swe tools: line lists retired read tool "%s" — context goes through task_brief only (#300)\n' "$retired" >&2
     FAIL=1

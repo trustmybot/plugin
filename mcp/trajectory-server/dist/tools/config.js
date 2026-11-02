@@ -105,6 +105,35 @@ export function readEffortAb(db) {
     }
     return null;
 }
+export const DOWNSTREAM_CONTEXT_AB_KEY = 'downstream_context_ab';
+export function isDownstreamContextAbConfig(value) {
+    if (!isEffortAbConfig(value))
+        return false;
+    const shipped = value['tools_shipped_at'];
+    return typeof shipped === 'string' && !Number.isNaN(Date.parse(shipped));
+}
+function isEmptyObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+/** The downstream-context A/B (GH 1990): a value_json string; null when unset, `{}`, unparseable or malformed. */
+export function parseDownstreamContextAb(valueJson) {
+    if (!valueJson)
+        return null;
+    try {
+        const value = JSON.parse(valueJson);
+        if (isDownstreamContextAbConfig(value)) {
+            return { label: value.label, target: value.target, tools_shipped_at: value.tools_shipped_at };
+        }
+    }
+    catch {
+        // An unparseable stored value reads as unset.
+    }
+    return null;
+}
+export function readDownstreamContextAb(db) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [DOWNSTREAM_CONTEXT_AB_KEY]);
+    return parseDownstreamContextAb(row?.value_json);
+}
 /**
  * The effort a swe task runs at: an explicit valid effort wins; otherwise the
  * swe_default_effort (the task's current effort for a rework), raised to high
@@ -151,6 +180,9 @@ function validateKnownConfigValue(key, value) {
     }
     if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
         throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`);
+    }
+    if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
+        throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`);
     }
     if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
         throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(value)}.`);

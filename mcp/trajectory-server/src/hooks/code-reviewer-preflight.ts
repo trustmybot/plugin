@@ -253,7 +253,7 @@ function readTask(db: string, taskId: string, env: NodeJS.ProcessEnv): TaskRow |
 }
 
 /** The ref of the task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
-async function prTargetRef(repo: string, targetBranch: string, parentBranch: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+export async function prTargetRef(repo: string, targetBranch: string, parentBranch: string, env: NodeJS.ProcessEnv): Promise<string | null> {
   for (const candidate of [targetBranch, parentBranch]) {
     if (candidate === '') continue;
     const ref = await resolveBaseRef(repo, candidate, env);

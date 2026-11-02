@@ -5,8 +5,8 @@
  * session, prompt and worktree gates at 76ec206d, the rest at 9cc886e8). Every
  * gate was its own registration, so its share is that whole timeout; a
  * trajectory-gates chain member's is its chain-table budget. A gate born in
- * the router (bash-output-trim) never had a registration; it takes the 4 s of
- * the lightest advisory one.
+ * the router (bash-output-trim, swe-downstream-context) never had a registration; it takes the 4 s of
+ * the lightest advisory one, and reviewer-downstream-context, which runs git, the 6 s of a git-reading one.
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -43,6 +43,8 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'task-overrun-alert': 6,
   'liveness-alert': 6,
   'bash-output-trim': 4,
+  'swe-downstream-context': 4,
+  'reviewer-downstream-context': 6,
   'attribution-footer': 16,
   'clean-merged-branch': 11,
   'close-issue-on-merge': 16,

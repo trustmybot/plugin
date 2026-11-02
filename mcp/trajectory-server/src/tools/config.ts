@@ -139,6 +139,43 @@ export function readEffortAb(db: Pick<TrajectoryDB, 'get'>): EffortAbConfig | nu
   return null;
 }
 
+export const DOWNSTREAM_CONTEXT_AB_KEY = 'downstream_context_ab';
+
+export interface DownstreamContextAbConfig {
+  readonly label: string;
+  readonly target: number;
+  readonly tools_shipped_at: string;
+}
+
+export function isDownstreamContextAbConfig(value: unknown): value is DownstreamContextAbConfig {
+  if (!isEffortAbConfig(value)) return false;
+  const shipped = (value as unknown as Record<string, unknown>)['tools_shipped_at'];
+  return typeof shipped === 'string' && !Number.isNaN(Date.parse(shipped));
+}
+
+function isEmptyObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+
+/** The downstream-context A/B (GH 1990): a value_json string; null when unset, `{}`, unparseable or malformed. */
+export function parseDownstreamContextAb(valueJson: string | null | undefined): DownstreamContextAbConfig | null {
+  if (!valueJson) return null;
+  try {
+    const value: unknown = JSON.parse(valueJson);
+    if (isDownstreamContextAbConfig(value)) {
+      return { label: value.label, target: value.target, tools_shipped_at: value.tools_shipped_at };
+    }
+  } catch {
+    // An unparseable stored value reads as unset.
+  }
+  return null;
+}
+
+export function readDownstreamContextAb(db: Pick<TrajectoryDB, 'get'>): DownstreamContextAbConfig | null {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [DOWNSTREAM_CONTEXT_AB_KEY]);
+  return parseDownstreamContextAb(row?.value_json);
+}
+
 export type EffortReason = 'explicit' | 'default' | 'prompt_bearing' | 'high_effort_paths' | 'rework' | 'ab_arm';
 
 export interface ComputeEffortInput {
@@ -210,6 +247,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`,
     );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {

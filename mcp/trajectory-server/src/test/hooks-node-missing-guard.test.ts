@@ -82,9 +82,12 @@ describe('hooks.json node guard (GH 2215)', () => {
     assert.deepEqual(blocking.sort(), [...FAIL_CLOSED_PRETOOLUSE].sort());
     for (const matcher of FAIL_CLOSED_PRETOOLUSE) {
       const [entry] = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === matcher);
-      for (const h of entry.hooks) {
-        assert.equal(h.onFailure, 'block', matcher);
-        assert.equal(h.command, tail('PreToolUse'), matcher);
+      const bare = entry.hooks.filter((h) => h.command === tail('PreToolUse'));
+      assert.equal(bare.length, 1, matcher);
+      assert.equal(bare[0]!.onFailure, 'block', matcher);
+      for (const h of entry.hooks.filter((x) => x !== bare[0])) {
+        assert.match(h.command, new RegExp(`^${tail('PreToolUse').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} [a-z-]+$`), matcher);
+        assert.equal(h.onFailure, undefined, `${matcher}: an advisory part never fails closed`);
       }
     }
   });

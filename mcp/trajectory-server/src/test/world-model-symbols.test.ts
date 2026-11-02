@@ -892,7 +892,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     assert.ok(at >= 0);
     assert.equal(x.symbols[at]!.qualified_name, 'PreToolUse#1:containment-guard');
     assert.ok(x.symbols[at]!.start_line > 0, 'the symbol sits on its command line');
-    const gates = table.split('\n').map((l) => l.split(' ')).filter((f) => f[3] === 'PreToolUse' && f[4] === 'Write|Edit|MultiEdit|NotebookEdit').map((f) => f[0]!);
+    const gates = table.split('\n').map((l) => l.split(' ')).filter((f) => f[3] === 'PreToolUse' && f[4] === 'Write|Edit|MultiEdit|NotebookEdit' && f[6] === undefined).map((f) => f[0]!);
     assert.ok(gates.includes('swe-boundary'));
     assert.match(x.symbols[at]!.doc, new RegExp(`runs router gates ${gates.join(', ')}$`));
     const edges = x.edges.filter((e) => e.src === at && e.kind === 'runs');
@@ -907,6 +907,8 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     assert.deepEqual(names.filter((n) => n.startsWith('SessionStart#')), ['SessionStart#1:ensure-gitignore', 'SessionStart#2:session-start-persona', 'SessionStart#3:session-start-prescan']);
     assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
     assert.deepEqual(names.filter((n) => n.startsWith('WorktreeCreate#')), ['WorktreeCreate#1:worktree-create']);
+    assert.deepEqual(names.filter((n) => n.startsWith('SubagentStart#')), ['SubagentStart#1:reviewer-downstream-context']);
+    assert.deepEqual(names.filter((n) => n.endsWith(':swe-downstream-context')), ['PreToolUse#2:swe-downstream-context']);
     const persona = x.symbols.findIndex((s) => s.qualified_name === 'SessionStart#2:session-start-persona');
     assert.deepEqual(x.edges.filter((e) => e.src === persona && e.kind === 'runs').map((e) => e.dst_name), ['mcp/trajectory-server/src/hooks/session-start-persona.ts']);
   });

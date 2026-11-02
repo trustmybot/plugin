@@ -1,0 +1,4 @@
+// The reviewer-downstream-context gate of router-parity.suite.ts, run as its own node --test process (GH 2118).
+import { routerParityGate } from './router-parity.suite.js';
+routerParityGate('reviewer-downstream-context');
+//# sourceMappingURL=router-parity.reviewer-downstream-context.test.js.map
