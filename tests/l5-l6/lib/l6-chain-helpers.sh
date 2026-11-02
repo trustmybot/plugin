@@ -12,8 +12,6 @@ set -uo pipefail
 L6C_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/l5-l6/lib/flow-helpers.sh
 . "$L6C_LIB_DIR/flow-helpers.sh"
-# shellcheck source=tests/l5-l6/lib/scorers.sh
-. "$L6C_LIB_DIR/scorers.sh"
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 . "$L6C_LIB_DIR/timeout-shim.sh"
 
@@ -230,21 +228,7 @@ l6c_run_step() {
 # for one chain step against the cumulative DB + master trajectory.jsonl.
 # Returns the total failure count.
 l6c_score_step() {
-  local project="$1" step="$2" row_dir="$3" run_id="$4"
-  local fails=0
-
-  l5_score_outcome              "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_trajectory_required  "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_trajectory_forbidden "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_cost                 "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_files                "$row_dir" "$project"                   || fails=$((fails + 1))
-  l5_score_coherence            "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_git                  "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_usage                "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_materialized         "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-  l5_score_no_sandbox           "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
-
-  return "$fails"
+  l5_score_flow "$@"
 }
 
 # l6c_write_chain_summary <run_dir> <results_jsonl>: render the chain-summary

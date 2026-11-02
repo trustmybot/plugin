@@ -178,21 +178,7 @@ l5_run_claude() {
 #   9. materialized         — on-disk consuming-agent materialization (opt-in via outcome-materialized.json) — proves a targeted cheatcode install copied the agent md + skill header (#95)
 #  10. no_sandbox           — always on: no sandbox block or sandbox_enforcement=yes in the scratch project (TEST MODE pins it to no, GH 1549)
 l5_score_flow() {
-  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
-  local total_fail=0
-
-  l5_score_outcome              "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_trajectory_required  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_files                "$scorer_dir" "$project"                   || total_fail=$((total_fail + 1))
-  l5_score_coherence            "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_usage                "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_materialized         "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-  l5_score_no_sandbox           "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
-
-  return "$total_fail"
+  node --experimental-sqlite "$L5_DOGFOOD_DIR/../../mcp/trajectory-server/dist/test/lib/l5-scorers-cli.js" all "$@"
 }
 
 # l5_cleanup_project <project_dir>: removes the scratch directory.
@@ -207,7 +193,3 @@ l5_cleanup_project() {
 # Initialize globals used by helpers.
 L5_DOGFOOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export L5_DOGFOOD_DIR
-
-# Source v2 scorers (issue #110).
-# shellcheck source=tests/l5-l6/lib/scorers.sh
-. "$L5_DOGFOOD_DIR/lib/scorers.sh"

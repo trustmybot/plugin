@@ -66,13 +66,15 @@ tests/
 ├── lib/                        ← shared shell-assert helpers + assert-sql.sh (wrapper for the shipped dry-run helper)
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
-    ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
+    ├── lib/                    ← flow-helpers, l6-chain-helpers, smoke-helpers, timeout-shim
     ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
 ```
 
 L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
+
+L5/L6 scorers and their CLI live in `mcp/trajectory-server/src/test/lib/`. The legacy flow helpers invoke the compiled Node entrypoint; L2 runs the scorer and scratch-safety tests. Frozen scorer outputs live in `tests/l5-l6/fixtures/scorers-parity.json`.
 
 ## Run everything automated (L1–L4)
 

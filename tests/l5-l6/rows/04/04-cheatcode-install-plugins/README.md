@@ -16,4 +16,4 @@
 | `tools-required.json` | `cheatcode_approve` + `cheatcode_install` called |
 | `cost-budget.json` | Soft 60K tokens / 90s |
 
-> Row 05 (swe hot-load) asserts swe-side skill USAGE, which the run-log scorer cannot attribute because swe runs in its own CC session whose stream-json is not merged into bro's log — a known limitation (#119, see `lib/assert-usage.sh`). This row proves the on-disk materialization that precedes that hot-load; the usage attribution is left untouched.
+> Row 05 (swe hot-load) asserts swe-side skill USAGE, which the run-log scorer cannot attribute because swe runs in its own CC session whose stream-json is not merged into bro's log — a known limitation (#119, see `mcp/trajectory-server/src/test/lib/l5-scorers.ts`). This row proves the on-disk materialization that precedes that hot-load; the usage attribution is left untouched.

@@ -1,0 +1,749 @@
+{
+  "source": "trustmybot/plugin@9cc886e81bab51eb26ee83807f85e45caecd7c27 tests/l5-l6/lib/scorers.sh",
+  "cases": [
+    {
+      "name": "outcome absent",
+      "scorer": "outcome",
+      "expected": {
+        "status": 0,
+        "stdout": "  ⊘ outcome scorer skipped: <scorer-dir>/outcome.sql not found\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "outcome pass multiple statements",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 1 AS pass, 'first; statement' AS description; SELECT 1 AS pass, 'second' AS description;"
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ outcome: 2/2 assertions passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "outcome failed later statement",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 1 AS pass, 'yes' AS description; SELECT 0 AS pass, 'no' AS description;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 1/2 assertions passed; failed: ; no\n"
+      }
+    },
+    {
+      "name": "outcome no rows",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 1 AS pass WHERE 0;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "  ✗ outcome scorer: SQL returned no rows (expected ≥1 assertion)\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "required absent",
+      "scorer": "trajectory_required",
+      "expected": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "required log missing",
+      "scorer": "trajectory_required",
+      "config": {
+        "tools-required.json": [
+          "Agent"
+        ]
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ trajectory_required: <project>/trajectory.jsonl not found (run_arm must produce stream-json)\n"
+      }
+    },
+    {
+      "name": "required missing tool",
+      "scorer": "trajectory_required",
+      "config": {
+        "tools-required.json": [
+          "Agent"
+        ]
+      },
+      "events": [],
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ trajectory_required: missing tools: ; Agent\n"
+      }
+    },
+    {
+      "name": "required called tool",
+      "scorer": "trajectory_required",
+      "config": {
+        "tools-required.json": [
+          "Agent"
+        ]
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "Agent"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ trajectory_required: all required tools called\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "required missing any_of",
+      "scorer": "trajectory_required",
+      "config": {
+        "tools-required.json": [
+          {
+            "any_of": [
+              "Agent",
+              "Read"
+            ]
+          }
+        ]
+      },
+      "events": [],
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ trajectory_required: missing tools: ; any_of(Agent|Read)\n"
+      }
+    },
+    {
+      "name": "forbidden absent",
+      "scorer": "trajectory_forbidden",
+      "expected": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "forbidden log missing",
+      "scorer": "trajectory_forbidden",
+      "config": {
+        "tools-forbidden.json": [
+          "Edit"
+        ]
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ trajectory_forbidden: <project>/trajectory.jsonl not found\n"
+      }
+    },
+    {
+      "name": "forbidden top-level edit",
+      "scorer": "trajectory_forbidden",
+      "config": {
+        "tools-forbidden.json": [
+          "Edit"
+        ]
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "Edit"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ trajectory_forbidden: forbidden tools called: ; Edit\n"
+      }
+    },
+    {
+      "name": "forbidden subagent edit",
+      "scorer": "trajectory_forbidden",
+      "config": {
+        "tools-forbidden.json": [
+          "Edit"
+        ]
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "parent_tool_use_id": "child",
+          "message": {
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "Edit"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ trajectory_forbidden: no forbidden tools called\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "cost missing log",
+      "scorer": "cost",
+      "expected": {
+        "status": 0,
+        "stdout": "  ⊘ cost (observational): tokens_total=0 (in=0 out=0) duration_ms=0\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "cost within budget",
+      "scorer": "cost",
+      "config": {
+        "cost-budget.json": {
+          "max_tokens_total": 20,
+          "max_duration_ms": 50
+        }
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5
+            }
+          }
+        },
+        {
+          "type": "result",
+          "duration_ms": 40
+        }
+      ],
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ cost: within budget — tokens_total=15 (in=10 out=5) duration_ms=40\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "cost soft budget",
+      "scorer": "cost",
+      "config": {
+        "cost-budget.json": {
+          "max_tokens_total": 10,
+          "max_duration_ms": 20
+        }
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5
+            }
+          }
+        },
+        {
+          "type": "result",
+          "duration_ms": 40
+        }
+      ],
+      "expected": {
+        "status": 0,
+        "stdout": "  ⚠ cost: soft-warn budget exceeded; tokens(15 > 10); duration_ms(40 > 20)\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "cost hard budget",
+      "scorer": "cost",
+      "config": {
+        "cost-budget.json": {
+          "max_tokens_total": 10,
+          "max_duration_ms": 20,
+          "fail_above_max": true
+        }
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5
+            }
+          }
+        },
+        {
+          "type": "result",
+          "duration_ms": 40
+        }
+      ],
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ cost: budget exceeded; tokens(15 > 10); duration_ms(40 > 20)\n"
+      }
+    },
+    {
+      "name": "files present and absent",
+      "scorer": "files",
+      "config": {
+        "outcome-files.json": {
+          "files": [
+            {
+              "path": "README.md",
+              "must_exist": true,
+              "min_bytes": 5
+            },
+            {
+              "path": "absent",
+              "must_not_exist": true
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ files: README.md exists (>=5 bytes)\n  ✓ files: absent does not exist\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "files wrong",
+      "scorer": "files",
+      "config": {
+        "outcome-files.json": {
+          "files": [
+            {
+              "path": "README.md",
+              "must_not_exist": true
+            },
+            {
+              "path": "absent",
+              "must_exist": true
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ files: README.md exists but should not\n  ✗ files: absent does not exist\n"
+      }
+    },
+    {
+      "name": "files short",
+      "scorer": "files",
+      "config": {
+        "outcome-files.json": {
+          "files": [
+            {
+              "path": "README.md",
+              "must_exist": true,
+              "min_bytes": 99
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ files: README.md is 5 bytes, expected >=99\n"
+      }
+    },
+    {
+      "name": "coherence seed count",
+      "scorer": "coherence",
+      "config": {
+        "outcome-coherence.json": {
+          "expected_writes": {
+            "issues": "1"
+          }
+        }
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ coherence: issues = 1 (expected 1)\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "coherence wrong count",
+      "scorer": "coherence",
+      "config": {
+        "outcome-coherence.json": {
+          "expected_writes": {
+            "issues": ">=99"
+          }
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ coherence: issues = 1 (expected >=99)\n"
+      }
+    },
+    {
+      "name": "coherence bad operator",
+      "scorer": "coherence",
+      "config": {
+        "outcome-coherence.json": {
+          "expected_writes": {
+            "issues": "wat"
+          }
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ coherence: invalid operator in 'wat' for issues\n"
+      }
+    },
+    {
+      "name": "coherence bad table",
+      "scorer": "coherence",
+      "config": {
+        "outcome-coherence.json": {
+          "expected_writes": {
+            "missing": "1"
+          }
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ coherence: query failed for missing\n"
+      }
+    },
+    {
+      "name": "git snapshot missing",
+      "scorer": "git",
+      "config": {
+        "outcome-git.json": {
+          "base_branch_unchanged": true
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ git: pre-run snapshot missing at <project>/.claude/tmb/_l5_pre_run_git.json (did l5_run_claude run?)\n"
+      }
+    },
+    {
+      "name": "git worktree missing",
+      "scorer": "git",
+      "config": {
+        "outcome-git.json": {
+          "worktrees": [
+            {
+              "path": "missing",
+              "head_branch": "main"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ git: worktree path missing: missing\n"
+      }
+    },
+    {
+      "name": "git legacy uncommitted false no-op",
+      "scorer": "git",
+      "config": {
+        "outcome-git.json": {
+          "uncommitted_in_worktree": false
+        }
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "usage log missing",
+      "scorer": "usage",
+      "config": {
+        "outcome-usage.json": {
+          "skills_used": [
+            "tmb_planning"
+          ]
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ usage: <project>/trajectory.jsonl not found (runner must produce stream-json)\n"
+      }
+    },
+    {
+      "name": "usage called",
+      "scorer": "usage",
+      "config": {
+        "outcome-usage.json": {
+          "skills_used": [
+            "tmb_planning"
+          ]
+        }
+      },
+      "events": [
+        {
+          "type": "assistant",
+          "message": {
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "Skill",
+                "input": {
+                  "skill": "tmb:tmb_planning"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ usage: 'tmb_planning' invoked (run log)\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "usage absent",
+      "scorer": "usage",
+      "config": {
+        "outcome-usage.json": {
+          "skills_used": [
+            "tmb_planning"
+          ]
+        }
+      },
+      "events": [],
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ usage: 'tmb_planning' not found in run log\n"
+      }
+    },
+    {
+      "name": "materialized present",
+      "scorer": "materialized",
+      "config": {
+        "outcome-materialized.json": {
+          "materialized": [
+            {
+              "agent": "swe",
+              "skill": "feature-dev"
+            }
+          ]
+        }
+      },
+      "files": {
+        ".claude/agents/swe.md": "---\nname: swe\nskills: [feature-dev]\n---\n"
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ materialized: 'feature-dev' into 'swe' (on disk)\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "materialized absent",
+      "scorer": "materialized",
+      "config": {
+        "outcome-materialized.json": {
+          "materialized": [
+            {
+              "agent": "swe",
+              "skill": "feature-dev"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ materialized: 'feature-dev' not materialized into 'swe'\n"
+      }
+    },
+    {
+      "name": "no sandbox",
+      "scorer": "no_sandbox",
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ no_sandbox: no sandbox block\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "sandbox settings",
+      "scorer": "no_sandbox",
+      "files": {
+        ".claude/settings.local.json": "{\"sandbox\":{\"enabled\":true}}"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ no_sandbox: sandbox block in .claude/settings.local.json (TEST MODE pins the sandbox answer to no)\n"
+      }
+    },
+    {
+      "name": "sandbox config yes",
+      "scorer": "no_sandbox",
+      "sql": "INSERT INTO plugin_config (key,value_json) VALUES ('sandbox_enforcement','\"yes\"');",
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ no_sandbox: sandbox_enforcement = yes (TEST MODE pins the sandbox answer to no)\n"
+      }
+    },
+    {
+      "name": "both sandbox sources",
+      "scorer": "no_sandbox",
+      "files": {
+        ".claude/settings.local.json": "{\"sandbox\":{}}"
+      },
+      "sql": "INSERT INTO plugin_config (key,value_json) VALUES ('sandbox_enforcement','\"yes\"');",
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ no_sandbox: sandbox block in .claude/settings.local.json; sandbox_enforcement = yes (TEST MODE pins the sandbox answer to no)\n"
+      }
+    },
+    {
+      "name": "outcome numeric column name",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 0 AS pass, 1 AS \"0\";"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; 1\n"
+      }
+    },
+    {
+      "name": "outcome duplicate column names",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 0 AS pass, 1 AS pass;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; 1\n"
+      }
+    },
+    {
+      "name": "outcome REAL one is not literal pass one",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 1.0 AS pass, 'real' AS description;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; real\n"
+      }
+    },
+    {
+      "name": "outcome INTEGER one passes",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 1 AS pass, 'integer' AS description;"
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ outcome: 1/1 assertions passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "outcome TEXT one passes",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT '1' AS pass, 'text' AS description;"
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ outcome: 1/1 assertions passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "outcome BLOB one passes",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT x'31' AS pass, 'blob' AS description;"
+      },
+      "expected": {
+        "status": 0,
+        "stdout": "  ✓ outcome: 1/1 assertions passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "outcome NULL fails",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT NULL AS pass, 'null' AS description;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; null\n"
+      }
+    },
+    {
+      "name": "outcome INTEGER zero description",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 0 AS pass, 0 AS description;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; 0\n"
+      }
+    },
+    {
+      "name": "outcome REAL zero description",
+      "scorer": "outcome",
+      "config": {
+        "outcome.sql": "SELECT 0 AS pass, 0.0 AS description;"
+      },
+      "expected": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "  ✗ outcome: 0/1 assertions passed; failed: ; 0.0\n"
+      }
+    }
+  ]
+}

@@ -305,7 +305,6 @@ tests/l5-l6/
 ├── lib/
 │   ├── flow-helpers.sh       # row-level setup + run + score helpers
 │   ├── l6-chain-helpers.sh   # l6c_run_step, l6c_score_step, l6c_snapshot_db, etc.
-│   ├── scorers.sh            # outcome / coherence / git / trajectory / cost scorer impls
 │   ├── smoke-helpers.sh      # pre-flight substrate health (MCP spawn + auth + plugin-load)
 │   └── timeout-shim.sh       # cross-platform timeout wrapper
 ├── rows/<NN>/<row-name>/     # canonical row layout in family folders (used by both L5 + L6)
@@ -390,7 +389,7 @@ A row passes when every scorer it ships passes. Missing optional scorers are ski
 |---|---|---|
 | New standalone L5 row | `tests/l5-l6/rows/<NN>/<NN>.<MM>-<name>/` (under its family folder) | scaffold per canonical layout; chain manifest unchanged |
 | New L6 chain step | `tests/l5-l6/rows/<NN>/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir under its family folder; append entry to manifest with `step`, `id`, `row_dir` (`rows/<NN>/<NN>-<name>`), `seed_before`/`seed_after` |
-| New scorer type | `tests/l5-l6/lib/scorers.sh` | add `score_<name>`; register in `l5_score_flow` / `l6c_score_step` |
+| New scorer type | `mcp/trajectory-server/src/test/lib/l5-scorers.ts` | add a scorer; register it in `scorers` for both L5 and L6 |
 
 When you add or modify a chain step, update the **Per-step I/O table** above so the Input/Output/Carried-from columns stay accurate — those columns are the contract the next-row author reads to know what their step inherits.
 
@@ -398,3 +397,32 @@ When you add or modify a chain step, update the **Per-step I/O table** above so 
 
 - **Code quality.** L5 + L6 verify the **workflow** runs programmatically — bro hits the right gates, writes the right rows, dispatches the right subagents in the right order. They do NOT lint the SWE-produced code, score architectural quality, or assert specific implementation choices. Code-quality enforcement is the user's project's responsibility (their CI, their reviewers); TMB's tests cover only the orchestration layer.
 - **Real remote operations.** The sandbox blocks `gh`, `git-remote-https`, `curl`, `wget` via PATH-prepended stubs. All "remote" operations in tests resolve to a local bare repo at `$TMB_TEST_REMOTE`. Real GitHub/GitLab API calls are out of scope for L5/L6 — they're exercised at L3 with mock servers.
+
+
+### TypeScript scorer tests
+
+L5 and L6 call the same compiled Node scorer entry point. Build the server, then
+run the scorer and fixture-safety tests through `node:test`:
+
+```text
+node --experimental-sqlite --test mcp/trajectory-server/dist/test/l5-scorers.test.js mcp/trajectory-server/dist/test/scorers-scratch-safety.test.js
+```
+
+The suite retains the 31 scorer assertions, 6 usage checks, and 7 materialization
+checks from the removed Shell tests. `tests/l5-l6/fixtures/scorers-parity.json`
+freezes 45 stdout/stderr/exit-code cases from `9cc886e8`; routine validation does
+not execute Bash, jq, sqlite3, or mktemp. SQLite uses `node:sqlite`, including
+multi-statement outcome queries and the `readfile` function. Git operations use
+argument arrays and an explicit project directory.
+
+Scratch fixtures own one temporary root. Allocation, Git initialization, or
+schema failures stop setup and remove only that root. Tests verify that a caller's
+README, HEAD, staged index, and an unrelated sibling file survive every failure.
+The L5/L6 orchestration remains in Shell under W4d (#1692); its scorer call is
+only a compatibility entry point. This change does not establish Windows host
+acceptance or run a paid Claude evaluation.
+
+Two existing scorer limitations remain: `uncommitted_in_worktree: false` was a
+no-op because jq's `// null` discards false, and score receipts remain optional
+when a fixture has no `eval_results` table. Invalid JSON and SQL now fail with a
+named scorer diagnostic rather than silently passing an empty result.
