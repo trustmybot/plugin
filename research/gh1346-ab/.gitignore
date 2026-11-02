@@ -1,6 +1,0 @@
-node_modules/
-results/*
-!results/*/
-results/cache/
-results/*/*
-!results/*/summary.md

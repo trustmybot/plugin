@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git status"
-  },
-  "corpus_expect": "empty"
-}

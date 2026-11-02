@@ -1,7 +1,0 @@
-{
-  "hook_event_name": "WorktreeCreate",
-  "session_id": "sess-wt",
-  "cwd": "@SANDBOX@/ws",
-  "branch": "feat/clean-a",
-  "corpus_expect": "@SANDBOX@/ws/project/.claude/worktrees/clean-a\ntmb worktree-create: reusing existing worktree @SANDBOX@/ws/project/.claude/worktrees/clean-a for branch feat/clean-a\n"
-}

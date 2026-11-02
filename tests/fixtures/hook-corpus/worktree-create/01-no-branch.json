@@ -1,6 +1,0 @@
-{
-  "hook_event_name": "WorktreeCreate",
-  "session_id": "sess-wt",
-  "cwd": "@SANDBOX@/ws",
-  "corpus_expect": "tmb worktree-create: WorktreeCreate input has no .branch field"
-}

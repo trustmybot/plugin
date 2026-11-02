@@ -1,2 +1,0 @@
-### Fixed
-- **A command too large or too deeply nested to analyze is denied at once, with a reason that says to split it** (GH 2090): the write-path analyzer had no overall bound, so a small nested command could stall a gate for seconds or crash it. It now counts its work and stops at a fixed cap, so the same command gets the same verdict on a loaded or an idle machine. Every other command is judged as before.

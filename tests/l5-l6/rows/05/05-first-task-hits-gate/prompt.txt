@@ -1,3 +1,0 @@
-@bro make a todo CLI by Python in src/cli.py with tests in tests/test_cli.py.
-
-Don't ask questions.

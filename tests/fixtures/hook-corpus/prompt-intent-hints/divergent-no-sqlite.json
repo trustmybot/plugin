@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"ok, push it","corpus_env":{"PATH":"@NOSQLITE_PATH@"},"corpus_divergent":"decision 703: without the sqlite3 CLI the .sh skips every DB-backed hint; the TS gate reads the DB through node:sqlite","corpus_expect":{"bash":"empty","ts":"task_id=1  branch=feat/done  (done task)"}}

@@ -1,1 +1,0 @@
-@bro let's switch to gitflow with develop as the default branch from now on. Update the project config.

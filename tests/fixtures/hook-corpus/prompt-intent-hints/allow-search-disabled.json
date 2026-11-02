@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"why did we pick sqlite over json","corpus_env":{"TMB_DISABLE_SEARCH_HINT":"1"},"corpus_expect":"empty"}

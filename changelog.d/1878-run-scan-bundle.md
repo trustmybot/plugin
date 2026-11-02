@@ -1,2 +1,0 @@
-### Fixed
-- **Hook rescans index symbols again** (GH 1878): the post-close and SessionStart rescans imported unbundled server modules that need web-tree-sitter, a devDependency missing from the installed plugin, so every hook rescan logged `symbol_index_error` and left files unstamped. Both invokers now import a bundled `dist/run-scan.js` with web-tree-sitter inlined, so symbols index after every task close.

@@ -1,2 +1,0 @@
-# Fixture allowlist for no-kuzu-in-prompts.sh --self-test.
-tests/l1-lint/fixtures/kuzu-in-prompts/has-kuzu.md	Kuzu stores the project map.	self-test: one allowlisted hit

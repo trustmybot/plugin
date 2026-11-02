@@ -1,2 +1,0 @@
-### Changed
-- **`task_brief` is concise by default** (GH 1958): `scope_world_model` keeps each `dir` and child `path` without summaries, and `task_discussions` keeps this task's decision and intent rows plus the issue's newest decision and intent while other rows shrink to `id`, `kind` and `author`. Pass `response_format: 'detailed'` for the full output; concise output carries `response_format_hint` when it trimmed something.

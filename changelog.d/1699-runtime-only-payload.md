@@ -1,2 +1,0 @@
-### Changed
-- **A dev-channel install is about 15 MB instead of about 40 MB** (GH 1699): the `dev-build` branch that `tmb@trustmybot-dev` installs from now carries only the runtime payload. Tests, TypeScript sources, `dist/test`, sourcemaps, docs and changelog fragments are pruned against an allowlist before each build commit (`scripts/maintenance/runtime-payload.ts`), and CI checks the result. The rc and stable channels are unchanged.

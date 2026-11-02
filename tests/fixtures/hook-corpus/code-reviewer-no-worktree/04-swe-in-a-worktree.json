@@ -1,8 +1,0 @@
-{
-  "tool_name": "Agent",
-  "tool_input": {
-    "subagent_type": "swe",
-    "isolation": "worktree"
-  },
-  "corpus_expect": "empty"
-}

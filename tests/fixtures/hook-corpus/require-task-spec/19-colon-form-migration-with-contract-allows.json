@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"Work on task_id:  18 now"},"corpus_expect":"empty"}

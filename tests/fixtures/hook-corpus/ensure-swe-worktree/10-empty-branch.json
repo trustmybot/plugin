@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=18"},"corpus_expect":"ensure-swe-worktree: task_id=18 has empty branch_id — skipping"}

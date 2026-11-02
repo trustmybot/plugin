@@ -1,2 +1,0 @@
-### Changed
-- **Bro's turn no longer waits for its usage meter** (GH 1692): the `bro-turn-usage` Stop hook now runs async, so a turn ends without waiting for the meter (measured p50 333 ms, p95 1201 ms). When runs overlap, one holding an older transcript read leaves the newer `agent_runs` tokens, `completed_at`, `duration_ms` and `agent_run_tool_output` rows alone. A lost run is recovered by the next, which re-reads the whole transcript. **Limit:** a session never resumed can stay one turn short in `agent_runs`.

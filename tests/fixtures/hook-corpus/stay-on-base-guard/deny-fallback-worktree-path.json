@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git checkout feat/norepo"
-  },
-  "corpus_expect": "@SANDBOX@/base/.claude/worktrees/norepo"
-}

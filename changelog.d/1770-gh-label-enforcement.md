@@ -1,2 +1,0 @@
-### Added
-- **Every TMB issue on GitHub carries one type, one priority and one area** (GH 1770): `.github/labels.json` is the single label source; `scripts/maintenance/labels.mjs` syncs it to GitHub, generates the tables in `docs/contributing/LABELS.md` and triages issues. Issue forms require an Area and blank issues are off; a triage workflow turns the form's answer into its label and flags `needs-triage` until the set is complete. This governs TMB development only and ships nothing to users. `tests/l1-lint/labels.test.mjs` replaces `labels-stable.sh`.

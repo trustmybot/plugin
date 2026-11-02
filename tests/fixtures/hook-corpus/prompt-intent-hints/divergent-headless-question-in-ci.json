@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"how do I run this under `claude -p` in CI?","corpus_divergent":"GH 1751: the .sh names the quoted claude -p; the TS gate skips it and names in ci, which the question still holds","corpus_expect":{"bash":"the user's prompt contains 'claude -p'","ts":"headless-intent hint: the user's prompt contains 'in ci'"}}

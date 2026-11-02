@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"Please review task 19.","effort":"high"},"corpus_expect":"missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id."}

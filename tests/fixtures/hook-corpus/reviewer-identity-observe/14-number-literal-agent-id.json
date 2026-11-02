@@ -1,4 +1,0 @@
-{
-  "corpus_stdin": "{\"tool_name\":\"mcp__plugin_tmb_trajectory-server__validation_record\",\"agent_id\":7.50,\"agent_type\":\"code-reviewer\",\"session_id\":\"s\",\"tool_input\":{\"task_id\":42,\"attempt_n\":3}}",
-  "corpus_expect": "empty"
-}

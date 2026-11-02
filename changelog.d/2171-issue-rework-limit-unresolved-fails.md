@@ -1,2 +1,0 @@
-### Fixed
-- **The issue-wide rework limit stops counting FAILs that were already fixed** (GH 2171): it counted every review FAIL on an issue's tasks since your last waiver, so a long-lived issue tripped the limit for good even when each FAIL had since passed review. Now a FAIL counts only when no later pass exists on the same task, so four unresolved FAILs still stop the work, and a pass on one task does not clear FAILs on another.
