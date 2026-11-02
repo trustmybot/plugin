@@ -776,9 +776,10 @@ function bashOutputTrimCases(dir: string, cwd: string): RouterCase[] {
     ['sqlite-select', post("sqlite3 -readonly .claude/tmb/trajectory.db 'SELECT id FROM tasks'")],
     ['subagent', post('git log', {}, { agent_id: 'a1', agent_type: 'tmb:swe' })],
     ['stderr', post('git log', { stderr: 'warning' })],
-    ['piped', post('git log | head')],
+    ['chained-pipe', post('cd /tmp/repo && git log | head -500')],
+    ['redirect', post('git log > out.txt')],
     ['short', post('git log', { stdout: 'abc\ndef' })],
-    ['unlisted', post('cat big.txt')],
+    ['unlisted', post('npm test')],
   ];
   return scenarios.map(([file, input]) => ({ gate: 'bash-output-trim', file, input, env, cwd, fakeUid: false }));
 }

@@ -1,11 +1,11 @@
 /**
- * The bash-output-trim gate (GH 2193): every allowlisted read with a long
- * stdout comes back as updatedToolOutput with a head, one marker line and a
+ * The bash-output-trim gate (GH 2193): every allowlisted read, read chains and
+ * pipelines included, with a long stdout comes back as updatedToolOutput with a head, one marker line and a
  * tail; every other call prints nothing.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { bashOutputTrim, GATE_NAME, HEAD_CHARS, isRoutineRead, TAIL_CHARS, TRIM_ABOVE, trimMarker, trimOutput } from '../hooks/bash-output-trim.js';
+import { bashOutputTrim, GATE_NAME, HEAD_CHARS, isRoutineRead, sedPrintOnly, TAIL_CHARS, TRIM_ABOVE, trimMarker, trimOutput } from '../hooks/bash-output-trim.js';
 import { findGate, routerGroup } from '../hooks/registry.js';
 
 const LINES = Array.from({ length: 250 }, (_, i) => `line ${String(i).padStart(3, '0')} ${'x'.repeat(31)}`);
@@ -65,6 +65,24 @@ describe('bash-output-trim trims each allowlisted read (SC1)', () => {
     'sqlite3 -readonly -header -column db.sqlite "with t as (select 1) select * from t"',
     'GH_PAGER= git log',
     'NO_COLOR=1 PAGER=cat gh pr list',
+    'cd /x && git log | head -50',
+    'P=/x; git -C $P show abc',
+    'export P=/x && git -C "${P}" grep -n foo',
+    'GH_PAGER=cat gh issue view 1 --json body -q .body',
+    'gh pr view 12 --json body --jq .body',
+    'gh pr diff 12',
+    "sed -n '1,200p' f",
+    "sed -n '/^## /p;$p' f",
+    "grep -n 'a|b' f | head",
+    'sqlite3 -readonly db "SELECT a; SELECT b"',
+    'git log --oneline\ngit status --short',
+    'git diff 2>&1 | grep -v x | sort | uniq -c | sort -rn',
+    'rg -n foo src 2>/dev/null | cut -c1-200',
+    'ls -la /x | wc -l',
+    'cat big.txt | tr a b | column -t | nl',
+    'echo "$HOME" ; printf x | jq .',
+    'diff a b | tail -20',
+    'git log &&\n  git status # a comment',
   ];
   for (const command of forms) {
     it(command, () => {
@@ -109,27 +127,65 @@ describe('bash-output-trim passes every other call unchanged (SC2)', () => {
   it('an interrupted call', () => assert.equal(run(payload('git log', { interrupted: true })), ''));
   it('an image result', () => assert.equal(run(payload('git log', { isImage: true })), ''));
   it('stdout at or below TRIM_ABOVE', () => assert.equal(run(payload('git log', { stdout: 'a\n'.repeat(TRIM_ABOVE / 2) })), ''));
-  it('a piped git log | head', () => assert.equal(run(payload('git log | head -50')), ''));
-  it('an && chain', () => assert.equal(run(payload('git status && git log')), ''));
-  it('a ; chain', () => assert.equal(run(payload('git status; git log')), ''));
-  it('gh pr view --json body', () => assert.equal(run(payload('gh pr view 12 --json body')), ''));
-  it('gh pr view --jq / -q / --template / -t', () => {
-    for (const c of ['gh pr view 12 --jq .body', 'gh pr view 12 -q .body', 'gh pr list --template "{{.}}"', 'gh pr list -t x', 'gh pr view 12 --json=body']) assert.equal(run(payload(c)), '', c);
-  });
-  it('sqlite3 without -readonly', () => assert.equal(run(payload("sqlite3 db.sqlite 'SELECT * FROM t'")), ''));
-  it('sqlite3 -readonly with UPDATE', () => assert.equal(run(payload("sqlite3 -readonly db.sqlite 'UPDATE t SET a = 1'")), ''));
-  it('an unlisted program: cat', () => assert.equal(run(payload('cat big.txt')), ''));
-  it('an unlisted program: ls', () => assert.equal(run(payload('ls -laR')), ''));
-  it('an unlisted program: npm test', () => assert.equal(run(payload('npm test')), ''));
-  it('a redirect, a subshell, a command substitution, a background job', () => {
-    for (const c of ['git log > out.txt', 'git log < /dev/null', 'git log $(echo x)', 'git log `echo x`', 'git log &', '(git log)', 'git log\ngit status']) assert.equal(run(payload(c)), '', JSON.stringify(c));
-  });
-  it('git diff without --stat and other git subcommands', () => {
-    for (const c of ['git diff', 'git -C /tmp diff HEAD', 'git show HEAD', 'git -C', 'git -c core.pager=x log']) assert.equal(run(payload(c)), '', c);
-  });
-  it('other gh groups and verbs', () => {
-    for (const c of ['gh api repos/x/y', 'gh pr diff 12', 'gh repo view', 'gh issue']) assert.equal(run(payload(c)), '', c);
-  });
+  const rejects = [
+    "sed -n 'w out' f",
+    "sed -n '1,5w out' f",
+    "sed -n 's/a/b/p' f",
+    "sed -n '1r /etc/passwd' f",
+    "sed -n '1e date' f",
+    "sed -i 's/a/b/' f",
+    "sed -i -n '1p' f",
+    "sed '1,5p' f",
+    'git diff --output=x',
+    'git log --output x',
+    'rg --pre cat x',
+    'rg --pre-glob "*.gz" x',
+    'git log > f',
+    'git log >> f',
+    'git log 2>f',
+    'git log >&2',
+    'echo $(id)',
+    'echo "$(id)"',
+    'echo `id`',
+    'echo $1',
+    'echo ${P:-x}',
+    'cd x && rm f',
+    'git push',
+    'git -C',
+    'git -c core.pager=x log',
+    '$CMD log',
+    'git $V',
+    'gh $G view 1',
+    'sort -o f',
+    'sort -uo f',
+    'sort --output=f',
+    'uniq a b',
+    'uniq -- -c out',
+    "grep 'a",
+    'echo "a',
+    'cat <<EOF\nhi\nEOF',
+    'cat < f',
+    'diff <(ls a) <(ls b)',
+    'git log | tee f',
+    'git log || true',
+    'git log &',
+    'git log & git status',
+    '(git log)',
+    'git log | | head',
+    'git log |& head',
+    'npm test',
+    'gh api repos/x/y',
+    'gh repo view',
+    'gh issue',
+    "sqlite3 db.sqlite 'SELECT * FROM t'",
+    "sqlite3 -readonly db.sqlite 'UPDATE t SET a = 1'",
+    'sqlite3 -readonly db ".dump"',
+    'sqlite3 -readonly db "SELECT 1" extra',
+    'sqlite3 -readonly -cmd ".output x" db "SELECT 1"',
+    'export',
+    'A=1 B=2',
+  ];
+  for (const c of rejects) it(`rejects ${JSON.stringify(c)}`, () => assert.equal(run(payload(c)), ''));
   it('a non-Bash tool, a malformed payload, a missing tool_response', () => {
     assert.equal(run(JSON.stringify({ tool_name: 'Read', tool_input: { command: 'git log' }, tool_response: { stdout: LONG, stderr: '' } })), '');
     assert.equal(run('{not json'), '');
@@ -144,9 +200,12 @@ describe('bash-output-trim helpers', () => {
   it('isRoutineRead reads the allowlist', () => {
     assert.equal(isRoutineRead('git log'), true);
     assert.equal(isRoutineRead('sqlite3 -readonly db "SELECT 1"'), true);
-    assert.equal(isRoutineRead('sqlite3 -readonly db ".dump"'), false);
-    assert.equal(isRoutineRead('sqlite3 -readonly db "SELECT 1" extra'), false);
     assert.equal(isRoutineRead('$GIT log'), false);
+    assert.equal(isRoutineRead(`grep -c ';' f; sqlite3 -readonly db 'SELECT "|" || x FROM t'`), true);
+  });
+  it('sedPrintOnly admits only addressed p commands', () => {
+    for (const s of ['p', '10p', '1,200p', '$p', '/a\\/b/p', '/^x/,/^y/p', '1p; $p']) assert.equal(sedPrintOnly(s), true, s);
+    for (const s of ['', '1d', '1,5w out', '/a/s/a/b/p', '1r f', '1e date', 'W f', '1~2p', '/a/Ip', '1,5{p}']) assert.equal(sedPrintOnly(s), false, s);
   });
   it('trimOutput leaves an output its head and tail cover', () => {
     assert.equal(trimOutput('a\nb\nc'), null);
