@@ -530,32 +530,35 @@ function overrunCases(dir, cwd) {
         reset: () => build(typeof createdAt === 'function' ? createdAt() : createdAt),
     }));
 }
-/** session-handoff's Stop cases, on a DB holding one bro row of the given tool calls and at most one open swe run, rebuilt per case. */
+/** session-handoff's Stop cases, on a DB holding one bro row and at most one open swe run, and a transcript whose last calls carry the given context, rebuilt per case. */
 function sessionHandoffCases(dir, cwd) {
     const db = join(dir, 'trajectory.db');
+    const transcript = join(dir, 'transcript.jsonl');
     mkdirSync(dir, { recursive: true });
     const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
     const sessionId = 'sess-handoff';
-    const build = (toolUses, openRun) => {
+    const build = (context, openRun) => {
         for (const side of ['', '-wal', '-shm', '-journal'])
             rmSync(`${db}${side}`, { force: true });
         const d = new DatabaseSync(db);
         d.exec(schema);
-        d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, started_at, completed_at) VALUES ('bro', ?, ?, ?, ?)").run(sessionId, toolUses, SWE_RESUME_T0, SWE_RESUME_T0);
+        d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at, completed_at) VALUES ('bro', ?, ?, ?)").run(sessionId, SWE_RESUME_T0, SWE_RESUME_T0);
         if (openRun)
             d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at) VALUES ('swe', ?, ?)").run(sessionId, new Date().toISOString());
         d.close();
+        const calls = Array.from({ length: 5 }, (_, i) => JSON.stringify({ type: 'assistant', message: { id: `msg-${i}`, usage: { input_tokens: context } } }));
+        writeFileSync(transcript, calls.map((line) => `${line}\n`).join(''));
     };
     const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
-    const payload = (extra) => JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, last_assistant_message: 'note', ...extra });
+    const payload = (extra) => JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, transcript_path: transcript, last_assistant_message: 'note', ...extra });
     const scenarios = [
-        ['past-limits-notice', 151, false, payload({})],
-        ['under-limits', 1, false, payload({})],
-        ['open-run', 151, true, payload({})],
-        ['hook-active', 151, false, payload({ stop_hook_active: true })],
-        ['background-task', 151, false, payload({ background_tasks: [{ id: 'b' }] })],
+        ['past-limits-notice', 130000, false, payload({})],
+        ['under-limits', 90000, false, payload({})],
+        ['open-run', 130000, true, payload({})],
+        ['hook-active', 130000, false, payload({ stop_hook_active: true })],
+        ['background-task', 130000, false, payload({ background_tasks: [{ id: 'b' }] })],
     ];
-    return scenarios.map(([file, toolUses, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(toolUses, openRun) }));
+    return scenarios.map(([file, context, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(context, openRun) }));
 }
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */
 function livenessCases(dir, cwd) {

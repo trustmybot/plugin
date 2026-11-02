@@ -1,20 +1,22 @@
 /**
  * Stop hook and SessionStart consumer (GH 2193): hands a bro session past its
- * usage limits over to a fresh one. At a boundary (no work still running in the
- * session, and its bro row past the limits of activation-routine's usageWarning)
- * the Stop gate upserts one session_handoffs row and, on the first insert, tells
- * the Human to start a new session. The next startup or clear in the same cwd
- * takes the row in session-start-persona's context. Never blocks and never
- * continues the turn, so bro spends no tokens at the boundary: any error exits
- * 0 with no output. Bypass: TMB_DISABLE_SESSION_HANDOFF_HOOK=1.
+ * usage limits over to a fresh one. At a boundary (the recent context of the
+ * payload's transcript past activation-routine's CONTEXT_LIMIT, the session has
+ * a bro row, and no work is still running in it) the Stop gate upserts one
+ * session_handoffs row and, on the first insert, tells the Human to start a new
+ * session. The next startup or clear in the same cwd takes the row in
+ * session-start-persona's context. Never blocks and never continues the turn,
+ * so bro spends no tokens at the boundary: any error, and a missing or
+ * unreadable transcript, exits 0 with no output. Bypass:
+ * TMB_DISABLE_SESSION_HANDOFF_HOOK=1.
  *
- * bro-turn-usage writes the bro row asynchronously, so the boundary may trail
- * by one turn.
+ * bro-turn-usage writes the bro row asynchronously, so a session's first
+ * boundary may trail by one turn.
  *
  * Known limit: sessions sharing a cwd can take each other's handoff, including
  * side sessions started in that folder.
  */
-import { pastUsageLimits, SESSION_ID_LINE } from './activation-routine.js';
+import { pastContextLimit, readTranscript, recentContext, SESSION_ID_LINE } from './activation-routine.js';
 import { ALLOW, type SyncGate } from './gate.js';
 import { dbWrite } from './lib/audit.js';
 import { dbPath, sqliteRo, sqlQuote } from './lib/db.js';
@@ -72,14 +74,14 @@ function blockingOpenRun(sessionSql: string): string {
   return `EXISTS (SELECT 1 FROM agent_runs r WHERE r.session_id = ${sessionSql} AND r.agent_type <> 'bro' AND r.completed_at IS NULL AND r.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','${OPEN_RUN_MAX_AGE}'))`;
 }
 
-function atBoundary(db: string, sessionId: string, env: NodeJS.ProcessEnv): boolean {
+function atBoundary(db: string, sessionId: string, transcriptPath: unknown, env: NodeJS.ProcessEnv): boolean {
+  if (typeof transcriptPath !== 'string' || !pastContextLimit(recentContext(readTranscript(transcriptPath)))) return false;
   const row = sqliteRo(
     db,
-    `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0), ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
+    `SELECT ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
     env,
   );
-  const usage = /^([0-9]+)\|([0-9]+)\|0$/.exec(row);
-  return usage !== null && pastUsageLimits(Number(usage[1]), Number(usage[2]));
+  return row === '0';
 }
 
 function truncated(text: string, max: number): string {
@@ -125,7 +127,7 @@ export const sessionHandoff: SyncGate = (payload, env) => {
     const cwd = input.cwd;
     if (!validSessionId(sessionId) || !validCwd(cwd)) return ALLOW;
     const db = dbPath(env);
-    if (db === null || !atBoundary(db, sessionId, env)) return ALLOW;
+    if (db === null || !atBoundary(db, sessionId, input.transcript_path, env)) return ALLOW;
     const written = dbWrite(db, upsertSql(sessionId, cwd, input.last_assistant_message), { env, caller: GATE_NAME });
     if (!written.ok) return ALLOW;
     const state = JSON.parse(written.stdout) as { existed: number; issue_id: number | null; objective: string | null };

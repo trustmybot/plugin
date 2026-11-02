@@ -4,17 +4,35 @@
  * from the .sh that decision 703 allows: on a PATH holding neither jq nor the
  * sqlite3 CLI, where the .sh lets every completion through, the gate still
  * runs verification[], denies a failing command and records a passing run.
+ * Then the suite-slot lock (GH 2092): concurrent gate runs of full suites
+ * serialize outside the budget, a wait past the cap denies unrecorded, a
+ * nested test-run shares the gate's slot and a targeted command never waits.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
-import { joinToolchainPath, msToS, parseBudget, sweVerificationGate, toolchainDirs, VERIFICATION_DEFAULT_S, VERIFICATION_MAX_S } from '../hooks/swe-verification-gate.js';
+import {
+  joinToolchainPath,
+  msToS,
+  parseBudget,
+  sweVerificationGate,
+  toolchainDirs,
+  TRAJECTORY_PRETOOLUSE_TIMEOUT_S,
+  VERIFICATION_DEFAULT_S,
+  VERIFICATION_MAX_S,
+} from '../hooks/swe-verification-gate.js';
+import { acquireSuiteSlot } from '../suite-lock.js';
 import { buildVerificationSandbox } from './hooks-swe-verification-parity.suite.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PLUGIN_ROOT = resolve(HERE, '../../../..');
 
 const ALLOWED = { stdout: '', code: 0 };
 
@@ -153,5 +171,191 @@ describe('swe-verification-gate without jq or the sqlite3 CLI (decision 703)', (
   it('denies on a corrupt DB rather than letting the completion through', async () => {
     const r = await sweVerificationGate(completion(31), env({ TRAJECTORY_DB_PATH: join(s, 'bad/.claude/tmb/trajectory.db'), CLAUDE_PROJECT_DIR: join(s, 'bad') }));
     assert.match(decision(r.stdout).permissionDecisionReason ?? '', /^BLOCKED: trajectory DB unavailable/);
+  });
+});
+
+describe('swe-verification-gate suite-slot lock (GH 2092)', { timeout: 120_000 }, () => {
+  const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
+  const GATE_URL = pathToFileURL(resolve(HERE, '../hooks/swe-verification-gate.js')).href;
+  const WRAPPER = resolve(HERE, '../test-run.js');
+  const T1 = '2026-11-02T10:00:00.000Z';
+  const RUN_ALL = `#!/usr/bin/env bash
+stamp() { perl -MTime::HiRes=time -e 'printf "%d", time * 1000'; }
+printf 'start %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
+sleep "\${HOLD_S:-0}"
+printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
+`;
+  const TASKS: { id: number; slug: string; verification: string[] }[] = [
+    { id: 50, slug: 'suite-a', verification: ['bash tests/run-all.sh A'] },
+    { id: 51, slug: 'suite-b', verification: ['bash tests/run-all.sh B'] },
+    { id: 52, slug: 'suite-busy', verification: ['bash tests/run-all.sh C'] },
+    { id: 53, slug: 'suite-nested', verification: [`${process.execPath} ${WRAPPER} -- bash tests/run-all.sh N`] },
+    { id: 54, slug: 'suite-targeted', verification: ['node --test probe.test.js'] },
+  ];
+  let base: string;
+  let lockRoot: string;
+  let marksFile: string;
+  let dbFile: string;
+
+  const gitEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Suite',
+    GIT_AUTHOR_EMAIL: 'suite@example.invalid',
+    GIT_COMMITTER_NAME: 'Suite',
+    GIT_COMMITTER_EMAIL: 'suite@example.invalid',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const git = (dir: string, args: string[]): void => {
+    const r = spawnSync('git', ['-C', dir, '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { env: gitEnv, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+
+  before(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-verification-suite-')));
+    lockRoot = join(base, 'locks');
+    marksFile = join(base, 'marks');
+    mkdirSync(join(base, 'home'));
+    const checkout = join(base, 'project/checkout');
+    for (const t of TASKS) {
+      const wt = join(checkout, '.claude/worktrees', t.slug);
+      mkdirSync(join(wt, 'tests'), { recursive: true });
+      writeFileSync(join(wt, 'tests/run-all.sh'), RUN_ALL);
+      writeFileSync(join(wt, 'probe.test.js'), "import test from 'node:test';\ntest('probe', () => {});\n");
+      git(wt, ['init', '-q']);
+      git(wt, ['add', '.']);
+      git(wt, ['commit', '-q', '-m', t.slug]);
+    }
+    dbFile = join(base, 'project/.claude/tmb/trajectory.db');
+    mkdirSync(dirname(dbFile), { recursive: true });
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec(SCHEMA);
+      db.prepare('INSERT INTO repos (name, path, last_scanned_at) VALUES (?, ?, ?)').run('plugin', checkout, T1);
+      db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'suite lock', 'open', ?, ?)").run(T1, T1);
+      const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, verification, created_at, updated_at) VALUES (?, 1, ?, 'd', 'running', 'plugin', ?, ?, ?)");
+      for (const t of TASKS) task.run(t.id, `feat/${t.slug}`, JSON.stringify(t.verification), T1, T1);
+    } finally {
+      db.close();
+    }
+  });
+  after(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  const env = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => {
+    const e: NodeJS.ProcessEnv = {
+      HOME: join(base, 'home'),
+      CLAUDE_PROJECT_DIR: join(base, 'project'),
+      TRAJECTORY_DB_PATH: dbFile,
+      MISE_DATA_DIR: join(base, 'mise'),
+      PATH: process.env.PATH,
+      TMPDIR: base,
+      TMB_SUITE_LOCK_DIR: lockRoot,
+      TMB_TEST_SUITE_SLOTS: '1',
+      MARKS: marksFile,
+    };
+    return { ...e, ...extra };
+  };
+  const runs = (taskId: number): { exit_code: number; timed_out: number }[] => {
+    const db = new DatabaseSync(dbFile, { readOnly: true });
+    try {
+      return db
+        .prepare("SELECT exit_code, timed_out FROM verification_runs WHERE task_id = ? AND source = 'gate' ORDER BY id")
+        .all(taskId)
+        .map((r) => ({ ...(r as { exit_code: number; timed_out: number }) }));
+    } finally {
+      db.close();
+    }
+  };
+  interface GateChild {
+    stderr: () => string;
+    done: Promise<{ stdout: string; stderr: string }>;
+  }
+  const gateChild = (taskId: number, e: NodeJS.ProcessEnv): GateChild => {
+    const script = `const { sweVerificationGate } = await import(process.argv[1]); const r = await sweVerificationGate(process.argv[2], process.env); process.stdout.write(r.stdout);`;
+    const child = spawn(process.execPath, ['--experimental-sqlite', '--no-warnings', '--input-type=module', '-e', script, GATE_URL, completion(taskId)], {
+      env: e,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    return { stderr: () => stderr, done: new Promise((ok) => child.on('exit', () => ok({ stdout, stderr }))) };
+  };
+  const waitFor = async (what: string, ok: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 30_000;
+    while (!ok()) {
+      if (Date.now() > deadline) assert.fail(`timed out waiting for ${what}`);
+      await new Promise((done) => setTimeout(done, 50));
+    }
+  };
+
+  it('TRAJECTORY_PRETOOLUSE_TIMEOUT_S is the hooks.json timeout of the trajectory-server PreToolUse matcher', () => {
+    const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
+      hooks: { PreToolUse: { matcher: string; hooks: { timeout: number }[] }[] };
+    };
+    const entry = hooks.hooks.PreToolUse.find((e) => e.matcher === 'mcp__.*trajectory-server__.*');
+    assert.equal(entry?.hooks[0]?.timeout, TRAJECTORY_PRETOOLUSE_TIMEOUT_S);
+  });
+  it('serializes two concurrent gate runs of full suites outside the budget: both pass, neither times out', async () => {
+    rmSync(marksFile, { force: true });
+    const e = env({ TMB_VERIFICATION_TIMEOUT_S: '8', HOLD_S: '5' });
+    const held = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/other', env: env() });
+    assert.equal(held.kind, 'held');
+    const children = [gateChild(50, e), gateChild(51, e)];
+    try {
+      await waitFor('both gate runs to wait for the slot', () => children.every((c) => c.stderr().includes(`waiting for a suite slot: held by pid ${process.pid}`)));
+    } finally {
+      if (held.kind === 'held') held.release();
+    }
+    const [a, b] = await Promise.all(children.map((c) => c.done));
+    assert.equal(a.stdout, '', a.stdout + a.stderr);
+    assert.equal(b.stdout, '', b.stdout + b.stderr);
+    assert.deepEqual([...runs(50), ...runs(51)], [
+      { exit_code: 0, timed_out: 0 },
+      { exit_code: 0, timed_out: 0 },
+    ]);
+    const m = new Map(
+      readFileSync(marksFile, 'utf8')
+        .split('\n')
+        .filter((l) => l !== '')
+        .map((l) => {
+          const [kind, id, ms] = l.split(' ');
+          return [`${kind} ${id}`, Number(ms)] as const;
+        }),
+    );
+    const [first, second] = (m.get('start A') ?? 0) < (m.get('start B') ?? 0) ? ['A', 'B'] : ['B', 'A'];
+    assert.ok((m.get(`start ${second}`) ?? 0) >= (m.get(`end ${first}`) ?? Infinity), JSON.stringify([...m]));
+  });
+  it('denies with suite slot busy past the wait cap and records no verification run', async () => {
+    const held = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/other', env: env() });
+    assert.equal(held.kind, 'held');
+    try {
+      const r = await sweVerificationGate(completion(52), env({ TMB_VERIFICATION_TIMEOUT_S: String(VERIFICATION_MAX_S) }));
+      const out = decision(r.stdout);
+      assert.equal(out.permissionDecision, 'deny');
+      assert.match(out.permissionDecisionReason ?? '', new RegExp(`^BLOCKED: suite slot busy — every suite slot is held by pid ${process.pid} \\(worktree /w/other\\) for \\d+s; waited \\d+s, the cap of 3s`));
+      assert.match(out.permissionDecisionReason ?? '', /Retry task_update_status/);
+      assert.deepEqual(runs(52), []);
+    } finally {
+      if (held.kind === 'held') held.release();
+    }
+  });
+  it('runs a nested test-run of a full suite inside the gate run on one slot', async () => {
+    assert.deepEqual(await sweVerificationGate(completion(53), env({ TMB_VERIFICATION_TIMEOUT_S: '60' })), ALLOWED);
+    assert.deepEqual(runs(53), [{ exit_code: 0, timed_out: 0 }]);
+    assert.equal(existsSync(join(lockRoot, 'slot-0')), false);
+  });
+  it('runs a targeted command with no wait while the slot is held', async () => {
+    const held = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/other', env: env() });
+    assert.equal(held.kind, 'held');
+    try {
+      assert.deepEqual(await sweVerificationGate(completion(54), env({ TMB_VERIFICATION_TIMEOUT_S: String(VERIFICATION_MAX_S) })), ALLOWED);
+      assert.deepEqual(runs(54), [{ exit_code: 0, timed_out: 0 }]);
+    } finally {
+      if (held.kind === 'held') held.release();
+    }
   });
 });

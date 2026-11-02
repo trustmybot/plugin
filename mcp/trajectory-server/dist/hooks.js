@@ -3984,12 +3984,12 @@ __export(loader_exports, {
 });
 import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 function parserLoadCount() {
   return loads;
 }
 function wasmDir() {
-  const here = dirname2(fileURLToPath2(import.meta.url));
+  const here = dirname2(fileURLToPath3(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
     if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync24 } from "node:fs";
+import { readFileSync as readFileSync25 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -4750,6 +4750,10 @@ function runInstallWorker(env) {
   }
 }
 
+// src/hooks/lib/merge-driver.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 // src/hooks/lib/project-env.ts
 import { existsSync as existsSync2, readFileSync as readFileSync3, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3 } from "node:path";
@@ -4957,6 +4961,46 @@ function setlocaleUtf8(env = process.env) {
   return /(^|\.)utf-?8$/i.test(pick("LC_CTYPE"));
 }
 
+// src/hooks/lib/merge-driver.ts
+var MERGE_DRIVER_CLI = "install-merge-driver";
+var MERGE_DRIVER_NAME = "TMB generated artefact: keep ours, regenerate after the merge";
+var MERGE_DRIVER_COMMAND = `sh -c 'echo "tmb-regen: kept ours for $1 \u2014 run: node --experimental-strip-types scripts/maintenance/regen-generated.ts" >&2' tmb-regen %P`;
+function git(repo, args2, env) {
+  const r = spawnSync2("git", ["-C", repo, ...args2], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  return { ok: !r.error && r.status === 0, stdout: (r.stdout ?? "").replace(/\n+$/, "") };
+}
+function installMergeDriver(repo, env = process.env) {
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.name", MERGE_DRIVER_NAME], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.driver", MERGE_DRIVER_COMMAND], env).ok) return null;
+  const absolute = git(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  const common = absolute.ok ? absolute.stdout : git(repo, ["rev-parse", "--git-common-dir"], env).stdout;
+  return `${common}/config`;
+}
+function mergeDriverCli(args2, env, out2, err2) {
+  let repo = args2[0] ?? "";
+  if (repo === "") {
+    const self2 = installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? posixDirname(fileURLToPath(import.meta.url));
+    const common = git(self2, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+    if (!common.ok || common.stdout === "") {
+      err2(`install-merge-driver: ${self2} is not in a git repository; pass the repo dir
+`);
+      return 1;
+    }
+    repo = posixDirname(common.stdout);
+  }
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) {
+    err2(`install-merge-driver: ${repo} is not a git repository
+`);
+    return 1;
+  }
+  const config = installMergeDriver(repo, env);
+  if (config === null) return 1;
+  out2(`install-merge-driver: merge.tmb-regen installed in ${config}
+`);
+  return 0;
+}
+
 // src/hooks/askuserquestion-length-lint.ts
 var LABEL_MAX_WORDS = 5;
 var DESC_MAX_WORDS = 15;
@@ -5062,7 +5106,7 @@ import { readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants4, readFileSync as readFileSync5, statSync as statSync4 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/hooks/lib/db.ts
 import { accessSync as accessSync3, closeSync as closeSync2, constants as constants3, existsSync as existsSync3, openSync as openSync2, readFileSync as readFileSync4, readSync, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
@@ -5207,7 +5251,7 @@ function agentRole(input = "") {
 }
 
 // src/hooks/lib/sqlite-shell.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { spawnSync as spawnSync3 } from "node:child_process";
 import { accessSync as accessSync2, constants as constants2 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
@@ -5308,7 +5352,7 @@ function cliArgs(call) {
 }
 function runCli(call, env) {
   const limit = spawnLimit(call.killAfterMs, "SIGKILL");
-  const r = spawnSync2("sqlite3", cliArgs(call), {
+  const r = spawnSync3("sqlite3", cliArgs(call), {
     env,
     input: call.sql === void 0 ? call.script ?? "" : void 0,
     stdio: [call.sql === void 0 ? "pipe" : "ignore", "pipe", "pipe"],
@@ -6152,7 +6196,7 @@ function auditWriter(fromNode) {
   return fromNode === "system" ? "server" : "";
 }
 function auditEventsFile(env = process.env) {
-  const here = posixDirname(fileURLToPath(import.meta.url));
+  const here = posixDirname(fileURLToPath2(import.meta.url));
   const root = installRoot(here) ?? env.CLAUDE_PLUGIN_ROOT ?? here;
   return `${root}/${AUDIT_EVENTS_REL}`;
 }
@@ -6691,7 +6735,7 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
@@ -7068,7 +7112,7 @@ function onPath3(name3, env) {
 }
 function run2(file, args2, cwd, env) {
   const limit = spawnLimit();
-  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
   noteSpawn(limit, r);
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
@@ -9267,8 +9311,8 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
   const rootc = host.rootc();
   const rootTrim = trimSlash(rootc);
   let bound = rootc;
-  const git2 = cmd === "git";
-  if (git2) {
+  const git3 = cmd === "git";
+  if (git3) {
     bound = pathCanonical(m.gdir);
     if (!(bound + "/").startsWith(rootTrim + "/")) return null;
   }
@@ -9291,7 +9335,7 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
       w = pathCanonical(w);
       if (!(w + "/").startsWith(trimSlash(bound) + "/")) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
-      const at2 = git2 ? trimSlash(p) : trimSlash(v);
+      const at2 = git3 ? trimSlash(p) : trimSlash(v);
       if (isPromptSurfaceUnder(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at2}/*.md`);
       else if (cmd !== "ls") {
         const rel = w.replace(/^\//, "");
@@ -9308,7 +9352,7 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
           vals.push(`${at2}/${d === "CLAUDE.md" ? d : `${sub}/*.md`}`);
         }
       }
-      if (git2) continue;
+      if (git3) continue;
       vals.push(v, `${trimSlash(v)}/*`);
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
@@ -11872,9 +11916,9 @@ function proveScript(lang, src) {
       if (toks[j + 1]?.text === "=") return fail2;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
-    const sleep4 = perl ? perlSleepSelect(toks, k) : 0;
-    if (sleep4) {
-      k += sleep4 - 1;
+    const sleep5 = perl ? perlSleepSelect(toks, k) : 0;
+    if (sleep5) {
+      k += sleep5 - 1;
       continue;
     }
     let dotted = name3;
@@ -14712,9 +14756,9 @@ function containmentGuardWith(analyze2) {
 var containmentGuard = containmentGuardWith(writePaths);
 
 // src/hooks/deferred-tools-drift-warn.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { lstatSync as lstatSync5, readdirSync as readdirSync2, statSync as statSync14 } from "node:fs";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 var GATE_NAME8 = "deferred-tools-drift-warn";
 var ANCESTRY_GUARD = 40;
 var SERVER_PATTERN = "trajectory-server/dist/index.js";
@@ -14723,7 +14767,7 @@ var INT64_MIN = -(2n ** 63n);
 var ArithError = class extends Error {
 };
 function run3(cmd, args2, env) {
-  const r = spawnSync4(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync5(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function testInt(text) {
@@ -14858,7 +14902,7 @@ function isDir3(path) {
   }
 }
 function pluginRoot() {
-  return installRoot(posixDirname(fileURLToPath3(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
 }
 function driftContext(count, pid) {
   return `[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${pid}). CC's deferred-tools registry is session-scoped and only a new session replays tool discovery. Workaround (Tier 2): fully quit and relaunch Claude Code to bind the new tools. See #98.`;
@@ -15238,7 +15282,7 @@ var gitPushGuard = async (payload, env) => {
 };
 
 // src/hooks/mcp-health-check.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync17, writeFileSync as writeFileSync3 } from "node:fs";
 
 // src/hooks/lib/install.ts
@@ -15605,7 +15649,7 @@ function sampleCount(raw) {
   return Number(v);
 }
 function pgrepLines(pattern, env) {
-  const r = spawnSync5("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync6("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return (r.stdout ?? "").split("\n").length - 1;
 }
 function samplePgrep(env) {
@@ -15763,12 +15807,12 @@ var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
 var REGEN_DRIVER = "tmb-regen";
-async function git(repo, args2, env) {
+async function git2(repo, args2, env) {
   const r = await gitSpawn(repo, args2, { env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
   return { code: r.code, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") || (r.error?.message ?? "") };
 }
 async function revParse(repo, rev, env) {
-  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
+  const r = await git2(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
   const sha = r.stdout.trim();
   return r.code === 0 && sha !== "" ? sha : null;
 }
@@ -15799,7 +15843,7 @@ function dbUnavailable(env) {
 `, code: 0 };
 }
 async function treeBlobs(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
+  const r = await git2(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
   if (r.code !== 0) return null;
   const blobs = /* @__PURE__ */ new Map();
   for (const entry of nulFields(r.stdout)) {
@@ -15856,7 +15900,7 @@ function dirOf(path) {
   return slash < 0 ? "" : path.slice(0, slash);
 }
 async function removedInDiff(repo, base2, commit, env) {
-  const diff = await git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
+  const diff = await git2(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
   if (diff.code !== 0) return `git diff ${base2}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
   const paths = [];
@@ -15906,11 +15950,11 @@ async function staleDocRefs(repo, base2, commit, env) {
   return hits;
 }
 async function hasChangelogDir(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
+  const r = await git2(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== "";
 }
 async function nonRegenPaths(repo, rev, paths, env) {
-  const r = await git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
+  const r = await git2(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
   if (r.code !== 0) return null;
   const fields = nulFields(r.stdout);
   if (fields.length % 3 !== 0) return null;
@@ -15995,7 +16039,7 @@ async function preflight(db, taskId, env) {
       actual: `no PR target ref resolves in ${repo}`
     });
   }
-  const merge = await git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
+  const merge = await git2(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
     const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
@@ -16007,7 +16051,7 @@ async function preflight(db, taskId, env) {
       });
     }
   }
-  const mergeBase = (await git(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
+  const mergeBase = (await git2(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
   if (mergeBase === "") {
     return deny3({
       check: "base_conflict",
@@ -16015,16 +16059,16 @@ async function preflight(db, taskId, env) {
       actual: "no merge-base"
     });
   }
-  const stale = await staleDocRefs(repo, mergeBase, commit, env);
-  if (typeof stale === "string" || stale.length > 0) {
+  const stale2 = await staleDocRefs(repo, mergeBase, commit, env);
+  if (typeof stale2 === "string" || stale2.length > 0) {
     return deny3({
       check: "stale_doc_ref",
       expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${mergeBase}..${commit} removes`,
-      actual: typeof stale === "string" ? stale : listed(stale)
+      actual: typeof stale2 === "string" ? stale2 : listed(stale2)
     });
   }
   if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
-    const added = await git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
+    const added = await git2(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === "") {
       return deny3({
         check: "missing_changelog",
@@ -17297,7 +17341,7 @@ import { availableParallelism, loadavg } from "node:os";
 // src/hooks/lib/persona.ts
 import { accessSync as accessSync8, constants as constants8, lstatSync as lstatSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync5, readFileSync as readFileSync12, realpathSync as realpathSync5, statSync as statSync19, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 var STALE_MINUTES = 1440;
 var OLD_BLOCK = "<!-- tmb:persona start";
 var OLD_BLOCK_NOTE = "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]";
@@ -17353,22 +17397,22 @@ function manifestField(root, key2, haveJq) {
 }
 function defaultPluginRoot() {
   try {
-    return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
   } catch {
     return "";
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot5 === "") return null;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot4 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot5);
+  const pluginReal = physicalDir2(pluginRoot4);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot5, "version", haveJq);
-  const name3 = manifestField(pluginRoot5, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot5, source: `${pluginRoot5}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot4, "version", haveJq);
+  const name3 = manifestField(pluginRoot4, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot4, source: `${pluginRoot4}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -17987,7 +18031,7 @@ function makeLivenessSentinel(clock = () => /* @__PURE__ */ new Date()) {
 var livenessSentinel = makeLivenessSentinel();
 
 // src/hooks/activation-routine.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { readFileSync as readFileSync14, statSync as statSync22 } from "node:fs";
 
 // src/hooks/cmd-analysis/harness-turn.ts
@@ -18008,8 +18052,11 @@ var GATE_NAME27 = "activation-routine";
 var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
 var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
 var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
-var TOOL_CALLS_LIMIT = 150;
-var CONTEXT_PER_CALL_LIMIT = 6e4;
+var RECENT_CALLS = 5;
+var CONTEXT_LIMIT = 12e4;
+var ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
+var NEWLINE = 10;
+var SYNTHETIC_MODEL = "<synthetic>";
 var LocaleGrep = class {
   constructor(utf8) {
     this.utf8 = utf8;
@@ -18073,7 +18120,7 @@ function saysBro(prompt, grep) {
 function serverDown(env) {
   if (!commandOnPath2("pgrep", env)) return false;
   try {
-    return spawnSync6("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+    return spawnSync7("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
   } catch {
     return false;
   }
@@ -18096,35 +18143,64 @@ function activationContext(onboardedCount, pending2) {
   }
   return `[tmb activation routine \u2014 pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume \u2014 they would be redundant duplicate reads. ${pendingLine}`;
 }
-function limitsPassed(toolUses2, cacheReadTokens) {
-  if (toolUses2 <= 0) return [];
-  const contextPerCall = Math.ceil(cacheReadTokens / toolUses2);
-  const passed = [];
-  if (toolUses2 > TOOL_CALLS_LIMIT) passed.push(`${toolUses2} tool calls (limit ${TOOL_CALLS_LIMIT})`);
-  if (contextPerCall > CONTEXT_PER_CALL_LIMIT) passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
-  return passed;
-}
-function pastUsageLimits(toolUses2, cacheReadTokens) {
-  return limitsPassed(toolUses2, cacheReadTokens).length > 0;
-}
-function usageWarning(toolUses2, cacheReadTokens) {
-  const passed = limitsPassed(toolUses2, cacheReadTokens);
-  if (passed.length === 0) return "";
-  return `\u26A0\uFE0F This bro session is past its usage limits: ${passed.join(", ")}. Finish what is in flight, then end the session and resume cold from the DB.`;
-}
-function sessionUsageWarning(db, sessionId, env) {
-  if (!SESSION_ID_LINE.test(sessionId)) return "";
+function callContext(line) {
+  let entry;
   try {
-    const row = sqliteRo(
-      db,
-      `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
-      env
-    );
-    const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
-    return usage === null ? "" : usageWarning(Number(usage[1]), Number(usage[2]));
+    entry = JSON.parse(line);
   } catch {
-    return "";
+    return null;
   }
+  if (entry === null || typeof entry !== "object") return null;
+  const { type, isSidechain, message } = entry;
+  if (type !== "assistant" || isSidechain === true || message === null || typeof message !== "object") return null;
+  const { id, model: model3, usage } = message;
+  if (model3 === SYNTHETIC_MODEL || usage === null || typeof usage !== "object") return null;
+  const count = (key2) => {
+    const value = usage[key2];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    id: typeof id === "string" ? id : null,
+    context: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens")
+  };
+}
+function* assistantLines(transcript) {
+  let from = 0;
+  for (; ; ) {
+    const hit = transcript.indexOf(ASSISTANT_MARKER, from);
+    if (hit === -1) return;
+    const start2 = transcript.lastIndexOf(NEWLINE, hit) + 1;
+    const newline = transcript.indexOf(NEWLINE, hit);
+    const end = newline === -1 ? transcript.length : newline;
+    yield transcript.toString("utf8", start2, end);
+    from = end + 1;
+  }
+}
+function recentContext(transcript) {
+  if (transcript === null) return null;
+  const seen = /* @__PURE__ */ new Set();
+  let first = null;
+  const recent = [];
+  for (const line of assistantLines(transcript)) {
+    const call = callContext(line);
+    if (call === null) continue;
+    if (call.id !== null) {
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+    }
+    first ??= call.context;
+    recent.push(call.context);
+    if (recent.length > RECENT_CALLS) recent.shift();
+  }
+  if (first === null) return null;
+  return { mean: Math.ceil(recent.reduce((sum2, c) => sum2 + c, 0) / recent.length), calls: recent.length, first };
+}
+function pastContextLimit(recent) {
+  return recent !== null && recent.mean > CONTEXT_LIMIT;
+}
+function usageWarning(recent) {
+  if (recent === null || !pastContextLimit(recent)) return "";
+  return `\u26A0\uFE0F This bro session's recent context is past its limit: ${recent.mean} mean input context over the last ${recent.calls} calls (limit ${CONTEXT_LIMIT}; its first call took ${recent.first}, the cold-start reference). Finish what is in flight, then end the session and resume cold from the DB.`;
 }
 function handoffPending(db, sessionId, env) {
   if (!SESSION_ID_LINE.test(sessionId)) return "";
@@ -18141,7 +18217,8 @@ function activationRoutine(payload, env) {
     const field7 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
     const prompt = field7("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field7("transcript_path")), grep)) return ALLOW;
+    const transcript = readTranscript3(field7("transcript_path"));
+    if (!saysBro(prompt, grep) && !isStickyBro(transcript, grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
     const db = dbPathAdvisory(GATE_NAME27, env, (line) => process.stderr.write(`${line}
@@ -18153,7 +18230,7 @@ function activationRoutine(payload, env) {
     let context4 = activationContext(onboarded, pending2);
     if (halt !== "") context4 = `${halt} ${context4}`;
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context4 = `${context4} session_id=${sessionId}`;
-    const warning = sessionUsageWarning(db, sessionId, env);
+    const warning = usageWarning(recentContext(transcript));
     if (warning !== "") context4 = `${context4}
 ${warning}`;
     return emit(context4);
@@ -18294,14 +18371,14 @@ function validCwd(value) {
 function blockingOpenRun(sessionSql) {
   return `EXISTS (SELECT 1 FROM agent_runs r WHERE r.session_id = ${sessionSql} AND r.agent_type <> 'bro' AND r.completed_at IS NULL AND r.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','${OPEN_RUN_MAX_AGE}'))`;
 }
-function atBoundary(db, sessionId, env) {
+function atBoundary(db, sessionId, transcriptPath, env) {
+  if (typeof transcriptPath !== "string" || !pastContextLimit(recentContext(readTranscript3(transcriptPath)))) return false;
   const row = sqliteRo(
     db,
-    `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0), ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
+    `SELECT ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
     env
   );
-  const usage = /^([0-9]+)\|([0-9]+)\|0$/.exec(row);
-  return usage !== null && pastUsageLimits(Number(usage[1]), Number(usage[2]));
+  return row === "0";
 }
 function truncated(text, max) {
   if (text.length <= max) return text;
@@ -18339,7 +18416,7 @@ var sessionHandoff = (payload, env) => {
     const cwd = input.cwd;
     if (!validSessionId(sessionId) || !validCwd(cwd)) return ALLOW;
     const db = dbPath(env);
-    if (db === null || !atBoundary(db, sessionId, env)) return ALLOW;
+    if (db === null || !atBoundary(db, sessionId, input.transcript_path, env)) return ALLOW;
     const written = dbWrite(db, upsertSql(sessionId, cwd, input.last_assistant_message), { env, caller: GATE_NAME30 });
     if (!written.ok) return ALLOW;
     const state = JSON.parse(written.stdout);
@@ -18454,7 +18531,7 @@ function userPromptPersona(payload, env) {
 
 // src/hooks/prompt-intent-hints.ts
 import { statSync as statSync24 } from "node:fs";
-import { fileURLToPath as fileURLToPath5, pathToFileURL as pathToFileURL2 } from "node:url";
+import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
 
 // src/hooks/lib/jq-raw.ts
 var JqUnindexable = class extends Error {
@@ -19060,7 +19137,7 @@ function isFile11(path) {
 }
 function defaultPluginRoot2() {
   try {
-    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath6(import.meta.url))) ?? "";
   } catch {
     return "";
   }
@@ -19680,15 +19757,15 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn3, spawnSync as spawnSync7 } from "node:child_process";
-import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync8, mkdtempSync, openSync as openSync3, readFileSync as readFileSync16, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { spawn as spawn3, spawnSync as spawnSync9 } from "node:child_process";
+import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync9, mkdtempSync, openSync as openSync3, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync26, writeFileSync as writeFileSync7 } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { resolve as resolve3 } from "node:path";
 
 // src/hooks/lib/verification-carry.ts
 import { realpathSync as realpathSync6 } from "node:fs";
 import { basename as basename7, matchesGlob } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
 var VERIFICATION_INPUTS_VERSION = 1;
 var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -19806,7 +19883,7 @@ async function planCarrySafe(req, env = process.env) {
 }
 function isMainModule() {
   const entry = process.argv[1];
-  const self2 = fileURLToPath6(import.meta.url);
+  const self2 = fileURLToPath7(import.meta.url);
   if (entry === void 0 || basename7(self2) !== "verification-carry.js") return false;
   try {
     return realpathSync6(entry) === realpathSync6(self2);
@@ -19923,8 +20000,234 @@ var sweBriefGate = (payload, env) => {
   };
 };
 
+// src/suite-lock.ts
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join6 } from "node:path";
+var SUITE_LOCK_POLL_MS = 500;
+var SUITE_LOCK_NOTICE_MS = 6e4;
+var SUITE_LOCK_STALE_MS = 1e4;
+var SUITE_LOCK_HELD_ENV = "TMB_SUITE_LOCK_HELD";
+var SHELL_SEPARATORS = /&&|\|\||[;|&\n]/;
+var PACKAGE_TEST = /^(?:(?:bun|pnpm|npm) run test|npm test|pnpm test)(?:\s|$)/;
+var NODE_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "-r",
+  "--require",
+  "--import",
+  "--loader",
+  "--experimental-loader",
+  "--conditions",
+  "-C",
+  "--env-file",
+  "--test-reporter",
+  "--test-reporter-destination",
+  "--test-name-pattern",
+  "--test-skip-pattern",
+  "--test-concurrency",
+  "--test-shard",
+  "--test-timeout"
+]);
+function unquote(token) {
+  return token.replace(/^(['"])(.*)\1$/, "$2");
+}
+function commandWords(segment) {
+  const words3 = segment.trim().split(/\s+/).filter((w) => w !== "").map(unquote);
+  let i2 = 0;
+  while (i2 < words3.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words3[i2]) || words3[i2] === "env")) i2++;
+  return words3.slice(i2);
+}
+function nodeFullSuite(words3) {
+  if (!/(?:^|\/)node$/.test(words3[0] ?? "") || !words3.includes("--test")) return false;
+  const files = [];
+  for (let i2 = 1; i2 < words3.length; i2++) {
+    const w = words3[i2];
+    if (NODE_VALUE_FLAGS.has(w)) i2++;
+    else if (!w.startsWith("-")) files.push(w);
+  }
+  return files.length === 0 || files.some((f) => /[*?[]/.test(f));
+}
+function isFullSuite(command) {
+  return command.split(SHELL_SEPARATORS).some((segment) => {
+    const words3 = commandWords(segment);
+    if (words3.length === 0) return false;
+    if (PACKAGE_TEST.test(words3.join(" "))) return true;
+    if (words3.some((w) => /(?:^|\/)tests\/run-all\.sh$/.test(w))) return true;
+    return nodeFullSuite(words3);
+  });
+}
+function suiteSlots(env) {
+  const raw = env.TMB_TEST_SUITE_SLOTS ?? "";
+  return /^[1-9][0-9]{0,2}$/.test(raw) ? Number(raw) : 1;
+}
+function ownedDir(dir, recursive) {
+  try {
+    mkdirSync8(dir, { recursive, mode: 448 });
+  } catch (e) {
+    if (e.code !== "EEXIST") return null;
+  }
+  try {
+    const st = lstatSync8(dir);
+    const uid = process.geteuid?.();
+    return st.isDirectory() && !st.isSymbolicLink() && (uid === void 0 || st.uid === uid) ? dir : null;
+  } catch {
+    return null;
+  }
+}
+function suiteLockRoot(env) {
+  const override = env.TMB_SUITE_LOCK_DIR ?? "";
+  if (override !== "") return ownedDir(override, true);
+  const uid = process.geteuid?.();
+  if (uid === void 0) return null;
+  const base2 = ownedDir(`/tmp/claude-${uid}`, false);
+  return base2 === null ? null : ownedDir(join6(base2, "tmb-suite-lock"), false);
+}
+var warnedUnusable = false;
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code !== "ESRCH";
+  }
+}
+function readHolderText(slot) {
+  try {
+    return readFileSync16(join6(slot, "holder"), "utf8");
+  } catch {
+    return null;
+  }
+}
+function parseHolder(text) {
+  if (text === null) return null;
+  try {
+    const h = JSON.parse(text);
+    if (typeof h.pid !== "number" || !Number.isInteger(h.pid) || h.pid <= 0) return null;
+    return {
+      pid: h.pid,
+      pgid: typeof h.pgid === "number" ? h.pgid : null,
+      worktree: typeof h.worktree === "string" ? h.worktree : "",
+      command: typeof h.command === "string" ? h.command : "",
+      started: typeof h.started === "string" ? h.started : ""
+    };
+  } catch {
+    return null;
+  }
+}
+function readHolder(slot) {
+  return parseHolder(readHolderText(slot));
+}
+function mtimeMs(path) {
+  try {
+    return statSync25(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+function stale(slot) {
+  const holder = readHolder(slot);
+  if (holder !== null) return !pidAlive(holder.pid);
+  const mtime = mtimeMs(slot);
+  return mtime !== null && Date.now() - mtime > SUITE_LOCK_STALE_MS;
+}
+function tryMkdir(dir) {
+  try {
+    mkdirSync8(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reclaim(slot) {
+  const mutex = `${slot}.reclaim`;
+  if (!tryMkdir(mutex)) {
+    const mtime = mtimeMs(mutex);
+    if (mtime !== null && Date.now() - mtime > SUITE_LOCK_STALE_MS) rmSync4(mutex, { recursive: true, force: true });
+    return;
+  }
+  try {
+    if (stale(slot)) rmSync4(slot, { recursive: true, force: true });
+  } finally {
+    rmSync4(mutex, { recursive: true, force: true });
+  }
+}
+function processGroup() {
+  const r = spawnSync8("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const pgid = (r.stdout ?? "").trim();
+  return /^[0-9]+$/.test(pgid) ? Number(pgid) : null;
+}
+function claim2(slot, opts, pgid) {
+  const text = `${JSON.stringify({ pid: process.pid, pgid, worktree: opts.worktree, command: opts.command, started: (/* @__PURE__ */ new Date()).toISOString() })}
+`;
+  try {
+    writeFileSync6(join6(slot, "holder.tmp"), text);
+    renameSync4(join6(slot, "holder.tmp"), join6(slot, "holder"));
+  } catch {
+  }
+  return () => {
+    if (readHolderText(slot) === text) rmSync4(slot, { recursive: true, force: true });
+  };
+}
+function ageS(holder) {
+  const started = holder === null ? NaN : Date.parse(holder.started);
+  return Number.isNaN(started) ? 0 : Math.max(0, Math.round((Date.now() - started) / 1e3));
+}
+function oldestHolder(slots) {
+  let oldest = null;
+  for (const slot of slots) {
+    const h = readHolder(slot);
+    if (h !== null && (oldest === null || ageS(h) > ageS(oldest))) oldest = h;
+  }
+  return oldest;
+}
+function describeHolder(holder) {
+  if (holder === null) return "held by an unnamed holder";
+  return `held by pid ${holder.pid} (worktree ${holder.worktree || "?"}) for ${ageS(holder)}s`;
+}
+var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+async function acquireSuiteSlot(opts) {
+  const stderr2 = opts.stderr ?? ((text) => process.stderr.write(text));
+  const inherited = opts.env[SUITE_LOCK_HELD_ENV] ?? "";
+  if (inherited !== "") {
+    const holder = readHolder(inherited);
+    if (holder !== null && pidAlive(holder.pid)) return { kind: "nested", slot: inherited };
+  }
+  const root = suiteLockRoot(opts.env);
+  if (root === null) {
+    if (!warnedUnusable) {
+      warnedUnusable = true;
+      stderr2("suite-lock: the suite-slot lock root is unusable (a symlink, another user's dir, or not creatable); running unlocked\n");
+    }
+    return { kind: "unlocked" };
+  }
+  const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join6(root, `slot-${i2}`));
+  const pgid = processGroup();
+  const begun = Date.now();
+  let noticeAt = 0;
+  for (; ; ) {
+    for (const slot of slots) {
+      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+      if (stale(slot)) {
+        reclaim(slot);
+        if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+      }
+    }
+    const waited = Date.now() - begun;
+    if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
+      return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
+    }
+    if (waited >= noticeAt) {
+      stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+`);
+      noticeAt += SUITE_LOCK_NOTICE_MS;
+    }
+    await sleep2(SUITE_LOCK_POLL_MS);
+  }
+}
+
 // src/hooks/swe-verification-gate.ts
 var GATE_NAME44 = "swe-verification-gate";
+var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+var SUITE_WAIT_MARGIN_S = 30;
 var VERIFICATION_DEFAULT_S = 900;
 var VERIFICATION_MAX_S = 1800;
 var RECORD_BUDGET_MS = 3e3;
@@ -19944,7 +20247,7 @@ var UNRECORDED_PASS_CONTEXT = '{"hookSpecificOutput":{"hookEventName":"PreToolUs
 var stderr = (text) => {
   process.stderr.write(text);
 };
-var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+var sleep3 = (ms) => new Promise((done) => setTimeout(done, ms));
 function beforeBar(s) {
   const i2 = s.indexOf("|");
   return i2 < 0 ? s : s.slice(0, i2);
@@ -20000,7 +20303,7 @@ function executable(path) {
   }
 }
 function capture3(cmd, args2, dir, env) {
-  const r = spawnSync7(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync9(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function toolchainDirs(env, worktree) {
@@ -20032,7 +20335,7 @@ function joinToolchainPath(dirs, base2) {
 function repoPathByName2(db, name3, env) {
   let file = false;
   try {
-    file = statSync25(db).isFile();
+    file = statSync26(db).isFile();
   } catch {
   }
   if (!file || !haveSqlite(env) || name3 === "") return "";
@@ -20172,7 +20475,7 @@ SELECT last_insert_rowid();`
     for (let attempt = 1; ; attempt += 1) {
       if (this.finishWrite(rc, timedOut2).ok) return;
       if (attempt >= FINISH_ATTEMPTS) break;
-      await sleep2(attempt * FINISH_BACKOFF_MS);
+      await sleep3(attempt * FINISH_BACKOFF_MS);
     }
     stderr(
       `${GATE_NAME44}: verification run #${this.runId} record unfinished \u2014 its finish write failed ${FINISH_ATTEMPTS} times; the decision stands (trajectory_doctor reports it under no_unfinished_verification_runs after 2 h)
@@ -20257,8 +20560,8 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
     const cmdMs = Date.now() - cmdStart;
     let out2 = "";
     try {
-      out2 = commandSubstitution(readFileSync16(outPath, "utf8"));
-      rmSync4(outPath, { force: true });
+      out2 = commandSubstitution(readFileSync17(outPath, "utf8"));
+      rmSync5(outPath, { force: true });
     } catch {
     }
     const elapsed = msToS(cmdMs);
@@ -20370,19 +20673,19 @@ function nowS() {
 }
 function lockHeldSince(lock) {
   try {
-    const since = commandSubstitution(readFileSync16(`${lock}/started`, "utf8"));
+    const since = commandSubstitution(readFileSync17(`${lock}/started`, "utf8"));
     if (/^[0-9]+$/.test(since)) return Number(since);
   } catch {
   }
   try {
-    return Math.floor(statSync25(lock).mtimeMs / 1e3);
+    return Math.floor(statSync26(lock).mtimeMs / 1e3);
   } catch {
     return null;
   }
 }
-function tryMkdir(dir) {
+function tryMkdir2(dir) {
   try {
-    mkdirSync8(dir);
+    mkdirSync9(dir);
     return true;
   } catch {
     return false;
@@ -20390,19 +20693,19 @@ function tryMkdir(dir) {
 }
 function removeQuietly(path) {
   try {
-    rmSync4(path, { recursive: true, force: true });
+    rmSync5(path, { recursive: true, force: true });
   } catch {
   }
 }
 async function acquireLock(lock, staleS) {
-  while (!tryMkdir(lock)) {
+  while (!tryMkdir2(lock)) {
     const held = lockHeldSince(lock) ?? nowS();
     if (nowS() - held > staleS) {
       removeQuietly(lock);
       continue;
     }
     while (isDir(lock)) {
-      await sleep2(LOCK_POLL_MS);
+      await sleep3(LOCK_POLL_MS);
       const since = lockHeldSince(lock);
       if (since === null) continue;
       if (nowS() - since > staleS) break;
@@ -20518,26 +20821,45 @@ var sweVerificationGate = async (payload, env) => {
         `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) \u2014 verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`
       );
     };
+    const suiteCommand = [...commands, ...findings.map((f) => typeof f.probe_cmd === "string" ? f.probe_cmd : "")].find(isFullSuite);
+    const verify = async () => {
+      if (suiteCommand === void 0) return new VerificationRun(ctx).run();
+      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
+      if (slot.kind === "busy") {
+        return deny7(
+          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
+        );
+      }
+      try {
+        const reusedAfterSlot = reuse();
+        if (reusedAfterSlot !== null) return reusedAfterSlot;
+        const env2 = slot.kind === "held" ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
+        return await new VerificationRun({ ...ctx, env: env2 }).run();
+      } finally {
+        if (slot.kind === "held") slot.release();
+      }
+    };
     const reused = reuse();
     if (reused !== null) return { stdout: reused, code: 0 };
-    if (wtSha === "") return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    if (wtSha === "") return { stdout: await verify(), code: 0 };
     const lockRoot = `${posixDirname(db)}/locks`;
     try {
-      mkdirSync8(lockRoot, { recursive: true });
+      mkdirSync9(lockRoot, { recursive: true });
     } catch {
-      return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+      return { stdout: await verify(), code: 0 };
     }
     const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
     await acquireLock(lockDir, budget.timeoutS + 60);
     lock = lockDir;
     try {
-      writeFileSync6(`${lock}/started`, `${nowS()}
+      writeFileSync7(`${lock}/started`, `${nowS()}
 `);
     } catch {
     }
     const reusedAfterWait = reuse();
     if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
-    return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    return { stdout: await verify(), code: 0 };
   } finally {
     if (lock !== "") removeQuietly(lock);
     removeQuietly(scratch);
@@ -20861,7 +21183,7 @@ var cheatcodeInstallApproval = (payload, env) => {
 };
 
 // src/hooks/stay-on-base-guard.ts
-import { statSync as statSync26 } from "node:fs";
+import { statSync as statSync27 } from "node:fs";
 
 // src/hooks/lib/statement-rows.ts
 function readTabFields2(line, n3) {
@@ -20909,7 +21231,7 @@ function switchTarget(sub) {
 }
 function isFile12(path) {
   try {
-    return statSync26(path).isFile();
+    return statSync27(path).isFile();
   } catch {
     return false;
   }
@@ -21159,8 +21481,8 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/orphan-scan.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
-import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync27 } from "node:fs";
+import { spawnSync as spawnSync10 } from "node:child_process";
+import { existsSync as existsSync12, lstatSync as lstatSync9, opendirSync, readFileSync as readFileSync18, rmSync as rmSync6, statSync as statSync28 } from "node:fs";
 var GATE_NAME55 = "orphan-scan";
 var DEADLINE_S = 4;
 var ANCESTRY_GUARD2 = 40;
@@ -21195,7 +21517,7 @@ function isCcCommand2(command) {
   return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
 }
 function capture4(cmd, args2, env) {
-  const r = spawnSync8(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.error ? "" : r.stdout ?? "";
 }
 function procPpid2(pid, env) {
@@ -21240,21 +21562,21 @@ function exists(path) {
 }
 function nonEmpty(path) {
   try {
-    return statSync27(path).size > 0;
+    return statSync28(path).size > 0;
   } catch {
     return false;
   }
 }
 function isFile13(path) {
   try {
-    return statSync27(path).isFile();
+    return statSync28(path).isFile();
   } catch {
     return false;
   }
 }
 function isDir7(path) {
   try {
-    return statSync27(path).isDirectory();
+    return statSync28(path).isDirectory();
   } catch {
     return false;
   }
@@ -21275,7 +21597,7 @@ function children(value) {
 function pinnedPaths(json) {
   let text;
   try {
-    text = readFileSync17(json, "utf8");
+    text = readFileSync18(json, "utf8");
   } catch {
     return [];
   }
@@ -21318,7 +21640,7 @@ function cacheVersionDirs(root, plugin, within) {
         const path = `${dir}/${entry.name}`;
         let directory;
         try {
-          directory = lstatSync8(path).isDirectory();
+          directory = lstatSync9(path).isDirectory();
         } catch {
           continue;
         }
@@ -21334,7 +21656,7 @@ function cacheVersionDirs(root, plugin, within) {
     }
   };
   try {
-    if (!lstatSync8(root).isDirectory()) return out2;
+    if (!lstatSync9(root).isDirectory()) return out2;
   } catch {
     return out2;
   }
@@ -21418,7 +21740,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const db of staleDbs) {
       if (db === liveDb) continue;
       try {
-        rmSync5(db, { force: true });
+        rmSync6(db, { force: true });
         cleaned.push(`removed stale DB: ${db}`);
       } catch {
       }
@@ -21426,7 +21748,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const vdir of unusedCache) {
       if (!vdir.startsWith(`${cacheRoot}/`)) continue;
       try {
-        rmSync5(vdir, { recursive: true, force: true });
+        rmSync6(vdir, { recursive: true, force: true });
         cleaned.push(`removed unused cache version: ${vdir}`);
       } catch {
       }
@@ -21461,8 +21783,8 @@ var orphanScan = (_payload, env) => {
 
 // src/hooks/session-start-prescan.ts
 import { spawn as spawn4 } from "node:child_process";
-import { readdirSync as readdirSync7, readFileSync as readFileSync18, statSync as statSync28 } from "node:fs";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
+import { readdirSync as readdirSync7, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
+import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME56 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
 var SUBDIR_STACKS_MAX = 3;
@@ -21474,7 +21796,7 @@ var NO_PROJECT = "(no project resolves)";
 var SOURCE_EXCLUDED = /^(\.claude\/|node_modules\/|dist\/|build\/|\.git\/)/;
 function isFile14(path) {
   try {
-    return statSync28(path).isFile();
+    return statSync29(path).isFile();
   } catch {
     return false;
   }
@@ -21482,7 +21804,7 @@ function isFile14(path) {
 function isDir8(path) {
   if (path === "") return false;
   try {
-    return statSync28(path).isDirectory();
+    return statSync29(path).isDirectory();
   } catch {
     return false;
   }
@@ -21580,7 +21902,7 @@ function globNames(dir, env, suffix = "") {
 function jqVersion(manifest) {
   let text;
   try {
-    text = readFileSync18(manifest, "utf8");
+    text = readFileSync19(manifest, "utf8");
   } catch {
     return "";
   }
@@ -21722,7 +22044,7 @@ function doctorBudget(raw) {
 function doctorState(root, db, env) {
   let doc;
   try {
-    doc = JSON.parse(readFileSync18(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
+    doc = JSON.parse(readFileSync19(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
   } catch {
     return "unchecked (no contract list)";
   }
@@ -21771,7 +22093,7 @@ function coldNote(root, db, env) {
   return "world model is cold \u2014 run /scan before planning so world_model_get has a project map";
 }
 function pluginRoot2() {
-  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
 }
 async function sessionStartPrescanRun(env, root, stderr2) {
   if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
@@ -21870,7 +22192,7 @@ var sessionStartPrescan = async (_payload, env) => {
 
 // src/hooks/clean-merged-branch.ts
 import { spawn as spawn5 } from "node:child_process";
-import { statSync as statSync29 } from "node:fs";
+import { statSync as statSync30 } from "node:fs";
 
 // src/hooks/lib/merge.ts
 function readMergePayload(payload) {
@@ -21903,7 +22225,7 @@ var MERGE_CMD = /(^|[^A-Za-z0-9_-])(gh[ \t\v\f\r]+pr[ \t\v\f\r]+merge|glab[ \t\v
 var MERGE_PREFIX = /^.*(gh[ \t\v\f\r]+pr|glab[ \t\v\f\r]+mr)[ \t\v\f\r]+merge/;
 function isFile15(path) {
   try {
-    return statSync29(path).isFile();
+    return statSync30(path).isFile();
   } catch {
     return false;
   }
@@ -22023,8 +22345,8 @@ var cleanMergedBranch = async (payload, env) => {
 };
 
 // src/hooks/close-issue-on-merge.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
-import { statSync as statSync30 } from "node:fs";
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { statSync as statSync31 } from "node:fs";
 
 // src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
@@ -22066,13 +22388,13 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
 var CLOSING_REF = /(close[sd]?|fix(e[sd])?|resolve[sd]?)[ \t\v\f\r]+(GH[ \t\v\f\r]+)?#[0-9]+/gi;
 function isFile16(path) {
   try {
-    return statSync30(path).isFile();
+    return statSync31(path).isFile();
   } catch {
     return false;
   }
 }
 function gh(args2, repoDir, env) {
-  const r = spawnSync9("gh", args2, {
+  const r = spawnSync11("gh", args2, {
     cwd: repoDir,
     encoding: "utf8",
     env,
@@ -22357,7 +22679,7 @@ var closeIssueOnMerge = async (payload, env) => {
 };
 
 // src/hooks/swe-atomic-close.ts
-import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync9, readFileSync as readFileSync19, realpathSync as realpathSync7, renameSync as renameSync4, statSync as statSync31 } from "node:fs";
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync10, readFileSync as readFileSync20, realpathSync as realpathSync7, renameSync as renameSync5, statSync as statSync32 } from "node:fs";
 var GATE_NAME59 = "swe-atomic-close";
 var FROM_NODE2 = "hook:swe-atomic-close";
 var LOG_ROTATE_BYTES2 = 1048576;
@@ -22373,7 +22695,7 @@ var JqError7 = class extends Error {
 var isRawJson4 = (value) => JSON.isRawJSON?.(value) ?? false;
 function isFile17(path) {
   try {
-    return statSync31(path).isFile();
+    return statSync32(path).isFile();
   } catch {
     return false;
   }
@@ -22470,7 +22792,7 @@ function transcriptStats(path, since = "") {
   if (path === "" || !isFile17(path)) return NO_STATS;
   let text;
   try {
-    text = readFileSync19(path, "utf8");
+    text = readFileSync20(path, "utf8");
   } catch {
     return NO_STATS;
   }
@@ -22553,13 +22875,13 @@ var Log = class _Log {
     const dir = stateDir(env);
     if (dir === null) return new _Log(null);
     try {
-      mkdirSync9(`${dir}/logs`, { recursive: true });
+      mkdirSync10(`${dir}/logs`, { recursive: true });
     } catch {
       return new _Log(null);
     }
     const file = `${dir}/logs/mcp-health.log`;
     try {
-      if (statSync31(file).isFile() && statSync31(file).size > LOG_ROTATE_BYTES2) renameSync4(file, `${file}.1`);
+      if (statSync32(file).isFile() && statSync32(file).size > LOG_ROTATE_BYTES2) renameSync5(file, `${file}.1`);
     } catch {
     }
     return new _Log(file);
@@ -22905,19 +23227,19 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 
 // src/hooks/post-task-close-rescan.ts
 import { spawn as spawn6 } from "node:child_process";
-import { statSync as statSync32 } from "node:fs";
-import { fileURLToPath as fileURLToPath8 } from "node:url";
+import { statSync as statSync33 } from "node:fs";
+import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME60 = "post-task-close-rescan";
 var CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 function isFile18(path) {
   try {
-    return statSync32(path).isFile();
+    return statSync33(path).isFile();
   } catch {
     return false;
   }
 }
 function pluginRoot3() {
-  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
 }
 function launchDetached(spawner, invoker, db, env) {
   const child = spawner(process.execPath, ["--experimental-sqlite", invoker], {
@@ -22948,14 +23270,14 @@ function postTaskCloseRescan(payload, env) {
 }
 
 // src/hooks/post-atomic-close-readme.ts
-import { statSync as statSync33 } from "node:fs";
+import { statSync as statSync34 } from "node:fs";
 var GATE_NAME61 = "post-atomic-close-readme";
 var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
 var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 var ROOT_DIR = ".";
 function isFile19(path) {
   try {
-    return statSync33(path).isFile();
+    return statSync34(path).isFile();
   } catch {
     return false;
   }
@@ -22994,11 +23316,11 @@ async function staleDirs(repoPath, sha, repo, paths, env) {
   }
   return out2;
 }
-function nudgeReason(taskId, sha, stale) {
+function nudgeReason(taskId, sha, stale2) {
   return `\u{1F4DD} README-staleness check (task ${taskId}, commit ${sha.slice(0, 7)}): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.
 
 The commit touched directories whose README.md is missing or older than the commit:
-${stale}
+${stale2}
 
 For each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call \u2014 skip it when the change doesn't alter what the README describes.`;
 }
@@ -23030,9 +23352,9 @@ async function surface(payload, env) {
   if (!await gitOk(repoPath, ["cat-file", "-e", `${task.commitSha}^{commit}`], env)) return ALLOW;
   const paths = (await gitOut(repoPath, ["show", "--name-only", "--pretty=format:", task.commitSha], env)).split("\n").filter((line) => line !== "");
   if (paths.length === 0) return ALLOW;
-  const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
-  if (stale.length === 0) return ALLOW;
-  const staleText = stale.join("\n");
+  const stale2 = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+  if (stale2.length === 0) return ALLOW;
+  const staleText = stale2.join("\n");
   const staleLines = staleText.split("\n");
   const w = auditAppend(
     db,
@@ -23253,7 +23575,7 @@ var recordSweSpawn = (payload, env) => {
 };
 
 // src/hooks/cleanup-worktree-on-task-close.ts
-import { statSync as statSync34 } from "node:fs";
+import { statSync as statSync35 } from "node:fs";
 var GATE_NAME65 = "cleanup-worktree-on-task-close";
 var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
 var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
@@ -23262,7 +23584,7 @@ var DEFAULT_PR_TARGET = "dev";
 var WORKTREE_LINE = "worktree ";
 function isFile20(path) {
   try {
-    return statSync34(path).isFile();
+    return statSync35(path).isFile();
   } catch {
     return false;
   }
@@ -23348,12 +23670,9 @@ async function cleanupWorktree(payload, env, stderr2) {
 var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync20, statSync as statSync35 } from "node:fs";
-import { fileURLToPath as fileURLToPath9 } from "node:url";
+import { existsSync as existsSync14, mkdirSync as mkdirSync11, readFileSync as readFileSync21, statSync as statSync36 } from "node:fs";
 var GATE_NAME66 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
-var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
 var fail = (stderr2, line) => {
   stderr2(line);
@@ -23361,38 +23680,34 @@ var fail = (stderr2, line) => {
 };
 function isFile21(path) {
   try {
-    return statSync35(path).isFile();
+    return statSync36(path).isFile();
   } catch {
     return false;
   }
 }
-function pluginRoot4() {
-  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
-}
-async function installMergeDriver(dir, env, stderr2) {
+async function installMergeDriver2(dir, env, stderr2) {
   const top = await gitRun(dir, ["rev-parse", "--show-toplevel"], env);
   if (top.code !== 0) return;
   const root = top.stdout.replace(/\n+$/, "");
   let attributes;
   try {
-    attributes = readFileSync20(`${root}/.gitattributes`, "latin1");
+    attributes = readFileSync21(`${root}/.gitattributes`, "latin1");
   } catch {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync10("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
-  if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
+  if (installMergeDriver(root, env) === null) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
 async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
   try {
-    mkdirSync10(posixDirname(worktree), { recursive: true });
+    mkdirSync11(posixDirname(worktree), { recursive: true });
   } catch {
   }
   if (existsSync14(`${worktree}/.git`)) {
     stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
 `);
-    await installMergeDriver(repo, env, stderr2);
+    await installMergeDriver2(repo, env, stderr2);
     return { stdout: `${worktree}
 `, code: 0 };
   }
@@ -23406,7 +23721,7 @@ async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, 
   }
   if (!await gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
   stderr2(created2);
-  await installMergeDriver(repo, env, stderr2);
+  await installMergeDriver2(repo, env, stderr2);
   return { stdout: `${worktree}
 `, code: 0 };
 }
@@ -23464,7 +23779,7 @@ async function worktreeCreateRun(payload, env, stderr2) {
 var worktreeCreate = async (payload, env) => await worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/remote-id-guard.ts
-import { statSync as statSync36 } from "node:fs";
+import { statSync as statSync37 } from "node:fs";
 import { performance as performance5 } from "node:perf_hooks";
 var GATE_NAME67 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
@@ -23622,7 +23937,7 @@ A bare #N in a PR body / gh issue comment resolves to remote issue N, not the lo
 }
 function isFile22(path) {
   try {
-    return statSync36(path).isFile();
+    return statSync37(path).isFile();
   } catch {
     return false;
   }
@@ -23675,7 +23990,7 @@ var remoteIdGuard = async (payload, processEnv) => {
 };
 
 // src/hooks/no-source-edit-from-main.ts
-import { readFileSync as readFileSync21, statSync as statSync37 } from "node:fs";
+import { readFileSync as readFileSync22, statSync as statSync38 } from "node:fs";
 import { fileURLToPath as fileURLToPath10 } from "node:url";
 var GATE_NAME68 = "no-source-edit-from-main";
 var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
@@ -23736,21 +24051,21 @@ function inScratch(target, input, env) {
 }
 function isFile23(path) {
   try {
-    return statSync37(path).isFile();
+    return statSync38(path).isFile();
   } catch {
     return false;
   }
 }
 function manifestName2(manifest) {
   try {
-    return field5(readFileSync21(manifest, "utf8"), ["name"]);
+    return field5(readFileSync22(manifest, "utf8"), ["name"]);
   } catch {
     return "";
   }
 }
 async function targetIsPluginSourceRepo(target, input, env) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
-  const running = `${pluginRoot5}/.claude-plugin/plugin.json`;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
+  const running = `${pluginRoot4}/.claude-plugin/plugin.json`;
   let start2;
   if (target.startsWith("/")) {
     start2 = posixDirname(target);
@@ -25287,8 +25602,8 @@ function routerTimeoutS(group) {
 }
 
 // src/hooks/router/main.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync16, mkdirSync as mkdirSync13, readFileSync as readFileSync23 } from "node:fs";
+import { spawnSync as spawnSync12 } from "node:child_process";
+import { existsSync as existsSync16, mkdirSync as mkdirSync14, readFileSync as readFileSync24 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
 
@@ -25604,8 +25919,8 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync11, readdirSync as readdirSync8, readFileSync as readFileSync22, renameSync as renameSync5, rmSync as rmSync6, statSync as statSync38, writeFileSync as writeFileSync7 } from "node:fs";
-import { setTimeout as sleep3 } from "node:timers/promises";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync8, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
+import { setTimeout as sleep4 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -25639,15 +25954,15 @@ function nowS2() {
 }
 function stamp(file) {
   try {
-    const line = readFileSync22(file, "utf8").split("\n")[0];
+    const line = readFileSync23(file, "utf8").split("\n")[0];
     return /^[0-9]+$/.test(line) ? Number(line) : null;
   } catch {
     return null;
   }
 }
-function ageS(path) {
+function ageS2(path) {
   try {
-    return nowS2() - Math.floor(statSync38(path).mtimeMs / 1e3);
+    return nowS2() - Math.floor(statSync39(path).mtimeMs / 1e3);
   } catch {
     return null;
   }
@@ -25673,7 +25988,7 @@ var Dedupe = class {
       const deadline = stamp(`${lock}/deadline`);
       if (deadline !== null) return nowS2() > deadline;
     }
-    const age = ageS(lock);
+    const age = ageS2(lock);
     if (age === null) return false;
     return done ? age > this.windowS : age > this.timeoutS;
   }
@@ -25683,7 +25998,7 @@ var Dedupe = class {
     const last = stamp(stampFile);
     if (last !== null && last <= now && now - last < this.sweepS) return;
     try {
-      writeFileSync7(stampFile, `${now}
+      writeFileSync8(stampFile, `${now}
 `);
     } catch {
     }
@@ -25697,7 +26012,7 @@ var Dedupe = class {
       const d = `${this.base}/${name3}`;
       let st;
       try {
-        st = statSync38(d);
+        st = statSync39(d);
       } catch {
         continue;
       }
@@ -25706,17 +26021,17 @@ var Dedupe = class {
       const done = existsSync15(`${d}/rc`);
       const deadline = done ? null : stamp(`${d}/deadline`);
       const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now > deadline;
-      if (gone) rmSync6(d, { recursive: true, force: true });
+      if (gone) rmSync7(d, { recursive: true, force: true });
     }
   }
   take(lock) {
     try {
-      mkdirSync11(lock);
+      mkdirSync12(lock);
     } catch {
       return false;
     }
     try {
-      writeFileSync7(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
+      writeFileSync8(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
 `);
     } catch {
     }
@@ -25725,7 +26040,7 @@ var Dedupe = class {
   replay(lock) {
     let rc;
     try {
-      const text = readFileSync22(`${lock}/rc`, "utf8").trim();
+      const text = readFileSync23(`${lock}/rc`, "utf8").trim();
       if (!/^[0-9]+$/.test(text)) return null;
       rc = Number(text);
     } catch {
@@ -25733,7 +26048,7 @@ var Dedupe = class {
     }
     const read = (f) => {
       try {
-        return readFileSync22(`${lock}/${f}`, "utf8");
+        return readFileSync23(`${lock}/${f}`, "utf8");
       } catch {
         return "";
       }
@@ -25753,20 +26068,20 @@ var Dedupe = class {
   reclaim(lock) {
     const mutex = `${lock}.reclaim`;
     try {
-      mkdirSync11(mutex);
+      mkdirSync12(mutex);
     } catch {
-      const age = ageS(mutex);
-      if (age !== null && age > 30) rmSync6(mutex, { recursive: true, force: true });
+      const age = ageS2(mutex);
+      if (age !== null && age > 30) rmSync7(mutex, { recursive: true, force: true });
       return false;
     }
     try {
       if (!existsSync15(lock) || this.expired(lock)) {
-        rmSync6(lock, { recursive: true, force: true });
+        rmSync7(lock, { recursive: true, force: true });
         return this.take(lock);
       }
       return false;
     } finally {
-      rmSync6(mutex, { recursive: true, force: true });
+      rmSync7(mutex, { recursive: true, force: true });
     }
   }
   /** hold: this call decides and stores; replay: a duplicate's answer; none: a duplicate that gave up. */
@@ -25782,23 +26097,23 @@ var Dedupe = class {
       }
       if (this.expired(lock) && this.reclaim(lock)) return { kind: "hold", lock };
       if (nowS2() >= giveUp) return { kind: "none" };
-      await sleep3(100);
+      await sleep4(100);
     }
   }
   static store(lock, out2) {
     try {
-      writeFileSync7(`${lock}/result`, out2.stdout);
-      writeFileSync7(`${lock}/stderr`, out2.stderr);
-      writeFileSync7(`${lock}/rc.tmp`, `${out2.code}
+      writeFileSync8(`${lock}/result`, out2.stdout);
+      writeFileSync8(`${lock}/stderr`, out2.stderr);
+      writeFileSync8(`${lock}/rc.tmp`, `${out2.code}
 `);
-      renameSync5(`${lock}/rc.tmp`, `${lock}/rc`);
+      renameSync6(`${lock}/rc.tmp`, `${lock}/rc`);
     } catch {
     }
   }
 };
 
 // src/hooks/router/records.ts
-import { mkdirSync as mkdirSync12, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync39, unlinkSync as unlinkSync2, writeFileSync as writeFileSync8 } from "node:fs";
+import { mkdirSync as mkdirSync13, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
 var CALLER = "router";
 function parse(payload) {
   try {
@@ -25889,7 +26204,7 @@ function prune(dir, cutoffMs) {
   for (const name3 of names) {
     const path = `${dir}/${name3}`;
     try {
-      const st = statSync39(path);
+      const st = statSync40(path);
       if (st.isDirectory()) {
         if (prune(path, cutoffMs)) rmdirSync2(path);
         else empty = false;
@@ -25913,11 +26228,11 @@ async function recordBashDeny(base2, payload, d, env) {
   try {
     prune(base2, Date.now() - window2 * 6e4);
     const dir = `${base2}/${session}`;
-    mkdirSync12(dir, { recursive: true });
+    mkdirSync13(dir, { recursive: true });
     const paths = await writePaths(cmd, { cwd: payloadCwd(payload, env), raw: false, root: projectRoot(env), env });
     const epoch = Math.floor(Date.now() / 1e3);
     for (const path of paths) {
-      if (path.startsWith("/")) writeFileSync8(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
+      if (path.startsWith("/")) writeFileSync9(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
 ${epoch}
 `);
     }
@@ -25942,7 +26257,7 @@ function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, part, payload, env) {
-  const r = spawnSync11(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
+  const r = spawnSync12(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",
@@ -25964,7 +26279,7 @@ function hopTo(root, event, part, payload, env) {
 function servesCall(root, event, part, tool) {
   let table;
   try {
-    table = readFileSync23(`${root}/${ROUTER_MANIFEST}`, "utf8");
+    table = readFileSync24(`${root}/${ROUTER_MANIFEST}`, "utf8");
   } catch {
     return false;
   }
@@ -26015,19 +26330,19 @@ async function routerMain(event, env, io, opts = {}) {
   if (locks !== null && key2 !== null && groupBudget !== void 0) {
     dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: groupBudget }), gateEnv, stdoutIsPath(event));
     try {
-      mkdirSync13(dedupe.base, { recursive: true });
-      const claim2 = await dedupe.claim(key2);
-      if (claim2.kind === "replay") {
-        io.writeStderr(claim2.out.stderr);
-        await io.writeStdout(claim2.out.stdout);
-        return claim2.out.code;
+      mkdirSync14(dedupe.base, { recursive: true });
+      const claim3 = await dedupe.claim(key2);
+      if (claim3.kind === "replay") {
+        io.writeStderr(claim3.out.stderr);
+        await io.writeStdout(claim3.out.stdout);
+        return claim3.out.code;
       }
-      if (claim2.kind === "none") {
+      if (claim3.kind === "none") {
         if (!stdoutIsPath(event)) return 0;
         io.writeStderr(pathFailure(event, "a duplicate of a call whose answer never came"));
         return 1;
       }
-      lock = claim2.lock;
+      lock = claim3.lock;
     } catch {
       lock = null;
     }
@@ -26078,6 +26393,15 @@ async function runHook(name3, findGate2, env, io) {
 
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
+if (name2 === MERGE_DRIVER_CLI) {
+  const code = mergeDriverCli(
+    process.argv.slice(3),
+    process.env,
+    (text) => process.stdout.write(text),
+    (text) => process.stderr.write(text)
+  );
+  process.exit(code);
+}
 if (routerEvents().has(name2)) {
   const args2 = process.argv.slice(3);
   const part = args2[0] === "--shim" ? void 0 : args2[0];
@@ -26086,7 +26410,7 @@ if (routerEvents().has(name2)) {
     name2,
     process.env,
     {
-      readStdin: () => readFileSync24(0, "utf8"),
+      readStdin: () => readFileSync25(0, "utf8"),
       writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
       writeStderr: (text) => {
         if (text !== "") process.stderr.write(text);
@@ -26100,7 +26424,7 @@ if (routerEvents().has(name2)) {
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync24(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync25(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

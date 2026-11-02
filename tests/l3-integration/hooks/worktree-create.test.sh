@@ -347,7 +347,7 @@ test_case "GH 1277: worktree creation installs the tmb-regen merge driver into t
 ga_path=$(echo "$(input_event 'feat/1277-driver')" | TRAJECTORY_DB_PATH="$GA_DB" bash "$HOOK" 2>/dev/null)
 assert_eq "$GA_ROOT/.claude/worktrees/1277-driver" "$ga_path" "worktree created at the repo-rooted path"
 ga_driver=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.driver || true)
-assert_contains "$ga_driver" 'regen-generated.sh' ".git/config carries merge.tmb-regen.driver"
+assert_contains "$ga_driver" 'regen-generated.ts' ".git/config carries merge.tmb-regen.driver"
 ga_name=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.name || true)
 if [ -n "$ga_name" ]; then _pass; else _fail ".git/config has no merge.tmb-regen.name"; fi
 wt_driver=$(git -C "$ga_path" config --get merge.tmb-regen.driver || true)

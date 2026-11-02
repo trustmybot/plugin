@@ -5,6 +5,8 @@
  * exits 1, so dispatch.sh fails a fail-closed gate closed; it never allows on
  * error. `node dist/hooks.js ensure-mcp-deps-installed --install` is that
  * gate's detached install worker, which reads no payload.
+ * `node dist/hooks.js install-merge-driver [repo-dir]` installs the tmb-regen
+ * merge driver (lib/merge-driver.ts) and reads no payload.
  * `node dist/hooks.js <event> [part]` (an event of ROUTER_GROUPS, e.g.
  * PreToolUse) is the router: every gate of the group matching the payload and
  * part, one process (router/main.ts); a trailing `--shim` marks the headless
@@ -15,11 +17,22 @@
 import { readFileSync } from 'node:fs';
 import type { Gate } from './gate.js';
 import { GATE_NAME as DEPS_GATE, INSTALL_FLAG, runInstallWorker } from './ensure-mcp-deps-installed.js';
+import { MERGE_DRIVER_CLI, mergeDriverCli } from './lib/merge-driver.js';
 import { findGate, routerEvents } from './registry.js';
 import { routerMain } from './router/main.js';
 import { runHook } from './run.js';
 
 const name = process.argv[2] ?? '';
+
+if (name === MERGE_DRIVER_CLI) {
+  const code = mergeDriverCli(
+    process.argv.slice(3),
+    process.env,
+    (text) => process.stdout.write(text),
+    (text) => process.stderr.write(text),
+  );
+  process.exit(code);
+}
 
 if (routerEvents().has(name)) {
   const args = process.argv.slice(3);
