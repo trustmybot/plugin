@@ -15,6 +15,8 @@
 # its src/hooks/<gate>.ts exists and dist/hooks-gates.txt lists it.
 # The named exception is liveness-sentinel (GH 2205): its exit 2 is an asyncRewake
 # wake, which dispatch.sh would replay under its lock and audit as hook_denied.
+# A leading node guard (`command -v node >/dev/null 2>&1 || { …; exit 2; }; `,
+# GH 2215) is dropped before the command is judged.
 
 set -euo pipefail
 
@@ -93,7 +95,7 @@ while IFS= read -r cmd; do
       FAIL=$((FAIL + 1))
     fi
   done
-done < <(jq -r '.hooks[][]?.hooks[]? | .command // ""' hooks/hooks.json)
+done < <(jq -r '.hooks[][]?.hooks[]? | .command // "" | sub("^command -v node >/dev/null 2>&1 \\|\\| \\{ [^}]*\\}; "; "")' hooks/hooks.json)
 
 if [ ! -x scripts/hooks/dispatch.sh ]; then
   printf "hooks-via-dispatcher: scripts/hooks/dispatch.sh missing or not executable\n" >&2

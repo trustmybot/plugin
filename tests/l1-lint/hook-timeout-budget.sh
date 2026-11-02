@@ -150,7 +150,7 @@ while IFS=$'\t' read -r event column wrap part; do
   fi
   ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event} ${matcher}: wrapper ${wrap}s >= parse allowance ${parse}ms + group budget ${group}ms (>= largest gate budget ${max}ms)
 "
-done < <(jq -r '.hooks[][]? | (.matcher // "") as $m | .hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+( [a-z-]+)?$")) | (.command | capture("hooks\\.js\" (?<e>[A-Za-z]+)( (?<p>[a-z-]+))?$")) as $r | [$r.e, (if $m == "" then "-" else $m end), (.timeout // ""), ($r.p // "")] | @tsv' "$HOOKS_JSON")
+done < <(jq -r '.hooks[][]? | (.matcher // "") as $m | .hooks[]? | .command = ((.command // "") | sub("^command -v node >/dev/null 2>&1 \\|\\| \\{ [^}]*\\}; "; "")) | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+( [a-z-]+)?$")) | (.command | capture("hooks\\.js\" (?<e>[A-Za-z]+)( (?<p>[a-z-]+))?$")) as $r | [$r.e, (if $m == "" then "-" else $m end), (.timeout // ""), ($r.p // "")] | @tsv' "$HOOKS_JSON")
 
 if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"
