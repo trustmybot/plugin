@@ -3,7 +3,7 @@
 # rescan invoker derives session_dir from the trajectory.db walk-up, not
 # process.cwd(). When cwd is a worktree path (inner subdir), the invoker
 # must still find ≥1 repo under the workspace root. It needs an explicit
-# TRAJECTORY_DB_PATH and never migrates; the post-task-close-rescan.sh hook
+# TRAJECTORY_DB_PATH and never migrates; the post-task-close-rescan gate
 # supplies that path (GH 1639).
 set -euo pipefail
 
@@ -12,7 +12,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 INVOKER="$PLUGIN_ROOT/scripts/maintenance/run-scan.mjs"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
 
 command -v node >/dev/null 2>&1 || { echo "SKIP: node not available"; exit 0; }
 [ -f "$INVOKER" ] || { echo "SKIP: run-scan.mjs not found at $INVOKER"; exit 0; }
@@ -212,28 +211,23 @@ else
   _fail "want OK, no 'Cannot find package 'web-tree-sitter'', ≥1 symbol and a non-failed stamp; got node_modules:[$NM_ON_PATH $NM_INSIDE] symbols=$SYM_COUNT stamp='$STAMP' output: $CACHE_OUT"
 fi
 
-# ── Hook: post-task-close-rescan.sh hands the invoker an explicit DB path ────
+# ── Hook: the post-task-close-rescan gate hands the invoker an explicit DB path ────
 # A fake plugin tree whose run-scan.mjs records the TRAJECTORY_DB_PATH it got.
 FAKE="$TMPDIR/fake-plugin/scripts"
-mkdir -p "$FAKE/hooks/lib" "$FAKE/maintenance"
-cp "$PLUGIN_ROOT/scripts/hooks/post-task-close-rescan.sh" "$FAKE/hooks/"
-cp "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh" "$FAKE/hooks/lib/"
+mkdir -p "$FAKE/maintenance"
 RECORD="$TMPDIR/invoker-db-path"
 cat > "$FAKE/maintenance/run-scan.mjs" <<'FAKEINV'
 import { writeFileSync } from 'node:fs';
 writeFileSync(process.env.RECORD_PATH, process.env.TRAJECTORY_DB_PATH ?? '<unset>');
 FAKEINV
-FAKE_HOOK="$FAKE/hooks/post-task-close-rescan.sh"
-# Under ts the fake tree carries the bundle and its manifest, and HOOK runs the
-# TypeScript gate, which finds the fake invoker from the bundle's install root.
-if [ "$HOOK_IMPL" = ts ]; then
-  FAKE_ROOT="$TMPDIR/fake-plugin"
-  mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist" "$FAKE_ROOT/tests/lib/ts-hooks"
-  printf '{"name":"tmb","version":"0.0.0-l3"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
-  cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/"
-  cp "$PLUGIN_ROOT/tests/lib/ts-hooks/post-task-close-rescan.sh" "$FAKE_ROOT/tests/lib/ts-hooks/"
-  FAKE_HOOK="$FAKE_ROOT/tests/lib/ts-hooks/post-task-close-rescan.sh"
-fi
+# The fake tree carries the bundle and its manifest; the TypeScript gate finds
+# the fake invoker from the bundle's install root.
+FAKE_ROOT="$TMPDIR/fake-plugin"
+mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist" "$FAKE_ROOT/tests/lib/ts-hooks"
+printf '{"name":"tmb","version":"0.0.0-l3"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
+cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/"
+cp "$PLUGIN_ROOT/tests/lib/ts-hooks/post-task-close-rescan.sh" "$FAKE_ROOT/tests/lib/ts-hooks/"
+FAKE_HOOK="$FAKE_ROOT/tests/lib/ts-hooks/post-task-close-rescan.sh"
 CLOSE_EVENT='{"tool_name":"mcp__plugin_tmb_trajectory-server__bro_atomic_close"}'
 
 run_fake_hook() {

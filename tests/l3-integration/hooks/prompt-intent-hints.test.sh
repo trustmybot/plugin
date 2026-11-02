@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/prompt-intent-hints.sh
+# Tests for the TypeScript prompt-intent-hints gate
 # Covers positive (fires) and negative (false-positive guard) cases for
 # every pattern class: consultant-spawn, search-grounding, concerns-protocol,
 # push-intent, reonboard-intent, headless-intent, resume-intent, adr-required,
@@ -14,9 +14,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/prompt-intent-hints.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/prompt-intent-hints.sh"
 
 # Run the hook with a prompt string; disable all bypass env vars.
 run_hook() {
@@ -540,19 +538,11 @@ assert_not_contains "$out" "headless-intent hint" "in ci needs word boundaries"
 
 test_case "GH 1751: a question about quoted claude -p is not headless intent"
 out=$(run_hook_db 'What is the L0 success criteria? I thought it should be claude -p "@bro health check" and everything is green?')
-if [ "$HOOK_IMPL" = ts ]; then
-  assert_not_contains "$out" "headless-intent hint" "a question naming claude -p stays silent"
-else
-  assert_contains "$out" "headless-intent hint" "the frozen .sh still matches inside the question"
-fi
+assert_not_contains "$out" "headless-intent hint" "a question naming claude -p stays silent"
 
 test_case "GH 1751: claude -p only inside backticks is not headless intent"
 out=$(run_hook_db 'I ran `claude -p` yesterday.')
-if [ "$HOOK_IMPL" = ts ]; then
-  assert_not_contains "$out" "headless-intent hint" "a quoted claude -p stays silent"
-else
-  assert_contains "$out" "headless-intent hint" "the frozen .sh still matches inside backticks"
-fi
+assert_not_contains "$out" "headless-intent hint" "a quoted claude -p stays silent"
 
 test_case "GH 1751: stated headless intent still fires"
 out=$(run_hook_db "set up claude -p for CI")

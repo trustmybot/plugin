@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Under TMB_HOOK_TEST_IMPL=ts an l3 suite points HOOK here. Run with bash it
+# An l3 suite points HOOK here. Run with bash it
 # runs the TypeScript gate this file is named after; sourced it defines
 # normalize_footer on that gate's normalizeFooter, as the .sh does.
 if [ "${BASH_SOURCE[0]}" != "${0}" ]; then

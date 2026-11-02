@@ -179,7 +179,7 @@ chmod +x "$LIVE_STUB_DIR/pgrep"
 # ---------------------------------------------------------------------------
 
 test_case "session-start-prescan: masked token multiset matches golden"
-PRESCAN_OUT=$(TRAJECTORY_DB_PATH="$PRESCAN_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+PRESCAN_OUT=$(TRAJECTORY_DB_PATH="$PRESCAN_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-prescan.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 if [ -z "$PRESCAN_OUT" ]; then
   _fail "session-start-prescan produced no output"
 else
@@ -193,7 +193,7 @@ fi
 
 test_case "activation-routine: masked token multiset matches golden"
 AR_OUT=$(echo '{"prompt":"@bro status","transcript_path":""}' \
-  | PATH="$LIVE_STUB_DIR:$PATH" TRAJECTORY_DB_PATH="$AR_DB" bash "$PLUGIN_ROOT/scripts/hooks/activation-routine.sh" 2>/dev/null \
+  | PATH="$LIVE_STUB_DIR:$PATH" TRAJECTORY_DB_PATH="$AR_DB" bash "$PLUGIN_ROOT/tests/lib/ts-hooks/activation-routine.sh" 2>/dev/null \
   | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 if [ -z "$AR_OUT" ]; then
   _fail "activation-routine produced no output"
@@ -207,7 +207,7 @@ fi
 # ---------------------------------------------------------------------------
 
 test_case "mcp-health-check: masked token multiset matches golden"
-MCP_OUT=$(PATH="$MCP_STUB_DIR:$PATH" TMB_MCP_HEALTH_INTERVAL_S=0.05 bash "$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh" \
+MCP_OUT=$(PATH="$MCP_STUB_DIR:$PATH" TMB_MCP_HEALTH_INTERVAL_S=0.05 bash "$PLUGIN_ROOT/tests/lib/ts-hooks/mcp-health-check.sh" \
     <<< '{"hook_event_name":"SessionStart","session_id":"golden-test","source":"startup"}' \
     2>/dev/null \
   | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")

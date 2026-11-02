@@ -1,10 +1,10 @@
 /**
  * The TypeScript containment-guard gate (GH 1692) where it is stricter than
- * scripts/hooks/containment-guard.sh: an analyzer line `UNRESOLVED:$(parse):…`
+ * the bash containment-guard.sh: an analyzer line `UNRESOLVED:$(parse):…`
  * or `UNRESOLVED:$(computed):…` is always denied, even when its raw text
  * starts with a literal path inside the root (which the .sh's literal-dir
  * allowance would let through). Everything else is the parity corpus's job.
- * The deny's phrase is pinned to dispatch.sh's UNJUDGED_PHRASE, which keeps
+ * The deny's phrase is the one the router's unjudgedDeny keys on, which keeps
  * such a deny from recording boundary-deny paths (GH 1750); the deny of a
  * target behind a variable, substitution or cd the guard cannot resolve
  * carries it too (GH 1772). A python target name rebound at top level is
@@ -14,7 +14,6 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -22,22 +21,10 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { containmentGuard, containmentGuardWith, NEVER_JUDGED, UNJUDGED_PHRASE, } from '../hooks/containment-guard.js';
 import { findGate } from '../hooks/registry.js';
+import { unjudgedDeny } from '../hooks/router/records.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const FAKE_UID = 4242424;
-const DISPATCH = readFileSync(join(SERVER_ROOT, '../../scripts/hooks/dispatch.sh'), 'utf8');
-/** dispatch.sh's unjudged_deny run on <reason>: true when it records no boundary-deny path. */
-function unjudgedDeny(reason) {
-    const fn = DISPATCH.match(/^unjudged_deny\(\) \{\n[\s\S]*?\n\}$/m);
-    assert.ok(fn, 'dispatch.sh defines unjudged_deny');
-    try {
-        execFileSync('bash', ['-c', `UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'\n${fn[0]}\nunjudged_deny "$1"`, '_', reason]);
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
 const PARSE_TEXT = 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.';
 const COMPUTED_TEXT = 'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.';
 const UNPROVEN_TEXT = 'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file.';
@@ -152,8 +139,9 @@ describe('containment-guard (TS): denies that judge no path', () => {
         const r = await containmentGuard(bash(command), env);
         assert.equal(reason(r.stdout), `BLOCKED: write target "python3" cannot be judged: ${COMPUTED_TEXT}`);
     });
-    it("dispatch.sh's UNJUDGED_PHRASE is the deny's phrase, and no reason text holds the quote it stops at", () => {
-        assert.deepEqual(DISPATCH.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
+    it("the router's unjudgedDeny keys on the deny's phrase, and no reason text holds the quote it stops at", () => {
+        assert.ok(unjudgedDeny(`BLOCKED: write target "x" ${UNJUDGED_PHRASE} why.`));
+        assert.equal(unjudgedDeny('BLOCKED: write target "x" is judged: why.'), false);
         assert.deepEqual(Object.keys(NEVER_JUDGED).sort(), ['$(computed)', '$(parse)', '$(unproven)']);
         for (const text of Object.values(NEVER_JUDGED))
             assert.ok(!text.includes('"'), text);
@@ -164,7 +152,7 @@ describe('containment-guard (TS): denies that judge no path', () => {
             const r = await containmentGuardWith(lines(`UNRESOLVED:${variable}:${raw}`))(bash('x'), env);
             const why = reason(r.stdout) ?? '';
             assert.ok(why.startsWith(`BLOCKED: write target "${raw}" ${UNJUDGED_PHRASE} `), why);
-            assert.ok(unjudgedDeny(why), `dispatch.sh records paths for: ${why}`);
+            assert.ok(unjudgedDeny(why), `the router records paths for: ${why}`);
         });
     }
     it('a judged deny of a literal target outside the root is not unjudged', async () => {

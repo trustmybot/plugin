@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/agent-arg-matches-caller.sh, or its TypeScript port under
-# TMB_HOOK_TEST_IMPL=ts (PreToolUse on every
+# Tests for the TypeScript agent-arg-matches-caller gate (PreToolUse on every
 # trajectory-server tool):
 #   1. a subagent payload's agent_type (swe, code-reviewer, consultant) must equal
 #      tool_input.agent; the main session (no agent_type) must pass bro
@@ -8,20 +7,16 @@
 #      agent_arg_mismatch row on the task's issue, else the system issue -1
 #   3. a missing agent arg is allowed; plugin-prefixed roles compare equal
 #   4. without a usable DB a mismatch still denies and a match still allows
-#   5. the trajectory-gates chain denies a mismatch end to end, and a denied
+#   5. the PreToolUse router chain denies a mismatch end to end, and a denied
 #      validation_record leaves no reviewer_identity_observed row
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/agent-arg-matches-caller.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-arg-matches-caller.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-arg-matches-caller.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-arg-matches-caller.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -149,16 +144,16 @@ P=$(payload task_get code-reviewer bro | jq -c '.tool_name = "mcp__github__get_i
 OUT=$(run "$PROJ" "$P")
 assert_eq "allow" "$(decision "$OUT")" "non-trajectory tool allowed"
 
-# chain <payload> — the payload through the trajectory-gates registration.
+# chain <payload> — the payload through the PreToolUse router registration.
 chain() {
   (cd "$PROJ" && printf '%s' "$1" \
-    | CLAUDE_PROJECT_DIR="$PROJ" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+    | CLAUDE_PROJECT_DIR="$PROJ" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" PreToolUse 2>/dev/null || true)
 }
 
-test_case "the trajectory-gates chain denies a mismatch"
+test_case "the PreToolUse router chain denies a mismatch"
 OUT=$(chain "$(payload audit_append code-reviewer bro 42)")
-assert_eq "deny" "$(decision "$OUT")" "denied through dispatch.sh"
-assert_eq "6" "$(rows)" "row written through dispatch.sh"
+assert_eq "deny" "$(decision "$OUT")" "denied through the PreToolUse router"
+assert_eq "6" "$(rows)" "row written through the PreToolUse router"
 
 test_case "a code-reviewer validation_record with agent='bro' through the chain leaves no reviewer_identity_observed row"
 observed() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type = 'reviewer_identity_observed';"; }

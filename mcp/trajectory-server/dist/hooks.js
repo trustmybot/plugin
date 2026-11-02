@@ -13,7 +13,7 @@ var __export = (target, all) => {
     __defProp(target, name3, { get: all[name3], enumerable: true });
 };
 
-// node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
 var tree_sitter_exports = {};
 __export(tree_sitter_exports, {
   CaptureQuantifier: () => CaptureQuantifier,
@@ -343,7 +343,7 @@ function checkModule() {
 }
 var __defProp2, __name, SIZE_OF_SHORT, SIZE_OF_INT, SIZE_OF_CURSOR, SIZE_OF_NODE, SIZE_OF_POINT, SIZE_OF_RANGE, ZERO_POINT, INTERNAL, C, LookaheadIterator, Tree, TreeCursor, Node, PREDICATE_STEP_TYPE_CAPTURE, PREDICATE_STEP_TYPE_STRING, QUERY_WORD_REGEX, CaptureQuantifier, isCaptureStep, isStringStep, QueryErrorKind, QueryError, Query, LANGUAGE_FUNCTION_REGEX, Language, Module2, tree_sitter_default, Module3, TRANSFER_BUFFER, LANGUAGE_VERSION, MIN_COMPATIBLE_VERSION, Parser;
 var init_tree_sitter = __esm({
-  "node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
     __defProp2 = Object.defineProperty;
     __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
     SIZE_OF_SHORT = 2;
@@ -1736,14 +1736,14 @@ var init_tree_sitter = __esm({
           captures.length = captureCount;
           address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
           if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-            const capture6 = captures[captureIndex];
+            const capture7 = captures[captureIndex];
             const setProperties = this.setProperties[patternIndex];
-            capture6.setProperties = setProperties;
+            capture7.setProperties = setProperties;
             const assertedProperties = this.assertedProperties[patternIndex];
-            capture6.assertedProperties = assertedProperties;
+            capture7.assertedProperties = assertedProperties;
             const refutedProperties = this.refutedProperties[patternIndex];
-            capture6.refutedProperties = refutedProperties;
-            result.push(capture6);
+            capture7.refutedProperties = refutedProperties;
+            result.push(capture7);
           }
         }
         C._free(startAddress);
@@ -3984,12 +3984,12 @@ __export(loader_exports, {
 });
 import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 function parserLoadCount() {
   return loads;
 }
 function wasmDir() {
-  const here = dirname2(fileURLToPath2(import.meta.url));
+  const here = dirname2(fileURLToPath3(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
     if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync24 } from "node:fs";
+import { readFileSync as readFileSync25 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -4750,6 +4750,10 @@ function runInstallWorker(env) {
   }
 }
 
+// src/hooks/lib/merge-driver.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 // src/hooks/lib/project-env.ts
 import { existsSync as existsSync2, readFileSync as readFileSync3, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3 } from "node:path";
@@ -4826,7 +4830,7 @@ function remember(value, shape) {
   if (shape.items) shape.items.forEach((item, i2) => remember(value[i2], item));
   if (!shape.fields) return;
   const order2 = [...shape.fields.keys()];
-  for (const [key2, field6] of shape.fields) remember(value[key2], field6);
+  for (const [key2, field7] of shape.fields) remember(value[key2], field7);
   if (Object.keys(value).some((key2, i2) => key2 !== order2[i2])) {
     inputOrder.set(value, order2);
     anyReordered = true;
@@ -4957,6 +4961,46 @@ function setlocaleUtf8(env = process.env) {
   return /(^|\.)utf-?8$/i.test(pick("LC_CTYPE"));
 }
 
+// src/hooks/lib/merge-driver.ts
+var MERGE_DRIVER_CLI = "install-merge-driver";
+var MERGE_DRIVER_NAME = "TMB generated artefact: keep ours, regenerate after the merge";
+var MERGE_DRIVER_COMMAND = `sh -c 'echo "tmb-regen: kept ours for $1 \u2014 run: node --experimental-strip-types scripts/maintenance/regen-generated.ts" >&2' tmb-regen %P`;
+function git(repo, args2, env) {
+  const r = spawnSync2("git", ["-C", repo, ...args2], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  return { ok: !r.error && r.status === 0, stdout: (r.stdout ?? "").replace(/\n+$/, "") };
+}
+function installMergeDriver(repo, env = process.env) {
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.name", MERGE_DRIVER_NAME], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.driver", MERGE_DRIVER_COMMAND], env).ok) return null;
+  const absolute = git(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  const common = absolute.ok ? absolute.stdout : git(repo, ["rev-parse", "--git-common-dir"], env).stdout;
+  return `${common}/config`;
+}
+function mergeDriverCli(args2, env, out2, err2) {
+  let repo = args2[0] ?? "";
+  if (repo === "") {
+    const self2 = installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? posixDirname(fileURLToPath(import.meta.url));
+    const common = git(self2, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+    if (!common.ok || common.stdout === "") {
+      err2(`install-merge-driver: ${self2} is not in a git repository; pass the repo dir
+`);
+      return 1;
+    }
+    repo = posixDirname(common.stdout);
+  }
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) {
+    err2(`install-merge-driver: ${repo} is not a git repository
+`);
+    return 1;
+  }
+  const config = installMergeDriver(repo, env);
+  if (config === null) return 1;
+  out2(`install-merge-driver: merge.tmb-regen installed in ${config}
+`);
+  return 0;
+}
+
 // src/hooks/askuserquestion-length-lint.ts
 var LABEL_MAX_WORDS = 5;
 var DESC_MAX_WORDS = 15;
@@ -5056,13 +5100,353 @@ var askuserquestionLengthLint = (payload, env) => {
 `, code: 0 };
 };
 
+// src/hooks/bash-output-trim.ts
+var GATE_NAME2 = "bash-output-trim";
+var TRIM_ABOVE = 4e3;
+var HEAD_CHARS = 2400;
+var TAIL_CHARS = 800;
+var ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+var NAME_START = /[A-Za-z_]/;
+var NAME_CHAR = /[A-Za-z0-9_]/;
+var BOUNDARY = " 	\n;&|()<>";
+var SAFE_REDIRECTS = ["&1", "/dev/null"];
+function tokenize(command) {
+  const tokens = [];
+  let text = "";
+  let literal = true;
+  let started = -1;
+  const end = (at2) => {
+    if (started >= 0) tokens.push({ kind: "word", text, literal, raw: command.slice(started, at2) });
+    text = "";
+    literal = true;
+    started = -1;
+  };
+  const start2 = (at2) => {
+    if (started < 0) started = at2;
+  };
+  const dollar = (i2) => {
+    const next = command[i2 + 1] ?? "";
+    let j = i2 + 1;
+    if (next === "{") {
+      j = i2 + 2;
+      if (!NAME_START.test(command[j] ?? "")) return -1;
+      while (NAME_CHAR.test(command[j] ?? "")) j++;
+      if (command[j] !== "}") return -1;
+      j++;
+    } else {
+      if (!NAME_START.test(next)) return -1;
+      while (NAME_CHAR.test(command[j] ?? "")) j++;
+    }
+    text += command.slice(i2, j);
+    literal = false;
+    return j - 1;
+  };
+  const afterJoin = () => {
+    const last = tokens[tokens.length - 1];
+    return last?.kind === "op" && (last.op === "&&" || last.op === "|");
+  };
+  for (let i2 = 0; i2 < command.length; i2++) {
+    const c = command[i2];
+    if (c === " " || c === "	") {
+      end(i2);
+    } else if (c === "\n") {
+      end(i2);
+      if (!afterJoin()) tokens.push({ kind: "op", op: "\n" });
+    } else if (c === "#" && started < 0) {
+      while (i2 + 1 < command.length && command[i2 + 1] !== "\n") i2++;
+    } else if (c === "'") {
+      start2(i2);
+      const close2 = command.indexOf("'", i2 + 1);
+      if (close2 < 0) return null;
+      text += command.slice(i2 + 1, close2);
+      i2 = close2;
+    } else if (c === '"') {
+      start2(i2);
+      let j = i2 + 1;
+      for (; j < command.length && command[j] !== '"'; j++) {
+        const d = command[j];
+        if (d === "`") return null;
+        if (d === "\\" && j + 1 < command.length && '"\\$`\n'.includes(command[j + 1])) {
+          j++;
+          if (command[j] !== "\n") text += command[j];
+        } else if (d === "$") {
+          j = dollar(j);
+          if (j < 0) return null;
+        } else {
+          text += d;
+        }
+      }
+      if (j >= command.length) return null;
+      i2 = j;
+    } else if (c === "\\") {
+      if (i2 + 1 >= command.length) return null;
+      i2++;
+      if (command[i2] !== "\n") {
+        start2(i2 - 1);
+        text += command[i2];
+      }
+    } else if (c === "$") {
+      start2(i2);
+      i2 = dollar(i2);
+      if (i2 < 0) return null;
+    } else if (c === "&") {
+      if (command[i2 + 1] !== "&") return null;
+      end(i2);
+      tokens.push({ kind: "op", op: "&&" });
+      i2++;
+    } else if (c === "|") {
+      if (command[i2 + 1] === "|" || command[i2 + 1] === "&") return null;
+      end(i2);
+      tokens.push({ kind: "op", op: "|" });
+    } else if (c === ";") {
+      end(i2);
+      tokens.push({ kind: "op", op: ";" });
+    } else if (c === ">") {
+      if (started < 0 || command.slice(started, i2) !== "2") return null;
+      const target = SAFE_REDIRECTS.find((t) => command.startsWith(t, i2 + 1));
+      const after2 = i2 + 1 + (target?.length ?? 0);
+      if (target === void 0 || after2 < command.length && !BOUNDARY.includes(command[after2])) return null;
+      started = -1;
+      text = "";
+      tokens.push({ kind: "redirect" });
+      i2 = after2 - 1;
+    } else if (c === "`" || c === "<" || c === "(" || c === ")") {
+      return null;
+    } else {
+      start2(i2);
+      text += c;
+    }
+  }
+  end(command.length);
+  return tokens;
+}
+var isAssignment = (w) => ASSIGNMENT.test(w.raw);
+var PLAIN_FILTERS = /* @__PURE__ */ new Set(["head", "tail", "grep", "cut", "wc", "nl", "cat", "tr", "column", "jq"]);
+function sortRead(args2) {
+  return args2.every((w) => !/^--output(=|$)/.test(w.text) && !/^-[^-]*o/.test(w.text));
+}
+function uniqRead(args2) {
+  let positional = 0;
+  let options = true;
+  for (const w of args2) {
+    if (options && w.text === "--") options = false;
+    else if (!options || w.text === "-" || !w.text.startsWith("-")) positional++;
+  }
+  return positional <= 1;
+}
+var SED_ADDRESS = String.raw`(?:\d+|\$|/(?:[^/\\\n;]|\\[^\n;])*/)`;
+var SED_PRINT = new RegExp(`^(?:${SED_ADDRESS}(?:,${SED_ADDRESS})?)?p$`);
+function sedPrintOnly(script) {
+  const commands = script.split(";").map((s) => s.trim()).filter((s) => s !== "");
+  return commands.length > 0 && commands.every((s) => SED_PRINT.test(s));
+}
+function sedRead(args2) {
+  let quiet = false;
+  const scripts = [];
+  const positional = [];
+  for (let i2 = 0; i2 < args2.length; i2++) {
+    const w = args2[i2];
+    if (w.text === "-e") {
+      if (i2 + 1 >= args2.length) return false;
+      scripts.push(args2[++i2]);
+    } else if (w.text === "--quiet" || w.text === "--silent") {
+      quiet = true;
+    } else if (/^-[nEr]+$/.test(w.text) && w.literal) {
+      if (w.text.includes("n")) quiet = true;
+    } else if (w.text.startsWith("-") && w.text !== "-") {
+      return false;
+    } else {
+      positional.push(w);
+    }
+  }
+  if (scripts.length === 0) {
+    const script = positional.shift();
+    if (script === void 0) return false;
+    scripts.push(script);
+  }
+  return quiet && scripts.every((s) => s.literal && sedPrintOnly(s.text));
+}
+function filterRead(program, args2) {
+  if (PLAIN_FILTERS.has(program)) return true;
+  if (program === "sort") return sortRead(args2);
+  if (program === "uniq") return uniqRead(args2);
+  if (program === "sed") return sedRead(args2);
+  return false;
+}
+var GIT_READS = /* @__PURE__ */ new Set(["log", "status", "diff", "show", "grep", "ls-files", "rev-parse", "merge-base", "blame", "shortlog", "ls-tree"]);
+function gitRead(args2) {
+  let i2 = 0;
+  if (args2[0]?.text === "-C") {
+    if (!args2[0].literal || args2.length < 2) return false;
+    i2 = 2;
+  }
+  const verb = args2[i2];
+  if (verb === void 0 || !verb.literal || !GIT_READS.has(verb.text)) return false;
+  return args2.slice(i2 + 1).every((w) => !/^--output(=|$)/.test(w.text));
+}
+var GH_GROUPS = /* @__PURE__ */ new Set(["pr", "issue", "run"]);
+var GH_READS = /* @__PURE__ */ new Set(["view", "list", "checks", "diff"]);
+function ghRead(args2) {
+  const [group, verb] = args2;
+  return group !== void 0 && verb !== void 0 && group.literal && verb.literal && GH_GROUPS.has(group.text) && GH_READS.has(verb.text);
+}
+var SQLITE_FLAGS = /* @__PURE__ */ new Set([
+  "readonly",
+  "header",
+  "noheader",
+  "column",
+  "csv",
+  "json",
+  "line",
+  "list",
+  "box",
+  "table",
+  "markdown",
+  "html",
+  "tabs",
+  "batch",
+  "bail",
+  "echo",
+  "safe",
+  "ascii",
+  "quote",
+  "nofollow"
+]);
+var SQLITE_VALUE_FLAGS = /* @__PURE__ */ new Set(["separator", "newline", "nullvalue"]);
+var READ_SQL = /^\s*(SELECT|WITH)\b/i;
+function sqliteRead(args2) {
+  let readonly = false;
+  const positional = [];
+  for (let i2 = 0; i2 < args2.length; i2++) {
+    const w = args2[i2];
+    if (!w.text.startsWith("-")) {
+      positional.push(i2);
+      continue;
+    }
+    if (!w.literal) return false;
+    const flag = w.text.replace(/^--?/, "");
+    if (flag === "readonly") readonly = true;
+    if (SQLITE_VALUE_FLAGS.has(flag)) {
+      if (i2 + 1 >= args2.length) return false;
+      i2++;
+    } else if (!SQLITE_FLAGS.has(flag)) {
+      return false;
+    }
+  }
+  return readonly && positional.length === 2 && positional[1] === args2.length - 1 && READ_SQL.test(args2[args2.length - 1].text);
+}
+var ECHOES = /* @__PURE__ */ new Set(["ls", "echo", "printf", "diff"]);
+function sourceRead(program, args2) {
+  if (ECHOES.has(program)) return true;
+  if (program === "rg") return args2.every((w) => !/^--pre(-glob)?(=|$)/.test(w.text));
+  if (program === "git") return gitRead(args2);
+  if (program === "gh") return ghRead(args2);
+  if (program === "sqlite3") return sqliteRead(args2);
+  return filterRead(program, args2);
+}
+function stageRead(tokens, first) {
+  let last = tokens.length;
+  while (last > 0 && tokens[last - 1].kind === "redirect") last--;
+  const words3 = tokens.slice(0, last);
+  if (!words3.every((t) => t.kind === "word")) return false;
+  let at2 = 0;
+  while (at2 < words3.length && isAssignment(words3[at2])) at2++;
+  const program = words3[at2];
+  if (program === void 0 || !program.literal) return false;
+  const args2 = words3.slice(at2 + 1);
+  return first ? sourceRead(program.text, args2) : filterRead(program.text, args2);
+}
+function stagesOf(tokens) {
+  const stages = [[]];
+  for (const t of tokens) {
+    if (t.kind === "op") stages.push([]);
+    else stages[stages.length - 1].push(t);
+  }
+  return stages;
+}
+function segmentRead(tokens) {
+  const words3 = tokens.filter((t) => t.kind === "word");
+  if (words3.length === tokens.length) {
+    if (words3.length === 2 && words3[0].literal && words3[0].text === "cd") return true;
+    const assignment = words3[0].literal && words3[0].text === "export" ? words3.slice(1) : words3;
+    if (assignment.length === 1 && isAssignment(assignment[0])) return true;
+  }
+  return stagesOf(tokens).every((stage, i2) => stage.length > 0 && stageRead(stage, i2 === 0));
+}
+function endsInBareCat(tokens) {
+  const stages = stagesOf(tokens);
+  const words3 = stages[stages.length - 1].filter((t) => t.kind === "word");
+  return stages.length > 1 && words3.length === 1 && words3[0].literal && words3[0].text === "cat";
+}
+function segmentsOf(command) {
+  const tokens = tokenize(command);
+  if (tokens === null) return null;
+  const segments = [[]];
+  for (const t of tokens) {
+    if (t.kind === "op" && t.op !== "|") segments.push([]);
+    else segments[segments.length - 1].push(t);
+  }
+  return segments.filter((s) => s.length > 0);
+}
+function isRoutineRead(command) {
+  const present = segmentsOf(command);
+  return present !== null && present.length > 0 && present.every(segmentRead);
+}
+function asksFullOutput(command) {
+  return segmentsOf(command)?.some(endsInBareCat) ?? false;
+}
+function trimMarker(cutLines, cutChars, totalLines) {
+  return `[bash-output-trim: cut ${cutLines} lines (${cutChars} chars) of ${totalLines} lines; rerun with a narrower command, or append | cat for the full output]`;
+}
+function trimOutput(stdout) {
+  const lines2 = stdout.split("\n");
+  let head = 0;
+  let headChars = 0;
+  while (head < lines2.length && headChars + lines2[head].length + 1 <= HEAD_CHARS) {
+    headChars += lines2[head].length + 1;
+    head++;
+  }
+  let tail = 0;
+  let tailChars = 0;
+  while (head + tail < lines2.length && tailChars + lines2[lines2.length - 1 - tail].length + 1 <= TAIL_CHARS) {
+    tailChars += lines2[lines2.length - 1 - tail].length + 1;
+    tail++;
+  }
+  if (head === 0 || tail === 0 || head + tail >= lines2.length) return null;
+  const cut4 = lines2.slice(head, lines2.length - tail);
+  const cutChars = cut4.reduce((n3, l) => n3 + l.length + 1, 0);
+  const total = lines2.length - (stdout.endsWith("\n") ? 1 : 0);
+  return [...lines2.slice(0, head), trimMarker(cut4.length, cutChars, total), ...lines2.slice(lines2.length - tail)].join("\n");
+}
+var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+var bashOutputTrim = (payload) => {
+  let parsed;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return ALLOW;
+  }
+  const p = asRecord(parsed);
+  if (p === null || "agent_id" in p || p.tool_name !== "Bash") return ALLOW;
+  const command = asRecord(p.tool_input)?.command;
+  const response = asRecord(p.tool_response);
+  if (typeof command !== "string" || response === null) return ALLOW;
+  const { stdout, stderr: stderr2, interrupted, isImage } = response;
+  if (typeof stdout !== "string" || stderr2 !== "" || interrupted === true || isImage === true) return ALLOW;
+  if (stdout.length <= TRIM_ABOVE || !isRoutineRead(command) || asksFullOutput(command)) return ALLOW;
+  const trimmed = trimOutput(stdout);
+  if (trimmed === null) return ALLOW;
+  return { stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: { ...response, stdout: trimmed } } })}
+`, code: 0 };
+};
+
 // src/hooks/bro-turn-usage.ts
 import { readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants4, readFileSync as readFileSync5, statSync as statSync4 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/hooks/lib/db.ts
 import { accessSync as accessSync3, closeSync as closeSync2, constants as constants3, existsSync as existsSync3, openSync as openSync2, readFileSync as readFileSync4, readSync, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
@@ -5207,7 +5591,7 @@ function agentRole(input = "") {
 }
 
 // src/hooks/lib/sqlite-shell.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { spawnSync as spawnSync3 } from "node:child_process";
 import { accessSync as accessSync2, constants as constants2 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
@@ -5308,7 +5692,7 @@ function cliArgs(call) {
 }
 function runCli(call, env) {
   const limit = spawnLimit(call.killAfterMs, "SIGKILL");
-  const r = spawnSync2("sqlite3", cliArgs(call), {
+  const r = spawnSync3("sqlite3", cliArgs(call), {
     env,
     input: call.sql === void 0 ? call.script ?? "" : void 0,
     stdio: [call.sql === void 0 ? "pipe" : "ignore", "pipe", "pipe"],
@@ -6152,7 +6536,7 @@ function auditWriter(fromNode) {
   return fromNode === "system" ? "server" : "";
 }
 function auditEventsFile(env = process.env) {
-  const here = posixDirname(fileURLToPath(import.meta.url));
+  const here = posixDirname(fileURLToPath2(import.meta.url));
   const root = installRoot(here) ?? env.CLAUDE_PLUGIN_ROOT ?? here;
   return `${root}/${AUDIT_EVENTS_REL}`;
 }
@@ -6283,7 +6667,7 @@ function byteCompare(a, b) {
 
 // src/hooks/tool-output-size.ts
 import { readFileSync as readFileSync6 } from "node:fs";
-var GATE_NAME2 = "tool-output-size";
+var GATE_NAME3 = "tool-output-size";
 var CHARS_PER_TOKEN = 4;
 var UNKNOWN_TOOL = "unknown";
 var TOOL_OUTPUT_COMPLETED_AT_ENV = "TMB_STOP_COMPLETED_AT";
@@ -6408,14 +6792,14 @@ function toolOutputSize(payload, env) {
     const found = gateRead(db, `SELECT id FROM agent_runs WHERE ${target.where} ORDER BY id DESC LIMIT 1;`, env);
     const runId = found === GATE_READ_ERROR ? "" : sqlInt(found);
     if (runId === "") return ALLOW;
-    dbWrite(db, rewriteSql(runId, rows, env[TOOL_OUTPUT_COMPLETED_AT_ENV] ?? ""), { caller: GATE_NAME2, env });
+    dbWrite(db, rewriteSql(runId, rows, env[TOOL_OUTPUT_COMPLETED_AT_ENV] ?? ""), { caller: GATE_NAME3, env });
   } catch {
   }
   return ALLOW;
 }
 
 // src/hooks/bro-turn-usage.ts
-var GATE_NAME3 = "bro-turn-usage";
+var GATE_NAME4 = "bro-turn-usage";
 var ISO = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z\n?$/;
 var STAMP = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/;
 var MODEL_STRIP = /[^A-Za-z0-9._:@/[\]-]/gu;
@@ -6672,7 +7056,7 @@ var broTurnUsage = (payload, env) => {
   }
   const usage = turnUsage(text);
   if (usage === null || !usageValid(usage)) return ALLOW;
-  const r = dbWrite(db, usageSql(db, sessionId, usage, env), { env, caller: GATE_NAME3 });
+  const r = dbWrite(db, usageSql(db, sessionId, usage, env), { env, caller: GATE_NAME4 });
   if (!r.ok) {
     process.stderr.write(`${r.error}
 `);
@@ -6691,7 +7075,7 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
@@ -7029,7 +7413,7 @@ function cdPwd(path, pwd) {
 }
 
 // src/hooks/attribution-footer.ts
-var GATE_NAME4 = "attribution-footer";
+var GATE_NAME5 = "attribution-footer";
 var TMB_FOOTER = "\u{1F916} Generated with [Claude Code](https://claude.com/claude-code), powered by [Bro](https://github.com/trustmybot/plugin)";
 var KINDS = [
   { cli: "gh", group: "pr", urlPath: "/pull/" },
@@ -7068,7 +7452,7 @@ function onPath3(name3, env) {
 }
 function run2(file, args2, cwd, env) {
   const limit = spawnLimit();
-  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
   noteSpawn(limit, r);
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
@@ -7147,7 +7531,7 @@ var attributionFooter = (payload, env) => {
 };
 
 // src/hooks/code-quality-lint.ts
-var GATE_NAME5 = "code-quality-lint";
+var GATE_NAME6 = "code-quality-lint";
 var TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit"]);
 var SOURCE_EXTS = [".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 var TS_EXTS = /* @__PURE__ */ new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"]);
@@ -7542,7 +7926,7 @@ SPECS.gtimeout = SPECS.timeout;
 SPECS.gstdbuf = SPECS.stdbuf;
 SPECS.gnice = SPECS.nice;
 var WRAPPER = /^(sudo|env|command|nohup|time|exec|g?timeout|g?stdbuf|g?nice)$/;
-var ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+var ASSIGNMENT2 = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function under(a, b) {
   if (a === "" || /^[/~$]/.test(b)) return b;
   if (b === ".") return a;
@@ -7562,7 +7946,7 @@ function unwrap(w, k) {
   const n3 = w.length;
   while (k < n3) {
     const a = w[k];
-    if (a === "" || ASSIGNMENT.test(a)) {
+    if (a === "" || ASSIGNMENT2.test(a)) {
       k++;
       continue;
     }
@@ -8059,7 +8443,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         first++;
         continue;
       }
-      if (ASSIGNMENT.test(w[first])) {
+      if (ASSIGNMENT2.test(w[first])) {
         asg += (asg === "" ? "" : " ") + w[first];
         aw.push(w[first]);
         first++;
@@ -8068,7 +8452,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       if (w[first] === "time") {
         let k = first + 1;
         while (k < n3 && w[k].startsWith("-")) k++;
-        if (k < n3 && ASSIGNMENT.test(w[k])) {
+        if (k < n3 && ASSIGNMENT2.test(w[k])) {
           first = k;
           plain = false;
           continue;
@@ -8106,7 +8490,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     if (ok && a0 === "export") {
       for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
-        if (!ASSIGNMENT.test(w[k])) ok = false;
+        if (!ASSIGNMENT2.test(w[k])) ok = false;
         else if (vtop && !assignword(w[k], !csure)) ok = false;
       }
     } else if (ok) {
@@ -8319,12 +8703,12 @@ function readStmt(stmt) {
   return stmt.replace(/^\t+|\t+$/g, "");
 }
 function inner(stmt) {
-  const words2 = readWords(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = readWords(stmt);
+  const argv0 = words3[0] ?? "";
   if (SHELL.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -8415,12 +8799,12 @@ function readStmt2(stmt) {
   return stmt.replace(/^\t+|\t+$/g, "");
 }
 function inner2(stmt) {
-  const words2 = readWords2(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = readWords2(stmt);
+  const argv0 = words3[0] ?? "";
   if (SHELL2.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -8448,13 +8832,13 @@ function statements(parser2, cmd, base2, depth, home) {
   return out2;
 }
 function messageArg(subcommand) {
-  const words2 = readWords2(subcommand).slice(1);
-  for (let i2 = 0; i2 < words2.length; i2++) {
-    const w = words2[i2];
-    if (w === "-m" || w === "--message") return words2[i2 + 1] ?? "";
+  const words3 = readWords2(subcommand).slice(1);
+  for (let i2 = 0; i2 < words3.length; i2++) {
+    const w = words3[i2];
+    if (w === "-m" || w === "--message") return words3[i2 + 1] ?? "";
     if (w.startsWith("--message=")) return w.slice("--message=".length);
     if (w.startsWith("-m")) return w.slice(2);
-    if (/^-[a-zA-Z].*m$/s.test(w)) return words2[i2 + 1] ?? "";
+    if (/^-[a-zA-Z].*m$/s.test(w)) return words3[i2 + 1] ?? "";
   }
   return "";
 }
@@ -9216,9 +9600,9 @@ function fdModel(mode, args2, raw, acts, m) {
   }
   return !bad;
 }
-function listerBind(host, name3, dirtok, mode, words2, acts) {
+function listerBind(host, name3, dirtok, mode, words3, acts) {
   if (mode === "loop" && (host.root === "" || !NAME2.test(name3))) return null;
-  const dec2 = mode === "loop" ? words2 : words2.map(decode);
+  const dec2 = mode === "loop" ? words3 : words3.map(decode);
   let dir = "";
   if (dirtok.startsWith("/")) dir = dirtok;
   else if (dirtok === "@") dir = host.cwd;
@@ -9227,23 +9611,23 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
   const args2 = [];
   const raw = [];
   let skip2 = false;
-  for (let k = 1; k < words2.length; k++) {
+  for (let k = 1; k < words3.length; k++) {
     const w = dec2[k] ?? "";
     if (mode === "exec") {
       if (skip2) {
         skip2 = false;
         continue;
       }
-      if (EXEC_REDIRECT.test(words2[k])) {
+      if (EXEC_REDIRECT.test(words3[k])) {
         skip2 = true;
         continue;
       }
-      if (EXEC_REDIRECT_WORD.test(words2[k])) continue;
-      raw.push(words2[k]);
+      if (EXEC_REDIRECT_WORD.test(words3[k])) continue;
+      raw.push(words3[k]);
     } else {
       if (w === "2>/dev/null") continue;
       if (w === "2>") {
-        if (words2[k + 1] !== "/dev/null") return null;
+        if (words3[k + 1] !== "/dev/null") return null;
         k++;
         continue;
       }
@@ -9251,7 +9635,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
     }
     args2.push(w);
   }
-  const cmd = basename2(words2[0] ?? "");
+  const cmd = basename2(words3[0] ?? "");
   if (mode === "exec" && cmd !== "find" && cmd !== "fd" && cmd !== "fdfind") return null;
   const m = { paths: [], vals: [], pats: [], excl: [], gdir: "", listed: false };
   let fine;
@@ -9267,8 +9651,8 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
   const rootc = host.rootc();
   const rootTrim = trimSlash(rootc);
   let bound = rootc;
-  const git2 = cmd === "git";
-  if (git2) {
+  const git3 = cmd === "git";
+  if (git3) {
     bound = pathCanonical(m.gdir);
     if (!(bound + "/").startsWith(rootTrim + "/")) return null;
   }
@@ -9291,7 +9675,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
       w = pathCanonical(w);
       if (!(w + "/").startsWith(trimSlash(bound) + "/")) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
-      const at2 = git2 ? trimSlash(p) : trimSlash(v);
+      const at2 = git3 ? trimSlash(p) : trimSlash(v);
       if (isPromptSurfaceUnder(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at2}/*.md`);
       else if (cmd !== "ls") {
         const rel = w.replace(/^\//, "");
@@ -9308,7 +9692,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
           vals.push(`${at2}/${d === "CLAUDE.md" ? d : `${sub}/*.md`}`);
         }
       }
-      if (git2) continue;
+      if (git3) continue;
       vals.push(v, `${trimSlash(v)}/*`);
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
@@ -11872,9 +12256,9 @@ function proveScript(lang, src) {
       if (toks[j + 1]?.text === "=") return fail2;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
-    const sleep4 = perl ? perlSleepSelect(toks, k) : 0;
-    if (sleep4) {
-      k += sleep4 - 1;
+    const sleep5 = perl ? perlSleepSelect(toks, k) : 0;
+    if (sleep5) {
+      k += sleep5 - 1;
       continue;
     }
     let dotted = name3;
@@ -12280,8 +12664,8 @@ var PROGRAM_FLAG = {
   perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
   ruby: /^-[nlpaswWdv]*e(.*)$/s
 };
-function interpWrites(words2, procWrites, held = () => false) {
-  const argv0 = basename3(words2[0] ?? "");
+function interpWrites(words3, procWrites, held = () => false) {
+  const argv0 = basename3(words3[0] ?? "");
   let lang;
   let pyopt = false;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
@@ -12291,7 +12675,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   else if (argv0 === "perl") lang = "perl";
   else if (argv0 === "ruby") lang = "ruby";
   else return [];
-  const n3 = words2.length;
+  const n3 = words3.length;
   let k = 1;
   let optarg = false;
   const encoded = [];
@@ -12301,26 +12685,26 @@ function interpWrites(words2, procWrites, held = () => false) {
     carriers.push(attached ? flagWord : next ?? "");
   };
   while (k < n3) {
-    const w = words2[k++];
+    const w = words3[k++];
     if (pyopt) {
       const m2 = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
       if (m2) {
         pyopt = false;
-        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words2[k] ?? ""))))) return ["$(proc)"];
+        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words3[k] ?? ""))))) return ["$(proc)"];
       } else if (optarg) optarg = false;
       else if (w === "-W" || w === "-X") optarg = true;
       else if (!w.startsWith("-")) pyopt = false;
     }
     const m = PROGRAM_FLAG[lang].exec(w);
     if (m) {
-      take(w, m[1], m[1] ? void 0 : words2[k++]);
+      take(w, m[1], m[1] ? void 0 : words3[k++]);
       break;
     }
   }
   if (lang === "perl" || lang === "ruby") {
     for (let j = k; j < n3; j++) {
-      const m = PROGRAM_FLAG[lang].exec(words2[j]);
-      if (m) take(words2[j], m[1], m[1] ? void 0 : words2[++j]);
+      const m = PROGRAM_FLAG[lang].exec(words3[j]);
+      if (m) take(words3[j], m[1], m[1] ? void 0 : words3[++j]);
     }
   }
   const program = encoded.map((e) => chomp(decode(e))).join("\n");
@@ -12331,7 +12715,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === "-" && found.lines.length === 1);
   const out2 = literal ? [...found.lines] : [];
-  for (; k < n3; k++) if (!words2[k].startsWith("-")) out2.push(...decode(words2[k]).split("\n"));
+  for (; k < n3; k++) if (!words3[k].startsWith("-")) out2.push(...decode(words3[k]).split("\n"));
   if (found.computed) out2.push(COMPUTED + argv0);
   return [...out2, ...unproven];
 }
@@ -12629,17 +13013,17 @@ function inplaceFiles(tool, args2) {
   if (!hasprog) ops = ops.slice(1);
   return ops;
 }
-function gitTree(chain2, words2) {
-  const n3 = words2.length;
+function gitTree(chain2, words3) {
+  const n3 = words3.length;
   let cdir = "";
   let tree = "";
   let k = 1;
   let usetree = true;
   let dir = "";
   let outs = [];
-  const at2 = (j) => words2[j] ?? "";
+  const at2 = (j) => words3[j] ?? "";
   while (k < n3) {
-    const w = words2[k];
+    const w = words3[k];
     if (w === "-C") {
       cdir = under(cdir, at2(k + 1));
       k += 2;
@@ -12659,7 +13043,7 @@ function gitTree(chain2, words2) {
   } else if (sub === "stash") {
     if (next === "list" || next === "show") return [];
   } else if (sub === "apply") {
-    const all = ` ${words2.slice(k).join(" ")} `;
+    const all = ` ${words3.slice(k).join(" ")} `;
     if (!all.includes(" --apply ") && /( --check | --stat | --numstat | --summary )/.test(all)) return [];
   } else if (sub === "bisect") {
     if (/^(|log|view|visualize|terms|help)$/.test(next)) return [];
@@ -12667,28 +13051,28 @@ function gitTree(chain2, words2) {
     if (/^(|list|check-rules)$/.test(next)) return [];
   } else if (sub === "submodule") {
     let j = k + 1;
-    while (j < n3 && words2[j].startsWith("-")) j++;
+    while (j < n3 && words3[j].startsWith("-")) j++;
     if (!/^(update|add|deinit|absorbgitdirs)$/.test(at2(j))) return [];
   } else if (sub === "read-tree") {
     let j = k + 1;
     for (; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (w === "--") break;
       if (w.startsWith("--")) continue;
       if (/^-.*u/s.test(w)) break;
     }
-    if (!(j < n3 && words2[j] !== "--")) return [];
+    if (!(j < n3 && words3[j] !== "--")) return [];
   } else if (sub === "checkout-index") {
     for (let j = k + 1; j < n3; j++) {
-      if (/^--prefix=./s.test(words2[j])) {
-        outs.push(words2[j].slice("--prefix=".length));
+      if (/^--prefix=./s.test(words3[j])) {
+        outs.push(words3[j].slice("--prefix=".length));
         usetree = false;
       }
     }
   } else if (sub === "init") {
     usetree = false;
     for (let j = k + 1; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (w === "--separate-git-dir") {
         outs.push(at2(j + 1));
         j++;
@@ -12702,7 +13086,7 @@ function gitTree(chain2, words2) {
     usetree = false;
     const fp = sub === "format-patch";
     for (let j = k + 1; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (fp && w === "--stdout") return [];
       if (w === "-o" || w === "--output" || fp && w === "--output-directory") {
         outs.push(at2(j + 1));
@@ -12716,34 +13100,34 @@ function gitTree(chain2, words2) {
   if (usetree) outs = [tree || ".", ...outs];
   return outs.filter((w) => w !== "").map((w) => chain2 ? under(cdir, w) : w);
 }
-function extraWrites(chain2, words2, interp) {
+function extraWrites(chain2, words3, interp) {
   const out2 = [];
   let ops = [];
-  const tool = basename4(words2[0]);
-  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words2.slice(1)));
-  else if (tool === "mv") ops = words2.slice(1);
+  const tool = basename4(words3[0]);
+  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words3.slice(1)));
+  else if (tool === "mv") ops = words3.slice(1);
   else if (tool === "git") {
     let k = 1;
-    while (k < words2.length) {
-      if (words2[k] === "-C" || words2[k] === "-c") k += 2;
-      else if (words2[k].startsWith("-")) k++;
+    while (k < words3.length) {
+      if (words3[k] === "-C" || words3[k] === "-c") k += 2;
+      else if (words3[k].startsWith("-")) k++;
       else break;
     }
-    if (words2[k] === "mv") ops = words2.slice(k + 1);
-    out2.push(...gitTree(chain2, words2));
+    if (words3[k] === "mv") ops = words3.slice(k + 1);
+    out2.push(...gitTree(chain2, words3));
   }
   const srcs = ops.filter((w) => !w.startsWith("-"));
   if (srcs.length >= 2) out2.push(...srcs.slice(0, -1));
-  out2.push(...interp(words2));
+  out2.push(...interp(words3));
   return out2;
 }
 function stmtWritePaths(stmt, chain2, interp) {
   const paths = writeTargets(stmt);
-  const { pre, words: words2 } = unwrapStatement(stmt);
-  if (words2.length <= 1) return { paths, words: words2 };
-  if (pre === "") paths.push(...extraWrites(chain2, words2, interp));
-  else for (const p of extraWrites(true, words2, interp)) if (p !== "") paths.push(under(pre, p));
-  return { paths, words: words2 };
+  const { pre, words: words3 } = unwrapStatement(stmt);
+  if (words3.length <= 1) return { paths, words: words3 };
+  if (pre === "") paths.push(...extraWrites(chain2, words3, interp));
+  else for (const p of extraWrites(true, words3, interp)) if (p !== "") paths.push(under(pre, p));
+  return { paths, words: words3 };
 }
 
 // src/hooks/cmd-analysis/write-paths.ts
@@ -12814,21 +13198,21 @@ function parseLine(cmd) {
 `;
 }
 function inner3(stmt) {
-  const words2 = shellWords(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = shellWords(stmt);
+  const argv0 = words3[0] ?? "";
   if (basename5(argv0) === "watch") {
     let i2 = 1;
-    while (i2 < words2.length && words2[i2].startsWith("-")) {
-      const w = words2[i2++];
+    while (i2 < words3.length && words3[i2].startsWith("-")) {
+      const w = words3[i2++];
       if (w === "--") break;
       if (WATCH_VALUE.test(w)) i2++;
     }
-    return words2.slice(i2).join(" ");
+    return words3.slice(i2).join(" ");
   }
   if (/^(.*\/)?(bash|sh|zsh|dash|ksh)$/.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -12837,9 +13221,9 @@ function inner3(stmt) {
   const builtin = /^(builtin|command)[ \t]+eval(?:[ \t]+|$)/.exec(stmt);
   return builtin ? stmt.slice(builtin[0].length) : "";
 }
-function evalArgs(words2) {
-  if (words2[0] === "eval") return words2.slice(1);
-  if ((words2[0] === "builtin" || words2[0] === "command") && words2[1] === "eval") return words2.slice(2);
+function evalArgs(words3) {
+  if (words3[0] === "eval") return words3.slice(1);
+  if ((words3[0] === "builtin" || words3[0] === "command") && words3[1] === "eval") return words3.slice(2);
   return void 0;
 }
 var SET_IN_TEXT = /(?<![A-Za-z0-9_$-])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?[ \t]*(?:[-+*/%&^|]|<<|>>)?=(?!=)/g;
@@ -12849,8 +13233,8 @@ function setInText(text) {
   if (/\(\(|\$\[|\[|^let\b/.test(text)) for (const m of text.matchAll(STEPPED)) names.push(m[1] ?? m[2]);
   return names;
 }
-function stdinProgram(words2) {
-  const argv0 = basename5(words2[0]);
+function stdinProgram(words3) {
+  const argv0 = basename5(words3[0]);
   let kind;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) kind = "py";
   else if (argv0 === "node" || argv0 === "nodejs") kind = "node";
@@ -12861,8 +13245,8 @@ function stdinProgram(words2) {
   const none = { kind: "", info: false };
   let info2 = false;
   let skip2 = false;
-  for (let k = 1; k < words2.length; k++) {
-    const w = words2[k];
+  for (let k = 1; k < words3.length; k++) {
+    const w = words3[k];
     if (skip2) {
       skip2 = false;
       continue;
@@ -12897,7 +13281,7 @@ function stdinProgram(words2) {
   }
   return { kind, info: info2 };
 }
-var stdinInterp = (words2) => stdinProgram(words2).kind;
+var stdinInterp = (words3) => stdinProgram(words3).kind;
 var WritePaths = class _WritePaths {
   constructor(parser2, opts, charge) {
     this.parser = parser2;
@@ -13119,27 +13503,27 @@ var WritePaths = class _WritePaths {
     return this.bind(level, name3, listerBind(this.listerHost(level), name3, dirtok, "loop", fields, []));
   }
   /** _tmb_cmd_exec_writes: what a find / fd / xargs statement writes through the command it runs. */
-  execWrites(outer, dir, mark, words2, tok, depth) {
+  execWrites(outer, dir, mark, words3, tok, depth) {
     const level = { ...outer };
-    const tool = basename5(words2[0]);
+    const tool = basename5(words3[0]);
     const acts = [];
     let name3;
     if (tool === "find") name3 = "find_path";
     else if (tool === "fd" || tool === "fdfind") name3 = "fd_path";
     else if (tool === "xargs") {
       name3 = "xargs_arg";
-      const n3 = words2.length;
+      const n3 = words3.length;
       let k = 1;
       let rep = "";
       let noin = false;
       while (k < n3) {
-        const p = words2[k];
+        const p = words3[k];
         if (p === "--") {
           k++;
           break;
         }
         if (p === "-I" || p === "-J") {
-          rep = words2[k + 1] ?? "";
+          rep = words3[k + 1] ?? "";
           k += 2;
           continue;
         }
@@ -13160,13 +13544,13 @@ var WritePaths = class _WritePaths {
       }
       if (k >= n3) return;
       const rv2 = "${" + name3 + "}";
-      let cmd = words2.slice(k).join(" ");
+      let cmd = words3.slice(k).join(" ");
       cmd = rep !== "" ? cmd.split(rep).join(rv2) : `${cmd} ${rv2}`;
       acts.push("x" + cmd);
       if (noin || mark === "" || !this.loopSource(level, name3, mark)) level.vars += `${name3}	${BAD2}
 `;
     } else return;
-    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words2, acts))) {
+    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words3, acts))) {
       level.vars += `${name3}	${BAD2}
 `;
     }
@@ -13222,13 +13606,13 @@ var WritePaths = class _WritePaths {
     const out2 = [];
     for (const record of this.listing(cmd, "@", 0)) {
       if (record.dir.startsWith("=")) continue;
-      const { words: words2 } = unwrapStatement(record.stmt);
-      if (words2.length === 0) continue;
-      if (/[$`]/.test(dec(words2[0]))) {
+      const { words: words3 } = unwrapStatement(record.stmt);
+      if (words3.length === 0) continue;
+      if (/[$`]/.test(dec(words3[0]))) {
         out2.push("$(proc)");
         continue;
       }
-      if (!cmd.includes("<<") && stdinInterp(words2) !== "") out2.push("$(proc)");
+      if (!cmd.includes("<<") && stdinInterp(words3) !== "") out2.push("$(proc)");
     }
     const nested = new _WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: "", env: this.opts.env }, this.charge);
     nested.run(cmd, "@", 0, "");
@@ -13270,8 +13654,8 @@ var WritePaths = class _WritePaths {
   isHeld(word) {
     return this.held.has(heldKey(word));
   }
-  interp = (words2) => interpWrites(
-    words2,
+  interp = (words3) => interpWrites(
+    words3,
     (cmd) => this.procWrites(cmd),
     (w) => this.isHeld(w)
   );
@@ -13280,40 +13664,40 @@ var WritePaths = class _WritePaths {
    * with an option other than -x / -r / -g / -t (`declare -n`, `-a`, `-i`,
    * ...), and those mapfile / readarray, getopts and unset set (GH 1739).
    */
-  trackVars(level, words2) {
-    switch (basename5(words2[0])) {
+  trackVars(level, words3) {
+    switch (basename5(words3[0])) {
       case "export":
       case "declare":
       case "typeset":
       case "local":
       case "readonly": {
-        const plain = words2.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
-        for (const w of words2.slice(1)) {
+        const plain = words3.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
+        for (const w of words3.slice(1)) {
           if (!/^[A-Za-z_].*=/s.test(w)) continue;
           if (plain) this.varSet(level, before(w, "="), dec(after(w, "=")));
           else this.poison(level, before(w, "="));
         }
-        if (!plain) for (const w of words2.slice(1)) this.poison(level, w);
+        if (!plain) for (const w of words3.slice(1)) this.poison(level, w);
         return;
       }
       case "mapfile":
       case "readarray":
-        for (const w of [...words2.slice(1), "MAPFILE"]) this.poison(level, w);
+        for (const w of [...words3.slice(1), "MAPFILE"]) this.poison(level, w);
         return;
       case "unset":
-        for (const w of words2.slice(1)) this.poison(level, w);
+        for (const w of words3.slice(1)) this.poison(level, w);
         return;
       case "getopts":
-        this.poison(level, words2[2] ?? "");
+        this.poison(level, words3[2] ?? "");
         return;
       case "for": {
-        if (words2[2] !== "in") {
-          level.vars += `${words2[1] ?? ""}	${BAD2}
+        if (words3[2] !== "in") {
+          level.vars += `${words3[1] ?? ""}	${BAD2}
 `;
           return;
         }
-        const name3 = words2[1] ?? "";
-        const rest = words2.slice(3);
+        const name3 = words3[1] ?? "";
+        const rest = words3.slice(3);
         if (rest.length === 1 && rest[0].startsWith("$")) {
           if (!this.loopSource(level, name3, rest[0].slice(3))) level.vars += `${name3}	${BAD2}
 `;
@@ -13326,7 +13710,7 @@ var WritePaths = class _WritePaths {
         let mk = "";
         let skip2 = false;
         const names = [];
-        for (const w of words2.slice(1)) {
+        for (const w of words3.slice(1)) {
           if (skip2) {
             skip2 = false;
             continue;
@@ -13343,7 +13727,7 @@ var WritePaths = class _WritePaths {
         return;
       }
       case "printf":
-        if (words2[1] === "-v") level.vars += `${words2[2] ?? ""}	${BAD2}
+        if (words3[1] === "-v") level.vars += `${words3[2] ?? ""}	${BAD2}
 `;
         return;
     }
@@ -13367,9 +13751,9 @@ var WritePaths = class _WritePaths {
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
-  poisonSet(level, words2) {
-    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words2[0]));
-    for (const w of words2) {
+  poisonSet(level, words3) {
+    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words3[0]));
+    for (const w of words3) {
       if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
       for (const name3 of setInText(dec(w))) this.poison(level, name3);
     }
@@ -13403,22 +13787,22 @@ var WritePaths = class _WritePaths {
         }
         level.oldtok = old;
         level.why = why;
-        const words2 = shellWords(record.stmt);
-        if (words2.length === 0) return;
+        const words3 = shellWords(record.stmt);
+        if (words3.length === 0) return;
         if (dir.startsWith("=")) {
           this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
             this.pwd = dirPath(d, cwd);
-            for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+            for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
           });
           return;
         }
-        this.poisonSet(level, words2);
+        this.poisonSet(level, words3);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner3(record.stmt);
-        if (body2 !== "" && (!evalArgs(words2) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
+        if (body2 !== "" && (!evalArgs(words3) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
-          this.trackVars(level, words2);
+          this.trackVars(level, words3);
         });
       });
       level.vars = varsUniq(level.vars);
@@ -13473,12 +13857,12 @@ var WritePaths = class _WritePaths {
       }
       level.oldtok = old;
       level.why = why;
-      let words2 = shellWords(record.stmt);
-      if (words2.length === 0) continue;
+      let words3 = shellWords(record.stmt);
+      if (words3.length === 0) continue;
       if (dir.startsWith("=")) {
         this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
-          for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
         });
         continue;
       }
@@ -13486,21 +13870,21 @@ var WritePaths = class _WritePaths {
       const dirs = dir.split(ALT);
       const each = (fn) => this.eachDir(level, dirs, why, (d) => fn(d, d === "-" && level.why === "", d + SEP + old + (level.why === "" ? "" : SEP + level.why)));
       const body2 = inner3(record.stmt);
-      const evaluated = evalArgs(words2);
-      this.poisonSet(level, words2);
+      const evaluated = evalArgs(words3);
+      this.poisonSet(level, words3);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
       if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
       if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
-      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words2[0]))} ${dec(body2)}`));
-      const ownWords = body2 !== "" && !evaluated && basename5(words2[0]) !== "watch";
+      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
+      const ownWords = body2 !== "" && !evaluated && basename5(words3[0]) !== "watch";
       if (ownWords) {
         each((d, chain2) => {
           for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
         });
       }
       if (body2 !== "" && !evaluated && heldProgram(body2)) {
-        this.print(computedLine(`${basename5(dec(words2[0]))} ${dec(body2)}`));
+        this.print(computedLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
         continue;
       }
       if (body2 !== "" && depth < MAX_DEPTH3) {
@@ -13510,30 +13894,30 @@ var WritePaths = class _WritePaths {
       if (body2 !== "") this.print(computedLine(dec(body2)));
       let stmt = record.stmt;
       let mark = "";
-      if (basename5(words2[0]) === "xargs" && words2[words2.length - 1].startsWith(SEP)) {
-        mark = words2[words2.length - 1];
-        words2 = words2.slice(0, -1);
-        stmt = words2.join(" ");
+      if (basename5(words3[0]) === "xargs" && words3[words3.length - 1].startsWith(SEP)) {
+        mark = words3[words3.length - 1];
+        words3 = words3.slice(0, -1);
+        stmt = words3.join(" ");
       }
       if (!ownWords) {
         each((d, chain2) => {
           for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
         });
       }
-      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words2[0]))) each((d, _, t) => this.execWrites(level, d, mark, words2, t, depth));
-      const { kind, info: info2 } = stdinProgram(words2);
+      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words3[0]))) each((d, _, t) => this.execWrites(level, d, mark, words3, t, depth));
+      const { kind, info: info2 } = stdinProgram(words3);
       if (kind !== "") {
         const progs = [];
         const herestring = (w) => {
           progs.push({ prog: dec(w), held: heldProgram(w), partly: this.isHeld(w) });
         };
-        for (let w = 0; w < words2.length; w++) {
-          if (words2[w] === "<<<") herestring(words2[w + 1] ?? "");
-          else if (words2[w].startsWith("<<<")) herestring(words2[w].slice(3));
+        for (let w = 0; w < words3.length; w++) {
+          if (words3[w] === "<<<") herestring(words3[w + 1] ?? "");
+          else if (words3[w].startsWith("<<<")) herestring(words3[w].slice(3));
         }
         for (const h of bodies.get(idx) ?? []) progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
-        if (progs.length === 0 && !info2) this.print(computedLine(basename5(dec(words2[0]))));
-        const shownArgv0 = basename5(dec(words2[0]));
+        if (progs.length === 0 && !info2) this.print(computedLine(basename5(dec(words3[0]))));
+        const shownArgv0 = basename5(dec(words3[0]));
         for (const { prog, held, partly } of progs) {
           if (held) this.print(computedLine(`${shownArgv0} ${prog}`));
           else if (kind === "sh") {
@@ -13552,7 +13936,7 @@ var WritePaths = class _WritePaths {
       }
       each((d) => {
         this.pwd = dirPath(d, cwd);
-        this.trackVars(level, words2);
+        this.trackVars(level, words3);
       });
     }
   }
@@ -13710,8 +14094,8 @@ function ghMutationFrom(w) {
   if (!writes || action === "" || !writes.includes(action)) return "";
   return `${group} ${action}`;
 }
-function ghMutationIn(words2) {
-  const cmd = words2.join(" ");
+function ghMutationIn(words3) {
+  const cmd = words3.join(" ");
   if (cmd === "") return "";
   const w = readWords3(cmd.replaceAll("_", " "));
   for (let k = 0; k < w.length; k++) {
@@ -13742,8 +14126,8 @@ function rebaseExec(g) {
   }
   return "";
 }
-function gitMutation(words2) {
-  const g = readWords3(gitSubcommand(words2.join(" ")));
+function gitMutation(words3) {
+  const g = readWords3(gitSubcommand(words3.join(" ")));
   if (`${g[0] ?? ""} ${g[1] ?? ""}` === "bisect run") return ghMutationIn(g.slice(2));
   if (g[0] === "submodule") {
     let k = 1;
@@ -13954,7 +14338,7 @@ async function writePaths(command, options = {}) {
 }
 
 // src/hooks/git-guards.ts
-var GATE_NAME6 = "git-guards";
+var GATE_NAME7 = "git-guards";
 var NEEDS_GUARD = /(^|[^A-Za-z0-9_./-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
 var SPACE = "[ \\t\\n\\v\\f\\r]";
 var NONSPACE = "[^ \\t\\n\\v\\f\\r]";
@@ -14340,7 +14724,7 @@ var gitGuards = async (payload, env) => {
 };
 
 // src/hooks/commit-msg-lint.ts
-var GATE_NAME7 = "commit-msg-lint";
+var GATE_NAME8 = "commit-msg-lint";
 var TYPES = "feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert";
 var SKIPPED_MODES = [" --amend", " --no-edit", " --fixup", " --squash", " --merge"];
 var AWK_FIELD_SEP = /[ \t\n]+/;
@@ -14518,7 +14902,7 @@ var Guard = class {
     if (written.error !== "") process.stderr.write(`${written.error}
 `);
     if (reason === "") {
-      reason = `BLOCKED: containment \u2014 ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName2(this.env)}/scratch/ (or /tmp/claude-${this.uid}).`;
+      reason = `BLOCKED: containment \u2014 ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName2(this.env)}/scratch/ (or /tmp/claude-${this.uid}); plans, decisions and analysis go in the trajectory DB.`;
     }
     const decision = jqCompact({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
@@ -14641,12 +15025,12 @@ async function judgeBash(g, input, analyze2) {
     if (path !== null) g.judge(path);
   }
 }
-function runTmpdir(input, g) {
-  const hookTmp = g.env.TMPDIR ?? "";
+function runTmpdir(input, toolName2, env, uid, harnessTmpC) {
+  const hookTmp = env.TMPDIR ?? "";
   if (/^\/./s.test(hookTmp)) return hookTmp;
-  if (g.toolName !== "Bash" || g.harnessTmpC === "") return hookTmp;
+  if (toolName2 !== "Bash" || harnessTmpC === "") return hookTmp;
   if (jqField2(input, ["tool_input", "dangerouslyDisableSandbox"]) === "true") return hookTmp;
-  return `/tmp/claude-${g.uid}`;
+  return `/tmp/claude-${uid}`;
 }
 async function guard(input, env, analyze2) {
   const g = new Guard(env);
@@ -14680,7 +15064,7 @@ async function guard(input, env, analyze2) {
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
   g.harnessTmpC = harnessTmp(g.uid);
-  const tmpdir2 = runTmpdir(input, g);
+  const tmpdir2 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
   if (tmpdir2 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir2 };
   if (/^\/./s.test(tmpdir2)) g.hostTmpC = canonical(tmpdir2);
   if (agentType === "" || agentType === "bro") {
@@ -14712,10 +15096,10 @@ function containmentGuardWith(analyze2) {
 var containmentGuard = containmentGuardWith(writePaths);
 
 // src/hooks/deferred-tools-drift-warn.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { lstatSync as lstatSync5, readdirSync as readdirSync2, statSync as statSync14 } from "node:fs";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-var GATE_NAME8 = "deferred-tools-drift-warn";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+var GATE_NAME9 = "deferred-tools-drift-warn";
 var ANCESTRY_GUARD = 40;
 var SERVER_PATTERN = "trajectory-server/dist/index.js";
 var INT64_MAX = 2n ** 63n - 1n;
@@ -14723,7 +15107,7 @@ var INT64_MIN = -(2n ** 63n);
 var ArithError = class extends Error {
 };
 function run3(cmd, args2, env) {
-  const r = spawnSync4(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync5(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function testInt(text) {
@@ -14858,7 +15242,7 @@ function isDir3(path) {
   }
 }
 function pluginRoot() {
-  return installRoot(posixDirname(fileURLToPath3(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
 }
 function driftContext(count, pid) {
   return `[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${pid}). CC's deferred-tools registry is session-scoped and only a new session replays tool discovery. Workaround (Tier 2): fully quit and relaunch Claude Code to bind the new tools. See #98.`;
@@ -14898,7 +15282,7 @@ var deferredToolsDriftWarn = (_payload, env) => {
 
 // src/hooks/ensure-gitignore.ts
 import { appendFileSync, readFileSync as readFileSync8, statSync as statSync15, writeFileSync as writeFileSync2 } from "node:fs";
-var GATE_NAME9 = "ensure-gitignore";
+var GATE_NAME10 = "ensure-gitignore";
 var RULE = "# TMB plugin runtime state \u2014 never commit\n.claude/\n";
 var IGNORED = /^\.claude(\/\*?)?$/;
 function isFile9(path) {
@@ -14958,7 +15342,7 @@ var ensureGitignore = async (_payload, env) => {
 };
 
 // src/hooks/git-push-guard.ts
-var GATE_NAME10 = "git-push-guard";
+var GATE_NAME11 = "git-push-guard";
 var SOURCE_PATHS = [":(top)", ":(top,exclude,glob)mcp/*/dist/**", ":(top,exclude)dashboard/dist"];
 var FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 var HEX = /^[0-9a-f]+$/;
@@ -15060,12 +15444,12 @@ var Guard2 = class {
     const seen = /* @__PURE__ */ new Set();
     const out2 = [];
     for (const row of lines(pairs)) {
-      const words2 = row.trim().split(/\s+/).filter((w) => w !== "");
-      const sha = words2[0] ?? "";
+      const words3 = row.trim().split(/\s+/).filter((w) => w !== "");
+      const sha = words3[0] ?? "";
       if (!pid.has(sha) || seen.has(sha)) continue;
       seen.add(sha);
       let m = "";
-      for (const cand of words2.slice(1)) {
+      for (const cand of words3.slice(1)) {
         if (pid.has(cand) && pid.get(cand) === pid.get(sha) && task.has(cand)) {
           const t = task.get(cand) ?? "";
           if (m === "" || /\|1$/.test(t)) m = t;
@@ -15238,7 +15622,7 @@ var gitPushGuard = async (payload, env) => {
 };
 
 // src/hooks/mcp-health-check.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync17, writeFileSync as writeFileSync3 } from "node:fs";
 
 // src/hooks/lib/install.ts
@@ -15581,7 +15965,7 @@ function activeInstall(env = process.env, onStderr = () => {
 }
 
 // src/hooks/mcp-health-check.ts
-var GATE_NAME11 = "mcp-health-check";
+var GATE_NAME12 = "mcp-health-check";
 var DEFAULT_SAMPLES = 3;
 var LOG_ROTATE_BYTES = 1048576;
 var NOTICE_MAX_AGE_MIN = 1440;
@@ -15605,7 +15989,7 @@ function sampleCount(raw) {
   return Number(v);
 }
 function pgrepLines(pattern, env) {
-  const r = spawnSync5("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync6("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return (r.stdout ?? "").split("\n").length - 1;
 }
 function samplePgrep(env) {
@@ -15754,7 +16138,7 @@ async function resolveRepoDefaultBranch(repoPath, env) {
 }
 
 // src/hooks/code-reviewer-preflight.ts
-var GATE_NAME12 = "code-reviewer-preflight";
+var GATE_NAME13 = "code-reviewer-preflight";
 var BYPASS_ENV = "TMB_SKIP_CODE_REVIEWER_PREFLIGHT";
 var GIT_TIMEOUT_MS = 1e4;
 var MAX_LISTED = 10;
@@ -15763,12 +16147,12 @@ var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
 var REGEN_DRIVER = "tmb-regen";
-async function git(repo, args2, env) {
+async function git2(repo, args2, env) {
   const r = await gitSpawn(repo, args2, { env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
   return { code: r.code, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") || (r.error?.message ?? "") };
 }
 async function revParse(repo, rev, env) {
-  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
+  const r = await git2(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
   const sha = r.stdout.trim();
   return r.code === 0 && sha !== "" ? sha : null;
 }
@@ -15795,11 +16179,11 @@ function deny3(failure2) {
   };
 }
 function dbUnavailable(env) {
-  return { stdout: `${denyDbUnavailable(GATE_NAME12, env)}
+  return { stdout: `${denyDbUnavailable(GATE_NAME13, env)}
 `, code: 0 };
 }
 async function treeBlobs(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
+  const r = await git2(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
   if (r.code !== 0) return null;
   const blobs = /* @__PURE__ */ new Map();
   for (const entry of nulFields(r.stdout)) {
@@ -15856,7 +16240,7 @@ function dirOf(path) {
   return slash < 0 ? "" : path.slice(0, slash);
 }
 async function removedInDiff(repo, base2, commit, env) {
-  const diff = await git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
+  const diff = await git2(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
   if (diff.code !== 0) return `git diff ${base2}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
   const paths = [];
@@ -15906,11 +16290,11 @@ async function staleDocRefs(repo, base2, commit, env) {
   return hits;
 }
 async function hasChangelogDir(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
+  const r = await git2(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== "";
 }
 async function nonRegenPaths(repo, rev, paths, env) {
-  const r = await git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
+  const r = await git2(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
   if (r.code !== 0) return null;
   const fields = nulFields(r.stdout);
   if (fields.length % 3 !== 0) return null;
@@ -15995,7 +16379,7 @@ async function preflight(db, taskId, env) {
       actual: `no PR target ref resolves in ${repo}`
     });
   }
-  const merge = await git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
+  const merge = await git2(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
     const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
@@ -16007,7 +16391,7 @@ async function preflight(db, taskId, env) {
       });
     }
   }
-  const mergeBase = (await git(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
+  const mergeBase = (await git2(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
   if (mergeBase === "") {
     return deny3({
       check: "base_conflict",
@@ -16015,16 +16399,16 @@ async function preflight(db, taskId, env) {
       actual: "no merge-base"
     });
   }
-  const stale = await staleDocRefs(repo, mergeBase, commit, env);
-  if (typeof stale === "string" || stale.length > 0) {
+  const stale2 = await staleDocRefs(repo, mergeBase, commit, env);
+  if (typeof stale2 === "string" || stale2.length > 0) {
     return deny3({
       check: "stale_doc_ref",
       expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${mergeBase}..${commit} removes`,
-      actual: typeof stale === "string" ? stale : listed(stale)
+      actual: typeof stale2 === "string" ? stale2 : listed(stale2)
     });
   }
   if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
-    const added = await git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
+    const added = await git2(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === "") {
       return deny3({
         check: "missing_changelog",
@@ -16052,7 +16436,7 @@ var codeReviewerPreflight = async (payload, env) => {
 var SPAWN_NOTE_MAX_CHARS = 300;
 
 // src/hooks/code-reviewer-spawn-note.ts
-var GATE_NAME13 = "code-reviewer-spawn-note";
+var GATE_NAME14 = "code-reviewer-spawn-note";
 var BYPASS_ENV2 = "TMB_SKIP_CODE_REVIEWER_SPAWN_NOTE";
 var ANCHORS = ["task_id", "commit_sha", "branch_id", "repo", "repo_path", "attempt_n", "subagent_session_id"];
 var ANCHOR_RE = new RegExp(`\\b(?:${ANCHORS.join("|")})\\s*=\\s*(?:'[^']*'|"[^"]*"|\`[^\`]*\`|\\S+)`, "g");
@@ -16092,7 +16476,7 @@ function elapsedMs(createdAt, endedAt) {
 }
 
 // src/hooks/rework-limit.ts
-var GATE_NAME14 = "rework-limit";
+var GATE_NAME15 = "rework-limit";
 function readState(db, taskId, env) {
   const out2 = gateRead(
     db,
@@ -16169,13 +16553,13 @@ var reworkLimit = (payload, env) => {
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME14, env);
-  return reworkLimitVerdict(GATE_NAME14, db, taskId, env);
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME15, env);
+  return reworkLimitVerdict(GATE_NAME15, db, taskId, env);
 };
 
 // src/hooks/require-feature-branch-active.ts
 import { posix } from "node:path";
-var GATE_NAME15 = "require-feature-branch-active";
+var GATE_NAME16 = "require-feature-branch-active";
 function cutField2(text, n3) {
   const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
@@ -16184,7 +16568,7 @@ function resolveRepo(db, taskId, repo, env) {
   const workspaceRoot = posix.dirname(posix.dirname(posix.dirname(db)));
   if (repo !== "") {
     const found = gateRead(db, `SELECT path FROM repos WHERE name = '${sqlQuote(repo)}' LIMIT 1;`, env);
-    if (found === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+    if (found === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
     const abs2 = found.split("\n")[0] || `${workspaceRoot}/${repo}`;
     if (isDir(`${abs2}/.git`)) return abs2;
     return denyPreToolUse(
@@ -16192,7 +16576,7 @@ function resolveRepo(db, taskId, repo, env) {
     );
   }
   const single = gateRead(db, "SELECT CASE WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END;", env);
-  if (single === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  if (single === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
   const abs = single || workspaceRoot;
   if (isDir(`${abs}/.git`)) return abs;
   return denyPreToolUse(
@@ -16208,7 +16592,7 @@ var requireFeatureBranchActive = async (payload, env) => {
   const db = dbPath(env);
   if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
   const row = gateRead(db, `SELECT branch_id, repo, parent_branch_id FROM tasks WHERE id=${taskId};`, env);
-  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
   if (row === "") return ALLOW;
   const expected = cutField2(row, 1);
   const repoAbs = resolveRepo(db, rawId, cutField2(row, 2), env);
@@ -16234,7 +16618,7 @@ function effortDefaults(db, env = process.env) {
 }
 
 // src/hooks/require-task-spec.ts
-var GATE_NAME16 = "require-task-spec";
+var GATE_NAME17 = "require-task-spec";
 function promptTaskId(prompt) {
   return /task_id[=:][ \t\v\f\r]*([0-9]+)/.exec(prompt)?.[1] ?? "";
 }
@@ -16299,12 +16683,12 @@ async function worktreeDeny(db, taskId, safeId, env) {
     FROM tasks t WHERE t.id = ${safeId};`,
     env
   );
-  if (wt === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
+  if (wt === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
   let row;
   try {
     row = wt === "" ? {} : JSON.parse(wt);
   } catch {
-    return denyUnreadable(GATE_NAME16, env);
+    return denyUnreadable(GATE_NAME17, env);
   }
   const branch = rawField(row.branch);
   const path = rawField(row.path);
@@ -16327,12 +16711,12 @@ function specShapeVerdict(db, taskId, safeId, env) {
   FROM tasks WHERE id = ${safeId};`,
     env
   );
-  if (spec === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
+  if (spec === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
   let row;
   try {
     row = spec === "" ? {} : JSON.parse(spec);
   } catch {
-    return denyUnreadable(GATE_NAME16, env);
+    return denyUnreadable(GATE_NAME17, env);
   }
   const body2 = rawField(row.body);
   const files = Array.isArray(row.files) ? stripTrailingNewlines(row.files.filter((f) => typeof f === "string").join("\n")) : "";
@@ -16349,7 +16733,7 @@ function specShapeVerdict(db, taskId, safeId, env) {
     AND length(trim(COALESCE(json_extract(content_json, '$.reason'), ''))) >= 10;`,
     env
   );
-  if (waived === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
+  if (waived === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
   if (Number(waived || "0") > 0) return ALLOW;
   let ref = gateRead(
     db,
@@ -16377,7 +16761,7 @@ var requireTaskSpec = async (payload, env) => {
   if (db === null || !haveSqlite(env)) return ALLOW;
   const safeId = sqlInt(taskId);
   const row = gateRead(db, `SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${safeId};`, env);
-  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
+  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
   if (row === "") return deny5(`BLOCKED: task_id=${taskId} does not exist in the tasks table.`);
   const fields = row.split(/[|\n]/);
   const status = fields[0] ?? "";
@@ -16392,7 +16776,7 @@ var requireTaskSpec = async (payload, env) => {
     ORDER BY id DESC LIMIT 1;`,
       env
     );
-    if (live === GATE_READ_ERROR) return denyUnreadable(GATE_NAME16, env);
+    if (live === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
     if (live !== "") {
       return deny5(
         `BLOCKED: task_id=${taskId} is running with a live swe run: agent_runs ${live}. Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.`
@@ -16417,7 +16801,7 @@ var requireTaskSpec = async (payload, env) => {
 };
 
 // src/hooks/require-spawn-effort.ts
-var GATE_NAME17 = "require-spawn-effort";
+var GATE_NAME18 = "require-spawn-effort";
 function toolInputRaw(payload, key2) {
   return stripTrailingNewlines(
     jqMap(payload, (v) => jqRawText(jqOr(jqIndex(jqIndex(v, "tool_input"), key2), ""))).join("\n")
@@ -16453,7 +16837,7 @@ function sweVerdict(payload, given, env) {
         "BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet. Restart Claude Code so the server migrates the DB, then retry the spawn."
       );
     }
-    return denyUnreadable(GATE_NAME17, env);
+    return denyUnreadable(GATE_NAME18, env);
   }
   if (expected === "" || given === expected) return ALLOW;
   return denyMismatch(
@@ -16467,7 +16851,7 @@ function reviewerVerdict(given, env) {
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
   const defaults = effortDefaults(db, env);
-  if (defaults === GATE_READ_ERROR || defaults === "") return denyUnreadable(GATE_NAME17, env);
+  if (defaults === GATE_READ_ERROR || defaults === "") return denyUnreadable(GATE_NAME18, env);
   const bar = defaults.indexOf("|");
   const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
   if (given === expected) return ALLOW;
@@ -16487,7 +16871,7 @@ var requireSpawnEffort = (payload, env) => {
 };
 
 // src/hooks/substrate-preflight.ts
-var GATE_NAME18 = "substrate-preflight";
+var GATE_NAME19 = "substrate-preflight";
 var PROBES = [
   ["jq", "most PreToolUse gates and the bro/swe doctrine hooks are inoperative"],
   ["sqlite3", "task/spawn gates cannot verify state"],
@@ -16538,7 +16922,7 @@ var substratePreflight = async (_payload, env) => {
 
 // src/hooks/naming-lint.ts
 import { existsSync as existsSync9 } from "node:fs";
-var GATE_NAME19 = "naming-lint";
+var GATE_NAME20 = "naming-lint";
 var TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var FIXED_NAMES = /* @__PURE__ */ new Set([
   "__init__.py",
@@ -16709,7 +17093,7 @@ var ScopeFence = class {
 };
 
 // src/hooks/swe-boundary.ts
-var GATE_NAME20 = "swe-boundary";
+var GATE_NAME21 = "swe-boundary";
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var FORCE2 = / --force | -f | --force-with-lease | --force-with-lease=/;
 var GLOB_CHAR2 = /[*?[]/;
@@ -16798,7 +17182,7 @@ var Boundary = class {
         this.worktree = ctx.worktree;
         return null;
       case 2:
-        return { stdout: `${denyDbUnavailable(GATE_NAME20, this.env)}
+        return { stdout: `${denyDbUnavailable(GATE_NAME21, this.env)}
 `, code: 0 };
       case 3:
         this.ctxState = "nodb";
@@ -16821,7 +17205,7 @@ var Boundary = class {
     return ctxInWorktree(path, this.worktree) ? this.worktree : worktreeRootForTarget(path);
   }
   dbDenied() {
-    return { stdout: `${denyDbUnavailable(GATE_NAME20, this.env)}
+    return { stdout: `${denyDbUnavailable(GATE_NAME21, this.env)}
 `, code: 0 };
   }
   /** prompt_bearing of <task>: "1" lifts, GATE_READ_ERROR denies. */
@@ -16996,12 +17380,12 @@ var Boundary = class {
       {
         issueId: issue,
         branchId: "",
-        fromNode: `hook:${GATE_NAME20}`,
+        fromNode: `hook:${GATE_NAME21}`,
         eventType: "hook_block_bypassed",
         summary: `${this.toolName} to ${rel} after ${gate} denied a Bash write to it`,
         contentJson: content
       },
-      { caller: GATE_NAME20, env: this.env }
+      { caller: GATE_NAME21, env: this.env }
     );
     if (!written.ok) {
       if (written.error !== "") process.stderr.write(`${written.error}
@@ -17076,7 +17460,7 @@ var sweBoundary = async (payload, env) => {
 };
 
 // src/hooks/swe-resume-gate.ts
-var GATE_NAME21 = "swe-resume-gate";
+var GATE_NAME22 = "swe-resume-gate";
 function effortMismatchReason(agentId, target) {
   return `BLOCKED: swe ${agentId} ran task ${target.task_id} at effort ${target.run_effort}; the task's effort is now ${target.task_effort}. A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change. Spawn a fresh swe at the task's effort instead: Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}').`;
 }
@@ -17086,7 +17470,7 @@ var sweResumeGate = (payload, env) => {
   if (to === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME21, env);
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME22, env);
   const out2 = gateRead(
     db,
     `SELECT json_object('task_id', r.task_id, 'status', t.status, 'run_effort', r.effort, 'task_effort', t.effort)
@@ -17095,11 +17479,11 @@ var sweResumeGate = (payload, env) => {
       ORDER BY r.id DESC LIMIT 1;`,
     env
   );
-  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME21, env);
+  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME22, env);
   if (out2 === "") return ALLOW;
   const target = JSON.parse(out2.split("\n")[0]);
   if (target.status === "closed") return ALLOW;
-  const verdict = reworkLimitVerdict(GATE_NAME21, db, String(target.task_id), env);
+  const verdict = reworkLimitVerdict(GATE_NAME22, db, String(target.task_id), env);
   if (verdict !== ALLOW) return verdict;
   if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
     return denyPreToolUse(effortMismatchReason(to, target));
@@ -17109,7 +17493,7 @@ var sweResumeGate = (payload, env) => {
 
 // src/hooks/swe-stop-cause.ts
 import { readFileSync as readFileSync11 } from "node:fs";
-var GATE_NAME22 = "swe-stop-cause";
+var GATE_NAME23 = "swe-stop-cause";
 var STOP_DETAIL_MAX_CHARS = 500;
 var HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
 var SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
@@ -17193,7 +17577,7 @@ function sweStopCause(payload, env) {
         WHERE id = (SELECT id FROM agent_runs
                      WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
                      ORDER BY id DESC LIMIT 1);`,
-      { caller: GATE_NAME22, env }
+      { caller: GATE_NAME23, env }
     );
   } catch {
   }
@@ -17201,11 +17585,11 @@ function sweStopCause(payload, env) {
 }
 
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME23 = "task-overrun-alert";
+var GATE_NAME24 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME23}`;
+var FROM_NODE = `hook:${GATE_NAME24}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -17246,7 +17630,7 @@ function claim(db, found, now, env) {
   const statements2 = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME23 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME24 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -17257,12 +17641,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME23, env, now: nowIso(now) }
+      { caller: GATE_NAME24, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements2.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements2.join("\n"), { caller: GATE_NAME23, env });
+  const w = dbWrite(db, statements2.join("\n"), { caller: GATE_NAME24, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -17297,7 +17681,7 @@ import { availableParallelism, loadavg } from "node:os";
 // src/hooks/lib/persona.ts
 import { accessSync as accessSync8, constants as constants8, lstatSync as lstatSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync5, readFileSync as readFileSync12, realpathSync as realpathSync5, statSync as statSync19, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 var STALE_MINUTES = 1440;
 var OLD_BLOCK = "<!-- tmb:persona start";
 var OLD_BLOCK_NOTE = "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]";
@@ -17353,22 +17737,22 @@ function manifestField(root, key2, haveJq) {
 }
 function defaultPluginRoot() {
   try {
-    return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
   } catch {
     return "";
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot5 === "") return null;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot4 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot5);
+  const pluginReal = physicalDir2(pluginRoot4);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot5, "version", haveJq);
-  const name3 = manifestField(pluginRoot5, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot5, source: `${pluginRoot5}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot4, "version", haveJq);
+  const name3 = manifestField(pluginRoot4, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot4, source: `${pluginRoot4}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -17478,12 +17862,12 @@ function silentLimitMs(env, load1, ncpu) {
 }
 function pipelineWords(command) {
   const text = command.replace(/\s2>(?:\/dev\/null|&1)(?=\s|\||$)/g, "");
-  const words2 = [];
+  const words3 = [];
   let word = "";
   let inWord = false;
   let quote = "";
   const flush = () => {
-    if (inWord) words2.push(word);
+    if (inWord) words3.push(word);
     word = "";
     inWord = false;
   };
@@ -17506,7 +17890,7 @@ function pipelineWords(command) {
       flush();
     } else if (c === "|") {
       flush();
-      words2.push("|");
+      words3.push("|");
     } else if (SHELL_SYNTAX.includes(c)) {
       return null;
     } else {
@@ -17516,14 +17900,14 @@ function pipelineWords(command) {
   }
   if (quote !== "") return null;
   flush();
-  const hasEmptyStage = words2[0] === "|" || words2[words2.length - 1] === "|" || words2.some((w, i2) => w === "|" && words2[i2 + 1] === "|");
-  return hasEmptyStage ? null : words2;
+  const hasEmptyStage = words3[0] === "|" || words3[words3.length - 1] === "|" || words3.some((w, i2) => w === "|" && words3[i2 + 1] === "|");
+  return hasEmptyStage ? null : words3;
 }
 function tailFollowTarget(command) {
-  const words2 = pipelineWords(command);
-  if (words2 === null || words2[0] !== "tail") return null;
-  const end = words2.indexOf("|");
-  const args2 = words2.slice(1, end < 0 ? void 0 : end);
+  const words3 = pipelineWords(command);
+  if (words3 === null || words3[0] !== "tail") return null;
+  const end = words3.indexOf("|");
+  const args2 = words3.slice(1, end < 0 ? void 0 : end);
   let follows = false;
   let target = null;
   for (let i2 = 0; i2 < args2.length; i2 += 1) {
@@ -17863,7 +18247,7 @@ function writeSnapshot(sessionsDir, sessionId, payloadTasks, now) {
 
 // src/hooks/plugin-hooks-marker.ts
 import { mkdirSync as mkdirSync6, statSync as statSync21 } from "node:fs";
-var GATE_NAME24 = "plugin-hooks-marker";
+var GATE_NAME25 = "plugin-hooks-marker";
 var SUFFIX = ".plugin-hooks";
 function safeSessionId(input) {
   const sid = commandSubstitution(jqAlternatives(commandSubstitution(input), [["session_id"]]));
@@ -17904,7 +18288,7 @@ function pluginHooksMarker(payload, env) {
 }
 
 // src/hooks/liveness-alert.ts
-var GATE_NAME25 = "liveness-alert";
+var GATE_NAME26 = "liveness-alert";
 var THROTTLE_MS = 5 * 6e4;
 var THROTTLE_SUFFIX = ".liveness-throttle";
 function throttled(lastProbe, now) {
@@ -17927,7 +18311,7 @@ function makeLivenessAlert(clock = () => /* @__PURE__ */ new Date()) {
     const transcriptPath = jqAlternatives(payload, [["transcript_path"]]);
     const found = sweep(db, { now, sessionId, transcriptPath, tasks: readSnapshot(sessionsDir, sessionId) }, env);
     if (found === null || found.findings.length === 0) return ALLOW;
-    const claimed = claimLivenessFinding(db, found.findings, now, env, GATE_NAME25);
+    const claimed = claimLivenessFinding(db, found.findings, now, env, GATE_NAME26);
     if (claimed === null || claimed.length === 0) return ALLOW;
     const event = jqAlternatives(payload, [["hook_event_name"]]) || "UserPromptSubmit";
     return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: findingReport(claimed) } })}
@@ -17939,7 +18323,7 @@ var livenessAlert = makeLivenessAlert();
 // src/hooks/liveness-sentinel.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-var GATE_NAME26 = "liveness-sentinel";
+var GATE_NAME27 = "liveness-sentinel";
 var POLL_ENV = "TMB_LIVENESS_POLL_S";
 var DEFAULT_POLL_S = 60;
 var TOKEN_SUFFIX = ".liveness-token";
@@ -17973,7 +18357,7 @@ function makeLivenessSentinel(clock = () => /* @__PURE__ */ new Date()) {
       const found = sweep(db, { now, sessionId, transcriptPath, tasks }, env);
       if (found !== null) {
         if (found.findings.length > 0) {
-          const claimed = claimLivenessFinding(db, found.findings, now, env, GATE_NAME26);
+          const claimed = claimLivenessFinding(db, found.findings, now, env, GATE_NAME27);
           if (claimed === null || claimed.length === 0) return ALLOW;
           return { stdout: "", code: 2, stderr: `${findingReport(claimed)}
 ` };
@@ -17987,7 +18371,7 @@ function makeLivenessSentinel(clock = () => /* @__PURE__ */ new Date()) {
 var livenessSentinel = makeLivenessSentinel();
 
 // src/hooks/activation-routine.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { readFileSync as readFileSync14, statSync as statSync22 } from "node:fs";
 
 // src/hooks/cmd-analysis/harness-turn.ts
@@ -18004,12 +18388,15 @@ function isHarnessTurn(prompt) {
 }
 
 // src/hooks/activation-routine.ts
-var GATE_NAME27 = "activation-routine";
+var GATE_NAME28 = "activation-routine";
 var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
 var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
 var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
-var TOOL_CALLS_LIMIT = 150;
-var CONTEXT_PER_CALL_LIMIT = 6e4;
+var RECENT_CALLS = 5;
+var CONTEXT_LIMIT = 12e4;
+var ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
+var NEWLINE = 10;
+var SYNTHETIC_MODEL = "<synthetic>";
 var LocaleGrep = class {
   constructor(utf8) {
     this.utf8 = utf8;
@@ -18073,7 +18460,7 @@ function saysBro(prompt, grep) {
 function serverDown(env) {
   if (!commandOnPath2("pgrep", env)) return false;
   try {
-    return spawnSync6("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+    return spawnSync7("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
   } catch {
     return false;
   }
@@ -18096,35 +18483,64 @@ function activationContext(onboardedCount, pending2) {
   }
   return `[tmb activation routine \u2014 pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume \u2014 they would be redundant duplicate reads. ${pendingLine}`;
 }
-function limitsPassed(toolUses2, cacheReadTokens) {
-  if (toolUses2 <= 0) return [];
-  const contextPerCall = Math.ceil(cacheReadTokens / toolUses2);
-  const passed = [];
-  if (toolUses2 > TOOL_CALLS_LIMIT) passed.push(`${toolUses2} tool calls (limit ${TOOL_CALLS_LIMIT})`);
-  if (contextPerCall > CONTEXT_PER_CALL_LIMIT) passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
-  return passed;
-}
-function pastUsageLimits(toolUses2, cacheReadTokens) {
-  return limitsPassed(toolUses2, cacheReadTokens).length > 0;
-}
-function usageWarning(toolUses2, cacheReadTokens) {
-  const passed = limitsPassed(toolUses2, cacheReadTokens);
-  if (passed.length === 0) return "";
-  return `\u26A0\uFE0F This bro session is past its usage limits: ${passed.join(", ")}. Finish what is in flight, then end the session and resume cold from the DB.`;
-}
-function sessionUsageWarning(db, sessionId, env) {
-  if (!SESSION_ID_LINE.test(sessionId)) return "";
+function callContext(line) {
+  let entry;
   try {
-    const row = sqliteRo(
-      db,
-      `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
-      env
-    );
-    const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
-    return usage === null ? "" : usageWarning(Number(usage[1]), Number(usage[2]));
+    entry = JSON.parse(line);
   } catch {
-    return "";
+    return null;
   }
+  if (entry === null || typeof entry !== "object") return null;
+  const { type, isSidechain, message } = entry;
+  if (type !== "assistant" || isSidechain === true || message === null || typeof message !== "object") return null;
+  const { id, model: model3, usage } = message;
+  if (model3 === SYNTHETIC_MODEL || usage === null || typeof usage !== "object") return null;
+  const count = (key2) => {
+    const value = usage[key2];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    id: typeof id === "string" ? id : null,
+    context: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens")
+  };
+}
+function* assistantLines(transcript) {
+  let from = 0;
+  for (; ; ) {
+    const hit = transcript.indexOf(ASSISTANT_MARKER, from);
+    if (hit === -1) return;
+    const start2 = transcript.lastIndexOf(NEWLINE, hit) + 1;
+    const newline = transcript.indexOf(NEWLINE, hit);
+    const end = newline === -1 ? transcript.length : newline;
+    yield transcript.toString("utf8", start2, end);
+    from = end + 1;
+  }
+}
+function recentContext(transcript) {
+  if (transcript === null) return null;
+  const seen = /* @__PURE__ */ new Set();
+  let first = null;
+  const recent = [];
+  for (const line of assistantLines(transcript)) {
+    const call = callContext(line);
+    if (call === null) continue;
+    if (call.id !== null) {
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+    }
+    first ??= call.context;
+    recent.push(call.context);
+    if (recent.length > RECENT_CALLS) recent.shift();
+  }
+  if (first === null) return null;
+  return { mean: Math.ceil(recent.reduce((sum2, c) => sum2 + c, 0) / recent.length), calls: recent.length, first };
+}
+function pastContextLimit(recent) {
+  return recent !== null && recent.mean > CONTEXT_LIMIT;
+}
+function usageWarning(recent) {
+  if (recent === null || !pastContextLimit(recent)) return "";
+  return `\u26A0\uFE0F This bro session's recent context is past its limit: ${recent.mean} mean input context over the last ${recent.calls} calls (limit ${CONTEXT_LIMIT}; its first call took ${recent.first}, the cold-start reference). Finish what is in flight, then end the session and resume cold from the DB.`;
 }
 function handoffPending(db, sessionId, env) {
   if (!SESSION_ID_LINE.test(sessionId)) return "";
@@ -18138,22 +18554,23 @@ function activationRoutine(payload, env) {
   try {
     const echoed = `${commandSubstitution(payload)}
 `;
-    const field6 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
-    const prompt = field6("prompt");
+    const field7 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
+    const prompt = field7("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field6("transcript_path")), grep)) return ALLOW;
+    const transcript = readTranscript3(field7("transcript_path"));
+    if (!saysBro(prompt, grep) && !isStickyBro(transcript, grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
-    const db = dbPathAdvisory(GATE_NAME27, env, (line) => process.stderr.write(`${line}
+    const db = dbPathAdvisory(GATE_NAME28, env, (line) => process.stderr.write(`${line}
 `));
     if (db === null || !haveSqlite(env)) return haltOnly();
     const onboarded = sqliteRo(db, "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';", env);
-    const sessionId = field6("session_id");
+    const sessionId = field7("session_id");
     const pending2 = handoffPending(db, sessionId, env) || sqliteRo(db, "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;", env);
     let context4 = activationContext(onboarded, pending2);
     if (halt !== "") context4 = `${halt} ${context4}`;
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context4 = `${context4} session_id=${sessionId}`;
-    const warning = sessionUsageWarning(db, sessionId, env);
+    const warning = usageWarning(recentContext(transcript));
     if (warning !== "") context4 = `${context4}
 ${warning}`;
     return emit(context4);
@@ -18163,7 +18580,7 @@ ${warning}`;
 }
 
 // src/hooks/debug-trajectory.ts
-var GATE_NAME28 = "debug-trajectory";
+var GATE_NAME29 = "debug-trajectory";
 var ARGS_MAX_BYTES = 4e3;
 var pad = (n3) => String(n3).padStart(2, "0");
 function hourStamp(date) {
@@ -18190,7 +18607,7 @@ function debugTrajectory(payload, env) {
   try {
     if ((env.TMB_EVAL_MODE || "0") !== "1" || (env.TMB_DEBUG_TRAJECTORY || "0") !== "1") return ALLOW;
     const writeEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "500", TMB_DB_WRITE_RUN_BUDGET_MS: "1200" };
-    const db = dbPathAdvisory(GATE_NAME28, writeEnv, (line) => process.stderr.write(`${line}
+    const db = dbPathAdvisory(GATE_NAME29, writeEnv, (line) => process.stderr.write(`${line}
 `));
     if (db === null) return ALLOW;
     const echoed = `${commandSubstitution(payload)}
@@ -18198,7 +18615,7 @@ function debugTrajectory(payload, env) {
     const tool = commandSubstitution(jqAlternatives(echoed, [["tool_name"], ["tool"]]));
     if (tool === "" || tool.startsWith("mcp__")) return ALLOW;
     const sessionId = env.CLAUDE_SESSION_ID || hourStamp(/* @__PURE__ */ new Date());
-    const w = dbWrite(db, debugTrajectorySql(sessionId, tool, argsJson(echoed), nowIso()), { caller: GATE_NAME28, env: writeEnv });
+    const w = dbWrite(db, debugTrajectorySql(sessionId, tool, argsJson(echoed), nowIso()), { caller: GATE_NAME29, env: writeEnv });
     if (!w.ok) process.stderr.write(`${w.error}
 `);
     return { stdout: w.stdout, code: 0 };
@@ -18209,7 +18626,7 @@ function debugTrajectory(payload, env) {
 
 // src/hooks/session-log-capture.ts
 import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync15, statSync as statSync23 } from "node:fs";
-var GATE_NAME29 = "session-log-capture";
+var GATE_NAME30 = "session-log-capture";
 var CONTINUE = '{"continue": true}\n';
 function utcStamp2(date) {
   const iso2 = date.toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -18264,7 +18681,7 @@ function sessionLogCapture(payload, env) {
 }
 
 // src/hooks/session-handoff.ts
-var GATE_NAME30 = "session-handoff";
+var GATE_NAME31 = "session-handoff";
 var OPEN_RUN_MAX_AGE = "-12 hours";
 var HANDOFF_EXPIRY = "-24 hours";
 var SUMMARY_MAX_CHARS = 2e3;
@@ -18294,14 +18711,14 @@ function validCwd(value) {
 function blockingOpenRun(sessionSql) {
   return `EXISTS (SELECT 1 FROM agent_runs r WHERE r.session_id = ${sessionSql} AND r.agent_type <> 'bro' AND r.completed_at IS NULL AND r.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','${OPEN_RUN_MAX_AGE}'))`;
 }
-function atBoundary(db, sessionId, env) {
+function atBoundary(db, sessionId, transcriptPath, env) {
+  if (typeof transcriptPath !== "string" || !pastContextLimit(recentContext(readTranscript3(transcriptPath)))) return false;
   const row = sqliteRo(
     db,
-    `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0), ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
+    `SELECT ${blockingOpenRun(`'${sessionId}'`)} FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
     env
   );
-  const usage = /^([0-9]+)\|([0-9]+)\|0$/.exec(row);
-  return usage !== null && pastUsageLimits(Number(usage[1]), Number(usage[2]));
+  return row === "0";
 }
 function truncated(text, max) {
   if (text.length <= max) return text;
@@ -18339,8 +18756,8 @@ var sessionHandoff = (payload, env) => {
     const cwd = input.cwd;
     if (!validSessionId(sessionId) || !validCwd(cwd)) return ALLOW;
     const db = dbPath(env);
-    if (db === null || !atBoundary(db, sessionId, env)) return ALLOW;
-    const written = dbWrite(db, upsertSql(sessionId, cwd, input.last_assistant_message), { env, caller: GATE_NAME30 });
+    if (db === null || !atBoundary(db, sessionId, input.transcript_path, env)) return ALLOW;
+    const written = dbWrite(db, upsertSql(sessionId, cwd, input.last_assistant_message), { env, caller: GATE_NAME31 });
     if (!written.ok) return ALLOW;
     const state = JSON.parse(written.stdout);
     if (state.existed !== 0) return ALLOW;
@@ -18399,7 +18816,7 @@ function withHandoff(context4, payload, env) {
     if (room < MIN_BLOCK_CHARS) return context4;
     const db = dbPath(env);
     if (db === null) return context4;
-    const written = dbWrite(db, consumeSql(sessionId, cwd), { env, caller: GATE_NAME30 });
+    const written = dbWrite(db, consumeSql(sessionId, cwd), { env, caller: GATE_NAME31 });
     if (!written.ok || written.stdout.trim() === "") return context4;
     const block2 = handoffBlock(JSON.parse(written.stdout));
     return `${context4}${CONTEXT_SEPARATOR}${truncated(block2, room)}`;
@@ -18409,7 +18826,7 @@ function withHandoff(context4, payload, env) {
 }
 
 // src/hooks/session-start-persona.ts
-var GATE_NAME31 = "session-start-persona";
+var GATE_NAME32 = "session-start-persona";
 function sessionStartPersona(payload, env) {
   try {
     const input = commandSubstitution(payload);
@@ -18427,7 +18844,7 @@ function sessionStartPersona(payload, env) {
 
 // src/hooks/user-prompt-persona.ts
 import { existsSync as existsSync11 } from "node:fs";
-var GATE_NAME32 = "user-prompt-persona";
+var GATE_NAME33 = "user-prompt-persona";
 var PERSONA_UNREADABLE_NOTICE = `{"systemMessage":"TMB could not read the plugin CLAUDE.md that carries bro's persona, so this session runs without it. Start a new Claude Code session to load it."}
 `;
 function userPromptPersona(payload, env) {
@@ -18454,7 +18871,7 @@ function userPromptPersona(payload, env) {
 
 // src/hooks/prompt-intent-hints.ts
 import { statSync as statSync24 } from "node:fs";
-import { fileURLToPath as fileURLToPath5, pathToFileURL as pathToFileURL2 } from "node:url";
+import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
 
 // src/hooks/lib/jq-raw.ts
 var JqUnindexable = class extends Error {
@@ -18510,7 +18927,7 @@ function jqNumber2(digits) {
 }
 
 // src/hooks/agent-arg-matches-caller.ts
-var GATE_NAME33 = "agent-arg-matches-caller";
+var GATE_NAME34 = "agent-arg-matches-caller";
 var WRITE_RUN_BUDGET_MS = "2500";
 var TRAJECTORY_TOOL = /^mcp__.*trajectory-server__/s;
 var TOOL_PREFIX = "trajectory-server__";
@@ -18580,12 +18997,12 @@ function recordMismatch(env, toolShort, f, actual, caller) {
     {
       issueId: issue,
       branchId: "",
-      fromNode: `hook:${GATE_NAME33}`,
+      fromNode: `hook:${GATE_NAME34}`,
       eventType: "agent_arg_mismatch",
       summary: `${toolShort}: agent='${f.given}' but the caller is ${caller}`,
       contentJson: content
     },
-    { env: { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS }, caller: GATE_NAME33 }
+    { env: { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS }, caller: GATE_NAME34 }
   );
 }
 var agentArgMatchesCaller = (payload, env) => {
@@ -18607,7 +19024,7 @@ var agentArgMatchesCaller = (payload, env) => {
 };
 
 // src/hooks/prompt-intent-hints.ts
-var GATE_NAME34 = "prompt-intent-hints";
+var GATE_NAME35 = "prompt-intent-hints";
 var SUMMARY_MAX_BYTES = 200;
 var C_SPACE = "\\t\\n\\v\\f\\r ";
 var UTF8_SPACE = `${C_SPACE}\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`;
@@ -19060,7 +19477,7 @@ function isFile11(path) {
 }
 function defaultPluginRoot2() {
   try {
-    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath6(import.meta.url))) ?? "";
   } catch {
     return "";
   }
@@ -19104,12 +19521,12 @@ var Context = class {
       {
         issueId: "-1",
         branchId: "",
-        fromNode: `hook:${GATE_NAME34}`,
+        fromNode: `hook:${GATE_NAME35}`,
         eventType: "consultant_spawn_nudged",
         summary: `Consultant-spawn nudge emitted: ${cut4}`,
         contentJson: "{}"
       },
-      { caller: GATE_NAME34, env: this.env }
+      { caller: GATE_NAME35, env: this.env }
     );
     if (!written.ok && written.error !== "") process.stderr.write(`${written.error}
 `);
@@ -19289,7 +19706,7 @@ async function promptIntentHints(payload, env) {
     const utf8 = setlocaleUtf8(env);
     prompt = commandSubstitution(stripBashSpans(prompt));
     if (!hasNonSpace(prompt, utf8) || isHarnessTurn(prompt)) return ALLOW;
-    dbPathAdvisory(GATE_NAME34, env, (line) => process.stderr.write(`${line}
+    dbPathAdvisory(GATE_NAME35, env, (line) => process.stderr.write(`${line}
 `));
     prompt = stripInjectedBlocks(prompt);
     if (!hasNonSpace(prompt, utf8)) return ALLOW;
@@ -19300,7 +19717,7 @@ async function promptIntentHints(payload, env) {
 }
 
 // src/hooks/rework-waiver-capture.ts
-var GATE_NAME35 = "rework-waiver-capture";
+var GATE_NAME36 = "rework-waiver-capture";
 var WAIVER_BODY_MAX_CHARS = 500;
 var WAIVER = /\bwaive task #?(\d+)\b/gi;
 function waivers(prompt) {
@@ -19333,7 +19750,7 @@ function makeReworkWaiverCapture(clock = () => /* @__PURE__ */ new Date()) {
       const db = dbPath(env);
       if (db === null) return ALLOW;
       const now = nowIso(clock());
-      dbWrite(db, found.map((w) => waiverSql(w, now)).join("\n"), { caller: GATE_NAME35, env });
+      dbWrite(db, found.map((w) => waiverSql(w, now)).join("\n"), { caller: GATE_NAME36, env });
       return ALLOW;
     } catch {
       return ALLOW;
@@ -19343,7 +19760,7 @@ function makeReworkWaiverCapture(clock = () => /* @__PURE__ */ new Date()) {
 var reworkWaiverCapture = makeReworkWaiverCapture();
 
 // src/hooks/consultant-persistence-gate.ts
-var GATE_NAME36 = "consultant-persistence-gate";
+var GATE_NAME37 = "consultant-persistence-gate";
 var BACKBONE_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
 var block = (reason) => ({ stdout: `${jqCompact({ decision: "block", reason })}
 `, code: 0 });
@@ -19363,7 +19780,7 @@ function consultantPersistenceGate(payload, env) {
   if (agent === "" || BACKBONE_ROLES.has(agent)) return ALLOW;
   const db = dbPath(env);
   if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
-  const unavailable = () => block(dbUnavailableReason(GATE_NAME36, env));
+  const unavailable = () => block(dbUnavailableReason(GATE_NAME37, env));
   const safeAgent = sqlQuote(agent);
   const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
   if (isConsultant === GATE_READ_ERROR) return unavailable();
@@ -19379,7 +19796,7 @@ function consultantPersistenceGate(payload, env) {
 }
 
 // src/hooks/roundtable-auq-shape.ts
-var GATE_NAME37 = "roundtable-auq-shape";
+var GATE_NAME38 = "roundtable-auq-shape";
 var MAX_QUESTIONS = 4;
 var AWAITING_SQL = `
   SELECT r.id FROM roundtables r
@@ -19467,7 +19884,7 @@ function roundtableAuqShape(payload, env) {
 }
 
 // src/hooks/roundtable-cleanup-postcheck.ts
-var GATE_NAME38 = "roundtable-cleanup-postcheck";
+var GATE_NAME39 = "roundtable-cleanup-postcheck";
 var CLOSE_TOOLS = ["roundtable_close", "roundtable_close_with_decisions"];
 function roundtableIdField(echoed) {
   return commandSubstitution(
@@ -19525,7 +19942,7 @@ function roundtableCleanupPostcheck(payload, env) {
 }
 
 // src/hooks/roundtable-slash-detect.ts
-var GATE_NAME39 = "roundtable-slash-detect";
+var GATE_NAME40 = "roundtable-slash-detect";
 var SUMMARY_MAX_BYTES2 = 200;
 var WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
 function slashInvoked(prompt) {
@@ -19547,12 +19964,12 @@ function roundtableSlashDetect(payload, env) {
       {
         issueId: "-1",
         branchId: "",
-        fromNode: `hook:${GATE_NAME39}`,
+        fromNode: `hook:${GATE_NAME40}`,
         eventType: "roundtable_slash_invoked",
         summary: `User typed /roundtable: ${promptSummary(prompt)}`,
         contentJson: "{}"
       },
-      { caller: GATE_NAME39, env: { ...env, ...WRITE_ENV } }
+      { caller: GATE_NAME40, env: { ...env, ...WRITE_ENV } }
     );
     if (!written.ok) {
       if (written.error !== "") process.stderr.write(`${written.error}
@@ -19569,7 +19986,7 @@ function roundtableSlashDetect(payload, env) {
 }
 
 // src/hooks/code-reviewer-no-worktree.ts
-var GATE_NAME40 = "code-reviewer-no-worktree";
+var GATE_NAME41 = "code-reviewer-no-worktree";
 var BYPASS_ENV3 = "TMB_ALLOW_CODE_REVIEWER_WORKTREE";
 var DENY_REASON = `code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin \u2014 from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.
 
@@ -19595,7 +20012,7 @@ var codeReviewerNoWorktree = (payload, env) => {
 };
 
 // src/hooks/code-reviewer-spawn-prompt-shape.ts
-var GATE_NAME41 = "code-reviewer-spawn-prompt-shape";
+var GATE_NAME42 = "code-reviewer-spawn-prompt-shape";
 var BYPASS_ENV4 = "TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE";
 var RUBBER_STAMP_PHRASES = ["trust the prior verdict", "fast-track if", "rubber.stamp", "prior verdict"];
 var ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(", ")}, and ${ANCHORS[ANCHORS.length - 1]}`;
@@ -19641,7 +20058,7 @@ var codeReviewerSpawnPromptShape = (payload, env) => {
 };
 
 // src/hooks/code-reviewer-after-atomic-close.ts
-var GATE_NAME42 = "code-reviewer-after-atomic-close";
+var GATE_NAME43 = "code-reviewer-after-atomic-close";
 var BYPASS_ENV5 = "TMB_SKIP_CODE_REVIEWER_CLOSE_GATE";
 function notClosedReason(taskId, status) {
   return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
@@ -19673,22 +20090,22 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
   const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
-  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME42, env)}
+  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME43, env)}
 `, code: 0 };
   if (status === "" || status === "closed") return ALLOW;
   return spawnDeny(notClosedReason(taskId, status));
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn3, spawnSync as spawnSync7 } from "node:child_process";
-import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync8, mkdtempSync, openSync as openSync3, readFileSync as readFileSync16, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { spawn as spawn3, spawnSync as spawnSync9 } from "node:child_process";
+import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync9, mkdtempSync, openSync as openSync3, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync26, writeFileSync as writeFileSync7 } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { resolve as resolve3 } from "node:path";
 
 // src/hooks/lib/verification-carry.ts
 import { realpathSync as realpathSync6 } from "node:fs";
 import { basename as basename7, matchesGlob } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
 var VERIFICATION_INPUTS_VERSION = 1;
 var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -19806,7 +20223,7 @@ async function planCarrySafe(req, env = process.env) {
 }
 function isMainModule() {
   const entry = process.argv[1];
-  const self2 = fileURLToPath6(import.meta.url);
+  const self2 = fileURLToPath7(import.meta.url);
   if (entry === void 0 || basename7(self2) !== "verification-carry.js") return false;
   try {
     return realpathSync6(entry) === realpathSync6(self2);
@@ -19821,7 +20238,7 @@ if (isMainModule()) {
 }
 
 // src/hooks/swe-brief-gate.ts
-var GATE_NAME43 = "swe-brief-gate";
+var GATE_NAME44 = "swe-brief-gate";
 var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var TRAJECTORY_TOOL2 = /^mcp__[\s\S]*trajectory-server__/;
 function briefSurface(toolName2) {
@@ -19867,7 +20284,7 @@ UPDATE agent_runs SET spawn_id = '${safeAgentId}'
               WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
                 AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
               ORDER BY id DESC LIMIT 1);`,
-      { caller: GATE_NAME43, env }
+      { caller: GATE_NAME44, env }
     );
   } else if (keyed.startsWith("0|")) {
     auditAppend(
@@ -19875,12 +20292,12 @@ UPDATE agent_runs SET spawn_id = '${safeAgentId}'
       {
         issueId: keyed.slice(keyed.indexOf("|") + 1),
         branchId: "",
-        fromNode: `hook:${GATE_NAME43}`,
+        fromNode: `hook:${GATE_NAME44}`,
         eventType: "swe_resume_observed",
         summary: `swe ${agentId} resumed task ${taskId} and called task_brief`,
         contentJson: resumeJson(taskId, agentId, nowIso())
       },
-      { caller: GATE_NAME43, env }
+      { caller: GATE_NAME44, env }
     );
   }
 }
@@ -19923,8 +20340,234 @@ var sweBriefGate = (payload, env) => {
   };
 };
 
+// src/suite-lock.ts
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join6 } from "node:path";
+var SUITE_LOCK_POLL_MS = 500;
+var SUITE_LOCK_NOTICE_MS = 6e4;
+var SUITE_LOCK_STALE_MS = 1e4;
+var SUITE_LOCK_HELD_ENV = "TMB_SUITE_LOCK_HELD";
+var SHELL_SEPARATORS = /&&|\|\||[;|&\n]/;
+var PACKAGE_TEST = /^(?:(?:bun|pnpm|npm) run test|npm test|pnpm test)(?:\s|$)/;
+var NODE_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "-r",
+  "--require",
+  "--import",
+  "--loader",
+  "--experimental-loader",
+  "--conditions",
+  "-C",
+  "--env-file",
+  "--test-reporter",
+  "--test-reporter-destination",
+  "--test-name-pattern",
+  "--test-skip-pattern",
+  "--test-concurrency",
+  "--test-shard",
+  "--test-timeout"
+]);
+function unquote(token) {
+  return token.replace(/^(['"])(.*)\1$/, "$2");
+}
+function commandWords(segment) {
+  const words3 = segment.trim().split(/\s+/).filter((w) => w !== "").map(unquote);
+  let i2 = 0;
+  while (i2 < words3.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words3[i2]) || words3[i2] === "env")) i2++;
+  return words3.slice(i2);
+}
+function nodeFullSuite(words3) {
+  if (!/(?:^|\/)node$/.test(words3[0] ?? "") || !words3.includes("--test")) return false;
+  const files = [];
+  for (let i2 = 1; i2 < words3.length; i2++) {
+    const w = words3[i2];
+    if (NODE_VALUE_FLAGS.has(w)) i2++;
+    else if (!w.startsWith("-")) files.push(w);
+  }
+  return files.length === 0 || files.some((f) => /[*?[]/.test(f));
+}
+function isFullSuite(command) {
+  return command.split(SHELL_SEPARATORS).some((segment) => {
+    const words3 = commandWords(segment);
+    if (words3.length === 0) return false;
+    if (PACKAGE_TEST.test(words3.join(" "))) return true;
+    if (words3.some((w) => /(?:^|\/)tests\/run-all\.sh$/.test(w))) return true;
+    return nodeFullSuite(words3);
+  });
+}
+function suiteSlots(env) {
+  const raw = env.TMB_TEST_SUITE_SLOTS ?? "";
+  return /^[1-9][0-9]{0,2}$/.test(raw) ? Number(raw) : 1;
+}
+function ownedDir(dir, recursive) {
+  try {
+    mkdirSync8(dir, { recursive, mode: 448 });
+  } catch (e) {
+    if (e.code !== "EEXIST") return null;
+  }
+  try {
+    const st = lstatSync8(dir);
+    const uid = process.geteuid?.();
+    return st.isDirectory() && !st.isSymbolicLink() && (uid === void 0 || st.uid === uid) ? dir : null;
+  } catch {
+    return null;
+  }
+}
+function suiteLockRoot(env) {
+  const override = env.TMB_SUITE_LOCK_DIR ?? "";
+  if (override !== "") return ownedDir(override, true);
+  const uid = process.geteuid?.();
+  if (uid === void 0) return null;
+  const base2 = ownedDir(`/tmp/claude-${uid}`, false);
+  return base2 === null ? null : ownedDir(join6(base2, "tmb-suite-lock"), false);
+}
+var warnedUnusable = false;
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code !== "ESRCH";
+  }
+}
+function readHolderText(slot) {
+  try {
+    return readFileSync16(join6(slot, "holder"), "utf8");
+  } catch {
+    return null;
+  }
+}
+function parseHolder(text) {
+  if (text === null) return null;
+  try {
+    const h = JSON.parse(text);
+    if (typeof h.pid !== "number" || !Number.isInteger(h.pid) || h.pid <= 0) return null;
+    return {
+      pid: h.pid,
+      pgid: typeof h.pgid === "number" ? h.pgid : null,
+      worktree: typeof h.worktree === "string" ? h.worktree : "",
+      command: typeof h.command === "string" ? h.command : "",
+      started: typeof h.started === "string" ? h.started : ""
+    };
+  } catch {
+    return null;
+  }
+}
+function readHolder(slot) {
+  return parseHolder(readHolderText(slot));
+}
+function mtimeMs(path) {
+  try {
+    return statSync25(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+function stale(slot) {
+  const holder = readHolder(slot);
+  if (holder !== null) return !pidAlive(holder.pid);
+  const mtime = mtimeMs(slot);
+  return mtime !== null && Date.now() - mtime > SUITE_LOCK_STALE_MS;
+}
+function tryMkdir(dir) {
+  try {
+    mkdirSync8(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reclaim(slot) {
+  const mutex = `${slot}.reclaim`;
+  if (!tryMkdir(mutex)) {
+    const mtime = mtimeMs(mutex);
+    if (mtime !== null && Date.now() - mtime > SUITE_LOCK_STALE_MS) rmSync4(mutex, { recursive: true, force: true });
+    return;
+  }
+  try {
+    if (stale(slot)) rmSync4(slot, { recursive: true, force: true });
+  } finally {
+    rmSync4(mutex, { recursive: true, force: true });
+  }
+}
+function processGroup() {
+  const r = spawnSync8("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const pgid = (r.stdout ?? "").trim();
+  return /^[0-9]+$/.test(pgid) ? Number(pgid) : null;
+}
+function claim2(slot, opts, pgid) {
+  const text = `${JSON.stringify({ pid: process.pid, pgid, worktree: opts.worktree, command: opts.command, started: (/* @__PURE__ */ new Date()).toISOString() })}
+`;
+  try {
+    writeFileSync6(join6(slot, "holder.tmp"), text);
+    renameSync4(join6(slot, "holder.tmp"), join6(slot, "holder"));
+  } catch {
+  }
+  return () => {
+    if (readHolderText(slot) === text) rmSync4(slot, { recursive: true, force: true });
+  };
+}
+function ageS(holder) {
+  const started = holder === null ? NaN : Date.parse(holder.started);
+  return Number.isNaN(started) ? 0 : Math.max(0, Math.round((Date.now() - started) / 1e3));
+}
+function oldestHolder(slots) {
+  let oldest = null;
+  for (const slot of slots) {
+    const h = readHolder(slot);
+    if (h !== null && (oldest === null || ageS(h) > ageS(oldest))) oldest = h;
+  }
+  return oldest;
+}
+function describeHolder(holder) {
+  if (holder === null) return "held by an unnamed holder";
+  return `held by pid ${holder.pid} (worktree ${holder.worktree || "?"}) for ${ageS(holder)}s`;
+}
+var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+async function acquireSuiteSlot(opts) {
+  const stderr2 = opts.stderr ?? ((text) => process.stderr.write(text));
+  const inherited = opts.env[SUITE_LOCK_HELD_ENV] ?? "";
+  if (inherited !== "") {
+    const holder = readHolder(inherited);
+    if (holder !== null && pidAlive(holder.pid)) return { kind: "nested", slot: inherited };
+  }
+  const root = suiteLockRoot(opts.env);
+  if (root === null) {
+    if (!warnedUnusable) {
+      warnedUnusable = true;
+      stderr2("suite-lock: the suite-slot lock root is unusable (a symlink, another user's dir, or not creatable); running unlocked\n");
+    }
+    return { kind: "unlocked" };
+  }
+  const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join6(root, `slot-${i2}`));
+  const pgid = processGroup();
+  const begun = Date.now();
+  let noticeAt = 0;
+  for (; ; ) {
+    for (const slot of slots) {
+      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+      if (stale(slot)) {
+        reclaim(slot);
+        if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+      }
+    }
+    const waited = Date.now() - begun;
+    if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
+      return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
+    }
+    if (waited >= noticeAt) {
+      stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+`);
+      noticeAt += SUITE_LOCK_NOTICE_MS;
+    }
+    await sleep2(SUITE_LOCK_POLL_MS);
+  }
+}
+
 // src/hooks/swe-verification-gate.ts
-var GATE_NAME44 = "swe-verification-gate";
+var GATE_NAME45 = "swe-verification-gate";
+var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+var SUITE_WAIT_MARGIN_S = 30;
 var VERIFICATION_DEFAULT_S = 900;
 var VERIFICATION_MAX_S = 1800;
 var RECORD_BUDGET_MS = 3e3;
@@ -19944,7 +20587,7 @@ var UNRECORDED_PASS_CONTEXT = '{"hookSpecificOutput":{"hookEventName":"PreToolUs
 var stderr = (text) => {
   process.stderr.write(text);
 };
-var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+var sleep3 = (ms) => new Promise((done) => setTimeout(done, ms));
 function beforeBar(s) {
   const i2 = s.indexOf("|");
   return i2 < 0 ? s : s.slice(0, i2);
@@ -19984,7 +20627,7 @@ function parseBudget(raw) {
   }
   let warning = "";
   if (timeoutS === null) {
-    warning = `${GATE_NAME44}: verification_timeout_s '${raw.replaceAll("\n", " ")}' is not an integer from 1 to ${VERIFICATION_MAX_S}; using the default ${VERIFICATION_DEFAULT_S}s
+    warning = `${GATE_NAME45}: verification_timeout_s '${raw.replaceAll("\n", " ")}' is not an integer from 1 to ${VERIFICATION_MAX_S}; using the default ${VERIFICATION_DEFAULT_S}s
 `;
     timeoutS = VERIFICATION_DEFAULT_S;
   }
@@ -20000,7 +20643,7 @@ function executable(path) {
   }
 }
 function capture3(cmd, args2, dir, env) {
-  const r = spawnSync7(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync9(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function toolchainDirs(env, worktree) {
@@ -20032,7 +20675,7 @@ function joinToolchainPath(dirs, base2) {
 function repoPathByName2(db, name3, env) {
   let file = false;
   try {
-    file = statSync25(db).isFile();
+    file = statSync26(db).isFile();
   } catch {
   }
   if (!file || !haveSqlite(env) || name3 === "") return "";
@@ -20106,13 +20749,13 @@ var VerificationRun = class {
   }
   write(ms, sql) {
     const env = { ...this.c.env, TMB_DB_WRITE_TIMEOUT_MS: String(ms), TMB_DB_WRITE_RUN_BUDGET_MS: String(ms) };
-    const r = dbWrite(this.c.db, sql, { caller: GATE_NAME44, env });
+    const r = dbWrite(this.c.db, sql, { caller: GATE_NAME45, env });
     if (!r.ok && r.error !== "") stderr(`${r.error}
 `);
     return r;
   }
   invalid(message) {
-    stderr(`tmb_verification_run: ${GATE_NAME44}: ${message}
+    stderr(`tmb_verification_run: ${GATE_NAME45}: ${message}
 `);
     return { ok: false, code: 2, stdout: "", error: "" };
   }
@@ -20158,7 +20801,7 @@ SELECT last_insert_rowid();`
     if (ms === null) {
       if (!this.poolNoted) {
         this.poolNoted = true;
-        stderr(`${GATE_NAME44}: run-record write budget (${RECORD_POOL_MS}ms) spent; verification run #${this.runId} keeps no further command rows
+        stderr(`${GATE_NAME45}: run-record write budget (${RECORD_POOL_MS}ms) spent; verification run #${this.runId} keeps no further command rows
 `);
       }
       return;
@@ -20172,10 +20815,10 @@ SELECT last_insert_rowid();`
     for (let attempt = 1; ; attempt += 1) {
       if (this.finishWrite(rc, timedOut2).ok) return;
       if (attempt >= FINISH_ATTEMPTS) break;
-      await sleep2(attempt * FINISH_BACKOFF_MS);
+      await sleep3(attempt * FINISH_BACKOFF_MS);
     }
     stderr(
-      `${GATE_NAME44}: verification run #${this.runId} record unfinished \u2014 its finish write failed ${FINISH_ATTEMPTS} times; the decision stands (trajectory_doctor reports it under no_unfinished_verification_runs after 2 h)
+      `${GATE_NAME45}: verification run #${this.runId} record unfinished \u2014 its finish write failed ${FINISH_ATTEMPTS} times; the decision stands (trajectory_doctor reports it under no_unfinished_verification_runs after 2 h)
 `
     );
   }
@@ -20257,8 +20900,8 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
     const cmdMs = Date.now() - cmdStart;
     let out2 = "";
     try {
-      out2 = commandSubstitution(readFileSync16(outPath, "utf8"));
-      rmSync4(outPath, { force: true });
+      out2 = commandSubstitution(readFileSync17(outPath, "utf8"));
+      rmSync5(outPath, { force: true });
     } catch {
     }
     const elapsed = msToS(cmdMs);
@@ -20325,11 +20968,11 @@ ${r.tail}`
           const ms = this.allowanceMs();
           if (ms !== null) {
             const t0 = Date.now();
-            if (!this.fixedWrite(ms, fid).ok) stderr(`${GATE_NAME44}: review finding ${fid} probe passed but its fixed write failed; it stays open
+            if (!this.fixedWrite(ms, fid).ok) stderr(`${GATE_NAME45}: review finding ${fid} probe passed but its fixed write failed; it stays open
 `);
             this.recordMs += Date.now() - t0;
           } else {
-            stderr(`${GATE_NAME44}: run-record write budget (${RECORD_POOL_MS}ms) spent; review finding ${fid} probe passed but it stays open
+            stderr(`${GATE_NAME45}: run-record write budget (${RECORD_POOL_MS}ms) spent; review finding ${fid} probe passed but it stays open
 `);
           }
         }
@@ -20370,19 +21013,19 @@ function nowS() {
 }
 function lockHeldSince(lock) {
   try {
-    const since = commandSubstitution(readFileSync16(`${lock}/started`, "utf8"));
+    const since = commandSubstitution(readFileSync17(`${lock}/started`, "utf8"));
     if (/^[0-9]+$/.test(since)) return Number(since);
   } catch {
   }
   try {
-    return Math.floor(statSync25(lock).mtimeMs / 1e3);
+    return Math.floor(statSync26(lock).mtimeMs / 1e3);
   } catch {
     return null;
   }
 }
-function tryMkdir(dir) {
+function tryMkdir2(dir) {
   try {
-    mkdirSync8(dir);
+    mkdirSync9(dir);
     return true;
   } catch {
     return false;
@@ -20390,19 +21033,19 @@ function tryMkdir(dir) {
 }
 function removeQuietly(path) {
   try {
-    rmSync4(path, { recursive: true, force: true });
+    rmSync5(path, { recursive: true, force: true });
   } catch {
   }
 }
 async function acquireLock(lock, staleS) {
-  while (!tryMkdir(lock)) {
+  while (!tryMkdir2(lock)) {
     const held = lockHeldSince(lock) ?? nowS();
     if (nowS() - held > staleS) {
       removeQuietly(lock);
       continue;
     }
     while (isDir(lock)) {
-      await sleep2(LOCK_POLL_MS);
+      await sleep3(LOCK_POLL_MS);
       const since = lockHeldSince(lock);
       if (since === null) continue;
       if (nowS() - since > staleS) break;
@@ -20416,29 +21059,29 @@ function makeScratch(db) {
     return mkdtempSync(`${tmpdir()}/verify-run.`);
   }
 }
-function waive(db, taskId, reason, field6, env) {
+function waive(db, taskId, reason, field7, env) {
   const row = gateRead(
     db,
     `SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`,
     env
   );
-  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(`${GATE_NAME44} (waiver)`, env)}
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(`${GATE_NAME45} (waiver)`, env)}
 `, code: 0 };
   if (row === "") return ALLOW;
   const rest = afterBar(row);
-  const sha = field6("commit_sha") || afterBar(rest);
+  const sha = field7("commit_sha") || afterBar(rest);
   const r = auditAppend(
     db,
     {
       issueId: beforeBar(row),
       branchId: beforeBar(rest),
-      fromNode: `hook:${GATE_NAME44}`,
+      fromNode: `hook:${GATE_NAME45}`,
       eventType: "verification_gate_waived",
       summary: `SWE waived verification gate for task_id=${taskId}`,
       contentJson: `{"task_id":${jqNumberLiteral(taskId)},"commit_sha":${jqCompact(sha)},"waiver_reason":${jqCompact(reason)}}`,
       dedupePaths: ["$.task_id", "$.commit_sha"]
     },
-    { caller: GATE_NAME44, env }
+    { caller: GATE_NAME45, env }
   );
   if (r.ok) return { stdout: r.stdout, code: 0 };
   if (r.error !== "") stderr(`${r.error}
@@ -20448,17 +21091,17 @@ function waive(db, taskId, reason, field6, env) {
 var sweVerificationGate = async (payload, env) => {
   const input = `${commandSubstitution(payload)}
 `;
-  const field6 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
-  if (normalizeRole(field6("agent")) !== "swe") return ALLOW;
-  if (field6("status") !== "completed") return ALLOW;
-  const taskId = field6("task_id");
+  const field7 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
+  if (normalizeRole(field7("agent")) !== "swe") return ALLOW;
+  if (field7("status") !== "completed") return ALLOW;
+  const taskId = field7("task_id");
   if (!/^[0-9]+$/.test(taskId)) return ALLOW;
   const db = dbPath(env, (line) => stderr(`${line}
 `));
   if (db === null || !haveSqlite(env)) return ALLOW;
   const genv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
-  const waiver = field6("waive_verification_gate_reason");
-  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field6, genv);
+  const waiver = field7("waive_verification_gate_reason");
+  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field7, genv);
   const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
@@ -20489,7 +21132,7 @@ var sweVerificationGate = async (payload, env) => {
   if (budget.warning !== "") stderr(budget.warning);
   const head = await gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
   const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
-  const expectedSha = field6("commit_sha");
+  const expectedSha = field7("commit_sha");
   const commands = block2.split("\n").filter((line) => line !== "");
   const gateCmdsJson = jqCompact([...commands, ...findings.map(probeCommand)]);
   const scratch = makeScratch(db);
@@ -20518,26 +21161,45 @@ var sweVerificationGate = async (payload, env) => {
         `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) \u2014 verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`
       );
     };
+    const suiteCommand = [...commands, ...findings.map((f) => typeof f.probe_cmd === "string" ? f.probe_cmd : "")].find(isFullSuite);
+    const verify = async () => {
+      if (suiteCommand === void 0) return new VerificationRun(ctx).run();
+      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
+      if (slot.kind === "busy") {
+        return deny7(
+          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
+        );
+      }
+      try {
+        const reusedAfterSlot = reuse();
+        if (reusedAfterSlot !== null) return reusedAfterSlot;
+        const env2 = slot.kind === "held" ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
+        return await new VerificationRun({ ...ctx, env: env2 }).run();
+      } finally {
+        if (slot.kind === "held") slot.release();
+      }
+    };
     const reused = reuse();
     if (reused !== null) return { stdout: reused, code: 0 };
-    if (wtSha === "") return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    if (wtSha === "") return { stdout: await verify(), code: 0 };
     const lockRoot = `${posixDirname(db)}/locks`;
     try {
-      mkdirSync8(lockRoot, { recursive: true });
+      mkdirSync9(lockRoot, { recursive: true });
     } catch {
-      return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+      return { stdout: await verify(), code: 0 };
     }
     const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
     await acquireLock(lockDir, budget.timeoutS + 60);
     lock = lockDir;
     try {
-      writeFileSync6(`${lock}/started`, `${nowS()}
+      writeFileSync7(`${lock}/started`, `${nowS()}
 `);
     } catch {
     }
     const reusedAfterWait = reuse();
     if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
-    return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    return { stdout: await verify(), code: 0 };
   } finally {
     if (lock !== "") removeQuietly(lock);
     removeQuietly(scratch);
@@ -20545,7 +21207,7 @@ var sweVerificationGate = async (payload, env) => {
 };
 
 // src/hooks/swe-spawn-bind.ts
-var GATE_NAME45 = "swe-spawn-bind";
+var GATE_NAME46 = "swe-spawn-bind";
 var FIELD_SEPARATOR = "";
 var FieldsError = class extends Error {
 };
@@ -20597,14 +21259,14 @@ var sweSpawnBind = (payload, env) => {
     if (toolUseId2 === "" || agentId === "") return ALLOW;
     const db = dbPath(env);
     if (db === null || !haveSqlite(env)) return ALLOW;
-    dbWrite(db, bindSql(toolUseId2, agentId), { caller: GATE_NAME45, env });
+    dbWrite(db, bindSql(toolUseId2, agentId), { caller: GATE_NAME46, env });
   } catch {
   }
   return ALLOW;
 };
 
 // src/hooks/swe-spawn-rollback.ts
-var GATE_NAME46 = "swe-spawn-rollback";
+var GATE_NAME47 = "swe-spawn-rollback";
 var RUN_NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
 var RUN_UNMEASURED_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${RUN_NO_USAGE_SQL} THEN 'unmeasured' END)`;
 function toolUseId(input) {
@@ -20648,14 +21310,14 @@ var sweSpawnRollback = (payload, env) => {
     if (id === null || id === "") return ALLOW;
     const db = dbPath(env);
     if (db === null || !haveSqlite(env)) return ALLOW;
-    dbWrite(db, rollbackSql(id, nowIso()), { caller: GATE_NAME46, env });
+    dbWrite(db, rollbackSql(id, nowIso()), { caller: GATE_NAME47, env });
   } catch {
   }
   return ALLOW;
 };
 
 // src/hooks/post-task-create-spawn-hint.ts
-var GATE_NAME47 = "post-task-create-spawn-hint";
+var GATE_NAME48 = "post-task-create-spawn-hint";
 var BYPASS_ENV6 = "TMB_DISABLE_SPAWN_HINT";
 var CREATE_BATCH_TOOL = /^mcp__[\s\S]*trajectory-server__task_create_batch$/;
 var IndexError = class extends Error {
@@ -20746,7 +21408,7 @@ Tasks created:
 ${tasks}
 
 For each task, run the two-step proven flow:
-1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` \u2014 capture the printed path.
+1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | node \${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create\` \u2014 capture the printed path.
 2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` \u2014 no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;
@@ -20776,10 +21438,10 @@ var postTaskCreateSpawnHint = (payload, env) => {
 };
 
 // src/hooks/reviewer-identity-observe.ts
-var GATE_NAME48 = "reviewer-identity-observe";
+var GATE_NAME49 = "reviewer-identity-observe";
 var VALIDATION_RECORD_TOOL = /^mcp__[\s\S]*trajectory-server__validation_record$/;
 function denyUnavailable(env, stdout = "") {
-  return { stdout: `${stdout}${denyDbUnavailable(GATE_NAME48, env)}
+  return { stdout: `${stdout}${denyDbUnavailable(GATE_NAME49, env)}
 `, code: 0 };
 }
 var reviewerIdentityObserve = (payload, env) => {
@@ -20815,12 +21477,12 @@ var reviewerIdentityObserve = (payload, env) => {
     {
       issueId,
       branchId: "",
-      fromNode: `hook:${GATE_NAME48}`,
+      fromNode: `hook:${GATE_NAME49}`,
       eventType: "reviewer_identity_observed",
       summary: `code-reviewer ${agentId} called validation_record for task ${taskId} attempt ${attemptN}`,
       contentJson: content
     },
-    { env, caller: GATE_NAME48 }
+    { env, caller: GATE_NAME49 }
   );
   if (w.ok) return { stdout: w.stdout, code: 0 };
   process.stderr.write(`${w.error}
@@ -20829,7 +21491,7 @@ var reviewerIdentityObserve = (payload, env) => {
 };
 
 // src/hooks/cheatcode-install-approval.ts
-var GATE_NAME49 = "cheatcode-install-approval";
+var GATE_NAME50 = "cheatcode-install-approval";
 var NO_SOURCE_URL_REASON = "BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.";
 var UNVERIFIABLE_REASON = "BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) \u2014 failing closed. Installs are human-approved, never silent.";
 function notApprovedReason(name3, url) {
@@ -20861,7 +21523,7 @@ var cheatcodeInstallApproval = (payload, env) => {
 };
 
 // src/hooks/stay-on-base-guard.ts
-import { statSync as statSync26 } from "node:fs";
+import { statSync as statSync27 } from "node:fs";
 
 // src/hooks/lib/statement-rows.ts
 function readTabFields2(line, n3) {
@@ -20898,7 +21560,7 @@ function denyResult(reason) {
 }
 
 // src/hooks/stay-on-base-guard.ts
-var GATE_NAME50 = "stay-on-base-guard";
+var GATE_NAME51 = "stay-on-base-guard";
 var BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
 var CREATES_OR_RESTORES = [" -b ", " -B ", " -c ", " -C ", " --create ", " -- "];
 function switchTarget(sub) {
@@ -20909,7 +21571,7 @@ function switchTarget(sub) {
 }
 function isFile12(path) {
   try {
-    return statSync26(path).isFile();
+    return statSync27(path).isFile();
   } catch {
     return false;
   }
@@ -20952,7 +21614,7 @@ var stayOnBaseGuard = async (payload, env) => {
   `,
       env
     );
-    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME50, env)}
+    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME51, env)}
 `, code: 0 };
     if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
     if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
@@ -20966,7 +21628,7 @@ var stayOnBaseGuard = async (payload, env) => {
 };
 
 // src/hooks/branch-up-to-date-with-remote.ts
-var GATE_NAME51 = "branch-up-to-date-with-remote";
+var GATE_NAME52 = "branch-up-to-date-with-remote";
 var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
 async function behindCount(root, range, env) {
   const r = await gitRun(root, ["rev-list", "--count", range], env);
@@ -21004,7 +21666,7 @@ var branchUpToDateWithRemote = async (payload, env) => {
   if (!haveSqlite(env)) return ALLOW;
   const repo = sqlQuote(repoNameForRoot(db, root, env));
   const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
-  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME51, env)}
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME52, env)}
 `, code: 0 };
   if (row === "") return ALLOW;
   const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
@@ -21020,7 +21682,7 @@ var branchUpToDateWithRemote = async (payload, env) => {
 };
 
 // src/hooks/no-worktree-branch-create.ts
-var GATE_NAME52 = "no-worktree-branch-create";
+var GATE_NAME53 = "no-worktree-branch-create";
 var CREATES_BRANCH2 = [" -b ", " -B ", " --create-branch "];
 var BRANCH_CREATE_REASON = "BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.";
 var DETACH_REASON = "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
@@ -21047,13 +21709,13 @@ var noWorktreeBranchCreate = async (payload, env) => {
 `));
   const state = dbState(env);
   if (state === "unresolved") return ALLOW;
-  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME52, env)}
+  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME53, env)}
 `, code: 0 };
   return denyResult(REASONS[violation]);
 };
 
 // src/hooks/no-remote-auth-guard.ts
-var GATE_NAME53 = "no-remote-auth-guard";
+var GATE_NAME54 = "no-remote-auth-guard";
 var AUTH_LOGIN = [
   ["gh", "gh auth login"],
   ["glab", "glab auth login"]
@@ -21106,7 +21768,7 @@ var noRemoteAuthGuard = async (payload, env) => {
 };
 
 // src/hooks/swe-scope-fence.ts
-var GATE_NAME54 = "swe-scope-fence";
+var GATE_NAME55 = "swe-scope-fence";
 var EDIT_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 function jqFirst(input, paths, orEmpty2 = false) {
   const lines2 = [];
@@ -21159,9 +21821,9 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/orphan-scan.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
-import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync27 } from "node:fs";
-var GATE_NAME55 = "orphan-scan";
+import { spawnSync as spawnSync10 } from "node:child_process";
+import { existsSync as existsSync12, lstatSync as lstatSync9, opendirSync, readFileSync as readFileSync18, rmSync as rmSync6, statSync as statSync28 } from "node:fs";
+var GATE_NAME56 = "orphan-scan";
 var DEADLINE_S = 4;
 var ANCESTRY_GUARD2 = 40;
 var INT64_MIN2 = -(2n ** 63n);
@@ -21195,7 +21857,7 @@ function isCcCommand2(command) {
   return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
 }
 function capture4(cmd, args2, env) {
-  const r = spawnSync8(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.error ? "" : r.stdout ?? "";
 }
 function procPpid2(pid, env) {
@@ -21240,21 +21902,21 @@ function exists(path) {
 }
 function nonEmpty(path) {
   try {
-    return statSync27(path).size > 0;
+    return statSync28(path).size > 0;
   } catch {
     return false;
   }
 }
 function isFile13(path) {
   try {
-    return statSync27(path).isFile();
+    return statSync28(path).isFile();
   } catch {
     return false;
   }
 }
 function isDir7(path) {
   try {
-    return statSync27(path).isDirectory();
+    return statSync28(path).isDirectory();
   } catch {
     return false;
   }
@@ -21275,7 +21937,7 @@ function children(value) {
 function pinnedPaths(json) {
   let text;
   try {
-    text = readFileSync17(json, "utf8");
+    text = readFileSync18(json, "utf8");
   } catch {
     return [];
   }
@@ -21318,7 +21980,7 @@ function cacheVersionDirs(root, plugin, within) {
         const path = `${dir}/${entry.name}`;
         let directory;
         try {
-          directory = lstatSync8(path).isDirectory();
+          directory = lstatSync9(path).isDirectory();
         } catch {
           continue;
         }
@@ -21334,7 +21996,7 @@ function cacheVersionDirs(root, plugin, within) {
     }
   };
   try {
-    if (!lstatSync8(root).isDirectory()) return out2;
+    if (!lstatSync9(root).isDirectory()) return out2;
   } catch {
     return out2;
   }
@@ -21418,7 +22080,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const db of staleDbs) {
       if (db === liveDb) continue;
       try {
-        rmSync5(db, { force: true });
+        rmSync6(db, { force: true });
         cleaned.push(`removed stale DB: ${db}`);
       } catch {
       }
@@ -21426,7 +22088,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const vdir of unusedCache) {
       if (!vdir.startsWith(`${cacheRoot}/`)) continue;
       try {
-        rmSync5(vdir, { recursive: true, force: true });
+        rmSync6(vdir, { recursive: true, force: true });
         cleaned.push(`removed unused cache version: ${vdir}`);
       } catch {
       }
@@ -21461,9 +22123,9 @@ var orphanScan = (_payload, env) => {
 
 // src/hooks/session-start-prescan.ts
 import { spawn as spawn4 } from "node:child_process";
-import { readdirSync as readdirSync7, readFileSync as readFileSync18, statSync as statSync28 } from "node:fs";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
-var GATE_NAME56 = "session-start-prescan";
+import { readdirSync as readdirSync7, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
+import { fileURLToPath as fileURLToPath8 } from "node:url";
+var GATE_NAME57 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
 var SUBDIR_STACKS_MAX = 3;
 var TOPLEVEL_MAX = 10;
@@ -21474,7 +22136,7 @@ var NO_PROJECT = "(no project resolves)";
 var SOURCE_EXCLUDED = /^(\.claude\/|node_modules\/|dist\/|build\/|\.git\/)/;
 function isFile14(path) {
   try {
-    return statSync28(path).isFile();
+    return statSync29(path).isFile();
   } catch {
     return false;
   }
@@ -21482,7 +22144,7 @@ function isFile14(path) {
 function isDir8(path) {
   if (path === "") return false;
   try {
-    return statSync28(path).isDirectory();
+    return statSync29(path).isDirectory();
   } catch {
     return false;
   }
@@ -21580,7 +22242,7 @@ function globNames(dir, env, suffix = "") {
 function jqVersion(manifest) {
   let text;
   try {
-    text = readFileSync18(manifest, "utf8");
+    text = readFileSync19(manifest, "utf8");
   } catch {
     return "";
   }
@@ -21722,7 +22384,7 @@ function doctorBudget(raw) {
 function doctorState(root, db, env) {
   let doc;
   try {
-    doc = JSON.parse(readFileSync18(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
+    doc = JSON.parse(readFileSync19(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
   } catch {
     return "unchecked (no contract list)";
   }
@@ -21771,11 +22433,11 @@ function coldNote(root, db, env) {
   return "world model is cold \u2014 run /scan before planning so world_model_get has a project map";
 }
 function pluginRoot2() {
-  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
 }
 async function sessionStartPrescanRun(env, root, stderr2) {
   if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
-  const db = dbPathAdvisory(GATE_NAME56, env, (line) => stderr2(`${line}
+  const db = dbPathAdvisory(GATE_NAME57, env, (line) => stderr2(`${line}
 `));
   if (db === null) return ALLOW;
   if (!haveSqlite(env) || !commandOnPath("git", env)) return ALLOW;
@@ -21870,7 +22532,7 @@ var sessionStartPrescan = async (_payload, env) => {
 
 // src/hooks/clean-merged-branch.ts
 import { spawn as spawn5 } from "node:child_process";
-import { statSync as statSync29 } from "node:fs";
+import { statSync as statSync30 } from "node:fs";
 
 // src/hooks/lib/merge.ts
 function readMergePayload(payload) {
@@ -21898,12 +22560,12 @@ function mergeFailed(response) {
 }
 
 // src/hooks/clean-merged-branch.ts
-var GATE_NAME57 = "clean-merged-branch";
+var GATE_NAME58 = "clean-merged-branch";
 var MERGE_CMD = /(^|[^A-Za-z0-9_-])(gh[ \t\v\f\r]+pr[ \t\v\f\r]+merge|glab[ \t\v\f\r]+mr[ \t\v\f\r]+merge)([^A-Za-z0-9_-]|$)/m;
 var MERGE_PREFIX = /^.*(gh[ \t\v\f\r]+pr|glab[ \t\v\f\r]+mr)[ \t\v\f\r]+merge/;
 function isFile15(path) {
   try {
-    return statSync29(path).isFile();
+    return statSync30(path).isFile();
   } catch {
     return false;
   }
@@ -22023,8 +22685,8 @@ var cleanMergedBranch = async (payload, env) => {
 };
 
 // src/hooks/close-issue-on-merge.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
-import { statSync as statSync30 } from "node:fs";
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { statSync as statSync31 } from "node:fs";
 
 // src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
@@ -22042,7 +22704,7 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 
 // src/hooks/close-issue-on-merge.ts
-var GATE_NAME58 = "close-issue-on-merge";
+var GATE_NAME59 = "close-issue-on-merge";
 var FROM = "hook:close-issue-on-merge";
 var LIVE = "'pending','running','needs_validation','completed'";
 var GH_TIMEOUT_MS = 1e4;
@@ -22066,13 +22728,13 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
 var CLOSING_REF = /(close[sd]?|fix(e[sd])?|resolve[sd]?)[ \t\v\f\r]+(GH[ \t\v\f\r]+)?#[0-9]+/gi;
 function isFile16(path) {
   try {
-    return statSync30(path).isFile();
+    return statSync31(path).isFile();
   } catch {
     return false;
   }
 }
 function gh(args2, repoDir, env) {
-  const r = spawnSync9("gh", args2, {
+  const r = spawnSync11("gh", args2, {
     cwd: repoDir,
     encoding: "utf8",
     env,
@@ -22085,12 +22747,12 @@ function mergeArgs(cmd) {
   const stripped = commandSubstitution(stripLiterals(cmd));
   for (const line of stripped.split("\n")) {
     for (const stmt of line.split(/&&|\|\||[;|&()]/)) {
-      const words2 = stmt.split(/[ \t\n]+/).filter((w) => w !== "");
+      const words3 = stmt.split(/[ \t\n]+/).filter((w) => w !== "");
       let i2 = 0;
-      while (i2 < words2.length && (WRAPPERS.has(words2[i2]) || /^[A-Za-z_].*=/s.test(words2[i2]))) i2 += 1;
-      if (words2.length - i2 < 3) continue;
-      const tool = `${words2[i2]} ${words2[i2 + 1]}`;
-      if ((tool === "gh pr" || tool === "glab mr") && words2[i2 + 2] === "merge") return words2.slice(i2 + 3);
+      while (i2 < words3.length && (WRAPPERS.has(words3[i2]) || /^[A-Za-z_].*=/s.test(words3[i2]))) i2 += 1;
+      if (words3.length - i2 < 3) continue;
+      const tool = `${words3[i2]} ${words3[i2 + 1]}`;
+      if ((tool === "gh pr" || tool === "glab mr") && words3[i2 + 2] === "merge") return words3.slice(i2 + 3);
     }
   }
   return null;
@@ -22175,7 +22837,7 @@ var Merge = class {
   }
   audit(row) {
     const r = auditSql({ ...row, fromNode: FROM }, "", {
-      caller: GATE_NAME58,
+      caller: GATE_NAME59,
       env: this.env
     });
     if (r.code === 0) return r.sql;
@@ -22339,7 +23001,7 @@ async function close(payload, env) {
   const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
   if (sql === "") return;
-  const w = dbWrite(db, sql, { caller: GATE_NAME58, env });
+  const w = dbWrite(db, sql, { caller: GATE_NAME59, env });
   if (!w.ok) {
     process.stderr.write(`${w.error}
 `);
@@ -22357,8 +23019,8 @@ var closeIssueOnMerge = async (payload, env) => {
 };
 
 // src/hooks/swe-atomic-close.ts
-import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync9, readFileSync as readFileSync19, realpathSync as realpathSync7, renameSync as renameSync4, statSync as statSync31 } from "node:fs";
-var GATE_NAME59 = "swe-atomic-close";
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync10, readFileSync as readFileSync20, realpathSync as realpathSync7, renameSync as renameSync5, statSync as statSync32 } from "node:fs";
+var GATE_NAME60 = "swe-atomic-close";
 var FROM_NODE2 = "hook:swe-atomic-close";
 var LOG_ROTATE_BYTES2 = 1048576;
 var NO_STATS = "0|0|0|0|0|0||";
@@ -22373,7 +23035,7 @@ var JqError7 = class extends Error {
 var isRawJson4 = (value) => JSON.isRawJSON?.(value) ?? false;
 function isFile17(path) {
   try {
-    return statSync31(path).isFile();
+    return statSync32(path).isFile();
   } catch {
     return false;
   }
@@ -22470,7 +23132,7 @@ function transcriptStats(path, since = "") {
   if (path === "" || !isFile17(path)) return NO_STATS;
   let text;
   try {
-    text = readFileSync19(path, "utf8");
+    text = readFileSync20(path, "utf8");
   } catch {
     return NO_STATS;
   }
@@ -22521,8 +23183,8 @@ function entryAgent(input) {
   }
   return stripTrailingNewlines(lines2.join("\n"));
 }
-function cutField3(text, field6) {
-  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field6 - 1] ?? "" : line);
+function cutField3(text, field7) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field7 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
 }
 function secondsIso() {
@@ -22553,20 +23215,20 @@ var Log = class _Log {
     const dir = stateDir(env);
     if (dir === null) return new _Log(null);
     try {
-      mkdirSync9(`${dir}/logs`, { recursive: true });
+      mkdirSync10(`${dir}/logs`, { recursive: true });
     } catch {
       return new _Log(null);
     }
     const file = `${dir}/logs/mcp-health.log`;
     try {
-      if (statSync31(file).isFile() && statSync31(file).size > LOG_ROTATE_BYTES2) renameSync4(file, `${file}.1`);
+      if (statSync32(file).isFile() && statSync32(file).size > LOG_ROTATE_BYTES2) renameSync5(file, `${file}.1`);
     } catch {
     }
     return new _Log(file);
   }
 };
 function write(db, sql, env, out2) {
-  const r = dbWrite(db, sql, { caller: GATE_NAME59, env });
+  const r = dbWrite(db, sql, { caller: GATE_NAME60, env });
   out2.stdout += r.stdout;
   if (!r.ok) process.stderr.write(`${r.error}
 `);
@@ -22591,7 +23253,7 @@ function skipUnbound(db, transcript, spawnId, taskId, env, out2) {
       summary: `SWE spawn not metered: ${reason}`,
       contentJson: content
     },
-    { caller: GATE_NAME59, env }
+    { caller: GATE_NAME60, env }
   );
   out2.stdout += r.stdout;
   if (!r.ok) process.stderr.write(`${r.error}
@@ -22712,8 +23374,12 @@ SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTo
   const location = taskLocation(db, taskId, env);
   let repoRoot = location.code === 0 ? location.repoRoot : "";
   if (repoRoot === "") repoRoot = projectRoot(env);
+  const locatedRoot = repoRoot;
   repoRoot = realdir(repoRoot);
-  const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  let wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  if (location.code === 0) {
+    wtPath = location.worktree.startsWith(`${locatedRoot}/`) ? `${repoRoot}${location.worktree.slice(locatedRoot.length)}` : location.worktree;
+  }
   const safeRootDir = sqlQuote(wtPath);
   let wtHead = await gitOut(wtPath, ["rev-parse", "HEAD"], env);
   const headWithin = async (head, ...tips) => {
@@ -22796,7 +23462,7 @@ SELECT 1 FROM tasks
           contentJson: closeJson
         },
         "(SELECT changes()) > 0",
-        { caller: GATE_NAME59, env }
+        { caller: GATE_NAME60, env }
       );
       if (audit.code !== 0) process.stderr.write(`${audit.error}
 `);
@@ -22901,19 +23567,19 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 
 // src/hooks/post-task-close-rescan.ts
 import { spawn as spawn6 } from "node:child_process";
-import { statSync as statSync32 } from "node:fs";
-import { fileURLToPath as fileURLToPath8 } from "node:url";
-var GATE_NAME60 = "post-task-close-rescan";
+import { statSync as statSync33 } from "node:fs";
+import { fileURLToPath as fileURLToPath9 } from "node:url";
+var GATE_NAME61 = "post-task-close-rescan";
 var CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 function isFile18(path) {
   try {
-    return statSync32(path).isFile();
+    return statSync33(path).isFile();
   } catch {
     return false;
   }
 }
 function pluginRoot3() {
-  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
 }
 function launchDetached(spawner, invoker, db, env) {
   const child = spawner(process.execPath, ["--experimental-sqlite", invoker], {
@@ -22944,14 +23610,14 @@ function postTaskCloseRescan(payload, env) {
 }
 
 // src/hooks/post-atomic-close-readme.ts
-import { statSync as statSync33 } from "node:fs";
-var GATE_NAME61 = "post-atomic-close-readme";
+import { statSync as statSync34 } from "node:fs";
+var GATE_NAME62 = "post-atomic-close-readme";
 var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
 var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 var ROOT_DIR = ".";
 function isFile19(path) {
   try {
-    return statSync33(path).isFile();
+    return statSync34(path).isFile();
   } catch {
     return false;
   }
@@ -22990,11 +23656,11 @@ async function staleDirs(repoPath, sha, repo, paths, env) {
   }
   return out2;
 }
-function nudgeReason(taskId, sha, stale) {
+function nudgeReason(taskId, sha, stale2) {
   return `\u{1F4DD} README-staleness check (task ${taskId}, commit ${sha.slice(0, 7)}): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.
 
 The commit touched directories whose README.md is missing or older than the commit:
-${stale}
+${stale2}
 
 For each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call \u2014 skip it when the change doesn't alter what the README describes.`;
 }
@@ -23026,21 +23692,21 @@ async function surface(payload, env) {
   if (!await gitOk(repoPath, ["cat-file", "-e", `${task.commitSha}^{commit}`], env)) return ALLOW;
   const paths = (await gitOut(repoPath, ["show", "--name-only", "--pretty=format:", task.commitSha], env)).split("\n").filter((line) => line !== "");
   if (paths.length === 0) return ALLOW;
-  const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
-  if (stale.length === 0) return ALLOW;
-  const staleText = stale.join("\n");
+  const stale2 = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+  if (stale2.length === 0) return ALLOW;
+  const staleText = stale2.join("\n");
   const staleLines = staleText.split("\n");
   const w = auditAppend(
     db,
     {
       issueId: sqlInt(task.issueId) || "-1",
       branchId: task.branchId,
-      fromNode: `hook:${GATE_NAME61}`,
+      fromNode: `hook:${GATE_NAME62}`,
       eventType: "readme_staleness_surfaced",
       summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
       contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
     },
-    { env, caller: GATE_NAME61 }
+    { env, caller: GATE_NAME62 }
   );
   if (!w.ok) process.stderr.write(`${w.error}
 `);
@@ -23057,7 +23723,7 @@ var postAtomicCloseReadme = async (payload, env) => {
 };
 
 // src/hooks/agent-spawn-dispatch.ts
-var GATE_NAME62 = "agent-spawn-dispatch";
+var GATE_NAME63 = "agent-spawn-dispatch";
 var CHAIN = [
   "require-task-spec",
   "require-spawn-effort",
@@ -23104,7 +23770,7 @@ async function agentSpawnDispatch(payload, env, find) {
 
 // src/hooks/ensure-swe-worktree.ts
 import { existsSync as existsSync13 } from "node:fs";
-var GATE_NAME63 = "ensure-swe-worktree";
+var GATE_NAME64 = "ensure-swe-worktree";
 function cutField4(text, n3) {
   const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
@@ -23163,7 +23829,7 @@ var ensureSweWorktree = async (payload, env) => {
 };
 
 // src/hooks/record-swe-spawn.ts
-var GATE_NAME64 = "record-swe-spawn";
+var GATE_NAME65 = "record-swe-spawn";
 var UNIT_SEPARATOR = "";
 var SPAWN_FIELDS = [["session_id"], ["tool_use_id"], ["tool_input", "effort"], ["tool_input", "model"]];
 function spawnFields(input) {
@@ -23242,15 +23908,15 @@ var recordSweSpawn = (payload, env) => {
       rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField4(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
     }
     const sql = spawnSql({ taskId, rootDir, fields, spawnId, pluginVersion: pluginVersion(env), now: nowIso() });
-    dbWrite(db, sql, { caller: GATE_NAME64, env });
+    dbWrite(db, sql, { caller: GATE_NAME65, env });
   } catch {
   }
   return ALLOW;
 };
 
 // src/hooks/cleanup-worktree-on-task-close.ts
-import { statSync as statSync34 } from "node:fs";
-var GATE_NAME65 = "cleanup-worktree-on-task-close";
+import { statSync as statSync35 } from "node:fs";
+var GATE_NAME66 = "cleanup-worktree-on-task-close";
 var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
 var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
 var TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
@@ -23258,7 +23924,7 @@ var DEFAULT_PR_TARGET = "dev";
 var WORKTREE_LINE = "worktree ";
 function isFile20(path) {
   try {
-    return statSync34(path).isFile();
+    return statSync35(path).isFile();
   } catch {
     return false;
   }
@@ -23344,12 +24010,9 @@ async function cleanupWorktree(payload, env, stderr2) {
 var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync20, statSync as statSync35 } from "node:fs";
-import { fileURLToPath as fileURLToPath9 } from "node:url";
-var GATE_NAME66 = "worktree-create";
+import { existsSync as existsSync14, mkdirSync as mkdirSync11, readFileSync as readFileSync21, statSync as statSync36 } from "node:fs";
+var GATE_NAME67 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
-var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
 var fail = (stderr2, line) => {
   stderr2(line);
@@ -23357,38 +24020,34 @@ var fail = (stderr2, line) => {
 };
 function isFile21(path) {
   try {
-    return statSync35(path).isFile();
+    return statSync36(path).isFile();
   } catch {
     return false;
   }
 }
-function pluginRoot4() {
-  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
-}
-async function installMergeDriver(dir, env, stderr2) {
+async function installMergeDriver2(dir, env, stderr2) {
   const top = await gitRun(dir, ["rev-parse", "--show-toplevel"], env);
   if (top.code !== 0) return;
   const root = top.stdout.replace(/\n+$/, "");
   let attributes;
   try {
-    attributes = readFileSync20(`${root}/.gitattributes`, "latin1");
+    attributes = readFileSync21(`${root}/.gitattributes`, "latin1");
   } catch {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync10("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
-  if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
+  if (installMergeDriver(root, env) === null) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
 async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
   try {
-    mkdirSync10(posixDirname(worktree), { recursive: true });
+    mkdirSync11(posixDirname(worktree), { recursive: true });
   } catch {
   }
   if (existsSync14(`${worktree}/.git`)) {
     stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
 `);
-    await installMergeDriver(repo, env, stderr2);
+    await installMergeDriver2(repo, env, stderr2);
     return { stdout: `${worktree}
 `, code: 0 };
   }
@@ -23402,7 +24061,7 @@ async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, 
   }
   if (!await gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
   stderr2(created2);
-  await installMergeDriver(repo, env, stderr2);
+  await installMergeDriver2(repo, env, stderr2);
   return { stdout: `${worktree}
 `, code: 0 };
 }
@@ -23460,9 +24119,9 @@ async function worktreeCreateRun(payload, env, stderr2) {
 var worktreeCreate = async (payload, env) => await worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/remote-id-guard.ts
-import { statSync as statSync36 } from "node:fs";
+import { statSync as statSync37 } from "node:fs";
 import { performance as performance5 } from "node:perf_hooks";
-var GATE_NAME67 = "remote-id-guard";
+var GATE_NAME68 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
 var REMOTE_WRITES = [
@@ -23618,7 +24277,7 @@ A bare #N in a PR body / gh issue comment resolves to remote issue N, not the lo
 }
 function isFile22(path) {
   try {
-    return statSync36(path).isFile();
+    return statSync37(path).isFile();
   } catch {
     return false;
   }
@@ -23631,12 +24290,12 @@ function auditOverrun(deadline, elapsed, env) {
     {
       issueId: "-1",
       branchId: "",
-      fromNode: `hook:${GATE_NAME67}`,
+      fromNode: `hook:${GATE_NAME68}`,
       eventType: "remote_id_guard_overrun",
-      summary: `${GATE_NAME67} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      summary: `${GATE_NAME68} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
       contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
     },
-    { caller: GATE_NAME67, env }
+    { caller: GATE_NAME68, env }
   );
 }
 function seconds(ms) {
@@ -23664,21 +24323,21 @@ var remoteIdGuard = async (payload, processEnv) => {
   }
   if (result !== OVERRUN && !overran()) return result;
   const elapsed = seconds(elapsedMs2());
-  process.stderr.write(`${GATE_NAME67}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+  process.stderr.write(`${GATE_NAME68}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
 };
 
 // src/hooks/no-source-edit-from-main.ts
-import { readFileSync as readFileSync21, statSync as statSync37 } from "node:fs";
+import { readFileSync as readFileSync22, statSync as statSync38 } from "node:fs";
 import { fileURLToPath as fileURLToPath10 } from "node:url";
-var GATE_NAME68 = "no-source-edit-from-main";
+var GATE_NAME69 = "no-source-edit-from-main";
 var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
 var BASH_REASON = "BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.";
 var SURFACE_REASON = "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees \u2014 spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
 function sourceReason(env) {
-  return `BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in ${scratchDir(env)}/ (or /tmp/claude-<uid>), which are always writable.`;
+  return `BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Throwaway scripts, logs and data dumps belong in ${scratchDir(env)}/ (or /tmp/claude-<uid>), which are always writable; plans, decisions and analysis go in the trajectory DB.`;
 }
 function scratchDir(env) {
   return `${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch`;
@@ -23707,7 +24366,7 @@ function deny10(reason) {
 `, code: 0 };
 }
 function dbDenied(env) {
-  return { stdout: `${denyDbUnavailable(GATE_NAME68, env)}
+  return { stdout: `${denyDbUnavailable(GATE_NAME69, env)}
 `, code: 0 };
 }
 function hasDir(path, dir) {
@@ -23732,21 +24391,21 @@ function inScratch(target, input, env) {
 }
 function isFile23(path) {
   try {
-    return statSync37(path).isFile();
+    return statSync38(path).isFile();
   } catch {
     return false;
   }
 }
 function manifestName2(manifest) {
   try {
-    return field5(readFileSync21(manifest, "utf8"), ["name"]);
+    return field5(readFileSync22(manifest, "utf8"), ["name"]);
   } catch {
     return "";
   }
 }
 async function targetIsPluginSourceRepo(target, input, env) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
-  const running = `${pluginRoot5}/.claude-plugin/plugin.json`;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
+  const running = `${pluginRoot4}/.claude-plugin/plugin.json`;
   let start2;
   if (target.startsWith("/")) {
     start2 = posixDirname(target);
@@ -23827,6 +24486,251 @@ var noSourceEditFromMain = async (payload, env) => {
   return await editRule(payload, env);
 };
 
+// src/prose-files.ts
+var PROSE_SUFFIX = /\.(md|markdown|txt|rst)$/i;
+function isProseFile(path) {
+  return PROSE_SUFFIX.test(path);
+}
+
+// src/hooks/no-prose-in-scratch.ts
+var GATE_NAME70 = "no-prose-in-scratch";
+var FILE_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+var BODY_FILE_WRITES = /* @__PURE__ */ new Set(["issue create", "issue edit", "issue comment", "pr create", "pr edit", "pr comment"]);
+var GH_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "--title",
+  "-t",
+  "--body",
+  "-b",
+  "--assignee",
+  "-a",
+  "--label",
+  "-l",
+  "--milestone",
+  "-m",
+  "--project",
+  "-p",
+  "--recover",
+  "--template",
+  "-T",
+  "--repo",
+  "-R",
+  "--base",
+  "-B",
+  "--head",
+  "-H",
+  "--reviewer",
+  "-r",
+  "--add-assignee",
+  "--remove-assignee",
+  "--add-label",
+  "--remove-label",
+  "--add-project",
+  "--remove-project",
+  "--add-reviewer",
+  "--remove-reviewer"
+]);
+var REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
+var FLATTENED = /[ \t\n<>|;&()`]/g;
+var LITERAL_NODES = ["raw_string", "ansi_c_string", "heredoc_body", "comment"];
+var BODY_FILE_REASON = "BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.";
+function proseReason(target) {
+  return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
+}
+function capture6(text) {
+  return stripTrailingNewlines(text.replace(/\0/g, ""));
+}
+function field6(input, ...paths) {
+  return capture6(jqAlternatives(input, paths));
+}
+function deny11(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function under4(path, dir) {
+  return path.startsWith(`${dir.endsWith("/") ? dir.slice(0, -1) : dir}/`);
+}
+function inScratchFolder(canonical3, env) {
+  return canonical3.includes(`/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch/`);
+}
+function tmpRoots(tmpdir2) {
+  const roots = [capture6(pathCanonical2("/tmp"))];
+  if (!/^\/./s.test(tmpdir2)) return roots;
+  const canonical3 = capture6(pathCanonical2(tmpdir2));
+  return canonical3 === "/" ? roots : [...roots, canonical3];
+}
+async function deniedProse(path, tmpdir2, env) {
+  if (!isProseFile(path)) return false;
+  const canonical3 = capture6(pathCanonical2(path));
+  if (inScratchFolder(canonical3, env)) return true;
+  if (!tmpRoots(tmpdir2).some((root) => under4(canonical3, root))) return false;
+  return await repoGitRoot(posixDirname(canonical3), env) === "";
+}
+function effectiveTmpdir(input, toolName2, env) {
+  const uid = process.getuid?.() ?? 0;
+  return runTmpdir(input, toolName2, env, uid, harnessTmp(uid));
+}
+function words2(stmt) {
+  return (stmt.split("\n")[0] ?? "").split(/[ \t]+/).filter((w) => w !== "");
+}
+async function joinContinuations(command) {
+  if (!command.includes("\\\n")) return command;
+  const tree = (await bashParser()).parse(command);
+  if (tree === null) return command;
+  const literals = tree.rootNode.descendantsOfType(LITERAL_NODES).flatMap((node) => node === null ? [] : [[node.startIndex, node.endIndex]]);
+  tree.delete();
+  let next = 0;
+  return command.replace(/\\[\s\S]/g, (pair, at2) => {
+    while (next < literals.length && literals[next][1] <= at2) next += 1;
+    const inLiteral = next < literals.length && literals[next][0] <= at2;
+    return pair === "\\\n" && !inLiteral ? "" : pair;
+  });
+}
+function isStdinValue(value) {
+  const word = value.replace(/<.*$/s, "");
+  return word === "" || word === "-";
+}
+function readsBodyFile(stmt) {
+  if (!BODY_FILE_WRITES.has(ghMutation(stmt))) return false;
+  const w = words2(stmt);
+  const gh2 = w.findIndex((word, k) => posixBasename(word) === "gh" && BODY_FILE_WRITES.has(ghMutationFrom(w.slice(k))));
+  if (gh2 < 0) return false;
+  for (let k = gh2 + 1; k < w.length; k++) {
+    const flag = w[k];
+    if (flag === "--") return false;
+    if (GH_VALUE_FLAGS.has(flag)) {
+      k += 1;
+      continue;
+    }
+    if (flag === "--body-file" || flag === "-F") {
+      if (k + 1 < w.length && !isStdinValue(w[k + 1])) return true;
+      k += 1;
+      continue;
+    }
+    const attached = /^(?:--body-file=|-F=?)(.+)$/s.exec(flag);
+    if (attached && !isStdinValue(attached[1])) return true;
+  }
+  return false;
+}
+function isRm(stmt) {
+  return posixBasename(words2(stmt)[0] ?? "") === "rm";
+}
+function indexOfTarget(lines2, removed) {
+  const exact = lines2.indexOf(removed);
+  return exact >= 0 ? exact : lines2.findIndex((line) => line.replace(FLATTENED, "_") === removed);
+}
+async function withoutRmTargets(lines2, statements2, cwd, env) {
+  const kept = [...lines2];
+  for (const { dir, stmt } of statements2) {
+    if (!isRm(stmt)) continue;
+    const removed = await writePaths(stmt.replace(REDIRECT, ""), { cwd: dir.startsWith("/") ? dir : cwd, env });
+    for (const target of removed) {
+      const at2 = indexOfTarget(kept, target);
+      if (at2 >= 0) kept.splice(at2, 1);
+    }
+  }
+  return kept;
+}
+async function bashRule2(input, env) {
+  const command = await joinContinuations(field6(input, ["tool_input", "command"]));
+  if (command === "") return ALLOW;
+  const tmpdir2 = effectiveTmpdir(input, "Bash", env);
+  const runEnv = tmpdir2 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir2 };
+  const cwd = payloadCwd(input, env);
+  const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
+  if (lines2.some(isCapLine)) return ALLOW;
+  const prose = lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+  if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return ALLOW;
+  if (listed2.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny11(BODY_FILE_REASON);
+  for (const path of await withoutRmTargets(prose, listed2.statements, cwd, runEnv)) {
+    if (await deniedProse(path, tmpdir2, env)) return deny11(proseReason(path));
+  }
+  return ALLOW;
+}
+async function fileRule(input, toolName2, env) {
+  const target = field6(input, ["tool_input", "file_path"], ["tool_input", "notebook_path"]);
+  if (target === "") return ALLOW;
+  const path = target.startsWith("/") ? target : `${payloadCwd(input, env)}/${target}`;
+  return await deniedProse(path, effectiveTmpdir(input, toolName2, env), env) ? deny11(proseReason(target)) : ALLOW;
+}
+var noProseInScratch = async (payload, env) => {
+  if ((env.TMB_ALLOW_PROSE_SCRATCH ?? "0") === "1") return ALLOW;
+  const toolName2 = field6(payload, ["tool_name"]);
+  if (toolName2 === "Bash") return await bashRule2(payload, env);
+  return FILE_TOOLS.has(toolName2) ? await fileRule(payload, toolName2, env) : ALLOW;
+};
+
+// src/hooks/worktree-adopt-guard.ts
+import { realpathSync as realpathSync8 } from "node:fs";
+var GATE_NAME71 = "worktree-adopt-guard";
+var ADOPT_TOOLS = ["task_provision", "task_reopen", "task_retry"];
+function deny12(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function realpath(path) {
+  try {
+    return realpathSync8(path);
+  } catch {
+    return null;
+  }
+}
+async function gitLine(dir, args2, env) {
+  const r = await gitRun(dir, args2, env);
+  const out2 = r.stdout.replace(/\n+$/, "");
+  return r.code === 0 && out2 !== "" ? out2 : null;
+}
+async function linkedWorktreeTop(root, env = process.env) {
+  if (root === "" || !isDir(root)) return null;
+  const gitDir = await gitLine(root, ["rev-parse", "--path-format=absolute", "--git-dir"], env);
+  const commonDir = await gitLine(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (gitDir === null || commonDir === null) return null;
+  const realGitDir = realpath(gitDir);
+  const realCommonDir = realpath(commonDir);
+  if (realGitDir === null || realCommonDir === null || realGitDir === realCommonDir) return null;
+  const top = await gitLine(root, ["rev-parse", "--show-toplevel"], env);
+  return top === null ? null : realpath(top);
+}
+function sessionRoot(payload, env) {
+  const projectDir = claudeProjectDir(env);
+  if (projectDir !== "") return projectDir;
+  return typeof payload.cwd === "string" ? payload.cwd : "";
+}
+var worktreeAdoptGuard = async (raw, env) => {
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return deny12("BLOCKED: worktree-adopt-guard could not read the hook payload, so it cannot tell which worktree this session may adopt.");
+  }
+  const toolName2 = typeof payload.tool_name === "string" ? payload.tool_name : "";
+  const tool = ADOPT_TOOLS.find((t) => toolName2.endsWith(`trajectory-server__${t}`));
+  if (tool === void 0) return ALLOW;
+  const root = sessionRoot(payload, env);
+  const top = await linkedWorktreeTop(root, env);
+  const arg = payload.tool_input?.adopt_worktree;
+  if (arg === void 0 || arg === null) {
+    if (top === null) return ALLOW;
+    return deny12(
+      `BLOCKED: this session runs in the linked worktree '${top}', so its task adopts that worktree instead of a new <repo>/.claude/worktrees/<slug>. Call ${tool} again with adopt_worktree: '${top}'.`
+    );
+  }
+  const asked = typeof arg === "string" ? arg : JSON.stringify(arg);
+  const real = typeof arg === "string" && arg.startsWith("/") ? realpath(arg) : null;
+  if (top !== null && real === top) return ALLOW;
+  if (top !== null) {
+    return deny12(
+      `BLOCKED: adopt_worktree '${asked}' is not this session's worktree. A session adopts only the linked worktree it runs in: pass adopt_worktree: '${top}'.`
+    );
+  }
+  return deny12(
+    `BLOCKED: adopt_worktree '${asked}' is refused: this session's root '${root}' is not in a linked git worktree (a main checkout or no git repo), so no worktree may be adopted from it. Call ${tool} without adopt_worktree; it creates <repo>/.claude/worktrees/<slug>.`
+  );
+};
+
 // src/hooks/router/budgets.json
 var budgets_default = {
   rounds: 20,
@@ -23835,12 +24739,12 @@ var budgets_default = {
   groups: {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       max_budget_ms: 8090,
-      p99_sum_ms: 18264.7,
+      p99_sum_ms: 18630.2,
       group_budget_ms: 8090
     },
     "PreToolUse:Bash": {
       max_budget_ms: 16e3,
-      p99_sum_ms: 21657.5,
+      p99_sum_ms: 22023,
       group_budget_ms: 16e3
     },
     "PreToolUse:Agent": {
@@ -23855,7 +24759,7 @@ var budgets_default = {
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       max_budget_ms: 183e4,
-      p99_sum_ms: 5368.3,
+      p99_sum_ms: 7359.5,
       group_budget_ms: 183e4
     },
     "PreToolUse:AskUserQuestion": {
@@ -23875,7 +24779,7 @@ var budgets_default = {
     },
     "PostToolUse:Bash": {
       max_budget_ms: 23300,
-      p99_sum_ms: 12992.6,
+      p99_sum_ms: 12992.9,
       group_budget_ms: 23300
     },
     "PostToolUse:Agent": {
@@ -23986,6 +24890,22 @@ var budgets_default = {
       floor_ms: 6e3,
       budget_ms: 6e3,
       date: "2026-10-31"
+    },
+    "no-prose-in-scratch": {
+      kind: "enforcement",
+      bench_p50: 113.7,
+      bench_p95: 342.2,
+      bench_p99: 365.5,
+      bench_runs: 640,
+      bench_load_avg: 1.87,
+      transcript_p99: null,
+      reason: "no no-prose-in-scratch PreToolUse hook attachment in 1085 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
     },
     "swe-boundary": {
       kind: "enforcement",
@@ -24278,6 +25198,22 @@ var budgets_default = {
       budget_ms: 6e3,
       date: "2026-10-31"
     },
+    "worktree-adopt-guard": {
+      kind: "enforcement",
+      bench_p50: 751.4,
+      bench_p95: 1629.2,
+      bench_p99: 1991.2,
+      bench_runs: 640,
+      bench_load_avg: 126.39,
+      transcript_p99: null,
+      reason: "no worktree-adopt-guard PreToolUse hook attachment in 1103 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-02"
+    },
     "askuserquestion-length-lint": {
       kind: "advisory",
       bench_p50: 0,
@@ -24417,6 +25353,22 @@ var budgets_default = {
       floor_ms: 6e3,
       budget_ms: 6e3,
       date: "2026-11-01"
+    },
+    "bash-output-trim": {
+      kind: "advisory",
+      bench_p50: 0,
+      bench_p95: 0.1,
+      bench_p99: 0.3,
+      bench_runs: 720,
+      bench_load_avg: 25.36,
+      transcript_p99: null,
+      reason: "no bash-output-trim PostToolUse hook attachment in 1177 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 4e3,
+      budget_ms: 4e3,
+      date: "2026-11-02"
     },
     "attribution-footer": {
       kind: "advisory",
@@ -24812,82 +25764,86 @@ var budgets_default = {
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
-  [GATE_NAME3, broTurnUsage],
-  [GATE_NAME4, attributionFooter],
-  [GATE_NAME5, codeQualityLint],
-  [GATE_NAME7, commitMsgLint],
+  [GATE_NAME2, bashOutputTrim],
+  [GATE_NAME4, broTurnUsage],
+  [GATE_NAME5, attributionFooter],
+  [GATE_NAME6, codeQualityLint],
+  [GATE_NAME8, commitMsgLint],
   ["containment-guard", containmentGuard],
-  [GATE_NAME8, deferredToolsDriftWarn],
-  [GATE_NAME9, ensureGitignore],
+  [GATE_NAME9, deferredToolsDriftWarn],
+  [GATE_NAME10, ensureGitignore],
   ["ensure-mcp-deps-installed", ensureMcpDepsInstalled],
-  [GATE_NAME6, gitGuards],
-  [GATE_NAME10, gitPushGuard],
-  [GATE_NAME11, mcpHealthCheck],
-  [GATE_NAME12, codeReviewerPreflight],
-  [GATE_NAME13, codeReviewerSpawnNote],
-  [GATE_NAME14, reworkLimit],
-  [GATE_NAME15, requireFeatureBranchActive],
-  [GATE_NAME17, requireSpawnEffort],
-  [GATE_NAME16, requireTaskSpec],
-  [GATE_NAME18, substratePreflight],
-  [GATE_NAME19, namingLint],
-  [GATE_NAME20, sweBoundary],
-  [GATE_NAME21, sweResumeGate],
-  [GATE_NAME22, sweStopCause],
-  [GATE_NAME23, taskOverrunAlert],
-  [GATE_NAME25, livenessAlert],
-  [GATE_NAME26, livenessSentinel],
-  [GATE_NAME27, activationRoutine],
-  [GATE_NAME28, debugTrajectory],
-  [GATE_NAME24, pluginHooksMarker],
-  [GATE_NAME29, sessionLogCapture],
-  [GATE_NAME31, sessionStartPersona],
-  [GATE_NAME30, sessionHandoff],
-  [GATE_NAME32, userPromptPersona],
-  [GATE_NAME35, reworkWaiverCapture],
-  [GATE_NAME36, consultantPersistenceGate],
-  [GATE_NAME37, roundtableAuqShape],
-  [GATE_NAME38, roundtableCleanupPostcheck],
-  [GATE_NAME39, roundtableSlashDetect],
-  [GATE_NAME2, toolOutputSize],
-  [GATE_NAME40, codeReviewerNoWorktree],
-  [GATE_NAME41, codeReviewerSpawnPromptShape],
-  [GATE_NAME42, codeReviewerAfterAtomicClose],
-  [GATE_NAME44, sweVerificationGate],
-  [GATE_NAME43, sweBriefGate],
-  [GATE_NAME45, sweSpawnBind],
-  [GATE_NAME46, sweSpawnRollback],
-  [GATE_NAME47, postTaskCreateSpawnHint],
-  [GATE_NAME33, agentArgMatchesCaller],
-  [GATE_NAME48, reviewerIdentityObserve],
-  [GATE_NAME49, cheatcodeInstallApproval],
-  [GATE_NAME50, stayOnBaseGuard],
-  [GATE_NAME51, branchUpToDateWithRemote],
-  [GATE_NAME52, noWorktreeBranchCreate],
-  [GATE_NAME53, noRemoteAuthGuard],
-  [GATE_NAME34, promptIntentHints],
-  [GATE_NAME54, sweScopeFence],
-  [GATE_NAME55, orphanScan],
-  [GATE_NAME56, sessionStartPrescan],
-  [GATE_NAME57, cleanMergedBranch],
-  [GATE_NAME58, closeIssueOnMerge],
-  [GATE_NAME59, sweAtomicClose],
-  [GATE_NAME60, postTaskCloseRescan],
-  [GATE_NAME61, postAtomicCloseReadme],
-  [GATE_NAME62, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
-  [GATE_NAME63, ensureSweWorktree],
-  [GATE_NAME64, recordSweSpawn],
-  [GATE_NAME65, cleanupWorktreeOnTaskClose],
-  [GATE_NAME66, worktreeCreate],
-  [GATE_NAME67, remoteIdGuard],
-  [GATE_NAME68, noSourceEditFromMain]
+  [GATE_NAME7, gitGuards],
+  [GATE_NAME11, gitPushGuard],
+  [GATE_NAME12, mcpHealthCheck],
+  [GATE_NAME13, codeReviewerPreflight],
+  [GATE_NAME14, codeReviewerSpawnNote],
+  [GATE_NAME15, reworkLimit],
+  [GATE_NAME16, requireFeatureBranchActive],
+  [GATE_NAME18, requireSpawnEffort],
+  [GATE_NAME17, requireTaskSpec],
+  [GATE_NAME19, substratePreflight],
+  [GATE_NAME20, namingLint],
+  [GATE_NAME21, sweBoundary],
+  [GATE_NAME22, sweResumeGate],
+  [GATE_NAME23, sweStopCause],
+  [GATE_NAME24, taskOverrunAlert],
+  [GATE_NAME26, livenessAlert],
+  [GATE_NAME27, livenessSentinel],
+  [GATE_NAME28, activationRoutine],
+  [GATE_NAME29, debugTrajectory],
+  [GATE_NAME25, pluginHooksMarker],
+  [GATE_NAME30, sessionLogCapture],
+  [GATE_NAME32, sessionStartPersona],
+  [GATE_NAME31, sessionHandoff],
+  [GATE_NAME33, userPromptPersona],
+  [GATE_NAME36, reworkWaiverCapture],
+  [GATE_NAME37, consultantPersistenceGate],
+  [GATE_NAME38, roundtableAuqShape],
+  [GATE_NAME39, roundtableCleanupPostcheck],
+  [GATE_NAME40, roundtableSlashDetect],
+  [GATE_NAME3, toolOutputSize],
+  [GATE_NAME41, codeReviewerNoWorktree],
+  [GATE_NAME42, codeReviewerSpawnPromptShape],
+  [GATE_NAME43, codeReviewerAfterAtomicClose],
+  [GATE_NAME45, sweVerificationGate],
+  [GATE_NAME44, sweBriefGate],
+  [GATE_NAME46, sweSpawnBind],
+  [GATE_NAME47, sweSpawnRollback],
+  [GATE_NAME48, postTaskCreateSpawnHint],
+  [GATE_NAME34, agentArgMatchesCaller],
+  [GATE_NAME49, reviewerIdentityObserve],
+  [GATE_NAME50, cheatcodeInstallApproval],
+  [GATE_NAME51, stayOnBaseGuard],
+  [GATE_NAME52, branchUpToDateWithRemote],
+  [GATE_NAME53, noWorktreeBranchCreate],
+  [GATE_NAME54, noRemoteAuthGuard],
+  [GATE_NAME35, promptIntentHints],
+  [GATE_NAME55, sweScopeFence],
+  [GATE_NAME56, orphanScan],
+  [GATE_NAME57, sessionStartPrescan],
+  [GATE_NAME58, cleanMergedBranch],
+  [GATE_NAME59, closeIssueOnMerge],
+  [GATE_NAME60, sweAtomicClose],
+  [GATE_NAME61, postTaskCloseRescan],
+  [GATE_NAME62, postAtomicCloseReadme],
+  [GATE_NAME63, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [GATE_NAME64, ensureSweWorktree],
+  [GATE_NAME65, recordSweSpawn],
+  [GATE_NAME66, cleanupWorktreeOnTaskClose],
+  [GATE_NAME67, worktreeCreate],
+  [GATE_NAME68, remoteIdGuard],
+  [GATE_NAME69, noSourceEditFromMain],
+  [GATE_NAME70, noProseInScratch],
+  [GATE_NAME71, worktreeAdoptGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
 }
+var TS_ONLY_GATES = /* @__PURE__ */ new Set([GATE_NAME70, GATE_NAME71]);
 function routerGate(name3, kind, toolSuffix) {
   const budgets = budgets_default.gates;
-  return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix } };
+  return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix }, ...TS_ONLY_GATES.has(name3) ? { tsOnly: true } : {} };
 }
 function routerGroupKey(group) {
   return group.part === void 0 ? `${group.event}:${group.matcher}` : `${group.event}:${group.matcher}:${group.part}`;
@@ -24902,80 +25858,85 @@ function preToolUseGroup(matcher, gates, opts = {}) {
 var ROUTER_GROUPS = [
   preToolUseGroup("Write|Edit|MultiEdit|NotebookEdit", [
     routerGate("containment-guard", "enforcement"),
-    routerGate(GATE_NAME43, "enforcement"),
-    routerGate(GATE_NAME68, "enforcement"),
-    routerGate(GATE_NAME20, "enforcement"),
-    routerGate(GATE_NAME54, "advisory"),
-    routerGate(GATE_NAME19, "advisory"),
-    routerGate(GATE_NAME5, "advisory"),
-    routerGate(GATE_NAME28, "advisory")
+    routerGate(GATE_NAME44, "enforcement"),
+    routerGate(GATE_NAME69, "enforcement"),
+    routerGate(GATE_NAME70, "enforcement"),
+    routerGate(GATE_NAME21, "enforcement"),
+    routerGate(GATE_NAME55, "advisory"),
+    routerGate(GATE_NAME20, "advisory"),
+    routerGate(GATE_NAME6, "advisory"),
+    routerGate(GATE_NAME29, "advisory")
   ], { concurrent: true }),
   preToolUseGroup("Bash", [
     routerGate("containment-guard", "enforcement"),
-    routerGate(GATE_NAME6, "enforcement"),
-    routerGate(GATE_NAME10, "enforcement"),
-    routerGate(GATE_NAME20, "enforcement"),
-    routerGate(GATE_NAME52, "enforcement"),
-    routerGate(GATE_NAME50, "enforcement"),
-    routerGate(GATE_NAME51, "enforcement"),
-    routerGate(GATE_NAME7, "advisory"),
+    routerGate(GATE_NAME7, "enforcement"),
+    routerGate(GATE_NAME11, "enforcement"),
+    routerGate(GATE_NAME21, "enforcement"),
     routerGate(GATE_NAME53, "enforcement"),
-    routerGate(GATE_NAME67, "enforcement"),
-    routerGate(GATE_NAME28, "advisory")
+    routerGate(GATE_NAME51, "enforcement"),
+    routerGate(GATE_NAME52, "enforcement"),
+    routerGate(GATE_NAME8, "advisory"),
+    routerGate(GATE_NAME54, "enforcement"),
+    routerGate(GATE_NAME68, "enforcement"),
+    routerGate(GATE_NAME70, "enforcement"),
+    routerGate(GATE_NAME29, "advisory")
   ], { concurrent: true }),
-  preToolUseGroup("Agent", [routerGate(GATE_NAME62, "enforcement"), routerGate(GATE_NAME28, "advisory")]),
-  preToolUseGroup("SendMessage", [routerGate(GATE_NAME21, "enforcement")]),
+  preToolUseGroup("Agent", [routerGate(GATE_NAME63, "enforcement"), routerGate(GATE_NAME29, "advisory")]),
+  preToolUseGroup("SendMessage", [routerGate(GATE_NAME22, "enforcement")]),
   preToolUseGroup(
     "mcp__.*trajectory-server__.*",
     [
-      routerGate(GATE_NAME33, "enforcement"),
-      routerGate(GATE_NAME43, "enforcement"),
-      routerGate(GATE_NAME44, "enforcement", "task_update_status"),
-      routerGate(GATE_NAME48, "enforcement", "validation_record"),
-      routerGate(GATE_NAME49, "enforcement", "cheatcode_install")
+      routerGate(GATE_NAME34, "enforcement"),
+      routerGate(GATE_NAME44, "enforcement"),
+      routerGate(GATE_NAME45, "enforcement", "task_update_status"),
+      routerGate(GATE_NAME49, "enforcement", "validation_record"),
+      routerGate(GATE_NAME50, "enforcement", "cheatcode_install"),
+      routerGate(GATE_NAME71, "enforcement", "task_provision"),
+      routerGate(GATE_NAME71, "enforcement", "task_reopen"),
+      routerGate(GATE_NAME71, "enforcement", "task_retry")
     ],
     { stopAtFirstDeny: true }
   ),
-  preToolUseGroup("AskUserQuestion", [routerGate("askuserquestion-length-lint", "advisory"), routerGate(GATE_NAME37, "advisory")]),
-  preToolUseGroup("Read|Skill", [routerGate(GATE_NAME28, "advisory")]),
+  preToolUseGroup("AskUserQuestion", [routerGate("askuserquestion-length-lint", "advisory"), routerGate(GATE_NAME38, "advisory")]),
+  preToolUseGroup("Read|Skill", [routerGate(GATE_NAME29, "advisory")]),
   eventGroup("PostToolUse", "mcp__.*trajectory-server__.*", [
-    routerGate(GATE_NAME65, "advisory", "task_update_status"),
-    routerGate(GATE_NAME65, "advisory", "validation_record"),
-    routerGate(GATE_NAME38, "advisory", "roundtable_close"),
-    routerGate(GATE_NAME60, "advisory", "bro_atomic_close"),
+    routerGate(GATE_NAME66, "advisory", "task_update_status"),
+    routerGate(GATE_NAME66, "advisory", "validation_record"),
+    routerGate(GATE_NAME39, "advisory", "roundtable_close"),
     routerGate(GATE_NAME61, "advisory", "bro_atomic_close"),
-    routerGate(GATE_NAME47, "advisory", "task_create_batch"),
-    routerGate(GATE_NAME23, "advisory"),
-    routerGate(GATE_NAME25, "advisory")
-  ]),
-  eventGroup("PostToolUse", "Bash", [routerGate(GATE_NAME4, "advisory"), routerGate(GATE_NAME57, "advisory"), routerGate(GATE_NAME58, "advisory")]),
-  eventGroup("PostToolUse", "Agent", [routerGate(GATE_NAME45, "advisory")]),
-  eventGroup("PermissionDenied", "Agent", [routerGate(GATE_NAME46, "advisory")]),
-  eventGroup("Stop", "", [routerGate(GATE_NAME3, "advisory")]),
-  eventGroup("Stop", "", [routerGate(GATE_NAME30, "advisory")], { part: "handoff" }),
-  eventGroup("SubagentStop", "", [routerGate(GATE_NAME36, "enforcement"), routerGate(GATE_NAME59, "advisory")]),
-  eventGroup("SessionStart", "", [
-    routerGate(GATE_NAME9, "advisory"),
-    routerGate(GATE_NAME11, "advisory"),
-    routerGate(GATE_NAME8, "advisory"),
+    routerGate(GATE_NAME62, "advisory", "bro_atomic_close"),
+    routerGate(GATE_NAME48, "advisory", "task_create_batch"),
     routerGate(GATE_NAME24, "advisory"),
+    routerGate(GATE_NAME26, "advisory")
+  ]),
+  eventGroup("PostToolUse", "Bash", [routerGate(GATE_NAME2, "advisory"), routerGate(GATE_NAME5, "advisory"), routerGate(GATE_NAME58, "advisory"), routerGate(GATE_NAME59, "advisory")]),
+  eventGroup("PostToolUse", "Agent", [routerGate(GATE_NAME46, "advisory")]),
+  eventGroup("PermissionDenied", "Agent", [routerGate(GATE_NAME47, "advisory")]),
+  eventGroup("Stop", "", [routerGate(GATE_NAME4, "advisory")]),
+  eventGroup("Stop", "", [routerGate(GATE_NAME31, "advisory")], { part: "handoff" }),
+  eventGroup("SubagentStop", "", [routerGate(GATE_NAME37, "enforcement"), routerGate(GATE_NAME60, "advisory")]),
+  eventGroup("SessionStart", "", [
+    routerGate(GATE_NAME10, "advisory"),
+    routerGate(GATE_NAME12, "advisory"),
+    routerGate(GATE_NAME9, "advisory"),
+    routerGate(GATE_NAME25, "advisory"),
     routerGate("ensure-mcp-deps-installed", "advisory"),
-    routerGate(GATE_NAME18, "advisory"),
-    routerGate(GATE_NAME55, "advisory")
+    routerGate(GATE_NAME19, "advisory"),
+    routerGate(GATE_NAME56, "advisory")
   ]),
-  eventGroup("SessionStart", "", [routerGate(GATE_NAME31, "advisory")], { part: "persona" }),
-  eventGroup("SessionStart", "", [routerGate(GATE_NAME56, "advisory")], { part: "prescan" }),
+  eventGroup("SessionStart", "", [routerGate(GATE_NAME32, "advisory")], { part: "persona" }),
+  eventGroup("SessionStart", "", [routerGate(GATE_NAME57, "advisory")], { part: "prescan" }),
   eventGroup("UserPromptSubmit", "", [
+    routerGate(GATE_NAME36, "advisory"),
+    routerGate(GATE_NAME28, "advisory"),
+    routerGate(GATE_NAME30, "advisory"),
     routerGate(GATE_NAME35, "advisory"),
-    routerGate(GATE_NAME27, "advisory"),
-    routerGate(GATE_NAME29, "advisory"),
-    routerGate(GATE_NAME34, "advisory"),
-    routerGate(GATE_NAME23, "advisory"),
-    routerGate(GATE_NAME25, "advisory")
+    routerGate(GATE_NAME24, "advisory"),
+    routerGate(GATE_NAME26, "advisory")
   ]),
-  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME32, "advisory")], { part: "persona" }),
-  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME39, "advisory")], { part: "roundtable" }),
-  eventGroup("WorktreeCreate", "", [routerGate(GATE_NAME66, "advisory")])
+  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME33, "advisory")], { part: "persona" }),
+  eventGroup("UserPromptSubmit", "", [routerGate(GATE_NAME40, "advisory")], { part: "roundtable" }),
+  eventGroup("WorktreeCreate", "", [routerGate(GATE_NAME67, "advisory")])
 ];
 function routerEvents() {
   return new Set(ROUTER_GROUPS.map((g) => g.event));
@@ -24999,31 +25960,9 @@ function routerTimeoutS(group) {
 
 // src/hooks/router/main.ts
 import { spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync17, mkdirSync as mkdirSync13, readFileSync as readFileSync23 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync14, readFileSync as readFileSync24 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
-
-// src/hooks/router/sh-gate.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync15 } from "node:fs";
-function shGate(name3) {
-  return (payload, env) => {
-    const script = `${env.CLAUDE_PLUGIN_ROOT ?? ""}/scripts/hooks/${name3}.sh`;
-    if (!existsSync15(script)) throw new Error(`no ${script} (TMB_HOOKS_IMPL=bash runs only .sh gates) \u2014 not run`);
-    const limit = spawnLimit(void 0, "SIGKILL");
-    const r = spawnSync11("bash", [script], {
-      input: payload,
-      env,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "inherit"],
-      ...spawnOptions(limit)
-    });
-    const cut4 = noteSpawn(limit, r);
-    if (r.error && !cut4) throw r.error;
-    return { stdout: r.stdout ?? "", code: r.status ?? 1 };
-  };
-}
 
 // src/hooks/router/decide.ts
 var ROUTER_NAME = "router";
@@ -25099,7 +26038,7 @@ function parses(stdout) {
     return false;
   }
 }
-var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var asRecord2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var DECISION_KEYS = /* @__PURE__ */ new Set(["permissionDecision", "permissionDecisionReason"]);
 var SPECIFIC_KEY = /* @__PURE__ */ new Set(["hookSpecificOutput"]);
 function firstWins(records2, into, skip2) {
@@ -25114,8 +26053,8 @@ function mergeContext(outputs, event) {
   if (outputs.length === 0) return "";
   if (outputs.length === 1) return readsAsText(outputs[0], event) ? outputs[0] : `${outputs[0]}
 `;
-  const parsed = outputs.map((o) => readsAsText(o, event) ? { hookSpecificOutput: { additionalContext: trimNewlines(o) } } : asRecord(JSON.parse(o)));
-  const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
+  const parsed = outputs.map((o) => readsAsText(o, event) ? { hookSpecificOutput: { additionalContext: trimNewlines(o) } } : asRecord2(JSON.parse(o)));
+  const specifics = parsed.map((p) => asRecord2(p.hookSpecificOutput));
   const eventName2 = specifics.map((p) => p.hookEventName).find((e) => typeof e === "string" && e !== "") ?? event;
   const context4 = specifics.map((p) => p.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
   const specific = firstWins(specifics, { hookEventName: eventName2, additionalContext: context4 }, DECISION_KEYS);
@@ -25128,9 +26067,9 @@ function mergeContext(outputs, event) {
   return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}
 `;
 }
-function blockKeepingContext(event, deny11, contexts) {
-  const out2 = trimNewlines(deny11.stdout);
-  if (event === "PreToolUse" || deny11.code === 2 || contexts.length === 0 || !parses(out2)) return deny11.stdout;
+function blockKeepingContext(event, deny13, contexts) {
+  const out2 = trimNewlines(deny13.stdout);
+  if (event === "PreToolUse" || deny13.code === 2 || contexts.length === 0 || !parses(out2)) return deny13.stdout;
   return mergeContext([out2, ...contexts], event);
 }
 var LATE = /* @__PURE__ */ Symbol("late");
@@ -25297,23 +26236,22 @@ async function decideCall(event, payload, env, deps) {
       denied: { gate: ROUTER_NAME, reason }
     };
   }
-  const bashImpl = env.TMB_HOOKS_IMPL === "bash";
   const group = routerGroup(event, tool, groups, deps.part);
   const gates = routerGates(event, tool, groups, deps.part);
-  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
+  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0) await parserReady(deps.parserWait ?? bashParser);
   const call = {
     event,
     payload,
     env,
     now,
-    find: deps.findGate ?? (bashImpl ? shGate : findGate),
+    find: deps.findGate ?? findGate,
     budgetOf: (gate) => deps.budgetMs?.(gate) ?? gate.budgetMs,
     groupBudgetMs: deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0
   };
-  const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
+  const done = group?.concurrent === true ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
-  const deny11 = done.find(({ j }) => j.outcome === "deny");
+  const deny13 = done.find(({ j }) => j.outcome === "deny");
   const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
   if (stdoutIsPath(event)) {
     const notAllowed = done.find(({ j }) => j.outcome !== "allow");
@@ -25321,8 +26259,8 @@ async function decideCall(event, payload, env, deps) {
     const cause = notAllowed ? `gate ${notAllowed.gate.name} ended in ${notAllowed.j.outcome}` : done.length === 0 ? "no gate serves it" : "no bare path printed";
     return { stdout: "", stderr: `${stderr2}${pathFailure(event, cause)}`, code: 1, tool, gates: outcomes, denied: null };
   }
-  if (deny11) {
-    return { stdout: blockKeepingContext(event, deny11.j, context4), stderr: stderr2, code: deny11.j.code, tool, gates: outcomes, denied: { gate: deny11.gate.name, reason: deny11.j.reason } };
+  if (deny13) {
+    return { stdout: blockKeepingContext(event, deny13.j, context4), stderr: stderr2, code: deny13.j.code, tool, gates: outcomes, denied: { gate: deny13.gate.name, reason: deny13.j.reason } };
   }
   return { stdout: mergeContext(context4, event), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
 }
@@ -25338,8 +26276,8 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync16, mkdirSync as mkdirSync11, readdirSync as readdirSync8, readFileSync as readFileSync22, renameSync as renameSync5, rmSync as rmSync6, statSync as statSync38, writeFileSync as writeFileSync7 } from "node:fs";
-import { setTimeout as sleep3 } from "node:timers/promises";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync8, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
+import { setTimeout as sleep4 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -25373,15 +26311,15 @@ function nowS2() {
 }
 function stamp(file) {
   try {
-    const line = readFileSync22(file, "utf8").split("\n")[0];
+    const line = readFileSync23(file, "utf8").split("\n")[0];
     return /^[0-9]+$/.test(line) ? Number(line) : null;
   } catch {
     return null;
   }
 }
-function ageS(path) {
+function ageS2(path) {
   try {
-    return nowS2() - Math.floor(statSync38(path).mtimeMs / 1e3);
+    return nowS2() - Math.floor(statSync39(path).mtimeMs / 1e3);
   } catch {
     return null;
   }
@@ -25402,12 +26340,12 @@ var Dedupe = class {
   windowS;
   sweepS;
   expired(lock) {
-    const done = existsSync16(`${lock}/rc`);
+    const done = existsSync15(`${lock}/rc`);
     if (!done) {
       const deadline = stamp(`${lock}/deadline`);
       if (deadline !== null) return nowS2() > deadline;
     }
-    const age = ageS(lock);
+    const age = ageS2(lock);
     if (age === null) return false;
     return done ? age > this.windowS : age > this.timeoutS;
   }
@@ -25417,7 +26355,7 @@ var Dedupe = class {
     const last = stamp(stampFile);
     if (last !== null && last <= now && now - last < this.sweepS) return;
     try {
-      writeFileSync7(stampFile, `${now}
+      writeFileSync8(stampFile, `${now}
 `);
     } catch {
     }
@@ -25431,26 +26369,26 @@ var Dedupe = class {
       const d = `${this.base}/${name3}`;
       let st;
       try {
-        st = statSync38(d);
+        st = statSync39(d);
       } catch {
         continue;
       }
       if (!st.isDirectory()) continue;
       const ageMin = (Date.now() - st.mtimeMs) / 6e4;
-      const done = existsSync16(`${d}/rc`);
+      const done = existsSync15(`${d}/rc`);
       const deadline = done ? null : stamp(`${d}/deadline`);
       const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now > deadline;
-      if (gone) rmSync6(d, { recursive: true, force: true });
+      if (gone) rmSync7(d, { recursive: true, force: true });
     }
   }
   take(lock) {
     try {
-      mkdirSync11(lock);
+      mkdirSync12(lock);
     } catch {
       return false;
     }
     try {
-      writeFileSync7(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
+      writeFileSync8(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
 `);
     } catch {
     }
@@ -25459,7 +26397,7 @@ var Dedupe = class {
   replay(lock) {
     let rc;
     try {
-      const text = readFileSync22(`${lock}/rc`, "utf8").trim();
+      const text = readFileSync23(`${lock}/rc`, "utf8").trim();
       if (!/^[0-9]+$/.test(text)) return null;
       rc = Number(text);
     } catch {
@@ -25467,7 +26405,7 @@ var Dedupe = class {
     }
     const read = (f) => {
       try {
-        return readFileSync22(`${lock}/${f}`, "utf8");
+        return readFileSync23(`${lock}/${f}`, "utf8");
       } catch {
         return "";
       }
@@ -25487,20 +26425,20 @@ var Dedupe = class {
   reclaim(lock) {
     const mutex = `${lock}.reclaim`;
     try {
-      mkdirSync11(mutex);
+      mkdirSync12(mutex);
     } catch {
-      const age = ageS(mutex);
-      if (age !== null && age > 30) rmSync6(mutex, { recursive: true, force: true });
+      const age = ageS2(mutex);
+      if (age !== null && age > 30) rmSync7(mutex, { recursive: true, force: true });
       return false;
     }
     try {
-      if (!existsSync16(lock) || this.expired(lock)) {
-        rmSync6(lock, { recursive: true, force: true });
+      if (!existsSync15(lock) || this.expired(lock)) {
+        rmSync7(lock, { recursive: true, force: true });
         return this.take(lock);
       }
       return false;
     } finally {
-      rmSync6(mutex, { recursive: true, force: true });
+      rmSync7(mutex, { recursive: true, force: true });
     }
   }
   /** hold: this call decides and stores; replay: a duplicate's answer; none: a duplicate that gave up. */
@@ -25510,29 +26448,29 @@ var Dedupe = class {
     const giveUp = nowS2() + Math.max(1, this.timeoutS - 1);
     for (; ; ) {
       if (this.take(lock)) return { kind: "hold", lock };
-      if (existsSync16(`${lock}/rc`) && !this.expired(lock)) {
+      if (existsSync15(`${lock}/rc`) && !this.expired(lock)) {
         const out2 = this.replay(lock);
         return out2 === null ? { kind: "none" } : { kind: "replay", out: out2 };
       }
       if (this.expired(lock) && this.reclaim(lock)) return { kind: "hold", lock };
       if (nowS2() >= giveUp) return { kind: "none" };
-      await sleep3(100);
+      await sleep4(100);
     }
   }
   static store(lock, out2) {
     try {
-      writeFileSync7(`${lock}/result`, out2.stdout);
-      writeFileSync7(`${lock}/stderr`, out2.stderr);
-      writeFileSync7(`${lock}/rc.tmp`, `${out2.code}
+      writeFileSync8(`${lock}/result`, out2.stdout);
+      writeFileSync8(`${lock}/stderr`, out2.stderr);
+      writeFileSync8(`${lock}/rc.tmp`, `${out2.code}
 `);
-      renameSync5(`${lock}/rc.tmp`, `${lock}/rc`);
+      renameSync6(`${lock}/rc.tmp`, `${lock}/rc`);
     } catch {
     }
   }
 };
 
 // src/hooks/router/records.ts
-import { mkdirSync as mkdirSync12, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync39, unlinkSync as unlinkSync2, writeFileSync as writeFileSync8 } from "node:fs";
+import { mkdirSync as mkdirSync13, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
 var CALLER = "router";
 function parse(payload) {
   try {
@@ -25623,7 +26561,7 @@ function prune(dir, cutoffMs) {
   for (const name3 of names) {
     const path = `${dir}/${name3}`;
     try {
-      const st = statSync39(path);
+      const st = statSync40(path);
       if (st.isDirectory()) {
         if (prune(path, cutoffMs)) rmdirSync2(path);
         else empty = false;
@@ -25647,11 +26585,11 @@ async function recordBashDeny(base2, payload, d, env) {
   try {
     prune(base2, Date.now() - window2 * 6e4);
     const dir = `${base2}/${session}`;
-    mkdirSync12(dir, { recursive: true });
+    mkdirSync13(dir, { recursive: true });
     const paths = await writePaths(cmd, { cwd: payloadCwd(payload, env), raw: false, root: projectRoot(env), env });
     const epoch = Math.floor(Date.now() / 1e3);
     for (const path of paths) {
-      if (path.startsWith("/")) writeFileSync8(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
+      if (path.startsWith("/")) writeFileSync9(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
 ${epoch}
 `);
     }
@@ -25698,7 +26636,7 @@ function hopTo(root, event, part, payload, env) {
 function servesCall(root, event, part, tool) {
   let table;
   try {
-    table = readFileSync23(`${root}/${ROUTER_MANIFEST}`, "utf8");
+    table = readFileSync24(`${root}/${ROUTER_MANIFEST}`, "utf8");
   } catch {
     return false;
   }
@@ -25707,6 +26645,15 @@ function servesCall(root, event, part, tool) {
     if (f[3] !== event || !rowHoldsPart(f, part)) return false;
     return tool === null || matcherOfColumn(f[4] ?? "").split(",").some((m) => matcherFits(m, tool));
   });
+}
+function shimYields(payload, env) {
+  const project = env.CLAUDE_PROJECT_DIR ? canonicalDir(env.CLAUDE_PROJECT_DIR) : "";
+  const shimProject = env.TMB_SHIM_PROJECT ? canonicalDir(env.TMB_SHIM_PROJECT) : "";
+  if (project !== "" && shimProject !== "" && project !== shimProject) return true;
+  const sessionRoot2 = project || shimProject;
+  const sessionId = safeSessionId(payload);
+  if (sessionRoot2 === "" || sessionId === "") return false;
+  return existsSync16(`${sessionRoot2}/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/sessions/${sessionId}.plugin-hooks`);
 }
 function lockBase(env) {
   if (!haveSqlite(env)) return null;
@@ -25717,10 +26664,12 @@ async function routerMain(event, env, io, opts = {}) {
   const payload = io.readStdin();
   const tool = payloadTool(payload);
   const self2 = opts.selfRoot ?? ownRoot(env);
+  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
+  if (opts.shim === true && shimYields(payload, gateEnv)) return 0;
   if (opts.hop !== false && env[HOP_ENV] !== "1") {
     const root = activeInstall(env, io.writeStderr);
     if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
-      if (existsSync17(`${root}/${ROUTER_MANIFEST}`) && existsSync17(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
+      if (existsSync16(`${root}/${ROUTER_MANIFEST}`) && existsSync16(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
         const out2 = hopTo(root, event, opts.part, payload, env);
         io.writeStderr(out2.stderr);
         await io.writeStdout(out2.stdout);
@@ -25730,7 +26679,6 @@ async function routerMain(event, env, io, opts = {}) {
 `);
     }
   }
-  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
   const locks = opts.dedupe === false ? null : lockBase(gateEnv);
   const key2 = locks === null ? null : dedupeKey(payload, event, opts.part);
   let dedupe = null;
@@ -25739,19 +26687,19 @@ async function routerMain(event, env, io, opts = {}) {
   if (locks !== null && key2 !== null && groupBudget !== void 0) {
     dedupe = new Dedupe(`${locks}/events`, routerTimeoutS({ groupBudgetMs: groupBudget }), gateEnv, stdoutIsPath(event));
     try {
-      mkdirSync13(dedupe.base, { recursive: true });
-      const claim2 = await dedupe.claim(key2);
-      if (claim2.kind === "replay") {
-        io.writeStderr(claim2.out.stderr);
-        await io.writeStdout(claim2.out.stdout);
-        return claim2.out.code;
+      mkdirSync14(dedupe.base, { recursive: true });
+      const claim3 = await dedupe.claim(key2);
+      if (claim3.kind === "replay") {
+        io.writeStderr(claim3.out.stderr);
+        await io.writeStdout(claim3.out.stdout);
+        return claim3.out.code;
       }
-      if (claim2.kind === "none") {
+      if (claim3.kind === "none") {
         if (!stdoutIsPath(event)) return 0;
         io.writeStderr(pathFailure(event, "a duplicate of a call whose answer never came"));
         return 1;
       }
-      lock = claim2.lock;
+      lock = claim3.lock;
     } catch {
       lock = null;
     }
@@ -25802,19 +26750,30 @@ async function runHook(name3, findGate2, env, io) {
 
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
+if (name2 === MERGE_DRIVER_CLI) {
+  const code = mergeDriverCli(
+    process.argv.slice(3),
+    process.env,
+    (text) => process.stdout.write(text),
+    (text) => process.stderr.write(text)
+  );
+  process.exit(code);
+}
 if (routerEvents().has(name2)) {
-  const part = process.argv[3];
+  const args2 = process.argv.slice(3);
+  const part = args2[0] === "--shim" ? void 0 : args2[0];
+  const shim = args2.includes("--shim");
   const code = await routerMain(
     name2,
     process.env,
     {
-      readStdin: () => readFileSync24(0, "utf8"),
+      readStdin: () => readFileSync25(0, "utf8"),
       writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
       writeStderr: (text) => {
         if (text !== "") process.stderr.write(text);
       }
     },
-    part === void 0 ? {} : { part }
+    { ...part === void 0 ? {} : { part }, ...shim ? { shim } : {} }
   );
   await new Promise((resolve4) => process.stderr.write("", () => resolve4()));
   process.exit(code);
@@ -25822,7 +26781,7 @@ if (routerEvents().has(name2)) {
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync24(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync25(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

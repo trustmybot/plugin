@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# L3 tests: post-atomic-close-readme.sh PostToolUse hook on bro_atomic_close,
-# or its TypeScript port under TMB_HOOK_TEST_IMPL=ts.
+# L3 tests: the TypeScript post-atomic-close-readme PostToolUse hook on
+# bro_atomic_close.
 #
 # When a closed task's commit touched a directory whose README.md is missing
 # or older than the commit, the hook emits an additionalContext nudge and
@@ -13,13 +13,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-HOOK="$PLUGIN_ROOT/scripts/hooks/post-atomic-close-readme.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-atomic-close-readme.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-atomic-close-readme.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not available"; exit 0; }

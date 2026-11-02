@@ -2,12 +2,13 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate, task-overrun-alert, liveness-alert,
- * rework-waiver-capture and session-handoff have no hook-corpus directory (they
- * were born in TypeScript), so their cases are built here. A gate with bash
+ * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
+ * liveness-alert, rework-waiver-capture, session-handoff and bash-output-trim have no hook-corpus
+ * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
  */
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -54,6 +55,8 @@ export const ROUTER_CORPUS_GATES = [
     ...ROUTER_BASH_GATES,
     'swe-brief-gate',
     'no-source-edit-from-main',
+    'no-prose-in-scratch',
+    'worktree-adopt-guard',
     'swe-scope-fence',
     'naming-lint',
     'code-quality-lint',
@@ -70,6 +73,7 @@ export const ROUTER_CORPUS_GATES = [
     'post-task-create-spawn-hint',
     'task-overrun-alert',
     'liveness-alert',
+    'bash-output-trim',
     'attribution-footer',
     'clean-merged-branch',
     'close-issue-on-merge',
@@ -416,6 +420,12 @@ export function routerSandbox(rootDir, gates) {
     }
     if (want('swe-resume-gate'))
         cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
+    if (want('no-prose-in-scratch'))
+        cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
+    if (want('bash-output-trim'))
+        cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
+    if (want('worktree-adopt-guard'))
+        cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
     // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
     const noInstall = (env) => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
     const golden = (file, s, divergent, roots = {}) => ({ key: basename(file), roots: { '@SANDBOX@': s, '@BASE@': dirname(s), ...roots }, divergent });
@@ -523,32 +533,35 @@ function overrunCases(dir, cwd) {
         reset: () => build(typeof createdAt === 'function' ? createdAt() : createdAt),
     }));
 }
-/** session-handoff's Stop cases, on a DB holding one bro row of the given tool calls and at most one open swe run, rebuilt per case. */
+/** session-handoff's Stop cases, on a DB holding one bro row and at most one open swe run, and a transcript whose last calls carry the given context, rebuilt per case. */
 function sessionHandoffCases(dir, cwd) {
     const db = join(dir, 'trajectory.db');
+    const transcript = join(dir, 'transcript.jsonl');
     mkdirSync(dir, { recursive: true });
     const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
     const sessionId = 'sess-handoff';
-    const build = (toolUses, openRun) => {
+    const build = (context, openRun) => {
         for (const side of ['', '-wal', '-shm', '-journal'])
             rmSync(`${db}${side}`, { force: true });
         const d = new DatabaseSync(db);
         d.exec(schema);
-        d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, started_at, completed_at) VALUES ('bro', ?, ?, ?, ?)").run(sessionId, toolUses, SWE_RESUME_T0, SWE_RESUME_T0);
+        d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at, completed_at) VALUES ('bro', ?, ?, ?)").run(sessionId, SWE_RESUME_T0, SWE_RESUME_T0);
         if (openRun)
             d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at) VALUES ('swe', ?, ?)").run(sessionId, new Date().toISOString());
         d.close();
+        const calls = Array.from({ length: 5 }, (_, i) => JSON.stringify({ type: 'assistant', message: { id: `msg-${i}`, usage: { input_tokens: context } } }));
+        writeFileSync(transcript, calls.map((line) => `${line}\n`).join(''));
     };
     const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
-    const payload = (extra) => JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, last_assistant_message: 'note', ...extra });
+    const payload = (extra) => JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, transcript_path: transcript, last_assistant_message: 'note', ...extra });
     const scenarios = [
-        ['past-limits-notice', 151, false, payload({})],
-        ['under-limits', 1, false, payload({})],
-        ['open-run', 151, true, payload({})],
-        ['hook-active', 151, false, payload({ stop_hook_active: true })],
-        ['background-task', 151, false, payload({ background_tasks: [{ id: 'b' }] })],
+        ['past-limits-notice', 130000, false, payload({})],
+        ['under-limits', 90000, false, payload({})],
+        ['open-run', 130000, true, payload({})],
+        ['hook-active', 130000, false, payload({ stop_hook_active: true })],
+        ['background-task', 130000, false, payload({ background_tasks: [{ id: 'b' }] })],
     ];
-    return scenarios.map(([file, toolUses, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(toolUses, openRun) }));
+    return scenarios.map(([file, context, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(context, openRun) }));
 }
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */
 function livenessCases(dir, cwd) {
@@ -651,6 +664,69 @@ function sweResumeCases(dir, cwd) {
         fakeUid: false,
         reset: () => build(effort, fails),
     }));
+}
+/** no-prose-in-scratch's cases: each kind of target and of body file, with a git repo inside the TMPDIR zone. */
+function noProseCases(dir, cwd) {
+    const tmp = join(dir, 'tmp');
+    const repo = join(tmp, 'repo');
+    mkdirSync(repo, { recursive: true });
+    execFileSync('git', ['init', '-q', repo]);
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TMPDIR: tmp, LC_ALL: LOCALE });
+    const write = (filePath) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd, tool_name: 'Write', tool_input: { file_path: filePath, content: 'x' } });
+    const shell = (command) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd, tool_name: 'Bash', tool_input: { command } });
+    const scenarios = [
+        ['write-scratch-prose', write(join(cwd, '.claude/tmb/scratch/plan.md'))],
+        ['write-tmp-prose', write(join(tmp, 'x.md'))],
+        ['write-tmp-log', write(join(tmp, 'x.log'))],
+        ['write-repo-prose', write(join(repo, 'README.md'))],
+        ['bash-tmp-prose', shell(`echo hi > ${tmp}/x.txt`)],
+        ['bash-tmp-rm', shell(`rm ${tmp}/x.md`)],
+        ['bash-body-file', shell('gh issue edit 1 --body-file b.md')],
+        ['bash-body-stdin', shell('gh issue edit 1 --body-file - <<EOF\nhi\nEOF')],
+    ];
+    return scenarios.map(([file, input]) => ({ gate: 'no-prose-in-scratch', file, input, env, cwd, fakeUid: false }));
+}
+/** bash-output-trim's cases: each allowlisted read with long output, and the calls it must pass unchanged. */
+function bashOutputTrimCases(dir, cwd) {
+    mkdirSync(dir, { recursive: true });
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });
+    const long = Array.from({ length: 200 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join('\n');
+    const post = (command, response = {}, extra = {}) => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: 't', tool_response: { stdout: long, stderr: '', interrupted: false, isImage: false, noOutputExpected: false, ...response }, ...extra });
+    const scenarios = [
+        ['git-log', post('git log --oneline')],
+        ['git-diff-stat', post('git -C /tmp/repo diff --stat origin/dev')],
+        ['gh-pr-view', post('gh pr view 12 --comments')],
+        ['sqlite-select', post("sqlite3 -readonly .claude/tmb/trajectory.db 'SELECT id FROM tasks'")],
+        ['subagent', post('git log', {}, { agent_id: 'a1', agent_type: 'tmb:swe' })],
+        ['stderr', post('git log', { stderr: 'warning' })],
+        ['chained-pipe', post('cd /tmp/repo && git log | head -500')],
+        ['redirect', post('git log > out.txt')],
+        ['short', post('git log', { stdout: 'abc\ndef' })],
+        ['unlisted', post('npm test')],
+    ];
+    return scenarios.map(([file, input]) => ({ gate: 'bash-output-trim', file, input, env, cwd, fakeUid: false }));
+}
+/** worktree-adopt-guard's cases: a main checkout, a linked worktree and a non-git root, each with adopt_worktree missing, matching or mismatched. */
+function worktreeAdoptCases(dir, nonGit) {
+    const main = join(dir, 'main');
+    const linked = join(dir, 'linked');
+    mkdirSync(main, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main', main]);
+    execFileSync('git', ['-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t.t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'claude/session', linked]);
+    const base = { PATH: process.env.PATH, HOME: join(dir, 'home'), LC_ALL: LOCALE };
+    const payload = (tool, adopt) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: nonGit, tool_name: `mcp__plugin_tmb_trajectory-server__${tool}`, tool_input: adopt === undefined ? { issue_id: 1 } : { issue_id: 1, adopt_worktree: adopt } });
+    const scenarios = [
+        ['linked-missing', linked, payload('task_provision')],
+        ['linked-matching', linked, payload('task_reopen', linked)],
+        ['linked-mismatched', linked, payload('task_retry', main)],
+        ['main-missing', main, payload('task_provision')],
+        ['main-adopt', main, payload('task_retry', linked)],
+        ['nongit-missing', nonGit, payload('task_reopen')],
+        ['nongit-adopt', nonGit, payload('task_provision', linked)],
+        ['other-tool', linked, payload('task_list')],
+    ];
+    return scenarios.map(([file, root, input]) => ({ gate: 'worktree-adopt-guard', file, input, env: clean({ ...base, CLAUDE_PROJECT_DIR: root }), cwd: root, fakeUid: false }));
 }
 /** Runs <fn> under the case's uid (containment-guard's fake one, or the real one). */
 export async function underUid(fake, fn) {

@@ -5,12 +5,12 @@
   "groups": {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       "max_budget_ms": 8090,
-      "p99_sum_ms": 18264.7,
+      "p99_sum_ms": 18630.2,
       "group_budget_ms": 8090
     },
     "PreToolUse:Bash": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 21657.5,
+      "p99_sum_ms": 22023,
       "group_budget_ms": 16000
     },
     "PreToolUse:Agent": {
@@ -25,7 +25,7 @@
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       "max_budget_ms": 1830000,
-      "p99_sum_ms": 5368.3,
+      "p99_sum_ms": 7359.5,
       "group_budget_ms": 1830000
     },
     "PreToolUse:AskUserQuestion": {
@@ -45,7 +45,7 @@
     },
     "PostToolUse:Bash": {
       "max_budget_ms": 23300,
-      "p99_sum_ms": 12992.6,
+      "p99_sum_ms": 12992.9,
       "group_budget_ms": 23300
     },
     "PostToolUse:Agent": {
@@ -156,6 +156,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-10-31"
+    },
+    "no-prose-in-scratch": {
+      "kind": "enforcement",
+      "bench_p50": 113.7,
+      "bench_p95": 342.2,
+      "bench_p99": 365.5,
+      "bench_runs": 640,
+      "bench_load_avg": 1.87,
+      "transcript_p99": null,
+      "reason": "no no-prose-in-scratch PreToolUse hook attachment in 1085 transcript files of the last 14 days",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-01"
     },
     "swe-boundary": {
       "kind": "enforcement",
@@ -448,6 +464,22 @@
       "budget_ms": 6000,
       "date": "2026-10-31"
     },
+    "worktree-adopt-guard": {
+      "kind": "enforcement",
+      "bench_p50": 751.4,
+      "bench_p95": 1629.2,
+      "bench_p99": 1991.2,
+      "bench_runs": 640,
+      "bench_load_avg": 126.39,
+      "transcript_p99": null,
+      "reason": "no worktree-adopt-guard PreToolUse hook attachment in 1103 transcript files of the last 14 days",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-02"
+    },
     "askuserquestion-length-lint": {
       "kind": "advisory",
       "bench_p50": 0,
@@ -587,6 +619,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-11-01"
+    },
+    "bash-output-trim": {
+      "kind": "advisory",
+      "bench_p50": 0,
+      "bench_p95": 0.1,
+      "bench_p99": 0.3,
+      "bench_runs": 720,
+      "bench_load_avg": 25.36,
+      "transcript_p99": null,
+      "reason": "no bash-output-trim PostToolUse hook attachment in 1177 transcript files of the last 14 days",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 4000,
+      "budget_ms": 4000,
+      "date": "2026-11-02"
     },
     "attribution-footer": {
       "kind": "advisory",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/git-guards.sh
+# Tests for the TypeScript git-guards gate
 # Hook contract: block force-push to main, block direct commit on protected
 # branches, block PRs not targeting the configured pr_target. Config-driven
 # via plugin_config (branching_model / pr_target / protected_branches).
@@ -12,10 +12,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/git-guards.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/git-guards.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/git-guards.sh"
 
 run_hook() {
   (cd "$PLUGIN_ROOT" && echo "$1" | TRAJECTORY_DB_PATH=/nonexistent.db bash "$HOOK" 2>&1 || true)
@@ -1066,7 +1063,7 @@ assert_not_contains "$out" "no remote" "never the false no-remote claim"
 cleanup_repo
 
 
-PUSH_HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
+PUSH_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/git-push-guard.sh"
 
 test_case "GH 1196: 'cd \$D && git commit' with worktrees present → ambiguous_git_target, as git-push-guard"
 setup_dev_main_repo

@@ -17,13 +17,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIB="$ROOT/scripts/maintenance/lib/changelog-fragments.sh"
+LIB="$ROOT/scripts/maintenance/lib/changelog-fragments.ts"
 if [ "${1:-}" = "--root" ]; then
   ROOT="$(cd "${2:?--root needs a directory}" && pwd)"
 fi
 cd "$ROOT"
-# shellcheck source=scripts/maintenance/lib/changelog-fragments.sh
-. "$LIB"
+fragments() { node --experimental-strip-types --no-warnings "$LIB" "$@"; }
 
 CUTOVER="2026-10-12"
 TRANSITION="1226 1229 1245 1277 1294 1295"
@@ -53,21 +52,22 @@ if [ "$TOP_VERSION" != "$EXPECTED_HEADER" ]; then
   echo "  Expected top section to begin with: $EXPECTED_HEADER" >&2
   echo "" >&2
   echo "  Either bump plugin.json to match the top CHANGELOG section," >&2
-  echo "  or run scripts/maintenance/bump-version.sh, which writes the '$EXPECTED_HEADER — YYYY-MM-DD' section." >&2
+  echo "  or run scripts/maintenance/bump-version.ts, which writes the '$EXPECTED_HEADER — YYYY-MM-DD' section." >&2
   exit 1
 fi
 echo "  ✓ CHANGELOG top section matches plugin.json version: $CANON"
 
 # ---- 2. fragments well formed ------------------------------------------------
 
-n_frag=0
-while IFS= read -r f; do
-  n_frag=$((n_frag + 1))
-  problems="$(tmb_fragment_validate "$f" || true)"
+frags=()
+while IFS= read -r f; do frags+=("$f"); done < <(fragments list changelog.d)
+n_frag=${#frags[@]}
+if [ "$n_frag" -gt 0 ]; then
+  problems="$(fragments validate "${frags[@]}" || true)"
   if [ -n "$problems" ]; then
     while IFS= read -r p; do fail "$p"; done <<< "$problems"
   fi
-done < <(tmb_fragment_list changelog.d)
+fi
 [ "$failed" -ne 0 ] || echo "  ✓ $n_frag changelog.d/ fragment(s) well formed"
 
 # ---- 3. feature-branch rules -------------------------------------------------

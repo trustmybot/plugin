@@ -3,6 +3,7 @@ agent-arg-matches-caller
 agent-spawn-dispatch
 askuserquestion-length-lint
 attribution-footer
+bash-output-trim
 branch-up-to-date-with-remote
 bro-turn-usage
 cheatcode-install-approval
@@ -29,6 +30,7 @@ liveness-alert
 liveness-sentinel
 mcp-health-check
 naming-lint
+no-prose-in-scratch
 no-remote-auth-guard
 no-source-edit-from-main
 no-worktree-branch-create
@@ -67,4 +69,5 @@ swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona
+worktree-adopt-guard
 worktree-create

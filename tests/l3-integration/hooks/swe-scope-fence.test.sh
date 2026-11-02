@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-scope-fence.sh, or with TMB_HOOK_TEST_IMPL=ts
-# for the TypeScript gate (mcp/trajectory-server/src/hooks/swe-scope-fence.ts).
+# Tests for the TypeScript swe-scope-fence gate
+# (mcp/trajectory-server/src/hooks/swe-scope-fence.ts).
 #
 # Hook contract: never deny. An Edit/Write in an SWE worktree to a path
 # outside the task's typed files[] dirs gets an additionalContext note
@@ -25,15 +25,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-scope-fence.sh"
-HOOK_SRC="$HOOK"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-if [ "$HOOK_IMPL" = ts ]; then
-  HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-scope-fence.sh"
-  HOOK_SRC="$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/swe-scope-fence.ts"
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-scope-fence.sh"
+HOOK_SRC="$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/swe-scope-fence.ts"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-scope-fence.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -133,7 +128,7 @@ DENY='"permissionDecision":"deny"'
 # ===========================================================================
 
 test_case "in-scope: file directly in a listed dir is silent"
-out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/my-hook.sh")")
+out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/my-hook.ts")")
 assert_not_contains "$out" "$DENY" "in-scope edit is allowed"
 assert_not_contains "$out" "outside this task" "in-scope edit carries no note"
 
@@ -142,7 +137,7 @@ out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/subdir/helper.sh")")
 assert_not_contains "$out" "outside this task" "nested file under a listed dir carries no note"
 
 test_case "in-scope: Write tool (not just Edit) is silent"
-out=$(run_hook "$WT_A" "$(make_write_input "scripts/hooks/new-file.sh")")
+out=$(run_hook "$WT_A" "$(make_write_input "scripts/hooks/new-file.ts")")
 assert_not_contains "$out" "outside this task" "Write in scope carries no note"
 
 test_case "tests/: a tests/ sibling is in scope when files[] lists a tests/ path"
@@ -166,8 +161,8 @@ out=$(run_hook "$WT_A" "$(make_write_input "$WT_A/src/api/handler.ts")")
 assert_not_contains "$out" "outside this task" "the absolute form of the same path is the same path"
 
 test_case "out-of-scope: another task notes the same path afresh"
-out=$(run_hook "$WT_B" "$(make_edit_input "scripts/hooks/something.sh")")
-assert_contains "$out" "scripts/hooks/something.sh is outside this task's files[]" "first write of this path for task beta"
+out=$(run_hook "$WT_B" "$(make_edit_input "scripts/hooks/something.ts")")
+assert_contains "$out" "scripts/hooks/something.ts is outside this task's files[]" "first write of this path for task beta"
 out=$(run_hook "$WT_A" "$(make_edit_input "docs/README.md")")
 assert_contains "$out" "docs/README.md is outside this task's files[]" "a new path for task alpha is noted"
 assert_eq "$([ -d "$TMPDIR/locks/scope-notes/1" ] && [ -d "$TMPDIR/locks/scope-notes/2" ] && echo yes)" "yes" "markers live per task under the state dir's locks/"
@@ -251,7 +246,7 @@ out=$(run_hook "$WT_A" "$bash_input")
 assert_eq "$out" "" "Bash produces no output here"
 
 test_case "GH 1279: a path a heredoc program writes outside files[] is noted once (swe-boundary.sh, same classifier)"
-BOUNDARY_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
+BOUNDARY_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-boundary.sh"
 heredoc_cmd=$(printf '%s\n' "python3 - <<'EOF'" "open('src/heredoc_out.py', 'w').write('x')" 'EOF')
 bash_input=$(with_task 1 "$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')")
 out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)

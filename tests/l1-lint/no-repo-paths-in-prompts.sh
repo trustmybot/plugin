@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Catch this repository's own paths and scripts in shipped prompt files.
 # TMB is general purpose: a prompt that names mcp/trajectory-server/src/, scripts/hooks/,
-# changelog.d/ or regen-generated.sh describes the user's project with this repo's layout.
+# changelog.d/ or regen-generated.ts describes the user's project with this repo's layout.
 # Lines naming product internals every install has (CLAUDE_PLUGIN_ROOT, .claude/tmb/, the
 # plugin cache) are allowed.
 #

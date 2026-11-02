@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/consultant-persistence-gate.sh.
+# Tests for the TypeScript consultant-persistence-gate gate.
 # Hook contract: SubagentStop for TMB consultant agents. When a consultant
 # stops without having persisted at least one discussion row on the most recent
 # open issue, block with {"decision":"block","reason":"..."} containing a
@@ -11,9 +11,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/consultant-persistence-gate.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/consultant-persistence-gate.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/consultant-persistence-gate.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-consultant-persistence-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

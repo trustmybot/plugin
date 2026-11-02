@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
+            "command": "command -v node >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
             "timeout": 32
           },
           {
@@ -213,7 +213,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" WorktreeCreate",
+            "command": "command -v node >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" WorktreeCreate",
             "timeout": 19
           }
         ]

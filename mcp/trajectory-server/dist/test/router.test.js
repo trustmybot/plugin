@@ -11,11 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { ALLOW } from '../hooks/gate.js';
 import { noteSpawn, runWithDeadline, spawnLimit } from '../hooks/lib/deadline.js';
 import { gitRun } from '../hooks/lib/git.js';
-import { eventHoldsEnforcement, matcherFits, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
+import { eventHoldsEnforcement, findGate, matcherFits, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
 import { decide, denyOutput, mergeContext } from '../hooks/router/decide.js';
 import { dedupeKey } from '../hooks/router/dedupe.js';
 import { routerMain } from '../hooks/router/main.js';
-import { EMPTY_MATCHER_COLUMN, matcherColumn, matcherOfColumn } from '../hooks/router/table.js';
+import { EMPTY_MATCHER_COLUMN, kindColumn, matcherColumn, matcherOfColumn } from '../hooks/router/table.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const deny = (reason) => ({
@@ -494,7 +494,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-task-close-rescan', 'post-atomic-close-readme', 'task-overrun-alert', 'liveness-alert']);
         assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
         assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
-        assert.deepEqual(names('PostToolUse', 'Bash'), ['attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
+        assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
         assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
         assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);
         assert.deepEqual(names('PostToolUse', 'Read'), []);
@@ -710,87 +710,112 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
         assert.equal(byDeadline.expired, true);
     });
 });
-describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', () => {
-    const HANG_S = 30;
+describe('the router runs every gate from the TypeScript registry (GH 1692, F287-6)', () => {
     let root;
     before(() => {
-        root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-')));
-        mkdirSync(join(root, 'scripts/hooks'), { recursive: true });
-        writeFileSync(join(root, 'scripts/hooks/says-context.sh'), `cat >/dev/null\nprintf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"from the sh"}}\\n'\n`);
-        writeFileSync(join(root, 'scripts/hooks/says-deny.sh'), `cat >/dev/null\nprintf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"the sh says no"}}\\n'\n`);
-        writeFileSync(join(root, 'scripts/hooks/exits-3.sh'), 'exit 3\n');
-        writeFileSync(join(root, 'scripts/hooks/hangs.sh'), `trap '' TERM\nsleep ${HANG_S}\n`);
+        root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-ts-')));
     });
     after(() => rmSync(root, { recursive: true, force: true }));
-    const shEnv = () => ({ ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PLUGIN_ROOT: root });
-    it('a gate with a .sh answers from its .sh, not from the TypeScript registry', async () => {
-        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['says-context', 'enforcement']) });
-        assert.deepEqual(JSON.parse(d.stdout), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'from the sh' } });
+    const tsEnv = () => ({ ...process.env, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PROJECT_DIR: root, TRAJECTORY_DB_PATH: join(root, 'absent.db') });
+    it('a gate answers from the TypeScript registry, by its name', async () => {
+        const d = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['says-context', 'enforcement']), findGate: fakes({ 'says-context': () => context('from the gate') }) });
+        assert.deepEqual(JSON.parse(d.stdout), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'from the gate' } });
         assert.equal(d.denied, null);
     });
-    it('a .sh deny is the router deny, named by its gate', async () => {
-        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['says-context', 'advisory'], ['says-deny', 'enforcement']) });
-        assert.deepEqual(d.denied, { gate: 'says-deny', reason: 'the sh says no' });
+    it('a gate deny is the router deny, named by its gate', async () => {
+        const d = await decide('PreToolUse', bash('ls'), tsEnv(), {
+            groups: group(['says-context', 'advisory'], ['says-deny', 'enforcement']),
+            findGate: fakes({ 'says-context': () => context('from the gate'), 'says-deny': () => deny('the gate says no') }),
+        });
+        assert.deepEqual(d.denied, { gate: 'says-deny', reason: 'the gate says no' });
     });
-    it('an enforcement gate with no .sh denies naming itself; an advisory one is dropped and logged', async () => {
-        const denied = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['no-such-gate', 'enforcement']) });
+    it('an enforcement gate the registry lacks denies naming itself; an advisory one is dropped and logged', async () => {
+        const denied = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['no-such-gate', 'enforcement']) });
         assert.equal(denied.denied?.gate, 'no-such-gate');
         assert.match(reasonOf(denied.stdout), /^BLOCKED: TMB gate no-such-gate exited 1 without a decision/);
-        assert.match(denied.stderr, /TMB_HOOKS_IMPL=bash runs only \.sh gates/);
-        const dropped = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['no-such-gate', 'advisory']) });
+        assert.match(denied.stderr, /unknown gate 'no-such-gate' — not run/);
+        const dropped = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['no-such-gate', 'advisory']) });
         assert.equal(dropped.denied, null);
         assert.equal(dropped.stdout, '');
         assert.match(dropped.stderr, /advisory gate no-such-gate exited 1 — output dropped/);
     });
-    it('the real swe-resume-gate, born in TypeScript, denies under the switch as dispatch.sh refusing it does', async () => {
+    it('the real swe-resume-gate, born in TypeScript, runs from the registry on a SendMessage call', async () => {
         const payload = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_input: {}, tool_use_id: 't' });
-        const d = await decide('PreToolUse', payload, { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT });
-        assert.equal(d.denied?.gate, 'swe-resume-gate');
+        const d = await decide('PreToolUse', payload, { ...tsEnv(), CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT });
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['swe-resume-gate', 'allow']]);
+        assert.equal(d.denied, null);
     });
-    it('a .sh exiting other than 0 or 2 fails closed as a gate does', async () => {
-        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['exits-3', 'enforcement']) });
+    it('a tsOnly gate runs as any other: the flag only marks its kind column for dispatch.sh (GH 2089)', async () => {
+        const onlyTs = (tsOnly) => [
+            { event: 'PreToolUse', matcher: 'Bash', groupBudgetMs: 6000, gates: [{ name: 'no-prose-in-scratch', kind: 'enforcement', budgetMs: 6000, ...(tsOnly ? { tsOnly } : {}) }] },
+        ];
+        const proseWrite = bash('echo hi > /tmp/x.md');
+        const flagged = await decide('PreToolUse', proseWrite, tsEnv(), { groups: onlyTs(true) });
+        const plain = await decide('PreToolUse', proseWrite, tsEnv(), { groups: onlyTs() });
+        assert.deepEqual(flagged.gates.map((g) => [g.gate, g.outcome]), plain.gates.map((g) => [g.gate, g.outcome]));
+        assert.deepEqual(flagged.gates.map((g) => g.gate), ['no-prose-in-scratch']);
+        assert.deepEqual(flagged.denied, plain.denied);
+        assert.equal(flagged.stdout, plain.stdout);
+        for (const tool of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+            const registered = routerGroup('PreToolUse', tool)?.gates.find((g) => g.name === 'no-prose-in-scratch');
+            assert.equal(registered?.kind, 'enforcement', tool);
+            assert.equal(registered?.tsOnly, true, tool);
+            assert.equal(registered && kindColumn(registered), 'ts-only', tool);
+        }
+        for (const tool of ['task_provision', 'task_reopen', 'task_retry']) {
+            const registered = routerGates('PreToolUse', `mcp__plugin_tmb_trajectory-server__${tool}`).filter((g) => g.name === 'worktree-adopt-guard');
+            assert.equal(registered.length, 1, tool);
+            assert.equal(registered[0]?.kind, 'enforcement', tool);
+            assert.equal(registered[0]?.tsOnly, true, tool);
+        }
+        assert.equal(routerGates('PreToolUse', 'mcp__plugin_tmb_trajectory-server__task_list').some((g) => g.name === 'worktree-adopt-guard'), false);
+        assert.deepEqual([...new Set(ROUTER_GROUPS.flatMap((g) => g.gates).filter((g) => g.tsOnly).map((g) => g.name))].sort(), ['no-prose-in-scratch', 'worktree-adopt-guard']);
+    });
+    it('a gate exiting other than 0 or 2 fails closed', async () => {
+        const d = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['exits-3', 'enforcement']), findGate: fakes({ 'exits-3': () => ({ stdout: '', code: 3 }) }) });
         assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate exits-3 exited 3 without a decision/);
     });
-    it('a .sh that holds SIGTERM still ends at the gate budget, and denies by name', async () => {
-        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['hangs', 'enforcement', 300]) });
+    it('a gate that never settles still ends at the gate budget, and denies by name', async () => {
+        const d = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['hangs', 'enforcement', 300]), findGate: fakes({ hangs: () => new Promise(() => { }) }) });
         assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate hangs timed out after 300 ms/);
     });
-    it('with no switch the same group runs the TypeScript registry', async () => {
-        const d = await decide('PreToolUse', bash('ls'), { ...process.env, CLAUDE_PLUGIN_ROOT: root }, { groups: group(['says-context', 'advisory']) });
+    it('a group naming a gate the registry lacks runs nothing for it', async () => {
+        const d = await decide('PreToolUse', bash('ls'), tsEnv(), { groups: group(['says-context', 'advisory']) });
         assert.equal(d.stdout, '');
         assert.match(d.stderr, /unknown gate 'says-context'/);
     });
-    it('every gate of the R4 events runs under the switch but those born in TypeScript, dropped and logged', async () => {
+    it('every gate of the R4 events runs from the registry, those born in TypeScript too', async () => {
         const events = ['SessionStart', 'UserPromptSubmit', 'WorktreeCreate'];
         const gates = ROUTER_GROUPS.filter((g) => events.includes(g.event)).flatMap((g) => g.gates.map((x) => x.name));
-        assert.deepEqual(gates.filter((name) => !existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${name}.sh`))), ['rework-waiver-capture', 'task-overrun-alert', 'liveness-alert']);
-        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-events-')));
-        const env = { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, PWD: dir, TMB_SKIP_MCP_DEPS_INSTALL: '1', TRAJECTORY_DB_PATH: join(dir, 'absent.db') };
+        assert.deepEqual(gates.filter((name) => findGate(name) === undefined), []);
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-ts-events-')));
+        const env = { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, PWD: dir, TMB_SKIP_MCP_DEPS_INSTALL: '1', TRAJECTORY_DB_PATH: join(dir, 'absent.db') };
         try {
-            const start = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'sh-events', source: 'startup', cwd: dir });
+            const start = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'ts-events', source: 'startup', cwd: dir });
             const persona = await decide('SessionStart', start, env, { part: 'persona' });
             assert.match(persona.stdout, /You are bro/);
             assert.deepEqual(persona.gates.map((g) => g.gate), ['session-start-persona']);
-            const prompt = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'sh-events', prompt: 'hi', cwd: dir });
+            const prompt = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'ts-events', prompt: 'hi', cwd: dir });
             const defaults = await decide('UserPromptSubmit', prompt, env);
             assert.equal(defaults.denied, null);
-            assert.match(defaults.stderr, /advisory gate rework-waiver-capture exited 1 — output dropped/);
-            const worktree = await decide('WorktreeCreate', JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: 'sh-events', name: 'n', cwd: dir }), env);
+            assert.deepEqual(defaults.gates.map((g) => g.gate), routerGates('UserPromptSubmit', '').map((g) => g.name));
+            assert.ok(defaults.gates.some((g) => g.gate === 'rework-waiver-capture'));
+            const worktree = await decide('WorktreeCreate', JSON.stringify({ hook_event_name: 'WorktreeCreate', session_id: 'ts-events', name: 'n', cwd: dir }), env);
             assert.deepEqual(worktree.gates.map((g) => g.gate), ['worktree-create']);
         }
         finally {
             rmSync(dir, { recursive: true, force: true });
         }
     });
-    it('the switch reaches a real .sh through the bundle: askuserquestion-length-lint.sh answers', () => {
-        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-real-')));
+    it('the bundle runs a real gate: askuserquestion-length-lint answers', () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-ts-real-')));
         try {
             const payload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's1', tool_use_id: 'real', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'q', multiSelect: false, options: [{ label: 'one two three four five six seven eight' }] }] } });
             const out = execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PreToolUse'], {
                 input: payload,
                 encoding: 'utf8',
                 cwd: dir,
-                env: { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(dir, 'none.json') },
+                env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(dir, 'none.json') },
             });
             assert.match(out, /label is 8 words/);
         }
@@ -841,9 +866,9 @@ describe('router entry: dedupe and records', () => {
             d.close();
         }
     }
-    it('writes one hook_call row with the 11 gates of the Bash group, each with its ms', async () => {
+    it('writes one hook_call row with the 12 gates of the Bash group, each with its ms', async () => {
         const names = routerGates('PreToolUse', 'Bash').map((g) => g.name);
-        assert.equal(names.length, 11);
+        assert.equal(names.length, 12);
         const r = await call(bash('ls', { tool_use_id: 'call-row' }), () => () => ALLOW);
         assert.equal(r.stdout, '');
         const calls = rows('hook_call');
@@ -1119,6 +1144,110 @@ describe('router entry: dedupe and records', () => {
         const r = await call(bash('touch "$X"', { tool_use_id: 'deny-unjudged', session_id: 'sess-unjudged', cwd: project }), fakes({ g: () => deny('BLOCKED: write target "$X" cannot be judged: it names a variable') }), group(['g', 'enforcement']));
         assert.equal(r.code, 0);
         assert.equal(existsSync(join(dirname(db), 'locks/boundary-denies/sess-unjudged')), false);
+    });
+});
+describe('router entry: --shim yields to the plugin hooks', () => {
+    let base;
+    let project;
+    before(() => {
+        base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-shim-')));
+        project = join(base, 'project');
+        mkdirSync(join(project, '.claude/tmb/sessions'), { recursive: true });
+        mkdirSync(join(base, 'other'));
+    });
+    after(() => rmSync(base, { recursive: true, force: true }));
+    async function call(env, payload, shim) {
+        let stdout = '';
+        let runs = 0;
+        const code = await routerMain('PreToolUse', { PATH: process.env.PATH, ...env }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: () => { } }, {
+            findGate: fakes({ a: () => (runs++, deny('a denies')) }),
+            groups: group(['a', 'enforcement']),
+            hop: false,
+            dedupe: false,
+            record: false,
+            selfRoot: PLUGIN_ROOT,
+            shim,
+        });
+        return { code, stdout, runs };
+    }
+    it('another project than TMB_SHIM_PROJECT: exit 0, no output, no gate run', async () => {
+        const r = await call({ CLAUDE_PROJECT_DIR: join(base, 'other'), TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-foreign' }), true);
+        assert.deepEqual(r, { code: 0, stdout: '', runs: 0 });
+    });
+    it('a symlink to the shim project is the same project', async () => {
+        const link = join(base, 'project-link');
+        execFileSync('ln', ['-s', project, link]);
+        const r = await call({ CLAUDE_PROJECT_DIR: link, TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-link' }), true);
+        assert.equal(r.runs, 1);
+        assert.equal(reasonOf(r.stdout), 'a denies');
+    });
+    it("the session's plugin-hooks marker: exit 0, no output, no gate run, with or without CLAUDE_PROJECT_DIR", async () => {
+        writeFileSync(join(project, '.claude/tmb/sessions/sess-marked.plugin-hooks'), '');
+        const payload = bash('ls', { session_id: 'sess-marked' });
+        assert.deepEqual(await call({ CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project }, payload, true), { code: 0, stdout: '', runs: 0 });
+        assert.deepEqual(await call({ TMB_SHIM_PROJECT: project }, payload, true), { code: 0, stdout: '', runs: 0 });
+    });
+    it('otherwise the same decision as without --shim, a marker of another session included', async () => {
+        writeFileSync(join(project, '.claude/tmb/sessions/sess-other.plugin-hooks'), '');
+        for (const env of [{ CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project }, { TMB_SHIM_PROJECT: project }]) {
+            const payload = bash('rm -rf build', { session_id: 'sess-headless' });
+            const shim = await call(env, payload, true);
+            const plain = await call(env, payload, false);
+            assert.equal(shim.runs, 1);
+            assert.deepEqual(shim, plain);
+            assert.equal(reasonOf(shim.stdout), 'a denies');
+        }
+    });
+    it('without --shim, a marker or another project changes nothing', async () => {
+        writeFileSync(join(project, '.claude/tmb/sessions/sess-plain.plugin-hooks'), '');
+        const r = await call({ CLAUDE_PROJECT_DIR: join(base, 'other'), TMB_SHIM_PROJECT: project }, bash('ls', { session_id: 'sess-plain' }), false);
+        assert.equal(r.runs, 1);
+    });
+    it('the bundle reads a trailing --shim after the event, with or without a part', () => {
+        writeFileSync(join(project, '.claude/tmb/sessions/sess-bundle.plugin-hooks'), '');
+        const payload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-bundle', tool_use_id: 'shim-bundle', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'q', multiSelect: false, options: [{ label: 'one two three four five six seven eight' }] }] } });
+        const run = (args) => execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), ...args], {
+            input: payload,
+            encoding: 'utf8',
+            cwd: project,
+            env: { PATH: process.env.PATH, HOME: base, CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(base, 'none.json') },
+        });
+        assert.equal(run(['PreToolUse', '--shim']), '');
+        assert.equal(run(['SessionStart', 'persona', '--shim']), '');
+        assert.match(run(['PreToolUse']), /label is 8 words/, 'the same call without --shim decides');
+    });
+});
+describe('bash-output-trim through the router (GH 2193)', () => {
+    const longLog = Array.from({ length: 300 }, (_, i) => `${String(i).padStart(7, '0')} commit subject number ${i}`).join('\n');
+    const postBash = (command, session = 'sess-trim') => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: session, tool_name: 'Bash', tool_input: { command }, tool_use_id: `trim-${session}`, tool_response: { stdout: longLog, stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
+    let dir;
+    before(() => {
+        dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-trim-')));
+    });
+    after(() => rmSync(dir, { recursive: true, force: true }));
+    const env = () => ({ PATH: process.env.PATH, HOME: dir, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TRAJECTORY_DB_PATH: join(dir, 'absent.db'), TMB_INSTALLED_JSON: join(dir, 'none.json') });
+    it('updatedToolOutput survives the merge when a sibling gate adds context', async () => {
+        const d = await decide('PostToolUse', postBash('git log --oneline'), env(), {
+            findGate: (name) => (name === 'bash-output-trim' ? findGate(name) : () => ({ stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `from ${name}` } })}\n`, code: 0 })),
+        });
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+        const out = JSON.parse(d.stdout).hookSpecificOutput;
+        assert.equal(out.additionalContext, 'from attribution-footer\n\nfrom clean-merged-branch\n\nfrom close-issue-on-merge');
+        assert.match(out.updatedToolOutput.stdout, /^0000000 commit subject number 0\n[^]*\[bash-output-trim: cut \d+ lines [^]*\n0000299 commit subject number 299$/);
+        assert.deepEqual({ ...out.updatedToolOutput, stdout: '' }, { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false });
+    });
+    it('the real Bash group runs every gate and answers with the trimmed output', async () => {
+        const d = await decide('PostToolUse', postBash('git log'), env());
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+        assert.ok(JSON.parse(d.stdout).hookSpecificOutput.updatedToolOutput.stdout.length < longLog.length);
+    });
+    it('the bundle answers a PostToolUse git log with updatedToolOutput', () => {
+        const out = execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PostToolUse'], { input: postBash('git log', 'sess-trim-bundle'), encoding: 'utf8', cwd: dir, env: env() });
+        const o = JSON.parse(out).hookSpecificOutput;
+        assert.equal(o.hookEventName, 'PostToolUse');
+        assert.match(o.updatedToolOutput.stdout, /\[bash-output-trim: cut \d+ lines \(\d+ chars\) of 300 lines; /);
+        assert.ok(o.updatedToolOutput.stdout.startsWith('0000000 commit subject number 0\n'));
+        assert.ok(o.updatedToolOutput.stdout.endsWith('\n0000299 commit subject number 299'));
     });
 });
 //# sourceMappingURL=router.test.js.map

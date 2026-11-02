@@ -474,8 +474,12 @@ SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTo
   const location = taskLocation(db, taskId, env);
   let repoRoot = location.code === 0 ? location.repoRoot : '';
   if (repoRoot === '') repoRoot = projectRoot(env);
+  const locatedRoot = repoRoot;
   repoRoot = realdir(repoRoot);
-  const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  let wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  if (location.code === 0) {
+    wtPath = location.worktree.startsWith(`${locatedRoot}/`) ? `${repoRoot}${location.worktree.slice(locatedRoot.length)}` : location.worktree;
+  }
   const safeRootDir = sqlQuote(wtPath);
 
   let wtHead = await gitOut(wtPath, ['rev-parse', 'HEAD'], env);

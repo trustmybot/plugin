@@ -13,7 +13,7 @@ A branch adds one file under [`changelog.d/`](../../changelog.d/README.md) and l
 
 - File name `<gh-issue>-<slug>.md`; line 1 is one of `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Security`; the rest is one bullet citing `GH <n>` for that issue (never `#<n>`).
 - `tests/l1-lint/changelog-current.sh` validates every fragment and, on a feature branch, fails when the branch both edits `CHANGELOG.md` and adds a fragment, fails any direct `CHANGELOG.md` edit after its cut-over date (version bump branches and the branches already in flight at the cut-over excepted), and requires each `GH <n>` cited in the branch's commit subjects to have a fragment or an existing `CHANGELOG.md` entry.
-- At release, `bash scripts/maintenance/bump-version.sh <version>` turns `## Unreleased` plus every fragment into the `## v<version> — <date>` section (grouped by section, fragments sorted by issue number, byte-identical for the same inputs) and deletes the fragments. `--dry-run` prints that section and changes nothing; a malformed fragment refuses the bump with every file unchanged.
+- At release, `node --experimental-strip-types scripts/maintenance/bump-version.ts <version>` turns `## Unreleased` plus every fragment into the `## v<version> — <date>` section (grouped by section, fragments sorted by issue number, byte-identical for the same inputs) and deletes the fragments. `--dry-run` prints that section and changes nothing; a malformed fragment refuses the bump with every file unchanged.
 
 ## Generated files and rebases
 
@@ -32,14 +32,14 @@ These files are generated and committed; nobody edits them by hand:
 The driver lives in the repo's own `.git/config` (shared by its worktrees, never the global config). The WorktreeCreate hook installs it for every swe worktree; anywhere else run it once:
 
 ```bash
-bash scripts/maintenance/install-merge-driver.sh
+node mcp/trajectory-server/dist/hooks.js install-merge-driver
 ```
 
 After any rebase or merge, rebuild everything from the merged sources and commit the result:
 
 ```bash
-bash scripts/maintenance/regen-generated.sh          # rebuild, list what changed
-bash scripts/maintenance/regen-generated.sh --check  # exit 1 naming each stale file; changes nothing
+node --experimental-strip-types scripts/maintenance/regen-generated.ts          # rebuild, list what changed
+node --experimental-strip-types scripts/maintenance/regen-generated.ts --check  # exit 1 naming each stale file; changes nothing
 ```
 
-`regen-generated.sh` runs `npm run build`, `gen-enums-doc.mjs --doc`, `emit-data-contracts.mjs`, `gen-erd-doc.mjs` / `gen-config-keys-doc.mjs` when present, then `bun run build` in `dashboard` (it bundles trajectory-server sources, so it runs last). It needs the build toolchain: `bun install --frozen-lockfile` at the plugin root and in `dashboard/`; without it the script exits 2.
+`regen-generated.ts` runs `npm run build`, `gen-enums-doc.mjs --doc`, `emit-data-contracts.mjs`, `gen-erd-doc.mjs` / `gen-config-keys-doc.mjs` when present, then `bun run build` in `dashboard` (it bundles trajectory-server sources, so it runs last). It needs the build toolchain: `bun install --frozen-lockfile` at the plugin root and in `dashboard/`; without it the script exits 2.

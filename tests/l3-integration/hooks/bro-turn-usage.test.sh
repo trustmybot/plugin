@@ -9,9 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-HOOK="$PLUGIN_ROOT/scripts/hooks/bro-turn-usage.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/bro-turn-usage.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/bro-turn-usage.sh"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 PLUGIN_VERSION=$(jq -r .version "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json")
 
@@ -215,12 +213,14 @@ run_hook "$TOOL_T" sess-tools >/dev/null
 assert_eq "2" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.session_id='sess-tools';")" \
   "a re-fired Stop rewrites the rows, no duplicates"
 
-test_case "without dist/hooks.js the Stop still writes the bro row and exits 0 (GH 1957)"
-NODIST="$TMPDIR_BTU/nodist"
-mkdir -p "$NODIST/scripts"
-cp -R "$PLUGIN_ROOT/scripts/hooks" "$NODIST/scripts/hooks"
-NODIST_OUT=$(printf '{"session_id":"sess-nodist","transcript_path":"%s"}' "$TOOL_T" \
-  | TRAJECTORY_DB_PATH="$DB" bash "$NODIST/scripts/hooks/bro-turn-usage.sh" 2>&1)
+test_case "a Stop whose transcript calls no tool writes the bro row, no tool-output rows, and exits 0 (GH 1957)"
+NOTOOL_T="$TMPDIR_BTU/no-tools.jsonl"
+{
+  printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"go"}}\n' "$(at 0)"
+  msg 23 10
+} > "$NOTOOL_T"
+NODIST_OUT=$(printf '{"session_id":"sess-nodist","transcript_path":"%s"}' "$NOTOOL_T" \
+  | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1)
 assert_eq "0" "$?" "exit 0"
 assert_eq "" "$NODIST_OUT" "no output"
 assert_eq "1|0" "$(sqlite3 -separator '|' "$DB" "SELECT COUNT(*), (SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.session_id='sess-nodist') FROM agent_runs WHERE session_id='sess-nodist';")" \

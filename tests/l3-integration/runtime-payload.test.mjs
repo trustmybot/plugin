@@ -56,7 +56,7 @@ const KEPT = [
   'mcp/a/dist/q.js',
   'mcp/a/package.json',
   'mcp/a/runtime-deps/package.json',
-  'scripts/hooks/x.sh',
+  'scripts/maintenance/x.sh',
   'skills/s/SKILL.md',
 ].sort();
 

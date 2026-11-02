@@ -23,9 +23,12 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-BOUNDARY="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
-CONTAIN="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
+BOUNDARY="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-boundary.sh"
+CONTAIN="$PLUGIN_ROOT/tests/lib/ts-hooks/containment-guard.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
+# The sandbox sits under the harness's /tmp/claude-<uid>, which the gates allow as
+# scratch; a preloaded fake uid keeps that allowance from covering the sandbox.
+export NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { printf "SKIP sqlite3 not found\n"; exit 0; }
@@ -243,7 +246,12 @@ done
 test_case "heredoc program text is data; a redirect is a target"
 PROG=$(printf '%s\n' "python3 - <<'PY'" "s = open('$WT_A/notes.txt').read()" "s = s.replace('x', '/user/own')" "open('$WT_A/notes.txt', 'w').write(s)" "PY")
 OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1)" "$A_PROJ" Bash "$(bash_cmd "$PROG")")")
-assert_eq "allow" "$(decision "$OUT")" "a replace() argument naming /user/own is not a write target"
+# The TypeScript containment-guard denies a python program it cannot prove
+# (GH 1739), so the heredoc is denied as unproven; /user/own is never named as
+# its write target.
+assert_eq "deny" "$(decision "$OUT")" "a heredoc python program the guard cannot prove is denied as unproven"
+assert_contains "$(reason "$OUT")" "the inline program is unproven" "the reason is the unproven program"
+assert_not_contains "$(reason "$OUT")" "/user/own" "a replace() argument naming /user/own is not a write target"
 PROGVAR=$(printf '%s\n' "python3 - <<'PY'" "p = '$WT_A/notes.txt'" "s = open(p).read()" "s = s.replace('x', '/user/own')" "open(p, 'w').write(s)" "PY")
 OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1)" "$A_PROJ" Bash "$(bash_cmd "$PROGVAR")")")
 assert_eq "deny" "$(decision "$OUT")" "a write through a variable counts every literal"
@@ -271,7 +279,11 @@ for H in "$BOUNDARY" "$CONTAIN"; do
     assert_eq "deny" "$(decision "$OUT")" "$name: ${CMD%%$'\n'*}"
   done
   OUT=$(hook "$H" "$A_PROJ" "$A_DB" "$WT_A" "$(payload swe "$(transcript 1)" "$WT_A" Bash "$(bash_cmd "$PROG")")")
-  assert_eq "allow" "$(decision "$OUT")" "$name: the /user/own heredoc stays allowed"
+  if [ "$H" = "$CONTAIN" ]; then
+    assert_eq "deny" "$(decision "$OUT")" "$name: the /user/own heredoc is denied as an unproven program (GH 1739)"
+  else
+    assert_eq "allow" "$(decision "$OUT")" "$name: the /user/own heredoc stays allowed"
+  fi
 done
 
 test_case "scan.sh from a session dir under .claude/worktrees/<n> finds the repo"

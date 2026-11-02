@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the agent_runs WRITE path of scripts/hooks/swe-atomic-close.sh.
+# Tests for the agent_runs WRITE path of the TypeScript swe-atomic-close gate.
 #
 #   1. Binding — the row lands on the task named by task_id=<N> in the spawn
 #      prompt (plain-string or block content), for any task status; a spawn
@@ -20,23 +20,21 @@
 #      unset the insert writes NULL (GH 1884).
 #   8. Checkpoint (GH 1905) — a checkpoint written in the run keeps a committed
 #      running task running and the swe-stop-cause recorder writes stop_cause
-#      budget; an older checkpoint auto-completes and is cleared; without
-#      dist/hooks.js the hook still completes.
+#      budget; an older checkpoint auto-completes and is cleared; a spawn that
+#      calls no tool still completes.
 #   9. Hook block (GH 1914) — a run whose last tool_result is a PreToolUse deny
 #      and that made no completion report records stop_cause hook_block and bro
 #      gets a sentence naming the block, commits or not; a successful completed
 #      task_update_status call after the deny records no stop_cause.
 #  10. Tool output (GH 1957) — a swe or code-reviewer stop writes one
-#      agent_run_tool_output row per tool on its run, idempotently; without
-#      dist/hooks.js it writes none.
+#      agent_run_tool_output row per tool on its run, idempotently; a run that
+#      calls no tool writes none.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close-agent-runs.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -426,24 +424,19 @@ OUT=$(run_hook "$(stop_input "$T172" agent-172)")
 assert_eq "" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, '') FROM agent_runs WHERE task_id=172;")" "stop_cause NULL"
 assert_not_contains "$OUT" "$BLOCK_SENTENCE" "no hook-block sentence"
 
-if [ "$HOOK_IMPL" != ts ]; then
-test_case "with dist/hooks.js absent the hook still completes"
-BARE_ROOT="$TMPDIR/bare-plugin"
-mkdir -p "$BARE_ROOT"
-cp -R "$PLUGIN_ROOT/scripts" "$BARE_ROOT/scripts"
-assert_eq "absent" "$([ -e "$BARE_ROOT/mcp/trajectory-server/dist/hooks.js" ] && echo present || echo absent)" "no dist/hooks.js beside the copied hook"
+test_case "a spawn whose transcript calls no tool completes with no tool-output rows"
 committed_task 162
 T162="$TMPDIR/t162.jsonl"
 transcript 162 "$T162"
+assert_eq "0" "$(grep -c '"tool_use"' "$T162" || true)" "the transcript calls no tool"
 set +e
-(cd "$REPO" && stop_input "$T162" agent-162 | bash "$BARE_ROOT/scripts/hooks/swe-atomic-close.sh" >/dev/null 2>&1)
-BARE_RC=$?
+(cd "$REPO" && stop_input "$T162" agent-162 | bash "$HOOK" >/dev/null 2>&1)
+GATE_RC=$?
 set -e
-assert_eq "0" "$BARE_RC" "the hook exits 0"
+assert_eq "0" "$GATE_RC" "the hook exits 0"
 assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=162;")" "the task auto-completes"
 assert_eq "1|40|" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162;")" "the row is metered, no stop_cause written"
-assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=162;")" "no tool-output rows without dist/hooks.js"
-fi
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=162;")" "no tool-output rows"
 
 # tool_transcript <task_id> <file> <prompt-suffix>: a spawn that calls Read and
 # Bash and gets a 10-char and a 5-char result back.

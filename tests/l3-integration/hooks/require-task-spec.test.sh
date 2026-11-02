@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
+# Tests for the TypeScript require-task-spec gate (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table is pending, or running with no live swe
 # agent_runs row (an unbound row older than 90 s is not live), AND has a non-empty spec_body. A pending task whose repo is a git
@@ -13,13 +13,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-task-spec.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-task-spec.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 . "$HERE/fixtures/wal-no-holder.sh"
 
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
@@ -232,7 +228,7 @@ WAL_PROJ="$TMPDIR/wal-project"
 mkdir -p "$WAL_PROJ/.claude/tmb"
 sqlite3 "$DB" ".backup '$WAL_PROJ/.claude/tmb/trajectory.db'"
 # The WAL cases log the sqlite3 CLI's invocations, so the TS gate reads through it.
-[ "$HOOK_IMPL" != ts ] || export TMB_HOOKS_SQLITE=cli
+export TMB_HOOKS_SQLITE=cli
 wal_gate_cases "require-task-spec" "$HOOK" "$WAL_PROJ/.claude/tmb/trajectory.db" "$WAL_PROJ" \
   "$(swe_input 'task_id=2 please do the thing')" "has empty spec_body" "does not exist in the tasks table"
 unset TMB_HOOKS_SQLITE

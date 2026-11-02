@@ -1,6 +1,7 @@
 containment-guard 5000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-brief-gate 6000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 no-source-edit-from-main 6000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
+no-prose-in-scratch 6000 ts-only PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-boundary 8090 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-scope-fence 6948 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 naming-lint 4000 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
@@ -16,6 +17,7 @@ branch-up-to-date-with-remote 16000 enforcement PreToolUse Bash *
 commit-msg-lint 7280 advisory PreToolUse Bash *
 no-remote-auth-guard 6000 enforcement PreToolUse Bash *
 remote-id-guard 6152 enforcement PreToolUse Bash *
+no-prose-in-scratch 6000 ts-only PreToolUse Bash *
 debug-trajectory 7486 advisory PreToolUse Bash *
 agent-spawn-dispatch 16000 enforcement PreToolUse Agent *
 debug-trajectory 7486 advisory PreToolUse Agent *
@@ -25,6 +27,9 @@ swe-brief-gate 6000 enforcement PreToolUse mcp__.*trajectory-server__.* *
 swe-verification-gate 1830000 enforcement PreToolUse mcp__.*trajectory-server__.* task_update_status
 reviewer-identity-observe 6000 enforcement PreToolUse mcp__.*trajectory-server__.* validation_record
 cheatcode-install-approval 6000 enforcement PreToolUse mcp__.*trajectory-server__.* cheatcode_install
+worktree-adopt-guard 6000 ts-only PreToolUse mcp__.*trajectory-server__.* task_provision
+worktree-adopt-guard 6000 ts-only PreToolUse mcp__.*trajectory-server__.* task_reopen
+worktree-adopt-guard 6000 ts-only PreToolUse mcp__.*trajectory-server__.* task_retry
 askuserquestion-length-lint 6000 advisory PreToolUse AskUserQuestion *
 roundtable-auq-shape 6000 advisory PreToolUse AskUserQuestion *
 debug-trajectory 7486 advisory PreToolUse Read|Skill *
@@ -36,6 +41,7 @@ post-atomic-close-readme 6094 advisory PostToolUse mcp__.*trajectory-server__.* 
 post-task-create-spawn-hint 4000 advisory PostToolUse mcp__.*trajectory-server__.* task_create_batch
 task-overrun-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
 liveness-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
+bash-output-trim 4000 advisory PostToolUse Bash *
 attribution-footer 16000 advisory PostToolUse Bash *
 clean-merged-branch 11000 advisory PostToolUse Bash *
 close-issue-on-merge 23300 advisory PostToolUse Bash *

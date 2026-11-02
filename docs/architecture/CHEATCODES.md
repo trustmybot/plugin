@@ -17,7 +17,7 @@ Everything between those judgments is a tool call, not a checklist.
 | Stage | Deterministic layer |
 |---|---|
 | **Detect gap** | bro spots "task needs capability X I don't have" → grab a cheatcode (`tmb_cheatcode` skill) instead of grinding it out. |
-| **Search/rank** | `cheatcode_search` forks `scripts/cheatcode-search.sh` (query tiered registries → parse → deterministic rank), returns ranked candidates + an audit row. One call, like `scan_run`→`scan.sh`. |
+| **Search/rank** | `cheatcode_search` runs its in-process engine (`mcp/trajectory-server/src/tools/cheatcode-search.ts`: query tiered registries → parse → deterministic rank) and returns ranked candidates + an audit row. One call. |
 | **Vet** | `cheatcode_vet` gathers reputation/security **signals** atomically (tier, relevance, install-surface) + a deterministic `trust_tier`; never decides. |
 | **Approve** | `cheatcode_approve` records the per-candidate Human approval. A PreToolUse gate fails closed until that row exists. |
 | **Install + materialize** | `cheatcode_install` composite (marketplace/MCP path, no seeding) records the `cheatcodes` row + attachment rows + audit rows in one transaction; idempotent on (name, source_url), except that a skill/plugin `target` not yet attached to an existing row is attached: approval-gated, materialized, one attachment + audit row, `attached: true`, the `cheatcodes` row unchanged. With `target=<bro\|swe\|code-reviewer\|consultant>` it **materializes** the consuming agent (see Attachment). A skill install requires a target; without one it is hard-rejected. |
@@ -31,12 +31,12 @@ The pipeline is the *acquisition* path. A passive path keeps the registry honest
 
 ## Registries (tiered)
 
-Discovery queries real, reputable registries — no self-built index. Each source carries a **tier** that doubles as its reputation signal; `cheatcode-search.sh` merges normalized candidates, dedupes by `source_url` (keeping the lowest tier number), and ranks.
+Discovery queries real, reputable registries — no self-built index. Each source carries a **tier** that doubles as its reputation signal; `cheatcode-search.ts` merges normalized candidates, dedupes by `source_url` (keeping the lowest tier number), and ranks.
 
 - **Tier 1 — official:** the MCP registry and the Anthropic plugin marketplace.
 - **Tier 2 — curated (best-effort):** PulseMCP, and Smithery only if a stable key-free endpoint is reachable.
 
-Every adapter is best-effort: a short `curl --max-time`, and on any failure (network denied, non-200, bad JSON) it contributes zero candidates and the script continues — a web-denied environment degrades to an empty set, never a crash. Tests stub the merge via `TMB_CHEATCODE_SEARCH_FIXTURE`.
+Every adapter is best-effort: a `fetch` with an 8 s timeout, and on any failure (network denied, non-200, bad JSON) it contributes zero candidates and the search continues — a web-denied environment degrades to an empty set, never a crash. Tests stub the merge via `TMB_CHEATCODE_SEARCH_FIXTURE`.
 
 **Reputation = registry tier.** Score = `(tier == 1 ? 200 : 100) + relevance * 10`, where `relevance` is the count of unique query tokens in name + description. Sort by score desc, then name asc — official always outranks curated.
 
@@ -72,4 +72,4 @@ Removal is safer than addition, so uninstall is **bro-proposed + Human-confirmed
 
 ## Testing mandate
 
-Each capability ships, before merge, with: **L1** lint (shellcheck on new scripts; tsc on new MCP tools); **L2** unit tests per MCP tool handler; **L3** integration tests for new hooks and the forked search/install scripts; **L4** workflow-sim for the composites; **L5/L6** a journey row under `tests/l5-l6/rows/` exercising the real flow, wired into the L6 chain manifest. Discovery/install rows stub the network/registry deterministically — assert audit rows + approval-gate behavior, never live results.
+Each capability ships, before merge, with: **L1** lint (shellcheck on new scripts; tsc on new MCP tools); **L2** unit tests per MCP tool handler; **L3** integration tests for new hooks and the in-process search/vet/install/uninstall engines; **L4** workflow-sim for the composites; **L5/L6** a journey row under `tests/l5-l6/rows/` exercising the real flow, wired into the L6 chain manifest. Discovery/install rows stub the network/registry deterministically — assert audit rows + approval-gate behavior, never live results.

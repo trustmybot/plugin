@@ -3,12 +3,14 @@
  * runs one test command with `bash -c`, writes its combined raw output to a
  * log file and prints one summary line plus capped failure excerpts instead of
  * the full output. Recognises node TAP, node spec and tests/lib/assert.sh
- * output; anything else prints its tail on a non-zero exit.
+ * output; anything else prints its tail on a non-zero exit. A full suite
+ * (isFullSuite) first waits for a suite slot (suite-lock.ts, GH 2092).
  */
 import { spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { acquireSuiteSlot, isFullSuite, SUITE_LOCK_HELD_ENV } from './suite-lock.js';
 const DEFAULT_MAX_LINES = 40;
 const MAX_FAILURES = 10;
 const USAGE = 'usage: node test-run.js [--log <path>] [--max-lines <n>] -- <command>';
@@ -218,22 +220,28 @@ function exitCode(status, signal) {
         return 128 + (constants.signals[signal] ?? 0);
     return 1;
 }
-function main(argv) {
+async function main(argv) {
     const opts = parseArgs(argv);
     if (!opts) {
         process.stderr.write(`${USAGE}\n`);
         return 2;
     }
     mkdirSync(dirname(opts.log), { recursive: true });
+    const slot = isFullSuite(opts.command)
+        ? await acquireSuiteSlot({ command: opts.command, worktree: process.cwd(), env: process.env })
+        : { kind: 'unlocked' };
+    const env = slot.kind === 'held' ? { ...process.env, [SUITE_LOCK_HELD_ENV]: slot.slot } : process.env;
     const fd = openSync(opts.log, 'w');
     const started = performance.now();
     let rc;
     try {
-        const result = spawnSync('bash', ['-c', opts.command], { stdio: ['ignore', fd, fd] });
+        const result = spawnSync('bash', ['-c', opts.command], { stdio: ['ignore', fd, fd], env });
         rc = result.error ? 127 : exitCode(result.status, result.signal);
     }
     finally {
         closeSync(fd);
+        if (slot.kind === 'held')
+            slot.release();
     }
     const elapsed = performance.now() - started;
     const raw = readFileSync(opts.log, 'utf8');
@@ -241,5 +249,5 @@ function main(argv) {
     process.stdout.write(`${lines.join('\n')}\n`);
     return rc;
 }
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));
 //# sourceMappingURL=test-run.js.map

@@ -1,4 +1,5 @@
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
+import { GATE_NAME as BASH_OUTPUT_TRIM_GATE, bashOutputTrim } from './bash-output-trim.js';
 import { GATE_NAME as BRO_TURN_USAGE_GATE, broTurnUsage } from './bro-turn-usage.js';
 import { GATE_NAME as FOOTER_GATE, attributionFooter } from './attribution-footer.js';
 import { GATE_NAME as CQ_LINT_GATE, codeQualityLint } from './code-quality-lint.js';
@@ -68,8 +69,11 @@ import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from '
 import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
 import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
+import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scratch.js';
+import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree-adopt-guard.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
+    [BASH_OUTPUT_TRIM_GATE, bashOutputTrim],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
     [FOOTER_GATE, attributionFooter],
     [CQ_LINT_GATE, codeQualityLint],
@@ -139,6 +143,8 @@ const GATES = new Map([
     [WORKTREE_CREATE_GATE, worktreeCreate],
     [REMOTE_ID_GATE, remoteIdGuard],
     [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
+    [NO_PROSE_GATE, noProseInScratch],
+    [WORKTREE_ADOPT_GATE, worktreeAdoptGuard],
 ]);
 export function findGate(name) {
     return GATES.get(name);
@@ -159,9 +165,10 @@ export function gateNames() {
  * tool no group matches runs no gates.
  */
 import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
+const TS_ONLY_GATES = new Set([NO_PROSE_GATE, WORKTREE_ADOPT_GATE]);
 function routerGate(name, kind, toolSuffix) {
     const budgets = ROUTER_BUDGETS.gates;
-    return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }) };
+    return { name, kind, budgetMs: budgets[name].budget_ms, ...(toolSuffix === undefined ? {} : { toolSuffix }), ...(TS_ONLY_GATES.has(name) ? { tsOnly: true } : {}) };
 }
 /** A group's key in budgets.json: a matcher alone is not unique, Bash and Agent sit under two events, and an event's parts share a matcher. */
 export function routerGroupKey(group) {
@@ -179,6 +186,7 @@ export const ROUTER_GROUPS = [
         routerGate('containment-guard', 'enforcement'),
         routerGate(SWE_BRIEF_GATE, 'enforcement'),
         routerGate(NO_SOURCE_EDIT_GATE, 'enforcement'),
+        routerGate(NO_PROSE_GATE, 'enforcement'),
         routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
         routerGate(SWE_SCOPE_FENCE_GATE, 'advisory'),
         routerGate(NAMING_LINT_GATE, 'advisory'),
@@ -196,6 +204,7 @@ export const ROUTER_GROUPS = [
         routerGate(COMMIT_MSG_GATE, 'advisory'),
         routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
         routerGate(REMOTE_ID_GATE, 'enforcement'),
+        routerGate(NO_PROSE_GATE, 'enforcement'),
         routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
     ], { concurrent: true }),
     preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
@@ -206,6 +215,9 @@ export const ROUTER_GROUPS = [
         routerGate(SWE_VERIFICATION_GATE, 'enforcement', 'task_update_status'),
         routerGate(REVIEWER_IDENTITY_GATE, 'enforcement', 'validation_record'),
         routerGate(CHEATCODE_APPROVAL_GATE, 'enforcement', 'cheatcode_install'),
+        routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
+        routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),
+        routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_retry'),
     ], { stopAtFirstDeny: true }),
     preToolUseGroup('AskUserQuestion', [routerGate('askuserquestion-length-lint', 'advisory'), routerGate(RT_AUQ_SHAPE_GATE, 'advisory')]),
     preToolUseGroup('Read|Skill', [routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
@@ -219,7 +231,7 @@ export const ROUTER_GROUPS = [
         routerGate(OVERRUN_GATE, 'advisory'),
         routerGate(LIVENESS_ALERT_GATE, 'advisory'),
     ]),
-    eventGroup('PostToolUse', 'Bash', [routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
+    eventGroup('PostToolUse', 'Bash', [routerGate(BASH_OUTPUT_TRIM_GATE, 'advisory'), routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
     eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
     eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
     eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),

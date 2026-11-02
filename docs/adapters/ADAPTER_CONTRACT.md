@@ -115,7 +115,7 @@ Host-local standalone personas may exist only for a narrower capability surface 
 
 ## 8. Rule 7 — Version lockstep (MUST)
 
-**All adapter manifests MUST carry the same plugin version, and the version-bump tooling MUST update every adapter manifest in one atomic operation.** `scripts/maintenance/bump-version.sh` is that tooling; adding an adapter means adding its manifest to the bump script's list in the same pull request that adds the manifest.
+**All adapter manifests MUST carry the same plugin version, and the version-bump tooling MUST update every adapter manifest in one atomic operation.** `scripts/maintenance/bump-version.ts` is that tooling; adding an adapter means adding its manifest to the bump script's list in the same pull request that adds the manifest.
 
 **No adapter ships a version the others do not have.** Version numbers identify a state of the shared core, and the core is shared, so a per-host version tells users something false about what they are running. An adapter that cannot support a release ships that release with a declared Tier-3 degradation (rule 4), not with a lagging version number.
 

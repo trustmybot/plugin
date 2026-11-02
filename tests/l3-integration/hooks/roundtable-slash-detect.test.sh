@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L3 tests for scripts/hooks/roundtable-slash-detect.sh
+# L3 tests for the TypeScript roundtable-slash-detect gate
 #
 # Verifies: (1) /roundtable prompt writes a roundtable_slash_invoked audit row
 # using the correct schema (no kind column), (2) non-/roundtable prompts are
@@ -9,9 +9,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/roundtable-slash-detect.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-slash-detect.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-slash-detect.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }

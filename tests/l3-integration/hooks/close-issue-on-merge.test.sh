@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/close-issue-on-merge.sh.
+# Tests for the TypeScript close-issue-on-merge gate.
 # Hook contract: PostToolUse on Bash. After a successful `gh pr merge` /
 # `glab mr merge` anywhere in a compound command (never inside heredoc or quoted
 # text): live tasks on the merged head branch close (open runs closed
@@ -19,10 +19,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/close-issue-on-merge.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/close-issue-on-merge.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/close-issue-on-merge.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }
