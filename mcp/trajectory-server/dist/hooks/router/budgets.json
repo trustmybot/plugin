@@ -45,7 +45,7 @@
         },
         "PostToolUse:Bash": {
             "max_budget_ms": 23300,
-            "p99_sum_ms": 12992.6,
+            "p99_sum_ms": 12992.9,
             "group_budget_ms": 23300
         },
         "PostToolUse:Agent": {
@@ -619,6 +619,22 @@
             "floor_ms": 6000,
             "budget_ms": 6000,
             "date": "2026-11-01"
+        },
+        "bash-output-trim": {
+            "kind": "advisory",
+            "bench_p50": 0,
+            "bench_p95": 0.1,
+            "bench_p99": 0.3,
+            "bench_runs": 720,
+            "bench_load_avg": 25.36,
+            "transcript_p99": null,
+            "reason": "no bash-output-trim PostToolUse hook attachment in 1177 transcript files of the last 14 days",
+            "transcript_samples": 0,
+            "transcript_timed_out": 0,
+            "window_days": 14,
+            "floor_ms": 4000,
+            "budget_ms": 4000,
+            "date": "2026-11-02"
         },
         "attribution-footer": {
             "kind": "advisory",

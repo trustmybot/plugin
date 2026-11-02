@@ -92,6 +92,23 @@ Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 ### PostToolUse — reactions after a tool succeeds
 `cleanup-worktree-on-task-close.sh`, `post-task-close-rescan.sh`, `post-atomic-close-readme.sh`, `post-task-create-spawn-hint.sh`, `roundtable-cleanup-postcheck.sh`, `attribution-footer.sh`, `swe-spawn-bind.sh`.
 
+`bash-output-trim` (TypeScript only, GH 2193; `src/hooks/bash-output-trim.ts`) is an advisory gate that runs first in the router's PostToolUse Bash group. It cuts the long output of bro's routine reads before that output enters context. It acts only in bro's main thread (no `agent_id` in the payload), and only on a command it can prove is a read. A quote-aware tokenizer reads the command. Quotes, and backslash escapes inside double quotes, hide the characters below, so `grep 'a|b'` and SQL holding `;` or `|` are fine. Outside quotes, the command must hold no unclosed quote, backtick, `$(`, `<(`, `>(`, `<`, `<<`, `(`, `||`, lone `&`, or redirect other than a stage's trailing `2>&1` or `2>/dev/null`. Every `$` must be a plain `$NAME` or `${NAME}`. The command splits on top-level `&&`, `;` and newlines. Each segment must be one of these:
+- `cd <word>`;
+- `[export] NAME=<word>`;
+- a pipeline whose stages may carry `NAME=<word>` prefixes.
+
+The pipeline's first stage is a read source:
+- any filter below;
+- `ls`, `echo`, `printf`, `diff`;
+- `rg` without `--pre` or `--pre-glob`;
+- `git [-C <path>] log|status|diff|show|grep|ls-files|rev-parse|merge-base|blame|shortlog|ls-tree` with no `--output`;
+- `gh {pr,issue,run} {view,list,checks,diff}` with any flags, `--json`/`--jq`/`-q`/`--template` included;
+- `sqlite3 -readonly <db> <sql>`, the SQL last and starting with `SELECT` or `WITH`.
+
+Every later stage is a filter: `head`, `tail`, `grep`, `sort` without `-o`/`--output`, `uniq` with at most one positional, `cut`, `wc`, `nl`, `cat`, `tr`, `column`, `jq`, or `sed -n` with a print-only script. A print-only script is `p` commands, each with an optional `N`, `N,M`, `$` or `/re/` address, joined by `;`. `sed -i` and every `w`, `W`, `e`, `r` or `s` command are rejected. The program word and the git/gh verb words must be literal. A pipeline whose last stage is a bare `cat` (no arguments) is left whole, so the marker's `| cat` escape gives the full output.
+
+stderr must be empty, and `interrupted` and `isImage` not true. When stdout is longer than 4000 characters, the gate keeps whole head lines within 2400 characters and whole tail lines within 800. Between them it puts one marker line, `[bash-output-trim: cut <n> lines (<c> chars) of <total> lines; rerun with a narrower command, or append | cat for the full output]`. It answers with `hookSpecificOutput.updatedToolOutput`: the `tool_response` with only `stdout` replaced. Any other call, or an output its head and tail would cover whole, gets no output. It never denies. It has no `.sh` and does not run under `TMB_HOOKS_IMPL=bash`.
+
 `swe-spawn-bind.sh` (Agent) binds an accepted swe spawn's run row: the row `record-swe-spawn.sh` opened with `spawn_id` `tool_use:<tool_use_id>` takes `spawn_id` = `tool_response.agentId`, the `agent_id` every subagent hook of that spawn carries. A background spawn (`tool_response.status` `async_launched`) returns at once, so its row is bound before its first `task_brief`; a foreground spawn returns at its end, after SubagentStop already bound the row, and the update matches nothing. A row of the task already keyed by that `agentId` is left alone. Fail-open; it never blocks.
 
 ### PermissionDenied — a refused tool call

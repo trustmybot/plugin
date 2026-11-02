@@ -3,6 +3,7 @@ agent-arg-matches-caller
 agent-spawn-dispatch
 askuserquestion-length-lint
 attribution-footer
+bash-output-trim
 branch-up-to-date-with-remote
 bro-turn-usage
 cheatcode-install-approval

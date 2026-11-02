@@ -494,7 +494,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-task-close-rescan', 'post-atomic-close-readme', 'task-overrun-alert', 'liveness-alert']);
         assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
         assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
-        assert.deepEqual(names('PostToolUse', 'Bash'), ['attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
+        assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
         assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
         assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);
         assert.deepEqual(names('PostToolUse', 'Read'), []);
@@ -1215,6 +1215,39 @@ describe('router entry: --shim yields to the plugin hooks', () => {
         assert.equal(run(['PreToolUse', '--shim']), '');
         assert.equal(run(['SessionStart', 'persona', '--shim']), '');
         assert.match(run(['PreToolUse']), /label is 8 words/, 'the same call without --shim decides');
+    });
+});
+describe('bash-output-trim through the router (GH 2193)', () => {
+    const longLog = Array.from({ length: 300 }, (_, i) => `${String(i).padStart(7, '0')} commit subject number ${i}`).join('\n');
+    const postBash = (command, session = 'sess-trim') => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: session, tool_name: 'Bash', tool_input: { command }, tool_use_id: `trim-${session}`, tool_response: { stdout: longLog, stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
+    let dir;
+    before(() => {
+        dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-trim-')));
+    });
+    after(() => rmSync(dir, { recursive: true, force: true }));
+    const env = () => ({ PATH: process.env.PATH, HOME: dir, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TRAJECTORY_DB_PATH: join(dir, 'absent.db'), TMB_INSTALLED_JSON: join(dir, 'none.json') });
+    it('updatedToolOutput survives the merge when a sibling gate adds context', async () => {
+        const d = await decide('PostToolUse', postBash('git log --oneline'), env(), {
+            findGate: (name) => (name === 'bash-output-trim' ? findGate(name) : () => ({ stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `from ${name}` } })}\n`, code: 0 })),
+        });
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+        const out = JSON.parse(d.stdout).hookSpecificOutput;
+        assert.equal(out.additionalContext, 'from attribution-footer\n\nfrom clean-merged-branch\n\nfrom close-issue-on-merge');
+        assert.match(out.updatedToolOutput.stdout, /^0000000 commit subject number 0\n[^]*\[bash-output-trim: cut \d+ lines [^]*\n0000299 commit subject number 299$/);
+        assert.deepEqual({ ...out.updatedToolOutput, stdout: '' }, { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false });
+    });
+    it('the real Bash group runs every gate and answers with the trimmed output', async () => {
+        const d = await decide('PostToolUse', postBash('git log'), env());
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+        assert.ok(JSON.parse(d.stdout).hookSpecificOutput.updatedToolOutput.stdout.length < longLog.length);
+    });
+    it('the bundle answers a PostToolUse git log with updatedToolOutput', () => {
+        const out = execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PostToolUse'], { input: postBash('git log', 'sess-trim-bundle'), encoding: 'utf8', cwd: dir, env: env() });
+        const o = JSON.parse(out).hookSpecificOutput;
+        assert.equal(o.hookEventName, 'PostToolUse');
+        assert.match(o.updatedToolOutput.stdout, /\[bash-output-trim: cut \d+ lines \(\d+ chars\) of 300 lines; /);
+        assert.ok(o.updatedToolOutput.stdout.startsWith('0000000 commit subject number 0\n'));
+        assert.ok(o.updatedToolOutput.stdout.endsWith('\n0000299 commit subject number 299'));
     });
 });
 //# sourceMappingURL=router.test.js.map

@@ -41,6 +41,7 @@ post-atomic-close-readme 6094 advisory PostToolUse mcp__.*trajectory-server__.* 
 post-task-create-spawn-hint 4000 advisory PostToolUse mcp__.*trajectory-server__.* task_create_batch
 task-overrun-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
 liveness-alert 6000 advisory PostToolUse mcp__.*trajectory-server__.* *
+bash-output-trim 4000 advisory PostToolUse Bash *
 attribution-footer 16000 advisory PostToolUse Bash *
 clean-merged-branch 11000 advisory PostToolUse Bash *
 close-issue-on-merge 23300 advisory PostToolUse Bash *
