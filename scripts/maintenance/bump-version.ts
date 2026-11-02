@@ -34,7 +34,7 @@
 import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fragmentBody, fragmentList, fragmentSection, fragmentValidate, lines, SECTIONS, trimBlank } from './lib/changelog-fragments.ts';
+import { escapeRegExp, fragmentBody, fragmentList, fragmentSection, fragmentValidate, lines, SECTIONS, trimBlank } from './lib/changelog-fragments.ts';
 
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
 const DATE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -164,14 +164,14 @@ function insertBlock(changelog: string[], block: string): string {
 /** <src> with its one `"version": "<current>"` line set to <next>. */
 function bumpJson(src: string, current: string, next: string): string {
   const text = readFileSync(src, 'utf8');
-  const field = new RegExp(`"version"${SPACE}*:${SPACE}*"${current}"`, 's');
+  const field = new RegExp(`"version"${SPACE}*:${SPACE}*"${escapeRegExp(current)}"`, 's');
   const candidates = lines(text).filter((line) => field.test(line)).length;
   if (candidates !== 1) die(`Error: failed to bump ${src} — expected exactly one "version": "${current}" line, found ${candidates}`);
   const bumped = text
     .split('\n')
     .map((line) => line.replace(field, `"version": "${next}"`))
     .join('\n');
-  if (!new RegExp(`"version": "${next}"`).test(bumped)) die(`Error: failed to bump ${src} — no version line matched`);
+  if (!new RegExp(`"version": "${escapeRegExp(next)}"`).test(bumped)) die(`Error: failed to bump ${src} — no version line matched`);
   return bumped;
 }
 
@@ -208,7 +208,7 @@ function main(argv: string[]): void {
     }
 
     if (block !== '') {
-      const existing = new RegExp(`^## v${o.version} `, 's');
+      const existing = new RegExp(`^## v${escapeRegExp(o.version)} `, 's');
       if (changelog.some((line) => existing.test(line))) {
         die(`Error: CHANGELOG.md already has a '## v${o.version}' section; refusing to add a second one`);
       }

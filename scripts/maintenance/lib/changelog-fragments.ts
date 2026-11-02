@@ -20,6 +20,10 @@ const BLANK = /^[ \t\n\v\f\r]*$/;
 const HAS_FIELD = /[^ \t\n]/;
 const HASH_ID = /(^|[^&A-Za-z0-9])#[0-9]+/;
 
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
@@ -102,7 +106,7 @@ export function fragmentValidate(path: string): string[] {
   const body = fragmentBody(path);
   if (body.length === 0) return [...problems, `${path}: no entry text after the section line`];
   if (!(body[0] ?? '').startsWith('- ')) problems.push(`${path}: the entry must start with "- " (one bullet)`);
-  const cite = new RegExp(`GH ${issue}([^0-9]|$)`);
+  const cite = new RegExp(`GH ${escapeRegExp(issue)}([^0-9]|$)`);
   if (!body.some((line) => cite.test(line))) problems.push(`${path}: the entry must cite GH ${issue}`);
   if (body.some((line) => HASH_ID.test(line))) problems.push(`${path}: cite issues as "GH <n>", not "#<n>"`);
   return problems;

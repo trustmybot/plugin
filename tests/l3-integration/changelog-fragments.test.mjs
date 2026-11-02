@@ -289,3 +289,20 @@ test('a malformed fragment refuses the bump and leaves every file unchanged', ()
   assert.match(r.stderr, /77-nope\.md/, 'names the fragment');
   assert.equal(snapshot(b), before, 'nothing changed');
 });
+
+test('versions are matched literally, never as regex patterns', () => {
+  const b = bumpRepo('bump-literal');
+  const odd = '1.0.0+build(1)';
+  for (const f of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json']) {
+    edit(join(b, f), '"1.0.0"', `"${odd}"`);
+  }
+  edit(join(b, 'bun.lock'), '"1.0.0"', `"${odd}"`);
+  edit(join(b, 'CHANGELOG.md'), '## v1.0.0 — 2026-01-01', '## v1x1x0 — 2026-01-01');
+  addFragments(b, '9-nine.md');
+  const r = bump(b, '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  for (const f of ['.claude-plugin/plugin.json', 'bun.lock']) {
+    assert.match(readFileSync(join(b, f), 'utf8'), /"version": "1\.1\.0"/, `${f} bumped from a metachar version`);
+  }
+  assert.match(readFileSync(join(b, 'CHANGELOG.md'), 'utf8'), /^## v1\.1\.0 — 2026-10-12$/m, 'v1x1x0 is not taken for v1.1.0');
+});
