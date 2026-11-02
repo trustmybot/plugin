@@ -30,8 +30,6 @@ const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const T0 = '2026-10-01T10:00:00.000Z';
 const TASK = 5;
 const FAKE_UID = 4242424;
-const ATOMIC_CLOSE_GAP =
-  'GH 2240: swe-atomic-close reads <repo>/.claude/worktrees/<slug>, not taskLocation().worktree, so an adopted task is judged on the slug path';
 
 const GIT_ENV = {
   GIT_AUTHOR_NAME: 't',
@@ -339,8 +337,7 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
       JSON.stringify({ hook_event_name: 'SubagentStop', agent_type: 'swe', agent_id: 'agent-5', agent_transcript_path: c.transcript });
 
     for (const { label, adopted } of CASES) {
-      const todo = adopted ? ATOMIC_CLOSE_GAP : undefined;
-      it(`${label}: auto-completes at the head of the task worktree`, { todo }, async () => {
+      it(`${label}: auto-completes at the head of the task worktree`, async () => {
         const c = fixture({ adopted, slugWorktree: true });
         const sha = commit(c.worktree, 'work.txt');
         await sweAtomicClose(stop(c), c.env);
@@ -348,7 +345,7 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
         assert.deepEqual({ ...task }, { status: 'completed', commit_sha: sha });
       });
 
-      it(`${label}: names the task worktree when the swe stopped without committing`, { todo }, async () => {
+      it(`${label}: names the task worktree when the swe stopped without committing`, async () => {
         const c = fixture({ adopted, slugWorktree: true });
         const context = out(await sweAtomicClose(stop(c), c.env)).additionalContext ?? '';
         assert.ok(context.includes(`stopped without committing in worktree at ${c.worktree}.`), context);
