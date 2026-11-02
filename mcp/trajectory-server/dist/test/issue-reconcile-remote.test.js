@@ -132,7 +132,8 @@ describe('reconcileRemoteCloses (GH 2228)', () => {
         assert.deepEqual(audits(db, 'issue_closed_from_remote').map((a) => a.issue_id), [closedGh, closedGl]);
         const graphql = spawned.filter((s) => s.cmd === 'gh' && s.args[1] === 'graphql');
         assert.equal(graphql.length, 1, 'one gh api graphql call for the repo');
-        assert.ok(graphql[0].args.includes('--hostname') && graphql[0].args.includes('github.com'));
+        const graphqlArgs = graphql[0].args;
+        assert.equal(graphqlArgs[graphqlArgs.indexOf('--hostname') + 1], 'github.com', 'gh api graphql targets --hostname github.com');
         assert.match(graphql[0].args.at(-1), /repository\(owner: "owner", name: "repo"\)/);
         const glView = spawned.find((s) => s.cmd === 'glab' && s.args[2] === '20');
         assert.deepEqual(glView.args, ['issue', 'view', '20', '-R', 'gitlab.com/owner/repo', '--output', 'json']);
