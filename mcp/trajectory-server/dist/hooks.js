@@ -24104,7 +24104,7 @@ var budgets_default = {
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       max_budget_ms: 183e4,
-      p99_sum_ms: 6707.7,
+      p99_sum_ms: 7359.5,
       group_budget_ms: 183e4
     },
     "PreToolUse:AskUserQuestion": {
@@ -24545,13 +24545,13 @@ var budgets_default = {
     },
     "worktree-adopt-guard": {
       kind: "enforcement",
-      bench_p50: 728.8,
-      bench_p95: 1227,
-      bench_p99: 1339.4,
+      bench_p50: 751.4,
+      bench_p95: 1629.2,
+      bench_p99: 1991.2,
       bench_runs: 640,
-      bench_load_avg: 140,
+      bench_load_avg: 126.39,
       transcript_p99: null,
-      reason: "new gate: no worktree-adopt-guard PreToolUse hook attachment in any transcript of the last 14 days",
+      reason: "no worktree-adopt-guard PreToolUse hook attachment in 1103 transcript files of the last 14 days",
       transcript_samples: 0,
       transcript_timed_out: 0,
       window_days: 14,
