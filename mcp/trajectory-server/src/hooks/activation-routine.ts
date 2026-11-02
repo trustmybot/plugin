@@ -4,7 +4,8 @@
  * or the transcript holds sticky bro mode) it pre-fetches the onboarded flag
  * and the newest open issue and injects them as additionalContext, prefixed
  * by a HALT notice when pgrep finds no trajectory-server, and followed by a
- * one-line warning when the session's bro row is past a usage limit. Never blocks.
+ * one-line warning when the mean input context of the transcript's last
+ * RECENT_CALLS main-thread calls is past CONTEXT_LIMIT. Never blocks.
  *
  * The word test is grep's: `\b` and -i under the locale grep would run in
  * (ASCII word bytes in C; letters, digits and _ under UTF-8, where a
@@ -26,8 +27,9 @@ export const HALT_TEXT =
   '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
 export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
-const TOOL_CALLS_LIMIT = 150;
-const CONTEXT_PER_CALL_LIMIT = 60000;
+export const RECENT_CALLS = 5;
+export const CONTEXT_LIMIT = 120000;
+const ASSISTANT_MARKER = '"type":"assistant"';
 
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
 export class LocaleGrep {
@@ -75,7 +77,7 @@ export class LocaleGrep {
   }
 }
 
-function readTranscript(path: string): Buffer | null {
+export function readTranscript(path: string): Buffer | null {
   if (path === '') return null;
   try {
     if (!statSync(path).isFile()) return null;
@@ -123,38 +125,63 @@ export function activationContext(onboardedCount: string, pending: string): stri
   return `[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${pendingLine}`;
 }
 
-function limitsPassed(toolUses: number, cacheReadTokens: number): string[] {
-  if (toolUses <= 0) return [];
-  const contextPerCall = Math.ceil(cacheReadTokens / toolUses);
-  const passed: string[] = [];
-  if (toolUses > TOOL_CALLS_LIMIT) passed.push(`${toolUses} tool calls (limit ${TOOL_CALLS_LIMIT})`);
-  if (contextPerCall > CONTEXT_PER_CALL_LIMIT) passed.push(`${contextPerCall} context per call (limit ${CONTEXT_PER_CALL_LIMIT})`);
-  return passed;
+export interface RecentContext {
+  mean: number;
+  calls: number;
+  first: number;
 }
 
-export function pastUsageLimits(toolUses: number, cacheReadTokens: number): boolean {
-  return limitsPassed(toolUses, cacheReadTokens).length > 0;
-}
-
-export function usageWarning(toolUses: number, cacheReadTokens: number): string {
-  const passed = limitsPassed(toolUses, cacheReadTokens);
-  if (passed.length === 0) return '';
-  return `⚠️ This bro session is past its usage limits: ${passed.join(', ')}. Finish what is in flight, then end the session and resume cold from the DB.`;
-}
-
-function sessionUsageWarning(db: string, sessionId: string, env: NodeJS.ProcessEnv): string {
-  if (!SESSION_ID_LINE.test(sessionId)) return '';
+function callContext(line: string): { id: string | null; context: number } | null {
+  let entry: unknown;
   try {
-    const row = sqliteRo(
-      db,
-      `SELECT COALESCE(tool_uses, 0), COALESCE(cache_read_tokens, 0) FROM agent_runs WHERE agent_type='bro' AND task_id IS NULL AND session_id='${sessionId}' ORDER BY id DESC LIMIT 1;`,
-      env,
-    );
-    const usage = /^([0-9]+)\|([0-9]+)$/.exec(row);
-    return usage === null ? '' : usageWarning(Number(usage[1]), Number(usage[2]));
+    entry = JSON.parse(line);
   } catch {
-    return '';
+    return null;
   }
+  if (entry === null || typeof entry !== 'object') return null;
+  const { type, isSidechain, message } = entry as Record<string, unknown>;
+  if (type !== 'assistant' || isSidechain === true || message === null || typeof message !== 'object') return null;
+  const { id, usage } = message as Record<string, unknown>;
+  if (usage === null || typeof usage !== 'object') return null;
+  const count = (key: string): number => {
+    const value = (usage as Record<string, unknown>)[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    id: typeof id === 'string' ? id : null,
+    context: count('input_tokens') + count('cache_creation_input_tokens') + count('cache_read_input_tokens'),
+  };
+}
+
+/** The mean input context of the last RECENT_CALLS distinct main-thread assistant calls in <transcript>, and its first call's; null with none. */
+export function recentContext(transcript: Buffer | null): RecentContext | null {
+  if (transcript === null) return null;
+  const seen = new Set<string>();
+  let first: number | null = null;
+  const recent: number[] = [];
+  for (const line of transcript.toString('utf8').split('\n')) {
+    if (!line.includes(ASSISTANT_MARKER)) continue;
+    const call = callContext(line);
+    if (call === null) continue;
+    if (call.id !== null) {
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+    }
+    first ??= call.context;
+    recent.push(call.context);
+    if (recent.length > RECENT_CALLS) recent.shift();
+  }
+  if (first === null) return null;
+  return { mean: Math.ceil(recent.reduce((sum, c) => sum + c, 0) / recent.length), calls: recent.length, first };
+}
+
+export function pastContextLimit(recent: RecentContext | null): boolean {
+  return recent !== null && recent.mean > CONTEXT_LIMIT;
+}
+
+export function usageWarning(recent: RecentContext | null): string {
+  if (recent === null || !pastContextLimit(recent)) return '';
+  return `⚠️ This bro session's recent context is past its limit: ${recent.mean} mean input context over the last ${recent.calls} calls (limit ${CONTEXT_LIMIT}; its first call took ${recent.first}, the cold-start reference). Finish what is in flight, then end the session and resume cold from the DB.`;
 }
 
 /** The issue of the handoff <sessionId> consumed, while that issue is open; '' otherwise. */
@@ -173,7 +200,8 @@ export function activationRoutine(payload: string, env: NodeJS.ProcessEnv): Gate
     const field = (key: string): string => commandSubstitution(jqFieldOr(echoed, key));
     const prompt = field('prompt');
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript(field('transcript_path')), grep)) return ALLOW;
+    const transcript = readTranscript(field('transcript_path'));
+    if (!saysBro(prompt, grep) && !isStickyBro(transcript, grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : '';
     const haltOnly = (): GateResult => (halt !== '' ? emit(halt) : ALLOW);
     const db = dbPathAdvisory(GATE_NAME, env, (line) => process.stderr.write(`${line}\n`));
@@ -186,7 +214,7 @@ export function activationRoutine(payload: string, env: NodeJS.ProcessEnv): Gate
     let context = activationContext(onboarded, pending);
     if (halt !== '') context = `${halt} ${context}`;
     if (sessionId.split('\n').some((line) => SESSION_ID_LINE.test(line))) context = `${context} session_id=${sessionId}`;
-    const warning = sessionUsageWarning(db, sessionId, env);
+    const warning = usageWarning(recentContext(transcript));
     if (warning !== '') context = `${context}\n${warning}`;
     return emit(context);
   } catch {

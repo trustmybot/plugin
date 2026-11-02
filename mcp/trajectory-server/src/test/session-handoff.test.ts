@@ -61,10 +61,26 @@ function withDb<T>(db: string, fn: (d: DatabaseSync) => T): T {
   }
 }
 
-function broRow(db: string, toolUses = 151, session = SESSION): void {
+const HOT = [130000, 125000, 128000, 131000, 126000];
+const COOL = [90000, 88000, 92000, 91000, 89000];
+
+function transcriptOf(db: string): string {
+  return join(dirname(db), 'transcript.jsonl');
+}
+
+function writeTranscript(db: string, contexts: number[]): void {
+  const lines = contexts.map((context, i) =>
+    JSON.stringify({ type: 'assistant', isSidechain: false, message: { id: `msg-${i}`, usage: { input_tokens: 2, cache_creation_input_tokens: 1000, cache_read_input_tokens: context - 1002 } } }),
+  );
+  writeFileSync(transcriptOf(db), lines.map((line) => `${line}\n`).join(''));
+}
+
+/** A bro row of <session>, with the shared transcript's last calls past the limit (<hot>) or under it. */
+function broRow(db: string, hot = true, session = SESSION): void {
   withDb(db, (d) => {
-    d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens, started_at, completed_at) VALUES ('bro', ?, ?, 0, ?, ?)").run(session, toolUses, ROW_TIME, ROW_TIME);
+    d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens, started_at, completed_at) VALUES ('bro', ?, 0, 0, ?, ?)").run(session, ROW_TIME, ROW_TIME);
   });
+  writeTranscript(db, hot ? HOT : COOL);
 }
 
 function hoursAgo(hours: number): string {
@@ -98,12 +114,13 @@ function setRow(db: string, sql: string, ...args: string[]): void {
   });
 }
 
-function stopPayload(extra: object = {}): string {
-  return JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION, cwd: CWD, last_assistant_message: 'the last note', ...extra });
+function stopPayload(env: NodeJS.ProcessEnv, extra: object = {}): string {
+  const transcript = transcriptOf(env.TRAJECTORY_DB_PATH ?? '');
+  return JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION, cwd: CWD, transcript_path: transcript, last_assistant_message: 'the last note', ...extra });
 }
 
 function stop(env: NodeJS.ProcessEnv, extra: object = {}): { stdout: string; code: number } {
-  const r = sessionHandoff(stopPayload(extra), env);
+  const r = sessionHandoff(stopPayload(env, extra), env);
   return { stdout: r.stdout ?? '', code: r.code ?? 0 };
 }
 
@@ -122,20 +139,47 @@ before(() => {
 after(() => rmSync(sandbox, { recursive: true, force: true }));
 
 describe('session-handoff Stop gates', () => {
-  it('under the limits: no row', () => {
+  it('under the limit: no row', () => {
     const { db, env } = freshDb();
-    broRow(db, 150);
+    broRow(db, false);
     assert.equal(stop(env).stdout, '');
     assert.deepEqual(rows(db), []);
   });
 
-  it('past the context-per-call limit alone: a row', () => {
+  it('past the limit: a row', () => {
     const { db, env } = freshDb();
-    withDb(db, (d) => {
-      d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens) VALUES ('bro', ?, 10, 700000)").run(SESSION);
-    });
+    broRow(db);
     stop(env);
     assert.equal(rows(db).length, 1);
+  });
+
+  it('pre-compaction calls past the limit followed by 5 cool calls: no row, whatever the bro row usage says', () => {
+    const { db, env } = freshDb();
+    broRow(db);
+    setRow(db, "UPDATE agent_runs SET tool_uses = 900, cache_read_tokens = 90000000 WHERE agent_type = 'bro'");
+    writeTranscript(db, [...Array.from({ length: 50 }, () => 167000), ...COOL]);
+    assert.equal(stop(env).stdout, '');
+    assert.deepEqual(rows(db), []);
+  });
+
+  for (const [what, extra] of [
+    ['a missing transcript', { transcript_path: '/nonexistent/transcript.jsonl' }],
+    ['no transcript_path', { transcript_path: undefined }],
+    ['a transcript_path that is not a string', { transcript_path: 7 }],
+  ] as const) {
+    it(`past the limit in the DB fixture but ${what}: no row, exit 0`, () => {
+      const { db, env } = freshDb();
+      broRow(db);
+      assert.deepEqual(stop(env, extra), { stdout: '', code: 0 });
+      assert.deepEqual(rows(db), []);
+    });
+  }
+
+  it('an unreadable transcript: no row, exit 0', () => {
+    const { db, env } = freshDb();
+    broRow(db);
+    assert.deepEqual(stop(env, { transcript_path: dirname(db) }), { stdout: '', code: 0 });
+    assert.deepEqual(rows(db), []);
   });
 
   it('past the limits with a recent open run in this session: no row', () => {
@@ -191,9 +235,9 @@ describe('session-handoff Stop gates', () => {
     assert.equal(rows(db).length, 1);
   });
 
-  it('a row reads the bro row of this session only', () => {
+  it('a row needs a bro row of this session', () => {
     const { db, env } = freshDb();
-    broRow(db, 151, 'sess-other');
+    broRow(db, true, 'sess-other');
     stop(env);
     assert.deepEqual(rows(db), []);
   });
@@ -289,7 +333,7 @@ describe('session-handoff Stop write', () => {
   it('through the router: Stop handoff prints only the systemMessage', async () => {
     const { db, env } = freshDb();
     broRow(db);
-    const out = await bundle(['Stop', 'handoff'], stopPayload(), env);
+    const out = await bundle(['Stop', 'handoff'], stopPayload(env), env);
     assert.equal(out.code, 0);
     assert.deepEqual(Object.keys(JSON.parse(out.stdout) as object), ['systemMessage']);
     assert.equal(rows(db).length, 1);
@@ -371,7 +415,7 @@ describe('session-handoff consumption', () => {
     const { db, env } = freshDb();
     handedOver(db, env);
     setRow(db, 'UPDATE session_handoffs SET updated_at = ?', hoursAgo(2));
-    broRow(db, 151, 'sess-second');
+    broRow(db, true, 'sess-second');
     stop(env, { session_id: 'sess-second', last_assistant_message: 'the newer note' });
     assert.match(withHandoff(CONTEXT, startPayload(), env), /the newer note/);
     assert.equal(rows(db).find((r) => r.session_id === SESSION)?.consumed_at, null);
