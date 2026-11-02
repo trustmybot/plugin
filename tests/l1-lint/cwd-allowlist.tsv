@@ -37,8 +37,7 @@ scripts/hooks/containment-guard.sh	CWD=$(tmb_payload_cwd "$INPUT")	join-base	joi
 scripts/hooks/worktree-create.sh	CWD_REPO="$(pwd)"	fallback	WorktreeCreate with no trajectory DB (a non-TMB project): the repo Claude Code runs in is the only one there is
 scripts/hooks/dispatch.sh	cwd: (.cwd? // null)	not-location	the hook_denied audit row records the payload cwd as data; nothing is resolved from it
 scripts/release.sh	git 	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
-scripts/maintenance/regen-generated.sh	git 	anchored-cd	the script cds to its own checkout ($ROOT, from its location) before any git
-scripts/maintenance/dev-build-version.sh	git 	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
+scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
 scripts/publish-rc-channel.sh	git ls-remote --tags "$PLUGIN_REPO"	not-location	ls-remote names its remote URL; reads no checkout
 scripts/publish-rc-channel.sh	git clone --quiet --depth 1 "$CATALOG_REPO" "$WORK_DIR/marketplace-rc"	not-location	clone names its source URL and an absolute destination
 scripts/scan.sh	SESSION_DIR="${1:-$PWD}"	fallback	scan_run always passes the session dir; only a manual run with no argument scans where it starts
@@ -61,7 +60,6 @@ mcp/trajectory-server/src/hooks/lib/sqlite-shell.ts	const r = spawnSync('sqlite3
 mcp/trajectory-server/src/hooks/mcp-health-check.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	pgrepLines counts MCP server processes from the process table; reads no project or repo
 mcp/trajectory-server/src/hooks/router/main.ts	const r = spawnSync(process.execPath, [`${root}/${BUNDLE}`, event, ...(part === undefined ? [] : [part])], {	not-location	hopTo hands the payload to the bundle of the install named by root; that router resolves from the payload, as this one does
 mcp/trajectory-server/src/hooks/swe-scope-fence.ts	const cwd = jqFirst(input, [['cwd']], true) || env.PWD || process.cwd();	join-base	the dir a relative Write / Edit target joins to, before the fence compares it to the swe's worktree from agent-context
-mcp/trajectory-server/src/hooks/worktree-create.ts	const r = spawnSync('bash', [`${pluginRoot()}/${MERGE_DRIVER_SCRIPT}`, root],	anchored-cd	install-merge-driver.sh gets the repo as its argument and runs every git as git -C "$REPO"
 mcp/trajectory-server/src/startup-catchup.ts	const child = spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {	anchored-cd	run-scan.mjs gets decision.projectRoot as its argument and the DB as TRAJECTORY_DB_PATH
 scripts/await-payload-tag.ts	const r = spawnSync('git', ['ls-remote', '--tags', remote, ref,	not-location	ls-remote against an explicit URL (the default or --remote) and a full ref; reads no checkout
 scripts/hooks/git-guards.sh	cd|echo|printf|true|false|test|'['|pwd) return 0 ;;	not-location	ff_sync_other_ok: `pwd` is a word in a list of harmless command names; it is matched, not run

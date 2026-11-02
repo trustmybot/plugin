@@ -1,6 +1,6 @@
 # changelog.d/
 
-One file per change. A branch adds its fragment here and leaves `CHANGELOG.md` alone; `scripts/maintenance/bump-version.sh` assembles every fragment into the release's `## vX.Y.Z — YYYY-MM-DD` section and deletes them. Parallel branches never touch the same lines, so CHANGELOG conflicts stop.
+One file per change. A branch adds its fragment here and leaves `CHANGELOG.md` alone; `scripts/maintenance/bump-version.ts` assembles every fragment into the release's `## vX.Y.Z — YYYY-MM-DD` section and deletes them. Parallel branches never touch the same lines, so CHANGELOG conflicts stop.
 
 ## Format
 
@@ -21,4 +21,4 @@ File name: `<gh-issue>-<slug>.md` — the GitHub issue number, a hyphen, a lower
 
 ## Release
 
-`bash scripts/maintenance/bump-version.sh --dry-run <version>` prints the section the release would get: the `## Unreleased` entries (if any) followed by the fragments, grouped by section in the order above, fragments sorted by issue number. Without `--dry-run` it writes that section in place of `## Unreleased` and deletes the fragments; a malformed fragment stops it with every file unchanged.
+`node --experimental-strip-types scripts/maintenance/bump-version.ts --dry-run <version>` prints the section the release would get: the `## Unreleased` entries (if any) followed by the fragments, grouped by section in the order above, fragments sorted by issue number. Without `--dry-run` it writes that section in place of `## Unreleased` and deletes the fragments; a malformed fragment stops it with every file unchanged.

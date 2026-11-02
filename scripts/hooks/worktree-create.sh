@@ -36,7 +36,7 @@
 # Every success path (created or reused) installs the tmb-regen merge driver
 # into the repo's .git/config when its .gitattributes routes files to it, so a
 # rebase in the worktree keeps ours for generated artefacts
-# (scripts/maintenance/install-merge-driver.sh).
+# (`node mcp/trajectory-server/dist/hooks.js install-merge-driver`).
 #
 # Exits non-zero when:
 #   - no branch in input (nothing to create)
@@ -55,7 +55,7 @@ install_merge_driver() {
   local top
   top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
   grep -qs "merge=tmb-regen" "$top/.gitattributes" || return 0
-  bash "$PLUGIN_ROOT/scripts/maintenance/install-merge-driver.sh" "$top" >/dev/null 2>&1 \
+  node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" install-merge-driver "$top" >/dev/null 2>&1 \
     || printf "tmb worktree-create: could not install the tmb-regen merge driver in %s\n" "$top" >&2
 }
 

@@ -78,8 +78,8 @@ jobs:
           set -euo pipefail
           ARGS=(--next "$NEXT")
           [ -z "$PR" ] || ARGS+=(--pr "$PR")
-          VERSION="$(bash scripts/maintenance/dev-build-version.sh "${ARGS[@]}")"
-          bash scripts/maintenance/bump-version.sh --version-only "$VERSION"
+          VERSION="$(node --experimental-strip-types scripts/maintenance/dev-build-version.ts "${ARGS[@]}")"
+          node --experimental-strip-types scripts/maintenance/bump-version.ts --version-only "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push to dev-build
