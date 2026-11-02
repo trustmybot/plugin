@@ -45423,7 +45423,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename9(dirPath);
-  const join25 = (names) => {
+  const join26 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -45434,10 +45434,10 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join25(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join26(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join25(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join26(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
@@ -47985,6 +47985,16 @@ function agentRunsBackfillTools(db2, dbPath2) {
 // src/tools/trajectory-doctor.ts
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
+// src/data-contracts.ts
+import { readdirSync as readdirSync5 } from "node:fs";
+import { dirname as dirname14, join as join25 } from "node:path";
+
+// src/prose-files.ts
+var PROSE_SUFFIX = /\.(md|markdown|txt|rst)$/i;
+function isProseFile(path2) {
+  return PROSE_SUFFIX.test(path2);
+}
+
 // src/utils/plugin-installs.ts
 import { readFileSync as readFileSync13, realpathSync as realpathSync8 } from "node:fs";
 import { join as join24 } from "node:path";
@@ -48080,6 +48090,20 @@ function noOtherTrajectoryDbs(env, ctx) {
     actual: others.length,
     sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks }))
   };
+}
+var SCRATCH_PROSE_SAMPLE = 10;
+function scratchNoProse(_env, ctx) {
+  if (ctx.dbPath === void 0) return { skipped: "the checked DB has no file behind it" };
+  const scratch = join25(dirname14(ctx.dbPath), "scratch");
+  let entries;
+  try {
+    entries = readdirSync5(scratch, { recursive: true, withFileTypes: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return { actual: 0, sample: [] };
+    return { skipped: `the scratch folder cannot be read: ${e.message}` };
+  }
+  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join25(e.parentPath, e.name)).sort();
+  return { actual: prose.length, sample: prose.slice(0, SCRATCH_PROSE_SAMPLE).map((path2) => ({ path: path2 })) };
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
@@ -48451,6 +48475,14 @@ function buildDataContracts(documentedEventTypes) {
       description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks \u2014 each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
       expect: { op: "=", value: 0 },
       check: noOtherTrajectoryDbs
+    },
+    {
+      source: "files",
+      id: "scratch_no_prose",
+      severity: "warn",
+      description: "no prose file (.md, .markdown, .txt, .rst) sits under the scratch folder beside the checked DB, at any depth: plans, decisions, specs and drafts live in the trajectory DB, so move each sampled file there with issue_update_description, discussion_append or task_update_spec, then delete it. Skipped when the checked DB has no file behind it",
+      expect: { op: "=", value: 0 },
+      check: scratchNoProse
     }
   ];
 }

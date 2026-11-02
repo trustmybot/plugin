@@ -942,6 +942,66 @@ describe('no_other_trajectory_dbs (GH 1553)', () => {
   });
 });
 
+describe('scratch_no_prose (GH 2089)', () => {
+  const fileContract = DATA_CONTRACTS.find((c) => c.id === 'scratch_no_prose')!;
+
+  function dbWithScratch(base: string): { path: string; scratch: string } {
+    const dir = join(base, '.claude', 'tmb');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'trajectory.db');
+    tempDB({ path, seedScan: false }).close();
+    return { path, scratch: join(dir, 'scratch') };
+  }
+
+  function withBase(run: (base: string) => void): void {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-scratch-prose-')));
+    try {
+      run(base);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }
+
+  it('is a warn-severity file contract expecting zero', () => {
+    assert.equal(fileContract.severity, 'warn');
+    assert.equal(fileContract.source, 'files');
+    assert.deepEqual(fileContract.expect, { op: '=', value: 0 });
+  });
+
+  it('counts a .md placed by hand, nested, and samples its path; the report stays healthy', () => {
+    withBase((base) => {
+      const { path, scratch } = dbWithScratch(base);
+      const nested = join(scratch, 'a', 'b');
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(join(nested, 'plan.md'), 'x');
+      writeFileSync(join(scratch, 'q.ts'), 'x');
+      writeFileSync(join(scratch, 'x.log'), 'x');
+      const report = checkTrajectoryDbFile(path, [fileContract], { env: { HOME: join(base, 'home') } });
+      assert.equal(report.healthy, true, 'a warn violation leaves the report healthy');
+      const v = report.violations[0]!;
+      assert.equal(v.id, 'scratch_no_prose');
+      assert.equal(v.actual, 1);
+      assert.deepEqual(v.sample, [{ path: join(nested, 'plan.md') }]);
+    });
+  });
+
+  it('holds with no prose and with no scratch folder', () => {
+    withBase((base) => {
+      const { path, scratch } = dbWithScratch(base);
+      const env = { HOME: join(base, 'home') };
+      assert.deepEqual(checkTrajectoryDbFile(path, [fileContract], { env }).violations, []);
+      mkdirSync(scratch);
+      writeFileSync(join(scratch, 'x.log'), 'x');
+      assert.deepEqual(checkTrajectoryDbFile(path, [fileContract], { env }).violations, []);
+    });
+  });
+
+  it('is skipped with no dbPath', () => {
+    const report = runDataContracts(trajectoryDbReader(tempDB()), [fileContract], { env: {} });
+    assert.equal(report.skipped[0]?.id, 'scratch_no_prose');
+  });
+});
+
 describe('trajectory_doctor tool', () => {
   let projectDir: string | undefined;
   before(() => {

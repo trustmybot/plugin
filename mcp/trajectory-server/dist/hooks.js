@@ -1736,14 +1736,14 @@ var init_tree_sitter = __esm({
           captures.length = captureCount;
           address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
           if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-            const capture6 = captures[captureIndex];
+            const capture7 = captures[captureIndex];
             const setProperties = this.setProperties[patternIndex];
-            capture6.setProperties = setProperties;
+            capture7.setProperties = setProperties;
             const assertedProperties = this.assertedProperties[patternIndex];
-            capture6.assertedProperties = assertedProperties;
+            capture7.assertedProperties = assertedProperties;
             const refutedProperties = this.refutedProperties[patternIndex];
-            capture6.refutedProperties = refutedProperties;
-            result.push(capture6);
+            capture7.refutedProperties = refutedProperties;
+            result.push(capture7);
           }
         }
         C._free(startAddress);
@@ -4826,7 +4826,7 @@ function remember(value, shape) {
   if (shape.items) shape.items.forEach((item, i2) => remember(value[i2], item));
   if (!shape.fields) return;
   const order2 = [...shape.fields.keys()];
-  for (const [key2, field6] of shape.fields) remember(value[key2], field6);
+  for (const [key2, field7] of shape.fields) remember(value[key2], field7);
   if (Object.keys(value).some((key2, i2) => key2 !== order2[i2])) {
     inputOrder.set(value, order2);
     anyReordered = true;
@@ -8319,12 +8319,12 @@ function readStmt(stmt) {
   return stmt.replace(/^\t+|\t+$/g, "");
 }
 function inner(stmt) {
-  const words2 = readWords(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = readWords(stmt);
+  const argv0 = words3[0] ?? "";
   if (SHELL.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -8415,12 +8415,12 @@ function readStmt2(stmt) {
   return stmt.replace(/^\t+|\t+$/g, "");
 }
 function inner2(stmt) {
-  const words2 = readWords2(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = readWords2(stmt);
+  const argv0 = words3[0] ?? "";
   if (SHELL2.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -8448,13 +8448,13 @@ function statements(parser2, cmd, base2, depth, home) {
   return out2;
 }
 function messageArg(subcommand) {
-  const words2 = readWords2(subcommand).slice(1);
-  for (let i2 = 0; i2 < words2.length; i2++) {
-    const w = words2[i2];
-    if (w === "-m" || w === "--message") return words2[i2 + 1] ?? "";
+  const words3 = readWords2(subcommand).slice(1);
+  for (let i2 = 0; i2 < words3.length; i2++) {
+    const w = words3[i2];
+    if (w === "-m" || w === "--message") return words3[i2 + 1] ?? "";
     if (w.startsWith("--message=")) return w.slice("--message=".length);
     if (w.startsWith("-m")) return w.slice(2);
-    if (/^-[a-zA-Z].*m$/s.test(w)) return words2[i2 + 1] ?? "";
+    if (/^-[a-zA-Z].*m$/s.test(w)) return words3[i2 + 1] ?? "";
   }
   return "";
 }
@@ -9216,9 +9216,9 @@ function fdModel(mode, args2, raw, acts, m) {
   }
   return !bad;
 }
-function listerBind(host, name3, dirtok, mode, words2, acts) {
+function listerBind(host, name3, dirtok, mode, words3, acts) {
   if (mode === "loop" && (host.root === "" || !NAME2.test(name3))) return null;
-  const dec2 = mode === "loop" ? words2 : words2.map(decode);
+  const dec2 = mode === "loop" ? words3 : words3.map(decode);
   let dir = "";
   if (dirtok.startsWith("/")) dir = dirtok;
   else if (dirtok === "@") dir = host.cwd;
@@ -9227,23 +9227,23 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
   const args2 = [];
   const raw = [];
   let skip2 = false;
-  for (let k = 1; k < words2.length; k++) {
+  for (let k = 1; k < words3.length; k++) {
     const w = dec2[k] ?? "";
     if (mode === "exec") {
       if (skip2) {
         skip2 = false;
         continue;
       }
-      if (EXEC_REDIRECT.test(words2[k])) {
+      if (EXEC_REDIRECT.test(words3[k])) {
         skip2 = true;
         continue;
       }
-      if (EXEC_REDIRECT_WORD.test(words2[k])) continue;
-      raw.push(words2[k]);
+      if (EXEC_REDIRECT_WORD.test(words3[k])) continue;
+      raw.push(words3[k]);
     } else {
       if (w === "2>/dev/null") continue;
       if (w === "2>") {
-        if (words2[k + 1] !== "/dev/null") return null;
+        if (words3[k + 1] !== "/dev/null") return null;
         k++;
         continue;
       }
@@ -9251,7 +9251,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
     }
     args2.push(w);
   }
-  const cmd = basename2(words2[0] ?? "");
+  const cmd = basename2(words3[0] ?? "");
   if (mode === "exec" && cmd !== "find" && cmd !== "fd" && cmd !== "fdfind") return null;
   const m = { paths: [], vals: [], pats: [], excl: [], gdir: "", listed: false };
   let fine;
@@ -12280,8 +12280,8 @@ var PROGRAM_FLAG = {
   perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
   ruby: /^-[nlpaswWdv]*e(.*)$/s
 };
-function interpWrites(words2, procWrites, held = () => false) {
-  const argv0 = basename3(words2[0] ?? "");
+function interpWrites(words3, procWrites, held = () => false) {
+  const argv0 = basename3(words3[0] ?? "");
   let lang;
   let pyopt = false;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
@@ -12291,7 +12291,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   else if (argv0 === "perl") lang = "perl";
   else if (argv0 === "ruby") lang = "ruby";
   else return [];
-  const n3 = words2.length;
+  const n3 = words3.length;
   let k = 1;
   let optarg = false;
   const encoded = [];
@@ -12301,26 +12301,26 @@ function interpWrites(words2, procWrites, held = () => false) {
     carriers.push(attached ? flagWord : next ?? "");
   };
   while (k < n3) {
-    const w = words2[k++];
+    const w = words3[k++];
     if (pyopt) {
       const m2 = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
       if (m2) {
         pyopt = false;
-        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words2[k] ?? ""))))) return ["$(proc)"];
+        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words3[k] ?? ""))))) return ["$(proc)"];
       } else if (optarg) optarg = false;
       else if (w === "-W" || w === "-X") optarg = true;
       else if (!w.startsWith("-")) pyopt = false;
     }
     const m = PROGRAM_FLAG[lang].exec(w);
     if (m) {
-      take(w, m[1], m[1] ? void 0 : words2[k++]);
+      take(w, m[1], m[1] ? void 0 : words3[k++]);
       break;
     }
   }
   if (lang === "perl" || lang === "ruby") {
     for (let j = k; j < n3; j++) {
-      const m = PROGRAM_FLAG[lang].exec(words2[j]);
-      if (m) take(words2[j], m[1], m[1] ? void 0 : words2[++j]);
+      const m = PROGRAM_FLAG[lang].exec(words3[j]);
+      if (m) take(words3[j], m[1], m[1] ? void 0 : words3[++j]);
     }
   }
   const program = encoded.map((e) => chomp(decode(e))).join("\n");
@@ -12331,7 +12331,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === "-" && found.lines.length === 1);
   const out2 = literal ? [...found.lines] : [];
-  for (; k < n3; k++) if (!words2[k].startsWith("-")) out2.push(...decode(words2[k]).split("\n"));
+  for (; k < n3; k++) if (!words3[k].startsWith("-")) out2.push(...decode(words3[k]).split("\n"));
   if (found.computed) out2.push(COMPUTED + argv0);
   return [...out2, ...unproven];
 }
@@ -12629,17 +12629,17 @@ function inplaceFiles(tool, args2) {
   if (!hasprog) ops = ops.slice(1);
   return ops;
 }
-function gitTree(chain2, words2) {
-  const n3 = words2.length;
+function gitTree(chain2, words3) {
+  const n3 = words3.length;
   let cdir = "";
   let tree = "";
   let k = 1;
   let usetree = true;
   let dir = "";
   let outs = [];
-  const at2 = (j) => words2[j] ?? "";
+  const at2 = (j) => words3[j] ?? "";
   while (k < n3) {
-    const w = words2[k];
+    const w = words3[k];
     if (w === "-C") {
       cdir = under(cdir, at2(k + 1));
       k += 2;
@@ -12659,7 +12659,7 @@ function gitTree(chain2, words2) {
   } else if (sub === "stash") {
     if (next === "list" || next === "show") return [];
   } else if (sub === "apply") {
-    const all = ` ${words2.slice(k).join(" ")} `;
+    const all = ` ${words3.slice(k).join(" ")} `;
     if (!all.includes(" --apply ") && /( --check | --stat | --numstat | --summary )/.test(all)) return [];
   } else if (sub === "bisect") {
     if (/^(|log|view|visualize|terms|help)$/.test(next)) return [];
@@ -12667,28 +12667,28 @@ function gitTree(chain2, words2) {
     if (/^(|list|check-rules)$/.test(next)) return [];
   } else if (sub === "submodule") {
     let j = k + 1;
-    while (j < n3 && words2[j].startsWith("-")) j++;
+    while (j < n3 && words3[j].startsWith("-")) j++;
     if (!/^(update|add|deinit|absorbgitdirs)$/.test(at2(j))) return [];
   } else if (sub === "read-tree") {
     let j = k + 1;
     for (; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (w === "--") break;
       if (w.startsWith("--")) continue;
       if (/^-.*u/s.test(w)) break;
     }
-    if (!(j < n3 && words2[j] !== "--")) return [];
+    if (!(j < n3 && words3[j] !== "--")) return [];
   } else if (sub === "checkout-index") {
     for (let j = k + 1; j < n3; j++) {
-      if (/^--prefix=./s.test(words2[j])) {
-        outs.push(words2[j].slice("--prefix=".length));
+      if (/^--prefix=./s.test(words3[j])) {
+        outs.push(words3[j].slice("--prefix=".length));
         usetree = false;
       }
     }
   } else if (sub === "init") {
     usetree = false;
     for (let j = k + 1; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (w === "--separate-git-dir") {
         outs.push(at2(j + 1));
         j++;
@@ -12702,7 +12702,7 @@ function gitTree(chain2, words2) {
     usetree = false;
     const fp = sub === "format-patch";
     for (let j = k + 1; j < n3; j++) {
-      const w = words2[j];
+      const w = words3[j];
       if (fp && w === "--stdout") return [];
       if (w === "-o" || w === "--output" || fp && w === "--output-directory") {
         outs.push(at2(j + 1));
@@ -12716,34 +12716,34 @@ function gitTree(chain2, words2) {
   if (usetree) outs = [tree || ".", ...outs];
   return outs.filter((w) => w !== "").map((w) => chain2 ? under(cdir, w) : w);
 }
-function extraWrites(chain2, words2, interp) {
+function extraWrites(chain2, words3, interp) {
   const out2 = [];
   let ops = [];
-  const tool = basename4(words2[0]);
-  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words2.slice(1)));
-  else if (tool === "mv") ops = words2.slice(1);
+  const tool = basename4(words3[0]);
+  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words3.slice(1)));
+  else if (tool === "mv") ops = words3.slice(1);
   else if (tool === "git") {
     let k = 1;
-    while (k < words2.length) {
-      if (words2[k] === "-C" || words2[k] === "-c") k += 2;
-      else if (words2[k].startsWith("-")) k++;
+    while (k < words3.length) {
+      if (words3[k] === "-C" || words3[k] === "-c") k += 2;
+      else if (words3[k].startsWith("-")) k++;
       else break;
     }
-    if (words2[k] === "mv") ops = words2.slice(k + 1);
-    out2.push(...gitTree(chain2, words2));
+    if (words3[k] === "mv") ops = words3.slice(k + 1);
+    out2.push(...gitTree(chain2, words3));
   }
   const srcs = ops.filter((w) => !w.startsWith("-"));
   if (srcs.length >= 2) out2.push(...srcs.slice(0, -1));
-  out2.push(...interp(words2));
+  out2.push(...interp(words3));
   return out2;
 }
 function stmtWritePaths(stmt, chain2, interp) {
   const paths = writeTargets(stmt);
-  const { pre, words: words2 } = unwrapStatement(stmt);
-  if (words2.length <= 1) return { paths, words: words2 };
-  if (pre === "") paths.push(...extraWrites(chain2, words2, interp));
-  else for (const p of extraWrites(true, words2, interp)) if (p !== "") paths.push(under(pre, p));
-  return { paths, words: words2 };
+  const { pre, words: words3 } = unwrapStatement(stmt);
+  if (words3.length <= 1) return { paths, words: words3 };
+  if (pre === "") paths.push(...extraWrites(chain2, words3, interp));
+  else for (const p of extraWrites(true, words3, interp)) if (p !== "") paths.push(under(pre, p));
+  return { paths, words: words3 };
 }
 
 // src/hooks/cmd-analysis/write-paths.ts
@@ -12814,21 +12814,21 @@ function parseLine(cmd) {
 `;
 }
 function inner3(stmt) {
-  const words2 = shellWords(stmt);
-  const argv0 = words2[0] ?? "";
+  const words3 = shellWords(stmt);
+  const argv0 = words3[0] ?? "";
   if (basename5(argv0) === "watch") {
     let i2 = 1;
-    while (i2 < words2.length && words2[i2].startsWith("-")) {
-      const w = words2[i2++];
+    while (i2 < words3.length && words3[i2].startsWith("-")) {
+      const w = words3[i2++];
       if (w === "--") break;
       if (WATCH_VALUE.test(w)) i2++;
     }
-    return words2.slice(i2).join(" ");
+    return words3.slice(i2).join(" ");
   }
   if (/^(.*\/)?(bash|sh|zsh|dash|ksh)$/.test(argv0)) {
-    for (let i2 = 1; i2 < words2.length; i2++) {
-      const w = words2[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words3.length; i2++) {
+      const w = words3[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words3[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -12837,9 +12837,9 @@ function inner3(stmt) {
   const builtin = /^(builtin|command)[ \t]+eval(?:[ \t]+|$)/.exec(stmt);
   return builtin ? stmt.slice(builtin[0].length) : "";
 }
-function evalArgs(words2) {
-  if (words2[0] === "eval") return words2.slice(1);
-  if ((words2[0] === "builtin" || words2[0] === "command") && words2[1] === "eval") return words2.slice(2);
+function evalArgs(words3) {
+  if (words3[0] === "eval") return words3.slice(1);
+  if ((words3[0] === "builtin" || words3[0] === "command") && words3[1] === "eval") return words3.slice(2);
   return void 0;
 }
 var SET_IN_TEXT = /(?<![A-Za-z0-9_$-])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?[ \t]*(?:[-+*/%&^|]|<<|>>)?=(?!=)/g;
@@ -12849,8 +12849,8 @@ function setInText(text) {
   if (/\(\(|\$\[|\[|^let\b/.test(text)) for (const m of text.matchAll(STEPPED)) names.push(m[1] ?? m[2]);
   return names;
 }
-function stdinProgram(words2) {
-  const argv0 = basename5(words2[0]);
+function stdinProgram(words3) {
+  const argv0 = basename5(words3[0]);
   let kind;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) kind = "py";
   else if (argv0 === "node" || argv0 === "nodejs") kind = "node";
@@ -12861,8 +12861,8 @@ function stdinProgram(words2) {
   const none = { kind: "", info: false };
   let info2 = false;
   let skip2 = false;
-  for (let k = 1; k < words2.length; k++) {
-    const w = words2[k];
+  for (let k = 1; k < words3.length; k++) {
+    const w = words3[k];
     if (skip2) {
       skip2 = false;
       continue;
@@ -12897,7 +12897,7 @@ function stdinProgram(words2) {
   }
   return { kind, info: info2 };
 }
-var stdinInterp = (words2) => stdinProgram(words2).kind;
+var stdinInterp = (words3) => stdinProgram(words3).kind;
 var WritePaths = class _WritePaths {
   constructor(parser2, opts, charge) {
     this.parser = parser2;
@@ -13119,27 +13119,27 @@ var WritePaths = class _WritePaths {
     return this.bind(level, name3, listerBind(this.listerHost(level), name3, dirtok, "loop", fields, []));
   }
   /** _tmb_cmd_exec_writes: what a find / fd / xargs statement writes through the command it runs. */
-  execWrites(outer, dir, mark, words2, tok, depth) {
+  execWrites(outer, dir, mark, words3, tok, depth) {
     const level = { ...outer };
-    const tool = basename5(words2[0]);
+    const tool = basename5(words3[0]);
     const acts = [];
     let name3;
     if (tool === "find") name3 = "find_path";
     else if (tool === "fd" || tool === "fdfind") name3 = "fd_path";
     else if (tool === "xargs") {
       name3 = "xargs_arg";
-      const n3 = words2.length;
+      const n3 = words3.length;
       let k = 1;
       let rep = "";
       let noin = false;
       while (k < n3) {
-        const p = words2[k];
+        const p = words3[k];
         if (p === "--") {
           k++;
           break;
         }
         if (p === "-I" || p === "-J") {
-          rep = words2[k + 1] ?? "";
+          rep = words3[k + 1] ?? "";
           k += 2;
           continue;
         }
@@ -13160,13 +13160,13 @@ var WritePaths = class _WritePaths {
       }
       if (k >= n3) return;
       const rv2 = "${" + name3 + "}";
-      let cmd = words2.slice(k).join(" ");
+      let cmd = words3.slice(k).join(" ");
       cmd = rep !== "" ? cmd.split(rep).join(rv2) : `${cmd} ${rv2}`;
       acts.push("x" + cmd);
       if (noin || mark === "" || !this.loopSource(level, name3, mark)) level.vars += `${name3}	${BAD2}
 `;
     } else return;
-    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words2, acts))) {
+    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words3, acts))) {
       level.vars += `${name3}	${BAD2}
 `;
     }
@@ -13222,13 +13222,13 @@ var WritePaths = class _WritePaths {
     const out2 = [];
     for (const record of this.listing(cmd, "@", 0)) {
       if (record.dir.startsWith("=")) continue;
-      const { words: words2 } = unwrapStatement(record.stmt);
-      if (words2.length === 0) continue;
-      if (/[$`]/.test(dec(words2[0]))) {
+      const { words: words3 } = unwrapStatement(record.stmt);
+      if (words3.length === 0) continue;
+      if (/[$`]/.test(dec(words3[0]))) {
         out2.push("$(proc)");
         continue;
       }
-      if (!cmd.includes("<<") && stdinInterp(words2) !== "") out2.push("$(proc)");
+      if (!cmd.includes("<<") && stdinInterp(words3) !== "") out2.push("$(proc)");
     }
     const nested = new _WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: "", env: this.opts.env }, this.charge);
     nested.run(cmd, "@", 0, "");
@@ -13270,8 +13270,8 @@ var WritePaths = class _WritePaths {
   isHeld(word) {
     return this.held.has(heldKey(word));
   }
-  interp = (words2) => interpWrites(
-    words2,
+  interp = (words3) => interpWrites(
+    words3,
     (cmd) => this.procWrites(cmd),
     (w) => this.isHeld(w)
   );
@@ -13280,40 +13280,40 @@ var WritePaths = class _WritePaths {
    * with an option other than -x / -r / -g / -t (`declare -n`, `-a`, `-i`,
    * ...), and those mapfile / readarray, getopts and unset set (GH 1739).
    */
-  trackVars(level, words2) {
-    switch (basename5(words2[0])) {
+  trackVars(level, words3) {
+    switch (basename5(words3[0])) {
       case "export":
       case "declare":
       case "typeset":
       case "local":
       case "readonly": {
-        const plain = words2.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
-        for (const w of words2.slice(1)) {
+        const plain = words3.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
+        for (const w of words3.slice(1)) {
           if (!/^[A-Za-z_].*=/s.test(w)) continue;
           if (plain) this.varSet(level, before(w, "="), dec(after(w, "=")));
           else this.poison(level, before(w, "="));
         }
-        if (!plain) for (const w of words2.slice(1)) this.poison(level, w);
+        if (!plain) for (const w of words3.slice(1)) this.poison(level, w);
         return;
       }
       case "mapfile":
       case "readarray":
-        for (const w of [...words2.slice(1), "MAPFILE"]) this.poison(level, w);
+        for (const w of [...words3.slice(1), "MAPFILE"]) this.poison(level, w);
         return;
       case "unset":
-        for (const w of words2.slice(1)) this.poison(level, w);
+        for (const w of words3.slice(1)) this.poison(level, w);
         return;
       case "getopts":
-        this.poison(level, words2[2] ?? "");
+        this.poison(level, words3[2] ?? "");
         return;
       case "for": {
-        if (words2[2] !== "in") {
-          level.vars += `${words2[1] ?? ""}	${BAD2}
+        if (words3[2] !== "in") {
+          level.vars += `${words3[1] ?? ""}	${BAD2}
 `;
           return;
         }
-        const name3 = words2[1] ?? "";
-        const rest = words2.slice(3);
+        const name3 = words3[1] ?? "";
+        const rest = words3.slice(3);
         if (rest.length === 1 && rest[0].startsWith("$")) {
           if (!this.loopSource(level, name3, rest[0].slice(3))) level.vars += `${name3}	${BAD2}
 `;
@@ -13326,7 +13326,7 @@ var WritePaths = class _WritePaths {
         let mk = "";
         let skip2 = false;
         const names = [];
-        for (const w of words2.slice(1)) {
+        for (const w of words3.slice(1)) {
           if (skip2) {
             skip2 = false;
             continue;
@@ -13343,7 +13343,7 @@ var WritePaths = class _WritePaths {
         return;
       }
       case "printf":
-        if (words2[1] === "-v") level.vars += `${words2[2] ?? ""}	${BAD2}
+        if (words3[1] === "-v") level.vars += `${words3[2] ?? ""}	${BAD2}
 `;
         return;
     }
@@ -13367,9 +13367,9 @@ var WritePaths = class _WritePaths {
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
-  poisonSet(level, words2) {
-    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words2[0]));
-    for (const w of words2) {
+  poisonSet(level, words3) {
+    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words3[0]));
+    for (const w of words3) {
       if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
       for (const name3 of setInText(dec(w))) this.poison(level, name3);
     }
@@ -13403,22 +13403,22 @@ var WritePaths = class _WritePaths {
         }
         level.oldtok = old;
         level.why = why;
-        const words2 = shellWords(record.stmt);
-        if (words2.length === 0) return;
+        const words3 = shellWords(record.stmt);
+        if (words3.length === 0) return;
         if (dir.startsWith("=")) {
           this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
             this.pwd = dirPath(d, cwd);
-            for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+            for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
           });
           return;
         }
-        this.poisonSet(level, words2);
+        this.poisonSet(level, words3);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner3(record.stmt);
-        if (body2 !== "" && (!evalArgs(words2) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
+        if (body2 !== "" && (!evalArgs(words3) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
-          this.trackVars(level, words2);
+          this.trackVars(level, words3);
         });
       });
       level.vars = varsUniq(level.vars);
@@ -13473,12 +13473,12 @@ var WritePaths = class _WritePaths {
       }
       level.oldtok = old;
       level.why = why;
-      let words2 = shellWords(record.stmt);
-      if (words2.length === 0) continue;
+      let words3 = shellWords(record.stmt);
+      if (words3.length === 0) continue;
       if (dir.startsWith("=")) {
         this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
-          for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
         });
         continue;
       }
@@ -13486,21 +13486,21 @@ var WritePaths = class _WritePaths {
       const dirs = dir.split(ALT);
       const each = (fn) => this.eachDir(level, dirs, why, (d) => fn(d, d === "-" && level.why === "", d + SEP + old + (level.why === "" ? "" : SEP + level.why)));
       const body2 = inner3(record.stmt);
-      const evaluated = evalArgs(words2);
-      this.poisonSet(level, words2);
+      const evaluated = evalArgs(words3);
+      this.poisonSet(level, words3);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
       if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
       if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
-      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words2[0]))} ${dec(body2)}`));
-      const ownWords = body2 !== "" && !evaluated && basename5(words2[0]) !== "watch";
+      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
+      const ownWords = body2 !== "" && !evaluated && basename5(words3[0]) !== "watch";
       if (ownWords) {
         each((d, chain2) => {
           for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
         });
       }
       if (body2 !== "" && !evaluated && heldProgram(body2)) {
-        this.print(computedLine(`${basename5(dec(words2[0]))} ${dec(body2)}`));
+        this.print(computedLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
         continue;
       }
       if (body2 !== "" && depth < MAX_DEPTH3) {
@@ -13510,30 +13510,30 @@ var WritePaths = class _WritePaths {
       if (body2 !== "") this.print(computedLine(dec(body2)));
       let stmt = record.stmt;
       let mark = "";
-      if (basename5(words2[0]) === "xargs" && words2[words2.length - 1].startsWith(SEP)) {
-        mark = words2[words2.length - 1];
-        words2 = words2.slice(0, -1);
-        stmt = words2.join(" ");
+      if (basename5(words3[0]) === "xargs" && words3[words3.length - 1].startsWith(SEP)) {
+        mark = words3[words3.length - 1];
+        words3 = words3.slice(0, -1);
+        stmt = words3.join(" ");
       }
       if (!ownWords) {
         each((d, chain2) => {
           for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
         });
       }
-      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words2[0]))) each((d, _, t) => this.execWrites(level, d, mark, words2, t, depth));
-      const { kind, info: info2 } = stdinProgram(words2);
+      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words3[0]))) each((d, _, t) => this.execWrites(level, d, mark, words3, t, depth));
+      const { kind, info: info2 } = stdinProgram(words3);
       if (kind !== "") {
         const progs = [];
         const herestring = (w) => {
           progs.push({ prog: dec(w), held: heldProgram(w), partly: this.isHeld(w) });
         };
-        for (let w = 0; w < words2.length; w++) {
-          if (words2[w] === "<<<") herestring(words2[w + 1] ?? "");
-          else if (words2[w].startsWith("<<<")) herestring(words2[w].slice(3));
+        for (let w = 0; w < words3.length; w++) {
+          if (words3[w] === "<<<") herestring(words3[w + 1] ?? "");
+          else if (words3[w].startsWith("<<<")) herestring(words3[w].slice(3));
         }
         for (const h of bodies.get(idx) ?? []) progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
-        if (progs.length === 0 && !info2) this.print(computedLine(basename5(dec(words2[0]))));
-        const shownArgv0 = basename5(dec(words2[0]));
+        if (progs.length === 0 && !info2) this.print(computedLine(basename5(dec(words3[0]))));
+        const shownArgv0 = basename5(dec(words3[0]));
         for (const { prog, held, partly } of progs) {
           if (held) this.print(computedLine(`${shownArgv0} ${prog}`));
           else if (kind === "sh") {
@@ -13552,7 +13552,7 @@ var WritePaths = class _WritePaths {
       }
       each((d) => {
         this.pwd = dirPath(d, cwd);
-        this.trackVars(level, words2);
+        this.trackVars(level, words3);
       });
     }
   }
@@ -13710,8 +13710,8 @@ function ghMutationFrom(w) {
   if (!writes || action === "" || !writes.includes(action)) return "";
   return `${group} ${action}`;
 }
-function ghMutationIn(words2) {
-  const cmd = words2.join(" ");
+function ghMutationIn(words3) {
+  const cmd = words3.join(" ");
   if (cmd === "") return "";
   const w = readWords3(cmd.replaceAll("_", " "));
   for (let k = 0; k < w.length; k++) {
@@ -13742,8 +13742,8 @@ function rebaseExec(g) {
   }
   return "";
 }
-function gitMutation(words2) {
-  const g = readWords3(gitSubcommand(words2.join(" ")));
+function gitMutation(words3) {
+  const g = readWords3(gitSubcommand(words3.join(" ")));
   if (`${g[0] ?? ""} ${g[1] ?? ""}` === "bisect run") return ghMutationIn(g.slice(2));
   if (g[0] === "submodule") {
     let k = 1;
@@ -14641,12 +14641,12 @@ async function judgeBash(g, input, analyze2) {
     if (path !== null) g.judge(path);
   }
 }
-function runTmpdir(input, g) {
-  const hookTmp = g.env.TMPDIR ?? "";
+function runTmpdir(input, toolName2, env, uid, harnessTmpC) {
+  const hookTmp = env.TMPDIR ?? "";
   if (/^\/./s.test(hookTmp)) return hookTmp;
-  if (g.toolName !== "Bash" || g.harnessTmpC === "") return hookTmp;
+  if (toolName2 !== "Bash" || harnessTmpC === "") return hookTmp;
   if (jqField2(input, ["tool_input", "dangerouslyDisableSandbox"]) === "true") return hookTmp;
-  return `/tmp/claude-${g.uid}`;
+  return `/tmp/claude-${uid}`;
 }
 async function guard(input, env, analyze2) {
   const g = new Guard(env);
@@ -14680,7 +14680,7 @@ async function guard(input, env, analyze2) {
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
   g.harnessTmpC = harnessTmp(g.uid);
-  const tmpdir2 = runTmpdir(input, g);
+  const tmpdir2 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
   if (tmpdir2 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir2 };
   if (/^\/./s.test(tmpdir2)) g.hostTmpC = canonical(tmpdir2);
   if (agentType === "" || agentType === "bro") {
@@ -15060,12 +15060,12 @@ var Guard2 = class {
     const seen = /* @__PURE__ */ new Set();
     const out2 = [];
     for (const row of lines(pairs)) {
-      const words2 = row.trim().split(/\s+/).filter((w) => w !== "");
-      const sha = words2[0] ?? "";
+      const words3 = row.trim().split(/\s+/).filter((w) => w !== "");
+      const sha = words3[0] ?? "";
       if (!pid.has(sha) || seen.has(sha)) continue;
       seen.add(sha);
       let m = "";
-      for (const cand of words2.slice(1)) {
+      for (const cand of words3.slice(1)) {
         if (pid.has(cand) && pid.get(cand) === pid.get(sha) && task.has(cand)) {
           const t = task.get(cand) ?? "";
           if (m === "" || /\|1$/.test(t)) m = t;
@@ -17478,12 +17478,12 @@ function silentLimitMs(env, load1, ncpu) {
 }
 function pipelineWords(command) {
   const text = command.replace(/\s2>(?:\/dev\/null|&1)(?=\s|\||$)/g, "");
-  const words2 = [];
+  const words3 = [];
   let word = "";
   let inWord = false;
   let quote = "";
   const flush = () => {
-    if (inWord) words2.push(word);
+    if (inWord) words3.push(word);
     word = "";
     inWord = false;
   };
@@ -17506,7 +17506,7 @@ function pipelineWords(command) {
       flush();
     } else if (c === "|") {
       flush();
-      words2.push("|");
+      words3.push("|");
     } else if (SHELL_SYNTAX.includes(c)) {
       return null;
     } else {
@@ -17516,14 +17516,14 @@ function pipelineWords(command) {
   }
   if (quote !== "") return null;
   flush();
-  const hasEmptyStage = words2[0] === "|" || words2[words2.length - 1] === "|" || words2.some((w, i2) => w === "|" && words2[i2 + 1] === "|");
-  return hasEmptyStage ? null : words2;
+  const hasEmptyStage = words3[0] === "|" || words3[words3.length - 1] === "|" || words3.some((w, i2) => w === "|" && words3[i2 + 1] === "|");
+  return hasEmptyStage ? null : words3;
 }
 function tailFollowTarget(command) {
-  const words2 = pipelineWords(command);
-  if (words2 === null || words2[0] !== "tail") return null;
-  const end = words2.indexOf("|");
-  const args2 = words2.slice(1, end < 0 ? void 0 : end);
+  const words3 = pipelineWords(command);
+  if (words3 === null || words3[0] !== "tail") return null;
+  const end = words3.indexOf("|");
+  const args2 = words3.slice(1, end < 0 ? void 0 : end);
   let follows = false;
   let target = null;
   for (let i2 = 0; i2 < args2.length; i2 += 1) {
@@ -18138,17 +18138,17 @@ function activationRoutine(payload, env) {
   try {
     const echoed = `${commandSubstitution(payload)}
 `;
-    const field6 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
-    const prompt = field6("prompt");
+    const field7 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
+    const prompt = field7("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field6("transcript_path")), grep)) return ALLOW;
+    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field7("transcript_path")), grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
     const db = dbPathAdvisory(GATE_NAME27, env, (line) => process.stderr.write(`${line}
 `));
     if (db === null || !haveSqlite(env)) return haltOnly();
     const onboarded = sqliteRo(db, "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';", env);
-    const sessionId = field6("session_id");
+    const sessionId = field7("session_id");
     const pending2 = handoffPending(db, sessionId, env) || sqliteRo(db, "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;", env);
     let context4 = activationContext(onboarded, pending2);
     if (halt !== "") context4 = `${halt} ${context4}`;
@@ -20416,7 +20416,7 @@ function makeScratch(db) {
     return mkdtempSync(`${tmpdir()}/verify-run.`);
   }
 }
-function waive(db, taskId, reason, field6, env) {
+function waive(db, taskId, reason, field7, env) {
   const row = gateRead(
     db,
     `SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`,
@@ -20426,7 +20426,7 @@ function waive(db, taskId, reason, field6, env) {
 `, code: 0 };
   if (row === "") return ALLOW;
   const rest = afterBar(row);
-  const sha = field6("commit_sha") || afterBar(rest);
+  const sha = field7("commit_sha") || afterBar(rest);
   const r = auditAppend(
     db,
     {
@@ -20448,17 +20448,17 @@ function waive(db, taskId, reason, field6, env) {
 var sweVerificationGate = async (payload, env) => {
   const input = `${commandSubstitution(payload)}
 `;
-  const field6 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
-  if (normalizeRole(field6("agent")) !== "swe") return ALLOW;
-  if (field6("status") !== "completed") return ALLOW;
-  const taskId = field6("task_id");
+  const field7 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
+  if (normalizeRole(field7("agent")) !== "swe") return ALLOW;
+  if (field7("status") !== "completed") return ALLOW;
+  const taskId = field7("task_id");
   if (!/^[0-9]+$/.test(taskId)) return ALLOW;
   const db = dbPath(env, (line) => stderr(`${line}
 `));
   if (db === null || !haveSqlite(env)) return ALLOW;
   const genv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
-  const waiver = field6("waive_verification_gate_reason");
-  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field6, genv);
+  const waiver = field7("waive_verification_gate_reason");
+  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field7, genv);
   const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
@@ -20489,7 +20489,7 @@ var sweVerificationGate = async (payload, env) => {
   if (budget.warning !== "") stderr(budget.warning);
   const head = await gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
   const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
-  const expectedSha = field6("commit_sha");
+  const expectedSha = field7("commit_sha");
   const commands = block2.split("\n").filter((line) => line !== "");
   const gateCmdsJson = jqCompact([...commands, ...findings.map(probeCommand)]);
   const scratch = makeScratch(db);
@@ -22085,12 +22085,12 @@ function mergeArgs(cmd) {
   const stripped = commandSubstitution(stripLiterals(cmd));
   for (const line of stripped.split("\n")) {
     for (const stmt of line.split(/&&|\|\||[;|&()]/)) {
-      const words2 = stmt.split(/[ \t\n]+/).filter((w) => w !== "");
+      const words3 = stmt.split(/[ \t\n]+/).filter((w) => w !== "");
       let i2 = 0;
-      while (i2 < words2.length && (WRAPPERS.has(words2[i2]) || /^[A-Za-z_].*=/s.test(words2[i2]))) i2 += 1;
-      if (words2.length - i2 < 3) continue;
-      const tool = `${words2[i2]} ${words2[i2 + 1]}`;
-      if ((tool === "gh pr" || tool === "glab mr") && words2[i2 + 2] === "merge") return words2.slice(i2 + 3);
+      while (i2 < words3.length && (WRAPPERS.has(words3[i2]) || /^[A-Za-z_].*=/s.test(words3[i2]))) i2 += 1;
+      if (words3.length - i2 < 3) continue;
+      const tool = `${words3[i2]} ${words3[i2 + 1]}`;
+      if ((tool === "gh pr" || tool === "glab mr") && words3[i2 + 2] === "merge") return words3.slice(i2 + 3);
     }
   }
   return null;
@@ -22521,8 +22521,8 @@ function entryAgent(input) {
   }
   return stripTrailingNewlines(lines2.join("\n"));
 }
-function cutField3(text, field6) {
-  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field6 - 1] ?? "" : line);
+function cutField3(text, field7) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field7 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
 }
 function secondsIso() {
@@ -23827,6 +23827,182 @@ var noSourceEditFromMain = async (payload, env) => {
   return await editRule(payload, env);
 };
 
+// src/prose-files.ts
+var PROSE_SUFFIX = /\.(md|markdown|txt|rst)$/i;
+function isProseFile(path) {
+  return PROSE_SUFFIX.test(path);
+}
+
+// src/hooks/no-prose-in-scratch.ts
+var GATE_NAME69 = "no-prose-in-scratch";
+var FILE_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+var BODY_FILE_WRITES = /* @__PURE__ */ new Set(["issue create", "issue edit", "issue comment", "pr create", "pr edit", "pr comment"]);
+var GH_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "--title",
+  "-t",
+  "--body",
+  "-b",
+  "--assignee",
+  "-a",
+  "--label",
+  "-l",
+  "--milestone",
+  "-m",
+  "--project",
+  "-p",
+  "--recover",
+  "--template",
+  "-T",
+  "--repo",
+  "-R",
+  "--base",
+  "-B",
+  "--head",
+  "-H",
+  "--reviewer",
+  "-r",
+  "--add-assignee",
+  "--remove-assignee",
+  "--add-label",
+  "--remove-label",
+  "--add-project",
+  "--remove-project",
+  "--add-reviewer",
+  "--remove-reviewer"
+]);
+var REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
+var FLATTENED = /[ \t\n<>|;&()`]/g;
+var LITERAL_NODES = ["raw_string", "ansi_c_string", "heredoc_body", "comment"];
+var BODY_FILE_REASON = "BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.";
+function proseReason(target) {
+  return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
+}
+function capture6(text) {
+  return stripTrailingNewlines(text.replace(/\0/g, ""));
+}
+function field6(input, ...paths) {
+  return capture6(jqAlternatives(input, paths));
+}
+function deny11(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function under4(path, dir) {
+  return path.startsWith(`${dir.endsWith("/") ? dir.slice(0, -1) : dir}/`);
+}
+function inScratchFolder(canonical3, env) {
+  return canonical3.includes(`/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch/`);
+}
+function tmpRoots(tmpdir2) {
+  const roots = [capture6(pathCanonical2("/tmp"))];
+  if (!/^\/./s.test(tmpdir2)) return roots;
+  const canonical3 = capture6(pathCanonical2(tmpdir2));
+  return canonical3 === "/" ? roots : [...roots, canonical3];
+}
+async function deniedProse(path, tmpdir2, env) {
+  if (!isProseFile(path)) return false;
+  const canonical3 = capture6(pathCanonical2(path));
+  if (inScratchFolder(canonical3, env)) return true;
+  if (!tmpRoots(tmpdir2).some((root) => under4(canonical3, root))) return false;
+  return await repoGitRoot(posixDirname(canonical3), env) === "";
+}
+function effectiveTmpdir(input, toolName2, env) {
+  const uid = process.getuid?.() ?? 0;
+  return runTmpdir(input, toolName2, env, uid, harnessTmp(uid));
+}
+function words2(stmt) {
+  return (stmt.split("\n")[0] ?? "").split(/[ \t]+/).filter((w) => w !== "");
+}
+async function joinContinuations(command) {
+  if (!command.includes("\\\n")) return command;
+  const tree = (await bashParser()).parse(command);
+  if (tree === null) return command;
+  const literals = tree.rootNode.descendantsOfType(LITERAL_NODES).flatMap((node) => node === null ? [] : [[node.startIndex, node.endIndex]]);
+  tree.delete();
+  let next = 0;
+  return command.replace(/\\[\s\S]/g, (pair, at2) => {
+    while (next < literals.length && literals[next][1] <= at2) next += 1;
+    const inLiteral = next < literals.length && literals[next][0] <= at2;
+    return pair === "\\\n" && !inLiteral ? "" : pair;
+  });
+}
+function isStdinValue(value) {
+  const word = value.replace(/<.*$/s, "");
+  return word === "" || word === "-";
+}
+function readsBodyFile(stmt) {
+  if (!BODY_FILE_WRITES.has(ghMutation(stmt))) return false;
+  const w = words2(stmt);
+  const gh2 = w.findIndex((word, k) => posixBasename(word) === "gh" && BODY_FILE_WRITES.has(ghMutationFrom(w.slice(k))));
+  if (gh2 < 0) return false;
+  for (let k = gh2 + 1; k < w.length; k++) {
+    const flag = w[k];
+    if (flag === "--") return false;
+    if (GH_VALUE_FLAGS.has(flag)) {
+      k += 1;
+      continue;
+    }
+    if (flag === "--body-file" || flag === "-F") {
+      if (k + 1 < w.length && !isStdinValue(w[k + 1])) return true;
+      k += 1;
+      continue;
+    }
+    const attached = /^(?:--body-file=|-F=?)(.+)$/s.exec(flag);
+    if (attached && !isStdinValue(attached[1])) return true;
+  }
+  return false;
+}
+function isRm(stmt) {
+  return posixBasename(words2(stmt)[0] ?? "") === "rm";
+}
+function indexOfTarget(lines2, removed) {
+  const exact = lines2.indexOf(removed);
+  return exact >= 0 ? exact : lines2.findIndex((line) => line.replace(FLATTENED, "_") === removed);
+}
+async function withoutRmTargets(lines2, statements2, cwd, env) {
+  const kept = [...lines2];
+  for (const { dir, stmt } of statements2) {
+    if (!isRm(stmt)) continue;
+    const removed = await writePaths(stmt.replace(REDIRECT, ""), { cwd: dir.startsWith("/") ? dir : cwd, env });
+    for (const target of removed) {
+      const at2 = indexOfTarget(kept, target);
+      if (at2 >= 0) kept.splice(at2, 1);
+    }
+  }
+  return kept;
+}
+async function bashRule2(input, env) {
+  const command = await joinContinuations(field6(input, ["tool_input", "command"]));
+  if (command === "") return ALLOW;
+  const tmpdir2 = effectiveTmpdir(input, "Bash", env);
+  const runEnv = tmpdir2 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir2 };
+  const cwd = payloadCwd(input, env);
+  const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
+  if (lines2.some(isCapLine)) return ALLOW;
+  const prose = lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+  if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return ALLOW;
+  if (listed2.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny11(BODY_FILE_REASON);
+  for (const path of await withoutRmTargets(prose, listed2.statements, cwd, runEnv)) {
+    if (await deniedProse(path, tmpdir2, env)) return deny11(proseReason(path));
+  }
+  return ALLOW;
+}
+async function fileRule(input, toolName2, env) {
+  const target = field6(input, ["tool_input", "file_path"], ["tool_input", "notebook_path"]);
+  if (target === "") return ALLOW;
+  const path = target.startsWith("/") ? target : `${payloadCwd(input, env)}/${target}`;
+  return await deniedProse(path, effectiveTmpdir(input, toolName2, env), env) ? deny11(proseReason(target)) : ALLOW;
+}
+var noProseInScratch = async (payload, env) => {
+  if ((env.TMB_ALLOW_PROSE_SCRATCH ?? "0") === "1") return ALLOW;
+  const toolName2 = field6(payload, ["tool_name"]);
+  if (toolName2 === "Bash") return await bashRule2(payload, env);
+  return FILE_TOOLS.has(toolName2) ? await fileRule(payload, toolName2, env) : ALLOW;
+};
+
 // src/hooks/router/budgets.json
 var budgets_default = {
   rounds: 20,
@@ -23835,12 +24011,12 @@ var budgets_default = {
   groups: {
     "PreToolUse:Write|Edit|MultiEdit|NotebookEdit": {
       max_budget_ms: 8090,
-      p99_sum_ms: 18264.7,
+      p99_sum_ms: 18630.2,
       group_budget_ms: 8090
     },
     "PreToolUse:Bash": {
       max_budget_ms: 16e3,
-      p99_sum_ms: 21657.5,
+      p99_sum_ms: 22023,
       group_budget_ms: 16e3
     },
     "PreToolUse:Agent": {
@@ -23986,6 +24162,22 @@ var budgets_default = {
       floor_ms: 6e3,
       budget_ms: 6e3,
       date: "2026-10-31"
+    },
+    "no-prose-in-scratch": {
+      kind: "enforcement",
+      bench_p50: 113.7,
+      bench_p95: 342.2,
+      bench_p99: 365.5,
+      bench_runs: 640,
+      bench_load_avg: 1.87,
+      transcript_p99: null,
+      reason: "no no-prose-in-scratch PreToolUse hook attachment in 1085 transcript files of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-01"
     },
     "swe-boundary": {
       kind: "enforcement",
@@ -24880,14 +25072,16 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME65, cleanupWorktreeOnTaskClose],
   [GATE_NAME66, worktreeCreate],
   [GATE_NAME67, remoteIdGuard],
-  [GATE_NAME68, noSourceEditFromMain]
+  [GATE_NAME68, noSourceEditFromMain],
+  [GATE_NAME69, noProseInScratch]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
 }
+var TS_ONLY_GATES = /* @__PURE__ */ new Set([GATE_NAME69]);
 function routerGate(name3, kind, toolSuffix) {
   const budgets = budgets_default.gates;
-  return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix } };
+  return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix }, ...TS_ONLY_GATES.has(name3) ? { tsOnly: true } : {} };
 }
 function routerGroupKey(group) {
   return group.part === void 0 ? `${group.event}:${group.matcher}` : `${group.event}:${group.matcher}:${group.part}`;
@@ -24904,6 +25098,7 @@ var ROUTER_GROUPS = [
     routerGate("containment-guard", "enforcement"),
     routerGate(GATE_NAME43, "enforcement"),
     routerGate(GATE_NAME68, "enforcement"),
+    routerGate(GATE_NAME69, "enforcement"),
     routerGate(GATE_NAME20, "enforcement"),
     routerGate(GATE_NAME54, "advisory"),
     routerGate(GATE_NAME19, "advisory"),
@@ -24921,6 +25116,7 @@ var ROUTER_GROUPS = [
     routerGate(GATE_NAME7, "advisory"),
     routerGate(GATE_NAME53, "enforcement"),
     routerGate(GATE_NAME67, "enforcement"),
+    routerGate(GATE_NAME69, "enforcement"),
     routerGate(GATE_NAME28, "advisory")
   ], { concurrent: true }),
   preToolUseGroup("Agent", [routerGate(GATE_NAME62, "enforcement"), routerGate(GATE_NAME28, "advisory")]),
@@ -25128,9 +25324,9 @@ function mergeContext(outputs, event) {
   return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}
 `;
 }
-function blockKeepingContext(event, deny11, contexts) {
-  const out2 = trimNewlines(deny11.stdout);
-  if (event === "PreToolUse" || deny11.code === 2 || contexts.length === 0 || !parses(out2)) return deny11.stdout;
+function blockKeepingContext(event, deny12, contexts) {
+  const out2 = trimNewlines(deny12.stdout);
+  if (event === "PreToolUse" || deny12.code === 2 || contexts.length === 0 || !parses(out2)) return deny12.stdout;
   return mergeContext([out2, ...contexts], event);
 }
 var LATE = /* @__PURE__ */ Symbol("late");
@@ -25299,7 +25495,7 @@ async function decideCall(event, payload, env, deps) {
   }
   const bashImpl = env.TMB_HOOKS_IMPL === "bash";
   const group = routerGroup(event, tool, groups, deps.part);
-  const gates = routerGates(event, tool, groups, deps.part);
+  const gates = routerGates(event, tool, groups, deps.part).filter((g) => !(bashImpl && g.tsOnly));
   if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
   const call = {
     event,
@@ -25313,7 +25509,7 @@ async function decideCall(event, payload, env, deps) {
   const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
-  const deny11 = done.find(({ j }) => j.outcome === "deny");
+  const deny12 = done.find(({ j }) => j.outcome === "deny");
   const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
   if (stdoutIsPath(event)) {
     const notAllowed = done.find(({ j }) => j.outcome !== "allow");
@@ -25321,8 +25517,8 @@ async function decideCall(event, payload, env, deps) {
     const cause = notAllowed ? `gate ${notAllowed.gate.name} ended in ${notAllowed.j.outcome}` : done.length === 0 ? "no gate serves it" : "no bare path printed";
     return { stdout: "", stderr: `${stderr2}${pathFailure(event, cause)}`, code: 1, tool, gates: outcomes, denied: null };
   }
-  if (deny11) {
-    return { stdout: blockKeepingContext(event, deny11.j, context4), stderr: stderr2, code: deny11.j.code, tool, gates: outcomes, denied: { gate: deny11.gate.name, reason: deny11.j.reason } };
+  if (deny12) {
+    return { stdout: blockKeepingContext(event, deny12.j, context4), stderr: stderr2, code: deny12.j.code, tool, gates: outcomes, denied: { gate: deny12.gate.name, reason: deny12.j.reason } };
   }
   return { stdout: mergeContext(context4, event), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
 }

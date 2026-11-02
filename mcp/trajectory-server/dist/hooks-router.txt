@@ -1,6 +1,7 @@
 containment-guard 5000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-brief-gate 6000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 no-source-edit-from-main 6000 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
+no-prose-in-scratch 6000 ts-only PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-boundary 8090 enforcement PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 swe-scope-fence 6948 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 naming-lint 4000 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
@@ -16,6 +17,7 @@ branch-up-to-date-with-remote 16000 enforcement PreToolUse Bash *
 commit-msg-lint 7280 advisory PreToolUse Bash *
 no-remote-auth-guard 6000 enforcement PreToolUse Bash *
 remote-id-guard 6152 enforcement PreToolUse Bash *
+no-prose-in-scratch 6000 ts-only PreToolUse Bash *
 debug-trajectory 7486 advisory PreToolUse Bash *
 agent-spawn-dispatch 16000 enforcement PreToolUse Agent *
 debug-trajectory 7486 advisory PreToolUse Agent *

@@ -2,12 +2,13 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate, task-overrun-alert, liveness-alert,
- * rework-waiver-capture and session-handoff have no hook-corpus directory (they
- * were born in TypeScript), so their cases are built here. A gate with bash
+ * router benches. swe-resume-gate, no-prose-in-scratch, task-overrun-alert,
+ * liveness-alert, rework-waiver-capture and session-handoff have no hook-corpus
+ * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
  */
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -54,6 +55,7 @@ export const ROUTER_CORPUS_GATES = [
     ...ROUTER_BASH_GATES,
     'swe-brief-gate',
     'no-source-edit-from-main',
+    'no-prose-in-scratch',
     'swe-scope-fence',
     'naming-lint',
     'code-quality-lint',
@@ -416,6 +418,8 @@ export function routerSandbox(rootDir, gates) {
     }
     if (want('swe-resume-gate'))
         cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
+    if (want('no-prose-in-scratch'))
+        cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
     // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
     const noInstall = (env) => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
     const golden = (file, s, divergent, roots = {}) => ({ key: basename(file), roots: { '@SANDBOX@': s, '@BASE@': dirname(s), ...roots }, divergent });
@@ -651,6 +655,27 @@ function sweResumeCases(dir, cwd) {
         fakeUid: false,
         reset: () => build(effort, fails),
     }));
+}
+/** no-prose-in-scratch's cases: each kind of target and of body file, with a git repo inside the TMPDIR zone. */
+function noProseCases(dir, cwd) {
+    const tmp = join(dir, 'tmp');
+    const repo = join(tmp, 'repo');
+    mkdirSync(repo, { recursive: true });
+    execFileSync('git', ['init', '-q', repo]);
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TMPDIR: tmp, LC_ALL: LOCALE });
+    const write = (filePath) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd, tool_name: 'Write', tool_input: { file_path: filePath, content: 'x' } });
+    const shell = (command) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd, tool_name: 'Bash', tool_input: { command } });
+    const scenarios = [
+        ['write-scratch-prose', write(join(cwd, '.claude/tmb/scratch/plan.md'))],
+        ['write-tmp-prose', write(join(tmp, 'x.md'))],
+        ['write-tmp-log', write(join(tmp, 'x.log'))],
+        ['write-repo-prose', write(join(repo, 'README.md'))],
+        ['bash-tmp-prose', shell(`echo hi > ${tmp}/x.txt`)],
+        ['bash-tmp-rm', shell(`rm ${tmp}/x.md`)],
+        ['bash-body-file', shell('gh issue edit 1 --body-file b.md')],
+        ['bash-body-stdin', shell('gh issue edit 1 --body-file - <<EOF\nhi\nEOF')],
+    ];
+    return scenarios.map(([file, input]) => ({ gate: 'no-prose-in-scratch', file, input, env, cwd, fakeUid: false }));
 }
 /** Runs <fn> under the case's uid (containment-guard's fake one, or the real one). */
 export async function underUid(fake, fn) {

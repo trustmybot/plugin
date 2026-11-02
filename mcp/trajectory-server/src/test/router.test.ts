@@ -835,6 +835,25 @@ describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', (
     assert.equal(d.denied?.gate, 'swe-resume-gate');
   });
 
+  it('a tsOnly gate neither runs nor blocks under the switch; an enforcement gate with no .sh and no flag still denies (GH 2089)', async () => {
+    const onlyTs = (tsOnly?: true): RouterGroup[] => [
+      { event: 'PreToolUse', matcher: 'Bash', groupBudgetMs: 6000, gates: [{ name: 'no-prose-in-scratch', kind: 'enforcement', budgetMs: 6000, ...(tsOnly ? { tsOnly } : {}) }] },
+    ];
+    const proseWrite = bash('echo hi > /tmp/x.md');
+    const lifted = await decide('PreToolUse', proseWrite, shEnv(), { groups: onlyTs(true) });
+    assert.equal(lifted.denied, null);
+    assert.deepEqual(lifted.gates, []);
+    assert.equal(lifted.stdout, '');
+    const held = await decide('PreToolUse', proseWrite, shEnv(), { groups: onlyTs() });
+    assert.equal(held.denied?.gate, 'no-prose-in-scratch');
+    for (const tool of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+      const registered = routerGroup('PreToolUse', tool)?.gates.find((g) => g.name === 'no-prose-in-scratch');
+      assert.equal(registered?.kind, 'enforcement', tool);
+      assert.equal(registered?.tsOnly, true, tool);
+    }
+    assert.equal(ROUTER_GROUPS.flatMap((g) => g.gates).filter((g) => g.tsOnly).every((g) => g.name === 'no-prose-in-scratch'), true);
+  });
+
   it('a .sh exiting other than 0 or 2 fails closed as a gate does', async () => {
     const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['exits-3', 'enforcement']) });
     assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate exits-3 exited 3 without a decision/);
@@ -935,9 +954,9 @@ describe('router entry: dedupe and records', () => {
     }
   }
 
-  it('writes one hook_call row with the 11 gates of the Bash group, each with its ms', async () => {
+  it('writes one hook_call row with the 12 gates of the Bash group, each with its ms', async () => {
     const names = routerGates('PreToolUse', 'Bash').map((g) => g.name);
-    assert.equal(names.length, 11);
+    assert.equal(names.length, 12);
     const r = await call(bash('ls', { tool_use_id: 'call-row' }), () => () => ALLOW);
     assert.equal(r.stdout, '');
     const calls = rows('hook_call');
