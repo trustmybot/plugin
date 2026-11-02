@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L3 tests for scripts/hooks/roundtable-cleanup-postcheck.sh
+# L3 tests for the TypeScript roundtable-cleanup-postcheck gate
 #
 # Verifies: (1) correct state column (not status) is queried, (2) a fully-closed
 # roundtable with all capture surfaces produces no advisory, (3) a roundtable
@@ -9,9 +9,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/roundtable-cleanup-postcheck.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-cleanup-postcheck.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-cleanup-postcheck.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }

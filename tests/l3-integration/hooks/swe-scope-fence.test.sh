@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-scope-fence.sh, or with TMB_HOOK_TEST_IMPL=ts
-# for the TypeScript gate (mcp/trajectory-server/src/hooks/swe-scope-fence.ts).
+# Tests for the TypeScript swe-scope-fence gate
+# (mcp/trajectory-server/src/hooks/swe-scope-fence.ts).
 #
 # Hook contract: never deny. An Edit/Write in an SWE worktree to a path
 # outside the task's typed files[] dirs gets an additionalContext note
@@ -25,15 +25,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-scope-fence.sh"
-HOOK_SRC="$HOOK"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-if [ "$HOOK_IMPL" = ts ]; then
-  HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-scope-fence.sh"
-  HOOK_SRC="$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/swe-scope-fence.ts"
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-scope-fence.sh"
+HOOK_SRC="$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/swe-scope-fence.ts"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-scope-fence.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -251,7 +246,7 @@ out=$(run_hook "$WT_A" "$bash_input")
 assert_eq "$out" "" "Bash produces no output here"
 
 test_case "GH 1279: a path a heredoc program writes outside files[] is noted once (swe-boundary.sh, same classifier)"
-BOUNDARY_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
+BOUNDARY_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-boundary.sh"
 heredoc_cmd=$(printf '%s\n' "python3 - <<'EOF'" "open('src/heredoc_out.py', 'w').write('x')" 'EOF')
 bash_input=$(with_task 1 "$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')")
 out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)

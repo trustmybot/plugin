@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-boundary.sh
+# Tests for the TypeScript swe-boundary gate
 #
 # Hook contract: SWE boundary enforcement.
 # (a) git push from SWE context → DENY
@@ -22,9 +22,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-boundary.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-boundary.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-boundary.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -819,7 +817,7 @@ done
 # deny on the same PreToolUse event, so those cases run both hooks.
 # ===========================================================================
 
-CG_HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
+CG_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/containment-guard.sh"
 sqlite3 "$DB" "
   CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY, task_id INTEGER, issue_id INTEGER, agent_type TEXT,

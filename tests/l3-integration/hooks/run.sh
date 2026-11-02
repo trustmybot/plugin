@@ -23,7 +23,6 @@ SLOW_FILES=(
   swe-boundary.test.sh
   git-push-guard.test.sh
   roundtable-slash-detect.test.sh
-  dispatch.test.sh
 )
 
 file_timeout() {

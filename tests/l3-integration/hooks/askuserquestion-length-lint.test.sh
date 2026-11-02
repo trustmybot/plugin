@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/askuserquestion-length-lint.sh
+# Tests for the TypeScript askuserquestion-length-lint gate
 # Hook contract: warn (via additionalContext) when AskUserQuestion option
 # labels/descriptions/previews exceed brevity targets. Never blocks.
 set -euo pipefail
@@ -7,7 +7,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/askuserquestion-length-lint.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/askuserquestion-length-lint.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-askuserquestion-length-lint.XXXXXX")"

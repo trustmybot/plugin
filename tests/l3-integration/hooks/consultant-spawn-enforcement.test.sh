@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L3 tests for the consultant-spawn enforcement nudge in
-# scripts/hooks/prompt-intent-hints.sh (consultant-spawn pattern class).
+# the TypeScript prompt-intent-hints gate (consultant-spawn pattern class).
 #
 # De-flake of L6 row 10-consultant (#865): when the consultant-spawn class
 # emits its domain-specialist nudge, it ALSO writes a deterministic
@@ -20,7 +20,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/prompt-intent-hints.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }

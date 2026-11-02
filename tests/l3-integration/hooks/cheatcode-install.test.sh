@@ -7,7 +7,7 @@
 #            call runs with --scope project, --scope global is refused with
 #            outside_project before any call (GH 1533), and the mcp kind fails
 #            closed with no call (GH 1885).
-#   Part B — scripts/hooks/cheatcode-install-approval.sh fails closed: deny
+#   Part B — the TypeScript cheatcode-install-approval gate fails closed: deny
 #            without an approval record, allow with one.
 # Network is stubbed via TMB_CHEATCODE_INSTALL_FIXTURE or the shim — no live web.
 set -euo pipefail
@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-install.sh"
-HOOK="$PLUGIN_ROOT/scripts/hooks/cheatcode-install-approval.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/cheatcode-install-approval.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 

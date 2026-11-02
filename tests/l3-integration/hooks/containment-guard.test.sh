@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L3 tests: scripts/hooks/containment-guard.sh denies writes outside the run's
+# L3 tests: the TypeScript containment-guard gate denies writes outside the run's
 # root (the swe row's worktree, else the project), audits every denial, and
 # leaves reads, the model cache and un-onboarded projects alone. Through the
 # real dispatcher, a "cannot be judged" Bash deny, an unresolved target's
@@ -10,16 +10,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
-# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh; its uid
-# comes from a preload stubbing process.getuid with the id shim's FAKE_UID.
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+# The TypeScript gate's uid comes from a preload stubbing process.getuid with
+# the id shim's FAKE_UID.
 hook() {
-  if [ "$HOOK_IMPL" = ts ]; then
-    NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" containment-guard
-  else
-    bash "$HOOK"
-  fi
+  NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" containment-guard
 }
 
 SANDBOX=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-containment-guard.XXXXXX")
@@ -71,9 +65,9 @@ decision() {
   if [ -z "$1" ]; then echo "allow"; return 0; fi
   printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null || echo "unparseable: $1"
 }
-# unproven — the decision on an in-root program the .sh allows but the TS gate
-# denies as `$(unproven)`: a call outside its closed safe set (GH 1739).
-unproven() { if [ "$HOOK_IMPL" = ts ]; then echo deny; else echo allow; fi; }
+# unproven — the gate's decision on an in-root program outside its closed safe
+# set (GH 1739).
+unproven() { echo deny; }
 denials() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied' AND from_node='hook:containment-guard';"; }
 
 test_case "swe Write to /tmp/x → deny + audit row"
@@ -489,16 +483,22 @@ for prog in 'import csv|for row in rows: print(row.open, row.close)' "import fee
   assert_eq "$expect" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")")" "swe: an attribute read named like a writer: $prog"
 done
 
-# dispatched <gate> <tool> <tool_input-json> <tool_use_id> — <gate> through the
-# real dispatcher on a swe payload of session s-1, from the worktree.
+# dispatched <gate> <tool> <tool_input-json> <tool_use_id> — <gate>'s output on
+# a swe payload of session s-1, from the worktree. A Bash payload first runs
+# through the PreToolUse router, which writes the boundary-denies records.
 dispatched() {
   local payload
   payload=$(jq -nc --arg tool "$2" --argjson ti "$3" --arg id "$4" --arg cwd "$WT" --arg tr "$TRANSCRIPT" \
     '{hook_event_name:"PreToolUse", session_id:"s-1", cwd:$cwd, agent_type:"swe", agent_transcript_path:$tr,
       tool_name:$tool, tool_input:$ti, tool_use_id:$id}')
-  (cd "$WT" && printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_CONFIG_DIR="" \
-    TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" \
-    NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$1" 2>/dev/null)
+  local target
+  for target in PreToolUse "$1"; do
+    [ "$target" != PreToolUse ] || [ "$2" = Bash ] || continue
+    (cd "$WT" && printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_CONFIG_DIR="" \
+      TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" \
+      NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$target" 2>/dev/null) \
+      | { [ "$target" = PreToolUse ] && cat >/dev/null || cat; }
+  done
 }
 DENIES="$PROJECT/.claude/tmb/locks/boundary-denies"
 bypasses() { sqlite3 -cmd ".timeout 5000" "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='hook_block_bypassed';"; }
@@ -526,9 +526,9 @@ for kind in computed parse unproven; do
   assert_eq "$before" "$(bypasses)" "\$($kind): no hook_block_bypassed row"
 done
 rm -rf "$DENIES"
-OUT=$(TMB_HOOKS_IMPL=bash dispatched containment-guard Bash "$(bash_cmd "$UJ_COMPUTED")" tu-uj-bash)
-assert_eq "allow" "$(decision "$OUT")" "TMB_HOOKS_IMPL=bash: the .sh judges the literal path and allows"
-[ ! -e "$DENIES" ] && _pass || _fail "TMB_HOOKS_IMPL=bash: a boundary-denies record was written"
+OUT=$(dispatched containment-guard Bash "$(bash_cmd "$UJ_COMPUTED")" tu-uj-again)
+assert_eq "deny" "$(decision "$OUT")" "a second call: the computed path is still not judged"
+[ ! -e "$DENIES" ] && _pass || _fail "a second call: a boundary-denies record was written"
 
 test_case "GH 1750: a judged containment deny of a Bash write still records its path"
 rm -rf "$DENIES"
@@ -562,9 +562,9 @@ for case in 'deny|$UNKNOWN/f' "allow|$WT/src/\$1.yml"; do
   assert_eq "$before" "$(bypasses)" "$target: no hook_block_bypassed row"
 done
 rm -rf "$DENIES"
-OUT=$(TMB_HOOKS_IMPL=bash dispatched containment-guard Bash "$(bash_cmd "echo x > $UJ_FILE; cat > \"\$UNKNOWN/f\" < /dev/null")" tu-ur-bash)
-assert_contains "$OUT" "cannot be judged: " "TMB_HOOKS_IMPL=bash: the .sh's reason is unjudged too"
-[ ! -e "$DENIES" ] && _pass || _fail "TMB_HOOKS_IMPL=bash: a boundary-denies record was written"
+OUT=$(dispatched containment-guard Bash "$(bash_cmd "echo x > $UJ_FILE; cat > \"\$UNKNOWN/f\" < /dev/null")" tu-ur-again)
+assert_contains "$OUT" "cannot be judged: " "a second call: the reason is unjudged too"
+[ ! -e "$DENIES" ] && _pass || _fail "a second call: a boundary-denies record was written"
 
 test_case "GH 1772: a judged deny of a literal target outside still records, and the later Edit is flagged"
 rm -rf "$DENIES"

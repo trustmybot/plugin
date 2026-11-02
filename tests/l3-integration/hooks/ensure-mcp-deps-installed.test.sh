@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/ensure-mcp-deps-installed.sh (SessionStart, GH 1669):
+# Tests for the TypeScript ensure-mcp-deps-installed gate (SessionStart, GH 1669):
 # lazy-installs the MCP server's @huggingface/transformers in the background.
 # A fake plugin root and stub bun/npm on PATH record every invocation (cwd,
 # args, cache env), so no real install or network call runs.
@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 . "$HERE/fixtures/no-jq-path.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-mcp-deps-installed.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-mcp-deps-installed.sh"
 
 BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-ensure-mcp-deps.XXXXXX")
 trap 'rm -rf "$BASE"' EXIT
@@ -71,7 +71,8 @@ test_case "installed: transformers resolves from the MCP dir → no installer, n
 ROOT=$(fake_root installed)
 PKG="$ROOT/node_modules/@huggingface/transformers"
 mkdir -p "$PKG"
-echo '{"name":"@huggingface/transformers","version":"3.0.0","exports":"./index.js"}' > "$PKG/package.json"
+PINNED=$(jq -r '.dependencies["@huggingface/transformers"]' "$PLUGIN_ROOT/mcp/trajectory-server/package.json")
+jq -nc --arg v "$PINNED" '{name:"@huggingface/transformers", version:$v, exports:"./index.js"}' > "$PKG/package.json"
 echo 'export const pipeline = 1;' > "$PKG/index.js"
 export STUB_RECORD="$BASE/installed.rec"
 run_hook "$STUBS/bun:$PATH" "$ROOT"

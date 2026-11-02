@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/post-task-create-spawn-hint.sh
+# Tests for the TypeScript post-task-create-spawn-hint gate
 # PostToolUse hook on task_create_batch. Injects additionalContext reminding
 # bro to spawn SWE after tasks are created. Tests focus on:
 # - bypass env var
@@ -17,13 +17,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/post-task-create-spawn-hint.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-task-create-spawn-hint.sh"
-if [ "$HOOK_IMPL" = ts ]; then
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-task-create-spawn-hint.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-post-task-create-spawn-hint.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT

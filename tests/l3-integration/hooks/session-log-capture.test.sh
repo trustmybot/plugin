@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/session-log-capture.sh.
+# Tests for the TypeScript session-log-capture gate.
 # Hook contract: on UserPromptSubmit, append a JSONL event line to
 # <workspace>/.claude/tmb/logs/<date>-<session-id>.jsonl.
 # Silent no-op when workspace not detected.
@@ -8,9 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/session-log-capture.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-log-capture.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-log-capture.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

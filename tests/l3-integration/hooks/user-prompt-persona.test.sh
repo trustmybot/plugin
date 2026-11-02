@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/user-prompt-persona.sh.
+# Tests for the TypeScript user-prompt-persona gate.
 # Covers: with no persona marker for the session (plugin hooks reloaded
 # mid-session) the persona is injected once and the marker written;
 # silence once session-start-persona.sh marked the session; the old-block note;
@@ -11,10 +11,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/user-prompt-persona.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/user-prompt-persona.sh"
-SESSION_START_HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-persona.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/user-prompt-persona.sh"
+SESSION_START_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-persona.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-user-prompt-persona.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

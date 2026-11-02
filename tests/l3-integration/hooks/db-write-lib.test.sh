@@ -264,7 +264,7 @@ ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
 test_case "swe-verification-gate denies the waiver when the task-row read errors"
 printf 'this is not a sqlite database, only text' > "$TMPDIR_FIXTURE/corrupt.db"
 WAIVE='{"tool_name":"mcp__plugin_tmb_trajectory-server__task_update_status","tool_input":{"agent":"swe","task_id":"5","status":"completed","waive_verification_gate_reason":"verification impossible offline"}}'
-OUT=$(printf '%s' "$WAIVE" | TRAJECTORY_DB_PATH="$TMPDIR_FIXTURE/corrupt.db" bash "$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh" 2>/dev/null || true)
+OUT=$(printf '%s' "$WAIVE" | TRAJECTORY_DB_PATH="$TMPDIR_FIXTURE/corrupt.db" bash "$PLUGIN_ROOT/tests/lib/ts-hooks/swe-verification-gate.sh" 2>/dev/null || true)
 assert_contains "$OUT" '"permissionDecision":"deny"' "waiver denied"
 assert_contains "$OUT" "trajectory DB unavailable" "unavailable reason"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/session-start-persona.sh.
+# Tests for the TypeScript session-start-persona gate.
 # Covers: the plugin CLAUDE.md as additionalContext behind a header line on
 # every SessionStart source (startup, resume, clear, compact), whatever the
 # project CLAUDE.md holds; the one-line note for an old tmb:persona block; the
@@ -11,9 +11,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-persona.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-persona.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-persona.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-start-persona.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

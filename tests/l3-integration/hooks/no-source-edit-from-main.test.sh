@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/no-source-edit-from-main.sh, or with
-# TMB_HOOK_TEST_IMPL=ts for the TypeScript gate
+# Tests for the TypeScript no-source-edit-from-main gate
 # (mcp/trajectory-server/src/hooks/no-source-edit-from-main.ts), whose uid
 # comes from a preload stubbing process.getuid, so /tmp/claude-<uid> never
 # covers this suite's TMPDIR.
@@ -14,13 +13,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/no-source-edit-from-main.sh"
-if [ "${TMB_HOOK_TEST_IMPL:-bash}" = ts ]; then
-  HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/no-source-edit-from-main.sh"
-  TMB_TEST_NODE="$(node -p process.execPath)"
-  export TMB_TEST_NODE
-  export NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs"
-fi
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/no-source-edit-from-main.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
+export NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-source-edit-from-main.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
