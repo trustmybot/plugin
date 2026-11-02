@@ -121,13 +121,16 @@ fi
 
 # An entry an earlier /onboard wrote names a gate (--hook git-guards); the
 # router would run it alone, without the shim's yield. Re-running /onboard
-# rewrites it.
+# rewrites it. The letters are spelled out: a range such as [A-Z] follows the
+# locale's collation and matches lowercase under en_US.UTF-8 in bash 3.2.
+upper=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+lower=abcdefghijklmnopqrstuvwxyz
 case "$hook" in
-  [A-Z]*) ;;
+  ["$upper"]*) ;;
   *) warn_open "--hook $hook is not a hook event (re-run /onboard to rewrite the shim)" ;;
 esac
 case "$hook$part" in
-  *[!A-Za-z-]*) warn_open "invalid --hook/--part" ;;
+  *[!"$upper$lower"-]*) warn_open "invalid --hook/--part" ;;
 esac
 
 if ! command -v node >/dev/null 2>&1; then

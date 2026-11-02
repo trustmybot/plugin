@@ -26103,7 +26103,7 @@ async function runHook(name3, findGate2, env, io) {
 var name2 = process.argv[2] ?? "";
 if (routerEvents().has(name2)) {
   const args2 = process.argv.slice(3);
-  const part = args2.find((a) => a !== "--shim");
+  const part = args2[0] === "--shim" ? void 0 : args2[0];
   const shim = args2.includes("--shim");
   const code = await routerMain(
     name2,

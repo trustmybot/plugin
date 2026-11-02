@@ -65,13 +65,21 @@ assert_contains "$out" '"permissionDecision":"deny"' "router decision forwarded"
 assert_eq '["PreToolUse","guard","--shim"]' "$(last_fired .argv)" "argv: event, part, --shim"
 assert_eq "\"$(cd "$PROJECT" && pwd -P)\"" "$(last_fired .shimProject)" "TMB_SHIM_PROJECT exported, symlink resolved"
 
-test_case "a --hook naming a gate (an earlier /onboard's entry) fails open, loudly"
-rc=0
-err=$(run --marketplace mp --hook git-guards --shim --project "$PROJECT" 2>&1 >/dev/null) || rc=$?
-assert_eq "0" "$rc" "exit 0"
-assert_contains "$err" "not a hook event" "stderr names the stale entry"
-assert_contains "$err" "re-run /onboard" "stderr names the fix"
-assert_eq "2" "$(fired_count)" "router not run"
+for loc in C en_US.UTF-8; do
+  test_case "a --hook naming a gate (an earlier /onboard's entry) fails open, loudly (LC_ALL=$loc)"
+  for gate in git-guards swe-boundary trajectory-gates; do
+    rc=0
+    err=$(printf '%s' "$PAYLOAD" | LC_ALL=$loc bash "$RESOLVER" --marketplace mp --hook "$gate" --shim --project "$PROJECT" 2>&1 >/dev/null) || rc=$?
+    assert_eq "0" "$rc" "$gate: exit 0"
+    assert_contains "$err" "not a hook event" "$gate: stderr names the stale entry"
+    assert_contains "$err" "re-run /onboard" "$gate: stderr names the fix"
+  done
+  rc=0
+  err=$(printf '%s' "$PAYLOAD" | LC_ALL=$loc bash "$RESOLVER" --marketplace mp --hook PreToolUse --part "gu$(printf '\303\244')rd" 2>&1 >/dev/null) || rc=$?
+  assert_eq "0" "$rc" "non-ASCII part: exit 0"
+  assert_contains "$err" "invalid --hook/--part" "non-ASCII part: rejected"
+  assert_eq "2" "$(fired_count)" "router not run"
+done
 
 test_case "node missing on PATH fails open, loudly"
 NODELESS="$TMP/nodeless-bin"

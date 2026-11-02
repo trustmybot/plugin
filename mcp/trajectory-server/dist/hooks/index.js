@@ -20,7 +20,7 @@ import { runHook } from './run.js';
 const name = process.argv[2] ?? '';
 if (routerEvents().has(name)) {
     const args = process.argv.slice(3);
-    const part = args.find((a) => a !== '--shim');
+    const part = args[0] === '--shim' ? undefined : args[0];
     const shim = args.includes('--shim');
     const code = await routerMain(name, process.env, {
         readStdin: () => readFileSync(0, 'utf8'),
