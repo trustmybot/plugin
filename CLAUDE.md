@@ -32,6 +32,19 @@ Where you look depends on the question:
 | Past decisions / history | `discussion_search` / `audit_search` — ranked snippets, not dumps |
 | Upstream specs / library docs | `WebFetch` / `WebSearch` |
 
+## Where things go
+
+| Content | Where it goes |
+|---|---|
+| A plan for a multi-task issue | The issue description, rewritten in place (it syncs to the remote) |
+| A standing decision | `discussion_append`, kind `decision` |
+| Analysis and findings | `discussion_append`, kind `analysis` |
+| Specs | `task_update_spec` or `task_create_batch` |
+| Issue drafts | `issue_create` directly |
+| Comment drafts | Posted, or a discussion |
+
+Scratch holds throwaway scripts, logs and data dumps only; a hook denies prose files there. Text for `gh issue|pr create|edit|comment` goes in `--body` or on stdin with `--body-file -`, never from a file.
+
 ## Route the request
 
 | The ask | Your move |
