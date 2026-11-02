@@ -12,7 +12,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-cd-outside.json": {
@@ -28,7 +28,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-climb-back-into-root.json": {
@@ -141,7 +141,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-swe-cwd-outside-writes-in-worktree.json": {
@@ -164,7 +164,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/log.txt is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/log.txt is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-tee-outside.json": {
@@ -180,7 +180,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/t.txt is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/t.txt is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-tilde-home.json": {
@@ -196,7 +196,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/home/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/home/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-unbound-swe-read-only.json": {
@@ -242,7 +242,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/sub is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/sub is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/bash-var-target.json": {
@@ -281,7 +281,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/a.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/a.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/multiedit-bro-outside.json": {
@@ -297,7 +297,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/m.ts is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/m.ts is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/multiedit-swe-in-worktree.json": {
@@ -355,7 +355,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/n.ipynb is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/n.ipynb is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/notebookedit-swe-in-worktree.json": {
@@ -399,7 +399,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /etc/tmb-corpus-x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-bro-relative-climbs-out.json": {
@@ -415,7 +415,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/../outside/x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/../outside/x is outside this run's root @SCRATCH@/containment-guard/project. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-empty-path.json": {
@@ -445,7 +445,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/r.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/outside/r.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-swe-bound-by-agent-run.json": {
@@ -468,7 +468,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/cc/plans/plan.md is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/cc/plans/plan.md is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-swe-cc-project-dir.json": {
@@ -484,7 +484,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/cc/projects/@PROJECT_SLUG@/memory/note.md is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/cc/projects/@PROJECT_SLUG@/memory/note.md is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-swe-dev-null.json": {
@@ -507,7 +507,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /tmp/claude-4242424-other/x is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — /tmp/claude-4242424-other/x is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-swe-harness-tmp.json": {
@@ -551,7 +551,7 @@
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/src/a.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: containment — @SCRATCH@/containment-guard/project/src/a.ts is outside this run's root @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in @SCRATCH@/containment-guard/project/.claude/worktrees/cg-task/.claude/tmb/scratch/ (or /tmp/claude-4242424); plans, decisions and analysis go in the trajectory DB.\"}}\n"
     }
   },
   "generic/write-swe-relative.json": {

@@ -173,7 +173,7 @@ class Guard {
         if (written.error !== '')
             process.stderr.write(`${written.error}\n`);
         if (reason === '') {
-            reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/ (or /tmp/claude-${this.uid}).`;
+            reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/ (or /tmp/claude-${this.uid}); plans, decisions and analysis go in the trajectory DB.`;
         }
         const decision = jqCompact({
             hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
