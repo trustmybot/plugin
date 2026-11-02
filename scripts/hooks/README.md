@@ -17,7 +17,7 @@ Every `hooks/hooks.json` command is the TypeScript router, `node dist/hooks.js <
 
 **Without jq.** `dispatch.sh` reads a registration's timeout and `onFailure` from hooks.json with awk (`tmb_registration` in `lib/registrations.sh`), so the fail-closed path holds on a host without jq. There a gate registered `onFailure: block` denies with `jq not found` before it runs; the deny-capable gates that check for jq themselves exit 1 with `jq not found` on stderr (the dispatcher turns that into the deny), and the observe-only `reviewer-identity-observe.sh` exits 0 with a stderr note. The SessionStart prescan prints `Tooling: jq not found — every TMB gate will deny until it is installed`.
 
-`tests/l1-lint/hooks-via-dispatcher.sh` checks every registration's form and that its gates have a source; `src/test/router.test.ts` covers the router and `tests/l3-integration/hooks/dispatch.test.sh` covers dedup, install resolution, the shim yield, fail-closed gates, the chain, the no-jq path, the deny audit and the TypeScript route. The rule is written up in [`docs/architecture/CONTAINMENT.md`](../../docs/architecture/CONTAINMENT.md).
+`tests/l1-lint/hooks-via-dispatcher.sh` checks every registration's form and that its gates have a source; `src/test/router.test.ts` covers the router: the first deny in group order, fail-closed enforcement gates, the trajectory-server group stopping at its first deny, budgets and dedupe keys. The rule is written up in [`docs/architecture/CONTAINMENT.md`](../../docs/architecture/CONTAINMENT.md).
 
 ## TypeScript gates
 
