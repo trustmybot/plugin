@@ -27,7 +27,7 @@ mkdir -p "$PROJECT/.claude/tmb"
 : > "$PROJECT/.claude/tmb/trajectory.db"
 export CLAUDE_PROJECT_DIR="$PROJECT"
 export TRAJECTORY_DB_PATH="$PROJECT/.claude/tmb/trajectory.db"
-unset NODE_PATH BUN_INSTALL_CACHE_DIR npm_config_cache TMB_SKIP_MCP_DEPS_INSTALL
+unset NODE_PATH BUN_INSTALL_CACHE_DIR npm_config_cache TMB_SKIP_MCP_DEPS_INSTALL CLAUDE_PLUGIN_DATA
 
 STUBS="$BASE/stubs"
 mkdir -p "$STUBS/bun" "$STUBS/npm"
