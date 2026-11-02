@@ -2,7 +2,7 @@
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync as existsSync3, readFileSync as readFileSync5, statSync as statSync2 } from "node:fs";
-import { extname, join as join8, normalize, sep as sep3 } from "node:path";
+import { extname, join as join9, normalize, sep as sep4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
@@ -4257,6 +4257,16 @@ async function topKByCosine(db, table, query, k, filterParams = []) {
   return scored.slice(0, k);
 }
 
+// ../mcp/trajectory-server/src/hooks/ensure-mcp-deps-installed.ts
+import { basename as basename3, delimiter, dirname as dirname4, isAbsolute as isAbsolute4, join as join7, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
+
+// ../mcp/trajectory-server/src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// ../mcp/trajectory-server/src/hooks/ensure-mcp-deps-installed.ts
+var MCP_REL = join7("mcp", "trajectory-server");
+var STAGING_STALE_MS = 60 * 60 * 1e3;
+
 // ../mcp/trajectory-server/src/embeddings/backfill.ts
 var MISSING_WHERE = {
   discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
@@ -4270,6 +4280,7 @@ var MISSING_SQL = {
   wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
   wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
 };
+var RECHECK_BATCH = 50;
 function embedText(table, r) {
   if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
   if (table === "wm_directories" || table === "wm_files") return worldModelEmbedText(r.text, r.body ?? null);
@@ -4277,13 +4288,27 @@ function embedText(table, r) {
 }
 async function backfillMissing(db, table, limit = 50, onRow) {
   const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db, table, r.id, embedText(table, r)).catch(
-      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+  let attempted = 0;
+  for (let i = 0; i < rows.length; i += RECHECK_BATCH) {
+    if (!db.isOpen) break;
+    const batch = rows.slice(i, i + RECHECK_BATCH);
+    const ids = batch.map((r) => r.id);
+    const stillMissing = new Set(
+      db.all(
+        `SELECT id FROM ${table} WHERE ${MISSING_WHERE[table]} AND id IN (${ids.map(() => "?").join(", ")})`,
+        [MODEL_ID, ...ids]
+      ).map((r) => r.id)
     );
-    onRow?.();
+    for (const r of batch) {
+      if (!stillMissing.has(r.id)) continue;
+      attempted++;
+      await embedAndStore(db, table, r.id, embedText(table, r)).catch(
+        (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+      );
+      onRow?.();
+    }
   }
-  return rows.length;
+  return attempted;
 }
 
 // ../mcp/trajectory-server/src/fts-query.ts
@@ -5877,7 +5902,7 @@ function remoteSyncGate(db, opts = {}) {
 // ../mcp/trajectory-server/src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -5891,7 +5916,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join7(logDir, "issue-sync.log"), line);
+    appendFileSync2(join8(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -8844,12 +8869,12 @@ function handleApi(db, url, res) {
 }
 function serveStatic(ctx, pathname, res) {
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "");
-  let file = join8(WEB_ROOT, rel);
-  if (!file.startsWith(WEB_ROOT) || rel.split(sep3).includes("..")) {
+  let file = join9(WEB_ROOT, rel);
+  if (!file.startsWith(WEB_ROOT) || rel.split(sep4).includes("..")) {
     res.writeHead(403).end();
     return;
   }
-  if (!existsSync3(file) || !statSync2(file).isFile()) file = join8(WEB_ROOT, "index.html");
+  if (!existsSync3(file) || !statSync2(file).isFile()) file = join9(WEB_ROOT, "index.html");
   if (!existsSync3(file)) {
     res.writeHead(500, { "content-type": "text/plain" }).end("dashboard web bundle missing; run `bun run build` in dashboard/");
     return;
@@ -8874,7 +8899,7 @@ function tokenMatches(expected, given) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function readBody(req) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const chunks = [];
     let size = 0;
     const onData = (chunk) => {
@@ -8882,13 +8907,13 @@ function readBody(req) {
       if (size > MAX_BODY_BYTES2) {
         req.off("data", onData);
         req.resume();
-        resolve3(null);
+        resolve4(null);
         return;
       }
       chunks.push(chunk);
     };
     req.on("data", onData);
-    req.on("end", () => resolve3(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve4(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }

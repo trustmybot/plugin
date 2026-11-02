@@ -1,4 +1,5 @@
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
+import { GATE_NAME as BASH_OUTPUT_TRIM_GATE, bashOutputTrim } from './bash-output-trim.js';
 import { GATE_NAME as BRO_TURN_USAGE_GATE, broTurnUsage } from './bro-turn-usage.js';
 import { GATE_NAME as FOOTER_GATE, attributionFooter } from './attribution-footer.js';
 import { GATE_NAME as CQ_LINT_GATE, codeQualityLint } from './code-quality-lint.js';
@@ -72,6 +73,7 @@ import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scra
 import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree-adopt-guard.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
+    [BASH_OUTPUT_TRIM_GATE, bashOutputTrim],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
     [FOOTER_GATE, attributionFooter],
     [CQ_LINT_GATE, codeQualityLint],
@@ -229,7 +231,7 @@ export const ROUTER_GROUPS = [
         routerGate(OVERRUN_GATE, 'advisory'),
         routerGate(LIVENESS_ALERT_GATE, 'advisory'),
     ]),
-    eventGroup('PostToolUse', 'Bash', [routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
+    eventGroup('PostToolUse', 'Bash', [routerGate(BASH_OUTPUT_TRIM_GATE, 'advisory'), routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
     eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
     eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
     eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
