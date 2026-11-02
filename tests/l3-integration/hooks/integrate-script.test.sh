@@ -308,7 +308,7 @@ assert_markers_intact
 cleanup
 
 # Generated files (GH 1652). .gitattributes routes gen/** to the tmb-regen
-# merge driver (keeps ours); scripts/maintenance/regen-generated.sh rebuilds
+# merge driver (keeps ours); scripts/maintenance/regen-generated.ts rebuilds
 # gen/out.txt from src/*.txt. src/s.txt holds l1..l7; the task changes l4 and
 # regenerates, then main moves with its own src/ change and regenerates, so
 # gen/out.txt conflicts on every rebase:
@@ -318,14 +318,16 @@ cleanup
 #   conflict — l4 of src/s.txt (a real source conflict)
 #   absorbed — the task's own l4 change (the rebase drops the task commit)
 # The regen mode "fail" commits a regen script that exits 2.
-REGEN_OK='#!/usr/bin/env bash
-set -e
-cd "$(dirname "$0")/../.."
-cat src/*.txt > gen/out.txt'
-REGEN_FAIL='#!/usr/bin/env bash
-echo "regen-generated: toolchain missing" >&2
-exit 2'
-REGEN_PASSING='["grep -q l4-task src/s.txt", "bash scripts/maintenance/regen-generated.sh && git diff --exit-code -- gen"]'
+REGEN_OK='const fs = process.getBuiltinModule("node:fs");
+const path = process.getBuiltinModule("node:path");
+const root = path.resolve(path.dirname(process.argv[1]), "../..");
+const src = path.join(root, "src");
+const names = fs.readdirSync(src).filter((n) => n.endsWith(".txt")).sort();
+fs.writeFileSync(path.join(root, "gen/out.txt"), names.map((n) => fs.readFileSync(path.join(src, n), "utf8")).join(""));'
+REGEN_FAIL='process.stderr.write("regen-generated: toolchain missing\n");
+process.exit(2);'
+REGEN_RUN='node --experimental-strip-types --no-warnings scripts/maintenance/regen-generated.ts'
+REGEN_PASSING="[\"grep -q l4-task src/s.txt\", \"$REGEN_RUN && git diff --exit-code -- gen\"]"
 
 regen_commit() {
   local msg="$1"
@@ -346,15 +348,15 @@ s_lines() {
 setup_regen() {
   local move="$1" regen="${2:-ok}"
   setup none "$REGEN_PASSING"
-  bash "$PLUGIN_ROOT/scripts/maintenance/install-merge-driver.sh" "$REPO" >/dev/null
+  node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" install-merge-driver "$REPO" >/dev/null
   g checkout -q main
   g branch -q -D feat/x-1
   printf 'gen/** merge=tmb-regen\n' > "$REPO/.gitattributes"
   mkdir -p "$REPO/scripts/maintenance" "$REPO/src"
   if [ "$regen" = fail ]; then
-    printf '%s\n' "$REGEN_FAIL" > "$REPO/scripts/maintenance/regen-generated.sh"
+    printf '%s\n' "$REGEN_FAIL" > "$REPO/scripts/maintenance/regen-generated.ts"
   else
-    printf '%s\n' "$REGEN_OK" > "$REPO/scripts/maintenance/regen-generated.sh"
+    printf '%s\n' "$REGEN_OK" > "$REPO/scripts/maintenance/regen-generated.ts"
   fi
   s_lines 0 ''
   g add .gitattributes scripts
@@ -379,7 +381,7 @@ setup_regen() {
 fresh_regen_matches() {
   local check="$REPO/.claude/regen-check" rc=0
   g worktree add -q --detach "$check" "$1"
-  (cd "$check" && bash scripts/maintenance/regen-generated.sh && git diff --quiet -- gen) || rc=$?
+  (cd "$check" && $REGEN_RUN && git diff --quiet -- gen) || rc=$?
   g worktree remove --force "$check"
   return "$rc"
 }
@@ -429,12 +431,12 @@ assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_run
 assert_no_temp_worktree
 cleanup
 
-test_case "failing regen: exit 2 naming regen-generated.sh, branch unmoved"
+test_case "failing regen: exit 2 naming regen-generated.ts, branch unmoved"
 setup_regen gen fail
 integrate main
 assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
 assert_eq "" "$OUT" "nothing on stdout"
-assert_contains "$ERR" "regen-generated.sh exited 2" "stderr names the failing regen script"
+assert_contains "$ERR" "regen-generated.ts exited 2" "stderr names the failing regen script"
 assert_contains "$ERR" "toolchain missing" "stderr carries the regen output"
 assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_runs rows"

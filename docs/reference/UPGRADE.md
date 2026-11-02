@@ -313,7 +313,7 @@ bash scripts/release.sh
 
 ### Bumping the version
 
-`bump-version.sh` keeps the Claude and Codex plugin manifests, both package manifests, and the `bun.lock` workspace entry in sync atomically:
+`bump-version.ts` keeps the Claude and Codex plugin manifests, both package manifests, and the `bun.lock` workspace entry in sync atomically:
 
 - `.claude-plugin/plugin.json`
 - `.codex-plugin/plugin.json`
