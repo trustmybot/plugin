@@ -110,15 +110,12 @@ describe('non-JSON stdin (decision 703)', () => {
   });
 
   for (const gate of GATES) {
-    it(`${gate}: the TS gate leaves stderr empty and allows, where its .sh prints jq's errors`, () => {
+    it(`${gate}: the TS gate leaves stderr empty and allows, where its bash original printed jq's errors`, () => {
       const env = { ...process.env, HOME: project, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TRAJECTORY_DB_PATH: undefined };
       const r = spawnSync(process.execPath, [HOOKS_BUNDLE, gate], { input: 'not json at all', env, cwd: project, encoding: 'utf8' });
       assert.equal(r.stderr, '');
       assert.equal(r.stdout, '');
       assert.equal(r.status, 0);
-      if (!HAVE_JQ) return;
-      const bash = spawnSync('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], { input: 'not json at all', env, cwd: project, encoding: 'utf8' });
-      assert.match(bash.stderr, /^jq: /m);
     });
   }
 });

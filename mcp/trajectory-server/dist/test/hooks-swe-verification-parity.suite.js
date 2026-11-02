@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript swe-verification-gate with
- * scripts/hooks/swe-verification-gate.sh (GH 1692) over
+ * the bash swe-verification-gate.sh (GH 1692) over
  * tests/fixtures/hook-corpus/swe-verification-gate/. The sandbox is rebuilt at
  * the same path before each side runs; both sides must exit 0, print the same
  * stdout and stderr byte for byte once timestamps and elapsed seconds are

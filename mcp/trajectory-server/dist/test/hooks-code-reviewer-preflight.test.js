@@ -1,20 +1,21 @@
 /**
  * The code-reviewer-preflight gate (GH 1740) on temp git repos and a temp
  * trajectory DB: one deny and one allow per check, each deny naming its typed
- * check, and agent-spawn-dispatch.sh returning the deny before any PREPARE step.
+ * check, and the agent-spawn-dispatch gate returning the deny before any PREPARE step.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
 import { BYPASS_ENV, codeReviewerPreflight } from '../hooks/code-reviewer-preflight.js';
+import { ALLOW } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const NOW = '2026-10-25T10:00:00.000Z';
 const TASK_ID = 3;
@@ -346,45 +347,37 @@ describe('code-reviewer-preflight', () => {
             assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — code-reviewer-preflight/);
         });
     });
-    describe('agent-spawn-dispatch.sh', () => {
-        function dispatcherRoot() {
-            seq += 1;
-            const root = join(sandbox, `plugin-${seq}`);
-            const hooks = join(root, 'scripts/hooks');
-            const marks = join(root, 'marks');
-            mkdirSync(hooks, { recursive: true });
-            mkdirSync(marks);
-            mkdirSync(join(root, 'mcp/trajectory-server'), { recursive: true });
-            symlinkSync(join(SERVER_ROOT, 'dist'), join(root, 'mcp/trajectory-server/dist'));
-            copyFileSync(join(PLUGIN_ROOT, 'scripts/hooks/agent-spawn-dispatch.sh'), join(hooks, 'agent-spawn-dispatch.sh'));
-            for (const step of ['ensure-swe-worktree', 'record-swe-spawn']) {
-                writeFileSync(join(hooks, `${step}.sh`), `#!/usr/bin/env bash\ntouch "${marks}/${step}"\n`);
-                chmodSync(join(hooks, `${step}.sh`), 0o755);
-            }
-            return { hooks, marks };
+    describe('the agent-spawn-dispatch gate', () => {
+        /** Of CHAIN only the gate under test runs, so the fixture needs no spec; PREPARE runs as markers. */
+        function dispatch(f) {
+            const ran = [];
+            const find = (name) => PREPARE.includes(name)
+                ? () => {
+                    ran.push(name);
+                    return ALLOW;
+                }
+                : name === 'code-reviewer-preflight' ? findGate(name) : undefined;
+            return agentSpawnDispatch(payload(), f.env, find).then((result) => ({ result, ran }));
         }
-        const dispatch = (hooks, env) => spawnSync('bash', [join(hooks, 'agent-spawn-dispatch.sh')], { input: payload(), env, encoding: 'utf8', timeout: 30_000 });
-        it('returns the preflight deny and runs no PREPARE step', () => {
+        it('returns the preflight deny and runs no PREPARE step', async () => {
             const f = fixture();
             featureCommit(f);
             f.record({ exit: 1 });
-            const { hooks, marks } = dispatcherRoot();
-            const r = dispatch(hooks, f.env);
-            assert.equal(r.status, 0);
-            assert.equal(denial(r.stdout.trim()).check, 'no_passing_run');
-            assert.equal(existsSync(join(marks, 'ensure-swe-worktree')), false, 'ensure-swe-worktree.sh did not run');
-            assert.equal(existsSync(join(marks, 'record-swe-spawn')), false, 'record-swe-spawn.sh did not run');
+            const { result, ran } = await dispatch(f);
+            assert.equal(result.code, 0);
+            assert.equal(denial(result.stdout.trim()).check, 'no_passing_run');
+            assert.equal(ran.includes('ensure-swe-worktree'), false, 'ensure-swe-worktree did not run');
+            assert.equal(ran.includes('record-swe-spawn'), false, 'record-swe-spawn did not run');
         });
-        it('control: a passing preflight reaches the PREPARE steps', () => {
+        it('control: a passing preflight reaches the PREPARE steps', async () => {
             const f = fixture();
             featureCommit(f);
             f.record();
-            const { hooks, marks } = dispatcherRoot();
-            const r = dispatch(hooks, f.env);
-            assert.equal(r.status, 0);
-            assert.equal(r.stdout, '');
-            assert.ok(existsSync(join(marks, 'ensure-swe-worktree')));
-            assert.ok(existsSync(join(marks, 'record-swe-spawn')));
+            const { result, ran } = await dispatch(f);
+            assert.equal(result.code, 0);
+            assert.equal(result.stdout, '');
+            assert.ok(ran.includes('ensure-swe-worktree'));
+            assert.ok(ran.includes('record-swe-spawn'));
         });
     });
 });
