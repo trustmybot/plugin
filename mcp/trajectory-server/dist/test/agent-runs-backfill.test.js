@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import { agentRunsBackfillTools, defaultTranscriptsDir, spawnStats, taskIdFromTranscript, } from '../tools/agent-runs-backfill.js';
+import { transcriptStats } from '../hooks/swe-atomic-close.js';
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const SESSION = 'sess-0001';
 const T0 = Date.parse('2026-10-01T10:00:00.000Z');
@@ -260,16 +261,14 @@ describe('agent_runs_backfill parity with the hooks', { skip: !haveJq() && 'jq n
             assert.equal(ts === null ? '' : String(ts), shell === '' ? '' : String(Number(shell)), f);
         }
     });
-    it('spawnStats matches the SubagentStop hook tmb_parse_transcript_stats', () => {
-        const hook = join(PLUGIN_ROOT, 'scripts', 'hooks', 'swe-atomic-close.sh');
-        const script = `eval "$(sed -n '/^tmb_parse_transcript_stats() {/,/^}/p' "$1")"; tmb_parse_transcript_stats "$2"`;
+    it('spawnStats matches the SubagentStop gate transcriptStats', () => {
         for (const f of files.slice(0, 4)) {
-            const shell = execFileSync('bash', ['-c', script, '_', hook, f]).toString().trim();
+            const gate = transcriptStats(f);
             const s = spawnStats(readFileSync(f, 'utf8')
                 .split('\n')
                 .filter(Boolean)
                 .map((l) => JSON.parse(l)));
-            assert.equal([s.ti, s.to, s.tool_uses, s.duration_ms, s.cr, s.cc, s.first_ts ?? '', s.model ?? ''].join('|'), shell, f);
+            assert.equal([s.ti, s.to, s.tool_uses, s.duration_ms, s.cr, s.cc, s.first_ts ?? '', s.model ?? ''].join('|'), gate, f);
         }
     });
 });

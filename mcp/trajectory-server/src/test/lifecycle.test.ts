@@ -10,7 +10,7 @@ import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
-import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL } from '../review-sql.js';
+import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskHasPassingReview } from '../tools/lifecycle.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 
@@ -314,28 +314,19 @@ describe('issue_close: review evidence for closed tasks', () => {
     db.close();
   });
 
-  it('close-issue-on-merge.sh carries byte-identical copies of the review rule', () => {
-    const hook = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'hooks', 'close-issue-on-merge.sh'),
-      'utf8',
-    );
-    const shellVar = (name: string): string => {
-      const m = new RegExp(`^${name}="([^"]*)"$`, 'm').exec(hook);
-      assert.ok(m, `${name} not found in close-issue-on-merge.sh`);
-      return m[1]!.replace(/\\\$/g, '$');
-    };
-    assert.equal(shellVar('_CIM_HAS_PASS'), HAS_PASS_SQL);
-    assert.equal(shellVar('_CIM_SKIP_RECORDED'), GATE_SKIP_RECORDED_SQL);
+  const gateSource = (gate: string): string =>
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'hooks', `${gate}.ts`), 'utf8');
+
+  it('the close-issue-on-merge gate queries the shared review rule', () => {
+    const src = gateSource('close-issue-on-merge');
+    assert.match(src, /^import \{ GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
+    assert.match(src, /AND NOT \$\{HAS_PASS_SQL\} AND NOT \$\{GATE_SKIP_RECORDED_SQL\}/);
   });
 
-  it('cleanup-worktree-on-task-close.sh carries a byte-identical copy of the pass rule', () => {
-    const hook = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'hooks', 'cleanup-worktree-on-task-close.sh'),
-      'utf8',
-    );
-    const m = /^_CWC_HAS_PASS="([^"]*)"$/m.exec(hook);
-    assert.ok(m, '_CWC_HAS_PASS not found in cleanup-worktree-on-task-close.sh');
-    assert.equal(m[1]!.replace(/\\\$/g, '$'), HAS_PASS_SQL);
+  it('the cleanup-worktree-on-task-close gate queries the shared pass rule', () => {
+    const src = gateSource('cleanup-worktree-on-task-close');
+    assert.match(src, /^import \{ HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
+    assert.match(src, /t\.status='closed' AND \$\{HAS_PASS_SQL\}/);
   });
 
   it('integrate.sh carries a byte-identical copy of the pass rule', () => {
