@@ -932,6 +932,12 @@ describe('Codex tool surface', () => {
         ((toolPayload(excluded)['error'] as Record<string, unknown>)['code']),
         'out_of_scope_operation',
       );
+      const reconcile = await registry.call('issue_reconcile_remote', { dry_run: true });
+      assert.equal(reconcile.isError, true);
+      assert.equal(
+        ((toolPayload(reconcile)['error'] as Record<string, unknown>)['code']),
+        'out_of_scope_operation',
+      );
       assert.equal(existsSync(join(project, '.tmb')), false);
     } finally {
       runtimeManager.close();

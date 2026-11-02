@@ -34,7 +34,9 @@ issue_auto_close_deferred	hook
 issue_auto_close_remote_skipped	hook
 issue_auto_closed_on_merge	hook
 issue_close_remote_skipped	server
+issue_closed_from_remote	bro
 issue_linked	bro
+issue_remote_closed_local_open	bro
 issue_updated	bro
 legacy_event	server
 mcp_unavailable_fallback_invoked	bro,swe,code-reviewer,consultant

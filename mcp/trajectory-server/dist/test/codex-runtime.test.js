@@ -743,6 +743,9 @@ describe('Codex tool surface', () => {
             const excluded = await registry.call('task_create_batch', {});
             assert.equal(excluded.isError, true);
             assert.equal((toolPayload(excluded)['error']['code']), 'out_of_scope_operation');
+            const reconcile = await registry.call('issue_reconcile_remote', { dry_run: true });
+            assert.equal(reconcile.isError, true);
+            assert.equal((toolPayload(reconcile)['error']['code']), 'out_of_scope_operation');
             assert.equal(existsSync(join(project, '.tmb')), false);
         }
         finally {

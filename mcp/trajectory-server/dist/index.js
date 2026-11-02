@@ -25230,7 +25230,9 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_closed_from_remote", writers: ["bro"], description: "`issue_reconcile_remote` (`reconcileRemoteCloses`, `sync/issue-reconcile.ts`) closed an open local issue because its linked GitHub/GitLab twin reports closed and the issue has no live task; one row per close, in the close's transaction, on the issue, from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_remote_closed_local_open", writers: ["bro"], description: "`issue_reconcile_remote` found an open local issue whose linked remote twin is closed but left it open because tasks of it are still live (`pending`/`running`/`needs_validation`/`completed`); one row per issue and blocking task set (a rerun with the same `blocking_task_ids` writes none), from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`, `blocking_task_ids`; the `issues_open_after_remote_close` contract reads it" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
@@ -31182,6 +31184,225 @@ function sweepStaleTasks(db2, now2) {
   return { tasks_swept: stale.map((t) => t.id), runs_swept: runsSwept, reported };
 }
 
+// src/sync/issue-reconcile.ts
+var GH_RECONCILE_BATCH = 50;
+function resolveRepoCtx(db2, repo) {
+  const resolved = resolveRepoForSync(db2, repo);
+  if (!resolved) return null;
+  const remotes = syncRemotes(db2, resolved.name);
+  return {
+    cwd: resolved.path,
+    slugFor(kind) {
+      const entry = remotes.find((r) => r.provider === kind);
+      return entry ? { slug: repoSlugFromRemoteUrl(entry.url) } : null;
+    }
+  };
+}
+function spawnOptsFor(cwd) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (cwd) opts.cwd = cwd;
+  return opts;
+}
+function splitGhSlug(slug) {
+  const parts2 = slug.split("/");
+  if (parts2.length < 3 || parts2.some((p) => p === "")) return null;
+  return { host: parts2[0], owner: parts2[1], name: parts2.slice(2).join("/") };
+}
+function gqlString(value) {
+  return JSON.stringify(value);
+}
+function readGithubBatch(slug, iids, cwd, spawnFn) {
+  const out2 = /* @__PURE__ */ new Map();
+  const failAll = (error2, message2) => {
+    for (const iid of iids) out2.set(iid, { error: error2, ...message2 ? { message: message2 } : {} });
+    return out2;
+  };
+  const repo = splitGhSlug(slug);
+  if (!repo) return failAll("slug_unresolved", `cannot split repo slug "${slug}"`);
+  const fields = iids.map((n) => `i${n}: issue(number: ${n}) { state }`).join(" ");
+  const query = `query { repository(owner: ${gqlString(repo.owner)}, name: ${gqlString(repo.name)}) { ${fields} } }`;
+  let result2;
+  try {
+    result2 = spawnFn("gh", ["api", "graphql", "--hostname", repo.host, "-f", `query=${query}`], spawnOptsFor(cwd));
+  } catch (e) {
+    return failAll("read_failed", e instanceof Error ? e.message : String(e));
+  }
+  let data = null;
+  try {
+    const parsed = JSON.parse(result2.stdout);
+    data = parsed?.data?.repository ?? null;
+  } catch {
+    data = null;
+  }
+  if (data === null) {
+    if (result2.status !== 0) return failAll("read_failed", (result2.stderr || `gh exited ${String(result2.status)}`).slice(0, 500));
+    return failAll("parse_failed", "gh api graphql returned no repository data");
+  }
+  for (const iid of iids) {
+    const node = data[`i${iid}`];
+    const state = node && typeof node.state === "string" ? node.state.toUpperCase() : null;
+    if (state === "CLOSED") out2.set(iid, { state: "closed" });
+    else if (state === "OPEN") out2.set(iid, { state: "open" });
+    else out2.set(iid, { error: "not_found", message: `github #${iid} returned no issue state` });
+  }
+  return out2;
+}
+function readGitlabIssue(slug, iid, cwd, spawnFn) {
+  let result2;
+  try {
+    result2 = spawnFn("glab", ["issue", "view", String(iid), "-R", slug, "--output", "json"], spawnOptsFor(cwd));
+  } catch (e) {
+    return { error: "read_failed", message: e instanceof Error ? e.message : String(e) };
+  }
+  if (result2.status !== 0) {
+    return { error: "read_failed", message: (result2.stderr || `glab exited ${String(result2.status)}`).slice(0, 500) };
+  }
+  let state;
+  try {
+    state = JSON.parse(result2.stdout)?.state;
+  } catch {
+    return { error: "parse_failed", message: "glab issue view returned no JSON" };
+  }
+  if (state === "closed") return { state: "closed" };
+  if (state === "opened" || state === "reopened") return { state: "open" };
+  return { error: "parse_failed", message: `gitlab #${iid} returned state ${JSON.stringify(state)}` };
+}
+function sameIds(a, b) {
+  if (!Array.isArray(b) || a.length !== b.length) return false;
+  const sorted = [...b].map(Number).sort((x, y) => x - y);
+  return a.every((v, i2) => v === sorted[i2]);
+}
+function lastDeferralIds(db2, issueId) {
+  const row = db2.get(
+    `SELECT content_json FROM audit WHERE issue_id = ? AND event_type = 'issue_remote_closed_local_open' ORDER BY id DESC LIMIT 1`,
+    [issueId]
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.content_json).blocking_task_ids ?? null;
+  } catch {
+    return null;
+  }
+}
+function reconcileRemoteCloses(db2, opts = {}) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const probe = opts._spawnFn ? (cmd, args2) => opts._spawnFn(cmd, args2, { encoding: "utf8" }) : void 0;
+  const result2 = { checked: 0, closed: [], deferred: [], errors: [], ...opts.dryRun ? { dry_run: true } : {} };
+  const candidates = db2.all(
+    `SELECT id, repo, gh_iid, gl_iid FROM issues
+      WHERE status = 'open' AND id > 0 AND (gh_iid IS NOT NULL OR gl_iid IS NOT NULL)
+      ORDER BY id`
+  );
+  const ctxByRepo = /* @__PURE__ */ new Map();
+  const ctxOf = (repo) => {
+    const key = repo ?? "\0";
+    if (!ctxByRepo.has(key)) ctxByRepo.set(key, resolveRepoCtx(db2, repo));
+    return ctxByRepo.get(key);
+  };
+  for (const c of candidates) ctxOf(c.repo);
+  if (candidates.length === 0) ctxOf(null);
+  const contexts = [...ctxByRepo.values()].filter((c) => c !== null);
+  const gate = remoteSyncGate(db2, {
+    repoRemotes: contexts.length > 0 ? { github: contexts.some((c) => c.slugFor("github") !== null), gitlab: contexts.some((c) => c.slugFor("gitlab") !== null) } : null,
+    spawnFn: probe
+  });
+  if (!gate.enabled) {
+    return { ...result2, skipped: gate.reason ?? "no_backend" };
+  }
+  result2.checked = candidates.length;
+  const targetsByIssue = /* @__PURE__ */ new Map();
+  const states = /* @__PURE__ */ new Map();
+  const ghBySlug = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    const ctx = ctxOf(c.repo);
+    const targets = [];
+    if (c.gh_iid != null) targets.push({ issueId: c.id, kind: "github", iid: c.gh_iid, slug: null, cwd: ctx?.cwd ?? null });
+    if (c.gl_iid != null) targets.push({ issueId: c.id, kind: "gitlab", iid: c.gl_iid, slug: null, cwd: ctx?.cwd ?? null });
+    targetsByIssue.set(c.id, targets);
+    for (const t of targets) {
+      if (ctx === null) {
+        states.set(t, { error: "repo_unresolved", message: `issue repo ${JSON.stringify(c.repo)} resolves to no repos row` });
+        continue;
+      }
+      const remote = ctx.slugFor(t.kind);
+      if (remote === null) {
+        states.set(t, { error: "not_synced", message: `the repo has no synced ${t.kind} remote` });
+        continue;
+      }
+      if (remote.slug === null) {
+        states.set(t, { error: "slug_unresolved", message: `cannot derive a repo slug from the ${t.kind} remote url` });
+        continue;
+      }
+      t.slug = remote.slug;
+      if (t.kind === "github") {
+        const list = ghBySlug.get(remote.slug) ?? [];
+        list.push(t);
+        ghBySlug.set(remote.slug, list);
+      } else {
+        states.set(t, readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
+      }
+    }
+  }
+  for (const [slug, targets] of ghBySlug) {
+    for (let i2 = 0; i2 < targets.length; i2 += GH_RECONCILE_BATCH) {
+      const batch = targets.slice(i2, i2 + GH_RECONCILE_BATCH);
+      const iids = [...new Set(batch.map((t) => t.iid))];
+      const read = readGithubBatch(slug, iids, batch[0].cwd, spawnFn);
+      for (const t of batch) states.set(t, read.get(t.iid));
+    }
+  }
+  const now2 = nowISO();
+  for (const [issueId, targets] of targetsByIssue) {
+    const read = targets.map((t) => ({ t, s: states.get(t) }));
+    const failed = read.filter((r) => "error" in r.s);
+    if (failed.length > 0) {
+      for (const { t, s } of failed) {
+        const e = s;
+        result2.errors.push({ issue_id: issueId, remote_kind: t.kind, remote_iid: t.iid, reason: e.error, ...e.message ? { message: e.message } : {} });
+      }
+      continue;
+    }
+    if (read.some((r) => "state" in r.s && r.s.state === "open")) continue;
+    const first = targets[0];
+    const blocking = liveTasksOfIssue(db2, issueId).map((t) => t.id);
+    if (blocking.length > 0) {
+      result2.deferred.push({ issue_id: issueId, blocking_task_ids: blocking });
+      if (!opts.dryRun && !sameIds(blocking, lastDeferralIds(db2, issueId))) {
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_remote_closed_local_open",
+          summary: `issue ${issueId}: ${first.kind} #${first.iid} is closed; left open for live tasks ${blocking.join(", ")}`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid, blocking_task_ids: blocking }),
+          created_at: now2
+        });
+      }
+      continue;
+    }
+    if (!opts.dryRun) {
+      const closedNow = db2.transaction(() => {
+        const still = db2.get(`SELECT status FROM issues WHERE id = ?`, [issueId]);
+        if (still?.status !== "open" || liveTasksOfIssue(db2, issueId).length > 0) return false;
+        markIssueClosed(db2, issueId, now2);
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_closed_from_remote",
+          summary: `issue ${issueId} closed: its ${first.kind} twin #${first.iid} is closed`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid }),
+          created_at: now2
+        });
+        return true;
+      });
+      if (!closedNow) continue;
+    }
+    result2.closed.push({ issue_id: issueId, remote_kind: first.kind, remote_iid: first.iid });
+  }
+  return result2;
+}
+
 // src/tools/issues.ts
 var DEFAULT_CLASSIFICATION_LABELS = [
   "Bug",
@@ -31693,6 +31914,18 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
+      name: "issue_reconcile_remote",
+      description: "Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          dry_run: { type: "boolean", description: "Report what would close or defer and write nothing (default false)." }
+        },
+        required: ["agent"]
       }
     },
     {
@@ -32721,6 +32954,14 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+    })),
+    issue_reconcile_remote: requireRoles("issue_reconcile_remote", ["bro"], wrapHandler3(async (args2) => {
+      const dryRun = args2["dry_run"];
+      if (dryRun !== void 0 && typeof dryRun !== "boolean") {
+        return err4("invalid_dry_run: dry_run must be a boolean");
+      }
+      const spawnFn = args2["_spawnFn"] ?? void 0;
+      return ok3(reconcileRemoteCloses(db2, { dryRun: dryRun === true, _spawnFn: spawnFn }));
     }))
   };
   return { definitions, handlers };
@@ -48386,6 +48627,19 @@ function buildDataContracts(documentedEventTypes) {
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
+    },
+    {
+      id: "issues_open_after_remote_close",
+      severity: "warn",
+      description: "no open issue carries an issue_remote_closed_local_open audit row (issue_reconcile_remote found its GitHub/GitLab twin closed but left it open for live tasks): once those tasks close, rerun issue_reconcile_remote to close it",
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, ${auditField("a", "remote_iid")} AS remote_iid, ${auditField("a", "blocking_task_ids")} AS blocking_task_ids
+             FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'
+               AND a.id = (SELECT MAX(b.id) FROM audit b WHERE b.issue_id = i.id AND b.event_type = 'issue_remote_closed_local_open')
+             ORDER BY i.id DESC LIMIT 5`
     },
     {
       id: "concepts_trusted",
