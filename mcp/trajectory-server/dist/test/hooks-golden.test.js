@@ -168,19 +168,19 @@ describe('hook golden recordings', () => {
     describe('the .sh check', () => {
         const flagged = (body) => scriptTouchesOutsideGolden(body).length;
         it('flags a spawn, a read or a copy of a gate .sh outside a thunk', () => {
-            assert.equal(flagged("run('bash', [join(PLUGIN_ROOT, 'scripts/hooks/x.sh')], c);"), 1);
-            assert.equal(flagged("cpSync(join(PLUGIN_ROOT, `scripts/hooks/${RESCAN_GATE}.sh`), join(plugin, `scripts/hooks/${RESCAN_GATE}.sh`));"), 1);
+            assert.equal(flagged("run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh')], c);"), 1);
+            assert.equal(flagged("cpSync(join(PLUGIN_ROOT, 'scripts/hooks', `${RESCAN_GATE}.sh`), join(plugin, 'scripts/hooks', `${RESCAN_GATE}.sh`));"), 1);
             assert.equal(flagged("const text = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), 'utf8');"), 1);
-            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/x.sh');\nconst text = readFileSync(HOOK_SH, 'utf8');"), 1);
-            assert.equal(flagged("goldenBash(g, f, l, r, () => 1);\ncpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);"), 1);
-            assert.equal(flagged("const runSide = (name) => {\n  cpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);\n};"), 1);
+            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh');\nconst text = readFileSync(HOOK_SH, 'utf8');"), 1);
+            assert.equal(flagged("goldenBash(g, f, l, r, () => 1);\ncpSync(join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh'), to);"), 1);
+            assert.equal(flagged("const runSide = (name) => {\n  cpSync(join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh'), to);\n};"), 1);
         });
         it('passes one inside a thunk, on the bash line of runSide, or guarded by record mode', () => {
-            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/x.sh');\ngoldenBash(g, f, l, r, () => {\n  return run('bash', [HOOK_SH], c);\n});"), 0);
-            assert.equal(flagged("goldenBash(g, f, l, r, () => run('bash', [join(PLUGIN_ROOT, 'scripts/hooks/x.sh')], c));"), 0);
-            assert.equal(flagged("const runSide = (name) => {\n  if (name === 'bash') cpSync(join(PLUGIN_ROOT, 'scripts/hooks/x.sh'), to);\n};"), 0);
+            assert.equal(flagged("const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh');\ngoldenBash(g, f, l, r, () => {\n  return run('bash', [HOOK_SH], c);\n});"), 0);
+            assert.equal(flagged("goldenBash(g, f, l, r, () => run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh')], c));"), 0);
+            assert.equal(flagged("const runSide = (name) => {\n  if (name === 'bash') cpSync(join(PLUGIN_ROOT, 'scripts/hooks', 'x.sh'), to);\n};"), 0);
             assert.equal(flagged("const gates = all.filter((g) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${g}.sh`)) : true));"), 0);
-            assert.equal(flagged("const ps = ['bash /x/scripts/hooks/orphan-scan.sh'];"), 0);
+            assert.equal(flagged("const ps = ['bash /x/scripts/hooks/lib/orphan-scan.sh'];"), 0);
         });
     });
     describe('with the gate scripts gone', () => {

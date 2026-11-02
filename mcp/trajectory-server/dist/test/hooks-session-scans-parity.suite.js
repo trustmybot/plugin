@@ -84,7 +84,7 @@ const UNSET = [
 /** pid → [ppid, command] for bin/ps; <runner> is the live claude of 9000407. */
 export function processTable(runner) {
     return new Map([
-        [SELF_PID, ['9000402', 'bash /x/scripts/hooks/orphan-scan.sh']],
+        [SELF_PID, ['9000402', 'node /x/mcp/trajectory-server/dist/hooks.js SessionStart']],
         ['9000402', ['1', '/usr/local/bin/claude --resume']],
         ['9000403', ['9000402', 'node /x/mcp/trajectory-server/dist/index.js']],
         ['9000404', ['9000405', 'node /x/mcp/trajectory-server/dist/index.js']],

@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript post-atomic-close-readme gate with
- * scripts/hooks/post-atomic-close-readme.sh (GH 1692), over
+ * the bash post-atomic-close-readme.sh (GH 1692), over
  * tests/fixtures/hook-corpus/post-atomic-close-readme/. Both sides must exit
  * alike, print the same stdout and stderr byte for byte and leave the same
  * audit rows, timestamps masked.
