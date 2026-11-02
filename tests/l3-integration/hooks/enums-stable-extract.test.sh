@@ -54,9 +54,12 @@ assert_exit_code 0 "$lint_exit" "base tree: $lint_output"
 
 test_case "the lint rejects an undocumented event"
 new_tree undocumented undocumented
+FIXTURE_HOOKS="$WORK/undocumented/scripts/hooks"
+mkdir -p "$WORK/undocumented/scripts/maintenance"
+mv "$FIXTURE_HOOKS/extra.sh" "$WORK/undocumented/scripts/maintenance/extra.sh"
 run_lint undocumented
 assert_exit_code 1 "$lint_exit" "undocumented event"
-assert_contains "$lint_output" "audit.event_type 'ghost_event' used in scripts/hooks/extra.sh but missing from ENUMS.md"
+assert_contains "$lint_output" "audit.event_type 'ghost_event' used in scripts/maintenance/extra.sh but missing from ENUMS.md"
 
 test_case "the lint rejects an undocumented event behind a constant"
 new_tree ghost-constant

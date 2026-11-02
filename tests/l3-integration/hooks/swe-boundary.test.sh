@@ -770,7 +770,7 @@ out=$(run_in "$WT_PLAIN" 'ls 2>/dev/null > /tmp/swe-boundary-out.txt')
 assert_not_contains "$out" '"permissionDecision":"deny"' "the fence covers the worktree only"
 
 test_case "GH 1272 task with empty files[]: no note"
-out=$(run_in "$WORKTREE" "echo x > scripts/hooks/empty-files.sh")
+out=$(run_in "$WORKTREE" "echo x > scripts/hooks/empty-files.ts")
 assert_not_contains "$out" '"permissionDecision":"deny"' "no typed files[] means no fence, as for Edit"
 assert_not_contains "$out" "outside this task's files[]" "no typed files[] means no note"
 
@@ -801,12 +801,13 @@ out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/rules/style.md")"
 assert_contains "$out" "prompt-surface" "Edit of rules/*.md reaches the same decision"
 
 test_case "GH 1272 one shared write-shape list: neither guard carries its own copy"
-for guard in swe-boundary.sh no-source-edit-from-main.sh; do
-  body=$(cat "$PLUGIN_ROOT/scripts/hooks/$guard")
+for guard in swe-boundary no-source-edit-from-main; do
+  body=$(cat "$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/$guard.ts")
   assert_not_contains "$body" "sed -i" "$guard names no write shape itself"
-  assert_not_contains "$body" "_is_prompt_surface_token" "$guard keeps no surface predicate of its own"
-  assert_contains "$body" "tmb_cmd_write_paths" "$guard takes written paths from the lib"
-  assert_contains "$body" "tmb_is_prompt_surface_path" "$guard takes the surface predicate from the lib"
+  assert_not_contains "$body" "function isPromptSurface" "$guard keeps no surface predicate of its own"
+  assert_contains "$body" "writePaths" "$guard takes written paths from cmd-analysis"
+  assert_contains "$body" "isPromptSurfacePath" "$guard takes the surface predicate from cmd-analysis"
+  assert_contains "$body" "from './cmd-analysis/index.js'" "$guard imports both from cmd-analysis"
 done
 
 # ===========================================================================

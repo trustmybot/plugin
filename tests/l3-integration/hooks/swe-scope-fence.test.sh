@@ -128,7 +128,7 @@ DENY='"permissionDecision":"deny"'
 # ===========================================================================
 
 test_case "in-scope: file directly in a listed dir is silent"
-out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/my-hook.sh")")
+out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/my-hook.ts")")
 assert_not_contains "$out" "$DENY" "in-scope edit is allowed"
 assert_not_contains "$out" "outside this task" "in-scope edit carries no note"
 
@@ -137,7 +137,7 @@ out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/subdir/helper.sh")")
 assert_not_contains "$out" "outside this task" "nested file under a listed dir carries no note"
 
 test_case "in-scope: Write tool (not just Edit) is silent"
-out=$(run_hook "$WT_A" "$(make_write_input "scripts/hooks/new-file.sh")")
+out=$(run_hook "$WT_A" "$(make_write_input "scripts/hooks/new-file.ts")")
 assert_not_contains "$out" "outside this task" "Write in scope carries no note"
 
 test_case "tests/: a tests/ sibling is in scope when files[] lists a tests/ path"
@@ -161,8 +161,8 @@ out=$(run_hook "$WT_A" "$(make_write_input "$WT_A/src/api/handler.ts")")
 assert_not_contains "$out" "outside this task" "the absolute form of the same path is the same path"
 
 test_case "out-of-scope: another task notes the same path afresh"
-out=$(run_hook "$WT_B" "$(make_edit_input "scripts/hooks/something.sh")")
-assert_contains "$out" "scripts/hooks/something.sh is outside this task's files[]" "first write of this path for task beta"
+out=$(run_hook "$WT_B" "$(make_edit_input "scripts/hooks/something.ts")")
+assert_contains "$out" "scripts/hooks/something.ts is outside this task's files[]" "first write of this path for task beta"
 out=$(run_hook "$WT_A" "$(make_edit_input "docs/README.md")")
 assert_contains "$out" "docs/README.md is outside this task's files[]" "a new path for task alpha is noted"
 assert_eq "$([ -d "$TMPDIR/locks/scope-notes/1" ] && [ -d "$TMPDIR/locks/scope-notes/2" ] && echo yes)" "yes" "markers live per task under the state dir's locks/"
