@@ -1,4 +1,6 @@
+import { utimesSync } from 'node:fs';
 import type { TrajectoryDB } from '../db.js';
+import { releaseLock, takeLock } from '../hooks/ensure-mcp-deps-installed.js';
 import {
   auditEmbedText,
   embedAndStore,
@@ -22,6 +24,13 @@ const MISSING_SQL: Record<EmbeddableTable, string> = {
   wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
   wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`,
 };
+
+const RECHECK_BATCH = 50;
+
+/** A boot backfill lease whose lock dir mtime is older than this is taken over. */
+export const BACKFILL_LEASE_STALE_MIN = 5;
+/** How often the lease holder refreshes the lock dir's mtime. */
+export const BACKFILL_HEARTBEAT_MS = 60_000;
 
 const BACKFILL_ORDER: readonly EmbeddableTable[] = ['discussions', 'audit', 'wm_directories', 'wm_files'];
 
@@ -50,8 +59,9 @@ export function countMissing(db: TrajectoryDB, table: EmbeddableTable): number {
  * embedded under an older model id counts as missing and is overwritten.
  * Shared by boot-time `startBackfill` and the lazy tick in audit_search /
  * discussion_search / world_model_search.
- * A failed embed is logged and skipped, never thrown. Returns the number of
- * rows attempted.
+ * Before each batch of 50 the rows another connection embedded meanwhile are
+ * dropped. A failed embed is logged and skipped, never thrown or retried.
+ * Returns the number of rows attempted.
  */
 export async function backfillMissing(
   db: TrajectoryDB,
@@ -60,13 +70,29 @@ export async function backfillMissing(
   onRow?: () => void,
 ): Promise<number> {
   const rows = db.all<MissingRow>(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db, table, r.id, embedText(table, r)).catch((e) =>
-      console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e),
+  let attempted = 0;
+  for (let i = 0; i < rows.length; i += RECHECK_BATCH) {
+    if (!db.isOpen) break;
+    const batch = rows.slice(i, i + RECHECK_BATCH);
+    const ids = batch.map((r) => r.id);
+    const stillMissing = new Set(
+      db
+        .all<{ id: number }>(
+          `SELECT id FROM ${table} WHERE ${MISSING_WHERE[table]} AND id IN (${ids.map(() => '?').join(', ')})`,
+          [MODEL_ID, ...ids],
+        )
+        .map((r) => r.id),
     );
-    onRow?.();
+    for (const r of batch) {
+      if (!stillMissing.has(r.id)) continue;
+      attempted++;
+      await embedAndStore(db, table, r.id, embedText(table, r)).catch((e) =>
+        console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e),
+      );
+      onRow?.();
+    }
   }
-  return rows.length;
+  return attempted;
 }
 
 let worldModelBackfill: Promise<void> | null = null;
@@ -90,15 +116,46 @@ export function startWorldModelBackfill(db: TrajectoryDB): void {
     });
 }
 
-export async function startBackfill(db: TrajectoryDB): Promise<void> {
+function heartbeat(lock: string): void {
+  try {
+    const now = new Date();
+    utimesSync(lock, now, now);
+  } catch (e) {
+    console.error('[embeddings] backfill lease heartbeat failed:', e);
+  }
+}
+
+/**
+ * Embeds every row missing a vector, once per DB: a file DB's run holds the
+ * lease `<dbPath>.backfill.lock`, refreshed every `heartbeatMs`, and a boot
+ * that finds it held skips. An in-memory DB runs with no lease. Resolves when
+ * the run ends or is skipped.
+ */
+export async function startBackfill(
+  db: TrajectoryDB,
+  dbPath: string,
+  opts: { heartbeatMs?: number } = {},
+): Promise<void> {
   const missing = BACKFILL_ORDER.map((table) => ({ table, n: countMissing(db, table) }));
   const total = missing.reduce((sum, m) => sum + m.n, 0);
 
+  if (total === 0) {
+    serverLog({ event: 'embeddings_backfill_start', total });
+    return;
+  }
+
+  const lock = dbPath && dbPath !== ':memory:' ? `${dbPath}.backfill.lock` : undefined;
+  const token = lock ? takeLock(lock, BACKFILL_LEASE_STALE_MIN) : undefined;
+  if (lock && !token) {
+    serverLog({ event: 'embeddings_backfill_skipped', reason: 'lease_held', total });
+    return;
+  }
+
   serverLog({ event: 'embeddings_backfill_start', total });
 
-  if (total === 0) return;
-
-  (async () => {
+  const timer = lock ? setInterval(() => heartbeat(lock), opts.heartbeatMs ?? BACKFILL_HEARTBEAT_MS) : undefined;
+  timer?.unref();
+  try {
     let done = 0;
     const progress = () => {
       done++;
@@ -106,5 +163,10 @@ export async function startBackfill(db: TrajectoryDB): Promise<void> {
     };
     for (const { table } of missing) await backfillMissing(db, table, -1, progress);
     serverLog({ event: 'embeddings_backfill_complete', done });
-  })().catch((e) => console.error('[embeddings] backfill error:', e));
+  } catch (e) {
+    console.error('[embeddings] backfill error:', e);
+  } finally {
+    clearInterval(timer);
+    if (lock) releaseLock(lock, token);
+  }
 }
