@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture and session-handoff have no hook-corpus
+ * liveness-alert, rework-waiver-capture, session-handoff and bash-output-trim have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -73,6 +73,7 @@ export const ROUTER_CORPUS_GATES = [
     'post-task-create-spawn-hint',
     'task-overrun-alert',
     'liveness-alert',
+    'bash-output-trim',
     'attribution-footer',
     'clean-merged-branch',
     'close-issue-on-merge',
@@ -421,6 +422,8 @@ export function routerSandbox(rootDir, gates) {
         cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
     if (want('no-prose-in-scratch'))
         cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
+    if (want('bash-output-trim'))
+        cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
     if (want('worktree-adopt-guard'))
         cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
     // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
@@ -682,6 +685,26 @@ function noProseCases(dir, cwd) {
         ['bash-body-stdin', shell('gh issue edit 1 --body-file - <<EOF\nhi\nEOF')],
     ];
     return scenarios.map(([file, input]) => ({ gate: 'no-prose-in-scratch', file, input, env, cwd, fakeUid: false }));
+}
+/** bash-output-trim's cases: each allowlisted read with long output, and the calls it must pass unchanged. */
+function bashOutputTrimCases(dir, cwd) {
+    mkdirSync(dir, { recursive: true });
+    const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });
+    const long = Array.from({ length: 200 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join('\n');
+    const post = (command, response = {}, extra = {}) => JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: 't', tool_response: { stdout: long, stderr: '', interrupted: false, isImage: false, noOutputExpected: false, ...response }, ...extra });
+    const scenarios = [
+        ['git-log', post('git log --oneline')],
+        ['git-diff-stat', post('git -C /tmp/repo diff --stat origin/dev')],
+        ['gh-pr-view', post('gh pr view 12 --comments')],
+        ['sqlite-select', post("sqlite3 -readonly .claude/tmb/trajectory.db 'SELECT id FROM tasks'")],
+        ['subagent', post('git log', {}, { agent_id: 'a1', agent_type: 'tmb:swe' })],
+        ['stderr', post('git log', { stderr: 'warning' })],
+        ['chained-pipe', post('cd /tmp/repo && git log | head -500')],
+        ['redirect', post('git log > out.txt')],
+        ['short', post('git log', { stdout: 'abc\ndef' })],
+        ['unlisted', post('npm test')],
+    ];
+    return scenarios.map(([file, input]) => ({ gate: 'bash-output-trim', file, input, env, cwd, fakeUid: false }));
 }
 /** worktree-adopt-guard's cases: a main checkout, a linked worktree and a non-git root, each with adopt_worktree missing, matching or mismatched. */
 function worktreeAdoptCases(dir, nonGit) {
