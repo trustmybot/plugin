@@ -68,4 +68,5 @@ swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona
+worktree-adopt-guard
 worktree-create

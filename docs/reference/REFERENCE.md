@@ -116,6 +116,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `swe-verification-gate.sh` | PreToolUse trajectory-server (task_update_status) | Gate the SWE close transition on verification |
 | `reviewer-identity-observe.sh` | PreToolUse trajectory-server (validation_record) | Record the calling code-reviewer's `session_id`, `agent_id` and `tool_use_id` with `observed_at` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
 | `cheatcode-install-approval.sh` | PreToolUse trajectory-server (cheatcode_install) | Require Human approval before installing a cheatcode |
+| `worktree-adopt-guard.ts` | PreToolUse trajectory-server (task_provision, task_reopen, task_retry) | Allowlist on `adopt_worktree`: required, as the session's linked-worktree top level, from a session in a linked git worktree; refused from a main checkout or non-git root. Born in TypeScript: not run under `TMB_HOOKS_IMPL=bash` |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |

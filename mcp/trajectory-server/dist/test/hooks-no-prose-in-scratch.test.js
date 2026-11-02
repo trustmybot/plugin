@@ -295,10 +295,9 @@ describe('no-prose-in-scratch', () => {
             assert.match(shim('Write', { file_path: scratch('plan.md'), content: 'x' }), DENY);
             assert.doesNotMatch(shim('Bash', { command: 'ls' }), DENY);
         });
-        it('lists this gate, and only it, as ts-only in the table', () => {
+        it('lists this gate as ts-only in the table', () => {
             const rows = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks-router.txt'), 'utf8').trimEnd().split('\n').map((line) => line.split(' '));
-            assert.deepEqual(rows.filter((f) => f[2] === 'ts-only').map((f) => f[0]), ['no-prose-in-scratch', 'no-prose-in-scratch']);
-            assert.equal(rows.filter((f) => f[0] === 'no-prose-in-scratch').length, 2);
+            assert.deepEqual(rows.filter((f) => f[0] === 'no-prose-in-scratch').map((f) => f[2]), ['ts-only', 'ts-only']);
         });
     });
     it('lifts entirely under TMB_ALLOW_PROSE_SCRATCH=1, for every tool', async () => {

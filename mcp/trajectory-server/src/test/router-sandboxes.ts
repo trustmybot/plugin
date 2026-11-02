@@ -2,7 +2,7 @@
  * The corpus of every router gate, each payload materialized in its gate's
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
- * router benches. swe-resume-gate, no-prose-in-scratch, task-overrun-alert,
+ * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
  * liveness-alert, rework-waiver-capture and session-handoff have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
@@ -59,6 +59,7 @@ export const ROUTER_CORPUS_GATES = [
   'swe-brief-gate',
   'no-source-edit-from-main',
   'no-prose-in-scratch',
+  'worktree-adopt-guard',
   'swe-scope-fence',
   'naming-lint',
   'code-quality-lint',
@@ -484,6 +485,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
 
   if (want('swe-resume-gate')) cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
   if (want('no-prose-in-scratch')) cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
+  if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
   const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
@@ -752,6 +754,30 @@ function noProseCases(dir: string, cwd: string): RouterCase[] {
     ['bash-body-stdin', shell('gh issue edit 1 --body-file - <<EOF\nhi\nEOF')],
   ];
   return scenarios.map(([file, input]) => ({ gate: 'no-prose-in-scratch', file, input, env, cwd, fakeUid: false }));
+}
+
+/** worktree-adopt-guard's cases: a main checkout, a linked worktree and a non-git root, each with adopt_worktree missing, matching or mismatched. */
+function worktreeAdoptCases(dir: string, nonGit: string): RouterCase[] {
+  const main = join(dir, 'main');
+  const linked = join(dir, 'linked');
+  mkdirSync(main, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'main', main]);
+  execFileSync('git', ['-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t.t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'claude/session', linked]);
+  const base = { PATH: process.env.PATH, HOME: join(dir, 'home'), LC_ALL: LOCALE };
+  const payload = (tool: string, adopt?: string): string =>
+    JSON.stringify({ hook_event_name: 'PreToolUse', cwd: nonGit, tool_name: `mcp__plugin_tmb_trajectory-server__${tool}`, tool_input: adopt === undefined ? { issue_id: 1 } : { issue_id: 1, adopt_worktree: adopt } });
+  const scenarios: readonly (readonly [string, string, string])[] = [
+    ['linked-missing', linked, payload('task_provision')],
+    ['linked-matching', linked, payload('task_reopen', linked)],
+    ['linked-mismatched', linked, payload('task_retry', main)],
+    ['main-missing', main, payload('task_provision')],
+    ['main-adopt', main, payload('task_retry', linked)],
+    ['nongit-missing', nonGit, payload('task_reopen')],
+    ['nongit-adopt', nonGit, payload('task_provision', linked)],
+    ['other-tool', linked, payload('task_list')],
+  ];
+  return scenarios.map(([file, root, input]) => ({ gate: 'worktree-adopt-guard', file, input, env: clean({ ...base, CLAUDE_PROJECT_DIR: root }), cwd: root, fakeUid: false }));
 }
 
 /** Runs <fn> under the case's uid (containment-guard's fake one, or the real one). */
