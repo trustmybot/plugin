@@ -5,6 +5,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
+import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
 import { WAIVE_REVIEW_REASON_MIN, closedTasksWithoutReview, escalateLiveTasksForIssueClose, liveTasksOfIssue, markIssueClosed, } from './lifecycle.js';
@@ -632,6 +633,18 @@ export function issueTools(db, dbPath = '', options = {}) {
                     include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
                 required: ['agent', 'issue_id', 'remote_iid'],
+            },
+        },
+        {
+            name: 'issue_reconcile_remote',
+            description: 'Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+                    dry_run: { type: 'boolean', description: 'Report what would close or defer and write nothing (default false).' },
+                },
+                required: ['agent'],
             },
         },
         {
@@ -1721,6 +1734,15 @@ export function issueTools(db, dbPath = '', options = {}) {
             }
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+        })),
+        issue_reconcile_remote: requireRoles('issue_reconcile_remote', ['bro'], wrapHandler(async (args) => {
+            const dryRun = args['dry_run'];
+            if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+                return err('invalid_dry_run: dry_run must be a boolean');
+            }
+            // _spawnFn: test-only injection point; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
+            return ok(reconcileRemoteCloses(db, { dryRun: dryRun === true, _spawnFn: spawnFn }));
         })),
     };
     return { definitions, handlers };
