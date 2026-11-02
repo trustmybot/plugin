@@ -25997,6 +25997,15 @@ function servesCall(root, event, part, tool) {
     return tool === null || matcherOfColumn(f[4] ?? "").split(",").some((m) => matcherFits(m, tool));
   });
 }
+function shimYields(payload, env) {
+  const project = env.CLAUDE_PROJECT_DIR ? canonicalDir(env.CLAUDE_PROJECT_DIR) : "";
+  const shimProject = env.TMB_SHIM_PROJECT ? canonicalDir(env.TMB_SHIM_PROJECT) : "";
+  if (project !== "" && shimProject !== "" && project !== shimProject) return true;
+  const sessionRoot2 = project || shimProject;
+  const sessionId = safeSessionId(payload);
+  if (sessionRoot2 === "" || sessionId === "") return false;
+  return existsSync17(`${sessionRoot2}/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/sessions/${sessionId}.plugin-hooks`);
+}
 function lockBase(env) {
   if (!haveSqlite(env)) return null;
   const state = stateDir(env);
@@ -26006,6 +26015,8 @@ async function routerMain(event, env, io, opts = {}) {
   const payload = io.readStdin();
   const tool = payloadTool(payload);
   const self2 = opts.selfRoot ?? ownRoot(env);
+  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
+  if (opts.shim === true && shimYields(payload, gateEnv)) return 0;
   if (opts.hop !== false && env[HOP_ENV] !== "1") {
     const root = activeInstall(env, io.writeStderr);
     if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
@@ -26019,7 +26030,6 @@ async function routerMain(event, env, io, opts = {}) {
 `);
     }
   }
-  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
   const locks = opts.dedupe === false ? null : lockBase(gateEnv);
   const key2 = locks === null ? null : dedupeKey(payload, event, opts.part);
   let dedupe = null;
@@ -26092,7 +26102,9 @@ async function runHook(name3, findGate2, env, io) {
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
 if (routerEvents().has(name2)) {
-  const part = process.argv[3];
+  const args2 = process.argv.slice(3);
+  const part = args2.find((a) => a !== "--shim");
+  const shim = args2.includes("--shim");
   const code = await routerMain(
     name2,
     process.env,
@@ -26103,7 +26115,7 @@ if (routerEvents().has(name2)) {
         if (text !== "") process.stderr.write(text);
       }
     },
-    part === void 0 ? {} : { part }
+    { ...part === void 0 ? {} : { part }, ...shim ? { shim } : {} }
   );
   await new Promise((resolve4) => process.stderr.write("", () => resolve4()));
   process.exit(code);

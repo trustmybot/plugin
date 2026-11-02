@@ -1,5 +1,9 @@
 /**
- * `node dist/hooks.js <event> [part]`: the router entry. The install this
+ * `node dist/hooks.js <event> [part] [--shim]`: the router entry. Under
+ * --shim (the headless shim, scripts/lib/resolve-hook.sh) it exits 0 with no
+ * output and runs no gate when the session belongs to another project or the
+ * plugin's own hooks marked it (shimYields); otherwise --shim changes nothing.
+ * The install this
  * project runs (activeInstall) answers when it is another install whose dist
  * ships the router and serves the call's event, part and tool; else this one
  * decides: under dispatch.sh's per-call dedupe when the project has TMB state,
@@ -13,7 +17,8 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { haveSqlite, stateDir } from '../lib/db.js';
 import { activeInstall, canonicalDir } from '../lib/install.js';
-import { installRoot } from '../lib/project-env.js';
+import { installRoot, pluginName, TMB_STATE_HOST_DIR } from '../lib/project-env.js';
+import { safeSessionId } from '../plugin-hooks-marker.js';
 import { eventHoldsEnforcement, matcherFits, routerGroup, routerTimeoutS } from '../registry.js';
 import { ROUTER_NAME, decide, denyOutput, failClosedReason, isBarePath, pathFailure, payloadTool, stdoutIsPath } from './decide.js';
 import { Dedupe, dedupeKey } from './dedupe.js';
@@ -66,6 +71,23 @@ function servesCall(root, event, part, tool) {
         return tool === null || matcherOfColumn(f[4] ?? '').split(',').some((m) => matcherFits(m, tool));
     });
 }
+/**
+ * dispatch.sh --shim's yield: CLAUDE_PROJECT_DIR is another project than
+ * TMB_SHIM_PROJECT (physical paths), or the plugin's SessionStart hook left
+ * <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks for the
+ * payload's session_id, so the plugin's own hooks judge this session.
+ */
+export function shimYields(payload, env) {
+    const project = env.CLAUDE_PROJECT_DIR ? canonicalDir(env.CLAUDE_PROJECT_DIR) : '';
+    const shimProject = env.TMB_SHIM_PROJECT ? canonicalDir(env.TMB_SHIM_PROJECT) : '';
+    if (project !== '' && shimProject !== '' && project !== shimProject)
+        return true;
+    const sessionRoot = project || shimProject;
+    const sessionId = safeSessionId(payload);
+    if (sessionRoot === '' || sessionId === '')
+        return false;
+    return existsSync(`${sessionRoot}/${TMB_STATE_HOST_DIR}/${pluginName(env)}/sessions/${sessionId}.plugin-hooks`);
+}
 function lockBase(env) {
     if (!haveSqlite(env))
         return null;
@@ -76,6 +98,9 @@ export async function routerMain(event, env, io, opts = {}) {
     const payload = io.readStdin();
     const tool = payloadTool(payload);
     const self = opts.selfRoot ?? ownRoot(env);
+    const gateEnv = self === '' ? env : { ...env, CLAUDE_PLUGIN_ROOT: self };
+    if (opts.shim === true && shimYields(payload, gateEnv))
+        return 0;
     if (opts.hop !== false && env[HOP_ENV] !== '1') {
         const root = activeInstall(env, io.writeStderr);
         if (root !== '' && self !== '' && canonicalDir(root) !== canonicalDir(self)) {
@@ -88,7 +113,6 @@ export async function routerMain(event, env, io, opts = {}) {
             io.writeStderr(`TMB router: no router in ${root} — using ${self}\n`);
         }
     }
-    const gateEnv = self === '' ? env : { ...env, CLAUDE_PLUGIN_ROOT: self };
     const locks = opts.dedupe === false ? null : lockBase(gateEnv);
     const key = locks === null ? null : dedupeKey(payload, event, opts.part);
     let dedupe = null;

@@ -1139,8 +1139,8 @@ describe('onboard tools', () => {
         const HOOKS_JSON = {
             hooks: {
                 PreToolUse: [
-                    { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-guards.sh', timeout: 10 }] },
-                    { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh', timeout: 5 }] },
+                    { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse', timeout: 19, onFailure: 'block' }] },
+                    { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse', timeout: 12, onFailure: 'block' }] },
                 ],
             },
         };

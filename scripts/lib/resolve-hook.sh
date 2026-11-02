@@ -7,13 +7,15 @@
 # settings hooks DO fire under `claude -p`, unlike marketplace plugin hooks).
 # Each command is:
 #
-#   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <gate> --shim --project <root>
+#   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <Event> [--part <part>] --shim --project <root>
 #
-# The resolver discovers the ACTIVE tmb cache version at hook-fire time and
-# execs that version's dispatcher, `.../scripts/hooks/dispatch.sh <gate>
-# --shim`, forwarding stdin + any pass-through argv untouched, with
-# TMB_SHIM_PROJECT=<root> (its physical path, cd -P). The dispatcher picks the project's install, runs
-# the gate once per event, and in --shim mode exits 0 without running it when:
+# one per router entry of the plugin's hooks.json. The resolver discovers the
+# ACTIVE tmb cache version at hook-fire time and execs that version's router,
+# `node .../mcp/trajectory-server/dist/hooks.js <Event> [part] --shim`,
+# forwarding stdin + any pass-through argv untouched, with
+# TMB_SHIM_PROJECT=<root> (its physical path, cd -P). The router picks the
+# project's install, runs the group's gates once per event, and in --shim mode
+# exits 0 without running any when:
 #   - CLAUDE_PROJECT_DIR is set and is not <root> (another project's session), or
 #   - the plugin's own hooks are active in this session: the plugin's
 #     SessionStart hook left <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks
@@ -30,7 +32,8 @@
 #      ~/.claude/plugins/cache/<marketplace>/tmb/.
 #
 # Fail-open-LOUD: if no active version resolves (manifest absent AND no cache
-# dirs), print one loud stderr warning and exit 0. NEVER exit 2 — that would
+# dirs), node is not on PATH, or the version ships no dist/hooks.js, print one
+# loud stderr warning and exit 0. NEVER exit 2 — that would
 # block every tool call and brick the user. NEVER crash the tool call.
 
 set -uo pipefail
@@ -40,6 +43,7 @@ MANIFEST="$CLAUDE_HOME/plugins/installed_plugins.json"
 
 marketplace=""
 hook=""
+part=""
 shim=0
 project=""
 passthrough=()
@@ -52,6 +56,10 @@ while [ $# -gt 0 ]; do
       ;;
     --hook)
       hook="${2:-}"
+      shift 2
+      ;;
+    --part)
+      part="${2:-}"
       shift 2
       ;;
     --shim)
@@ -111,18 +119,33 @@ if [ -z "$version_root" ] || [ ! -d "$version_root" ]; then
   warn_open "no active tmb version resolved (manifest + cache fallback both empty)"
 fi
 
-dispatcher="$version_root/scripts/hooks/dispatch.sh"
-if [ ! -f "$dispatcher" ]; then
-  warn_open "resolved version has no dispatcher at $dispatcher"
+# An entry an earlier /onboard wrote names a gate (--hook git-guards); the
+# router would run it alone, without the shim's yield. Re-running /onboard
+# rewrites it.
+case "$hook" in
+  [A-Z]*) ;;
+  *) warn_open "--hook $hook is not a hook event (re-run /onboard to rewrite the shim)" ;;
+esac
+case "$hook$part" in
+  *[!A-Za-z-]*) warn_open "invalid --hook/--part" ;;
+esac
+
+if ! command -v node >/dev/null 2>&1; then
+  warn_open "node not found on PATH"
+fi
+router="$version_root/mcp/trajectory-server/dist/hooks.js"
+if [ ! -f "$router" ]; then
+  warn_open "resolved version has no router at $router"
 fi
 
-mode=()
+args=("$hook")
+[ -n "$part" ] && args+=("$part")
 if [ "$shim" = "1" ]; then
-  mode=(--shim)
+  args+=(--shim)
   TMB_SHIM_PROJECT=$( (cd "$project" 2>/dev/null && pwd -P) || printf '%s' "$project")
   export TMB_SHIM_PROJECT
 fi
 
-# Forward stdin + pass-through argv untouched so the gate sees identical input
-# to what it would receive as a plugin hook.
-CLAUDE_PLUGIN_ROOT="$version_root" exec bash "$dispatcher" "$hook" ${mode[@]+"${mode[@]}"} ${passthrough[@]+"${passthrough[@]}"}
+# Forward stdin + pass-through argv untouched so the router sees identical
+# input to what it would receive as a plugin hook.
+CLAUDE_PLUGIN_ROOT="$version_root" exec node "$router" "${args[@]}" ${passthrough[@]+"${passthrough[@]}"}

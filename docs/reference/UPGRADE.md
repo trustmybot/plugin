@@ -109,6 +109,14 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Both columns should match the version you just installed.
 
+### Upgrading into v1.2.0 — the headless shim runs the router
+
+This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `scripts/hooks/dispatch.sh` (GH 1692). The shim now writes one entry per PreToolUse group, `resolve-hook.sh --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
+
+- **Re-run the shim step once.** Re-run `/onboard`, or ask bro to turn headless enforcement on again (`onboard_apply(headless_enforcement='yes')`). It replaces every old `_tmb_managed` or `resolve-hook.sh` entry with the new ones, rewrites `.claude/tmb/resolve-hook.sh`, and leaves your own hooks as they are.
+- **Until you do,** the old entries keep running through `dispatch.sh`. A later release removes `dispatch.sh`; from then on an old entry prints a `failing OPEN` warning and enforces nothing. If a new resolver meets an old per-gate entry, it prints `--hook <gate> is not a hook event (re-run /onboard to rewrite the shim)` and allows the call.
+- **`node` is required.** With `node` off PATH, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call, as it does when no install resolves.
+
 ### Upgrading into v1.2.0 — pr-reviewer is now code-reviewer
 
 The push-gate reviewer agent was renamed from `pr-reviewer` to `code-reviewer` (GH 1641). Its file is now `agents/code-reviewer.md`, and you spawn it as `tmb:code-reviewer`. This is a hard rename with no alias: the old name is not accepted anywhere.

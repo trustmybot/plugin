@@ -43247,21 +43247,6 @@ function removeProjectSandbox(opts) {
 var RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
 var SETTINGS_REL = [".claude", "settings.local.json"];
-var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate",
-  "naming-lint",
-  "code-quality-lint",
-  "commit-msg-lint",
-  "askuserquestion-length-lint",
-  "branch-up-to-date-with-remote",
-  "debug-trajectory"
-]);
-function gateName(command) {
-  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
-  if (dispatched?.[1]) return dispatched[1];
-  const parts2 = command.trim().split("/");
-  return (parts2[parts2.length - 1] ?? command).replace(/\.sh$/, "");
-}
 function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -43279,6 +43264,8 @@ function pluginNameOf(pluginRoot) {
   return "tmb";
 }
 var NO_PRE_TOOL_USE = "hooks/hooks.json missing or has no PreToolUse";
+var NO_ROUTER_ENTRY = "hooks/hooks.json has no PreToolUse router entry";
+var ROUTER_COMMAND = /^node ("?)\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js\1 ([A-Za-z]+)(?: ([a-z-]+))?$/;
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join15(pluginRoot, "hooks", "hooks.json");
   if (!existsSync8(hooksJsonPath)) return { reason: NO_PRE_TOOL_USE };
@@ -43292,58 +43279,33 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   if (!Array.isArray(pre)) return { reason: NO_PRE_TOOL_USE };
   const groups = [];
   for (const group of pre) {
-    const hooks = [];
+    const entries = [];
     for (const h of group.hooks ?? []) {
-      const gates = routerGateHooks(pluginRoot, group.matcher ?? "", h);
-      if (gates !== null && "reason" in gates) return gates;
-      hooks.push(...gates ?? [h]);
+      const routed = ROUTER_COMMAND.exec(h.command ?? "");
+      if (routed === null || routed[2] !== "PreToolUse") continue;
+      entries.push({
+        event: routed[2],
+        ...routed[3] !== void 0 ? { part: routed[3] } : {},
+        ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
+        ...h.onFailure !== void 0 ? { onFailure: h.onFailure } : {}
+      });
     }
-    groups.push({ ...group, hooks });
+    if (entries.length > 0) groups.push({ ...group.matcher !== void 0 ? { matcher: group.matcher } : {}, entries });
   }
-  return groups;
-}
-var ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)(?: ([a-z-]+))?$/;
-var GROUP_CHAIN = { "mcp__.*trajectory-server__.*": "trajectory-gates" };
-function routerGateHooks(pluginRoot, matcher, h) {
-  const command = ROUTER_COMMAND.exec(h.command ?? "");
-  if (command === null) return null;
-  const [, event, part] = command;
-  let manifest;
-  try {
-    manifest = readFileSync8(join15(pluginRoot, "mcp", "trajectory-server", "dist", "hooks-router.txt"), "utf8");
-  } catch {
-    return { reason: "dist/hooks-router.txt missing or unreadable" };
-  }
-  const rows = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 5 && f[3] === event && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part) && /^[a-z0-9-]+$/.test(f[0]));
-  if (rows.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
-  const dispatched = (name2, budgetMs) => ({ type: "command", command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name2}`, timeout: Math.ceil(budgetMs / 1e3) });
-  const chain = event === "PreToolUse" ? GROUP_CHAIN[matcher] : void 0;
-  if (chain === void 0) return rows.map(([gate, budgetMs]) => dispatched(gate, Number(budgetMs)));
-  const filtered = (f) => (f[5] ?? "*") !== "*";
-  const unfilteredMs = rows.filter((f) => !filtered(f)).reduce((n, f) => n + Number(f[1]), 0);
-  const largestFilteredMs = Math.max(0, ...rows.filter(filtered).map((f) => Number(f[1])));
-  return [dispatched(chain, unfilteredMs + largestFilteredMs)];
-}
-function keptHooks(group) {
-  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
+  return groups.length > 0 ? groups : { reason: NO_ROUTER_ENTRY };
 }
 function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
-  const groups = [];
-  for (const group of pre) {
-    const hooks = keptHooks(group).map((h) => ({
-      type: h.type,
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
-      ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
+  return pre.map((group) => ({
+    ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
+    hooks: group.entries.map((e) => ({
+      type: "command",
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== void 0 ? ` --part ${e.part}` : ""} --shim --project ${shellWord(projectRoot)}`,
+      ...e.timeout !== void 0 ? { timeout: e.timeout } : {},
+      ...e.onFailure !== void 0 ? { onFailure: e.onFailure } : {},
       _tmb_managed: true,
       _tmb_project: projectRoot
-    }));
-    if (hooks.length === 0) continue;
-    groups.push({
-      ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
-      hooks
-    });
-  }
-  return groups;
+    }))
+  }));
 }
 function resolverPathFor(projectRoot, pluginName2) {
   return join15(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
