@@ -16,6 +16,7 @@ bash tests/l1-lint/link-check.sh
 | [`version-sync.sh`](./version-sync.sh) | Version drift across manifest/package files |
 | [`changelog-current.sh`](./changelog-current.sh) | CHANGELOG missing the current version; a malformed `changelog.d/` fragment; a feature branch that edits `CHANGELOG.md` alongside a fragment or (after the cut-over) at all, or cites a `GH <n>` with no fragment or entry |
 | [`dist-fresh.sh`](./dist-fresh.sh) | Committed `dist/` out of sync with source; installed esbuild version differing from the one `bun.lock` pins |
+| [`dist-bundles.sh`](./dist-bundles.sh) | `dist/index.js`, `dist/codex.js` or `dist/run-scan.js` not an esbuild bundle (no `var __` prelude, or a relative `import`/`export ... from` line as plain `tsc` emits); `--self-test` checks `fixtures/dist-bundles/` |
 | [`tsc-noemit.sh`](./tsc-noemit.sh) | TypeScript type errors (no emit) |
 | [`release-script-safety.sh`](./release-script-safety.sh) | Unsafe patterns in release scripts |
 | [`release-payload-workflow.sh`](./release-payload-workflow.sh) | `.github/workflows/release-payload.yml` losing its safety shape: tag-only triggers and the ref_name refusal, top-level `permissions: {}`, unpinned actions, the concurrency group, `--check` after the first push, a force push other than `stable-build` (parsed with `ruby -ryaml`; every run self-tests `fixtures/release-payload-workflow/`) |

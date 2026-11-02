@@ -71,7 +71,7 @@ if ! check_esbuild_version "$ESBUILD_PKG" "$ROOT/bun.lock"; then
   exit 1
 fi
 
-./node_modules/.bin/tsc --outDir "$TMPDIR" >/dev/null
+./node_modules/.bin/tsc -p tsconfig.build.json --outDir "$TMPDIR" >/dev/null
 ./node_modules/.bin/esbuild src/index.ts \
   --bundle --platform=node --format=esm --target=node22 \
   --external:@huggingface/transformers \
