@@ -22,6 +22,12 @@
  * the budget was spent before a command started; a timed-out command's
  * process group is killed.
  *
+ * When a command or probe is a full suite (isFullSuite), the run first takes a
+ * suite slot (suite-lock.ts, GH 2092), exported to the commands as
+ * TMB_SUITE_LOCK_HELD. The wait comes before the budget timer and is capped at
+ * the hook timeout less 30 s and the budget; past the cap the gate denies with
+ * `suite slot busy` and records no run.
+ *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
  * still runs verification[] and denies a failing command where the .sh let
  * every completion through (decision 703).
@@ -41,8 +47,13 @@ import { repoSinglePath } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
 import { planCarrySafe } from './lib/verification-carry.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
+import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 
 export const GATE_NAME = 'swe-verification-gate';
+
+/** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
+export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+const SUITE_WAIT_MARGIN_S = 30;
 
 export const VERIFICATION_DEFAULT_S = 900;
 export const VERIFICATION_MAX_S = 1800;
@@ -722,15 +733,34 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
         `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) — verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`,
       );
     };
+    const suiteCommand = [...commands, ...findings.map((f) => (typeof f.probe_cmd === 'string' ? f.probe_cmd : ''))].find(isFullSuite);
+    const verify = async (): Promise<string> => {
+      if (suiteCommand === undefined) return new VerificationRun(ctx).run();
+      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
+      if (slot.kind === 'busy') {
+        return deny(
+          `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`,
+        );
+      }
+      try {
+        const reusedAfterSlot = reuse();
+        if (reusedAfterSlot !== null) return reusedAfterSlot;
+        const env = slot.kind === 'held' ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
+        return await new VerificationRun({ ...ctx, env }).run();
+      } finally {
+        if (slot.kind === 'held') slot.release();
+      }
+    };
     const reused = reuse();
     if (reused !== null) return { stdout: reused, code: 0 };
-    if (wtSha === '') return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    if (wtSha === '') return { stdout: await verify(), code: 0 };
 
     const lockRoot = `${posixDirname(db)}/locks`;
     try {
       mkdirSync(lockRoot, { recursive: true });
     } catch {
-      return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+      return { stdout: await verify(), code: 0 };
     }
     const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
     await acquireLock(lockDir, budget.timeoutS + 60);
@@ -742,7 +772,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     }
     const reusedAfterWait = reuse();
     if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
-    return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    return { stdout: await verify(), code: 0 };
   } finally {
     if (lock !== '') removeQuietly(lock);
     removeQuietly(scratch);
