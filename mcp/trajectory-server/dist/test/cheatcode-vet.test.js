@@ -272,7 +272,7 @@ describe('cheatcodeVet over the stubbed GitHub REST API', () => {
         assert.deepEqual(requests, []);
     });
     it('a bare repo URL lists the repo root via contents, never git/trees (GH 1617)', () => {
-        assert.ok(hi.requests.includes('https://api.github.com/repos/anthropics/live-pdf/contents'));
+        assert.ok(new Set(hi.requests).has('https://api.github.com/repos/anthropics/live-pdf/contents'));
         assert.ok(!hi.requests.some((u) => u.includes('repos/anthropics/live-pdf/git/trees')));
     });
 });
@@ -284,7 +284,7 @@ describe('cheatcodeVet on folder URLs (GH 1617)', () => {
         tooly = (await vetLive({ name: 'tooly', kind: 'plugin', source_url: 'https://github.com/someorg/mono/tree/main/skills/tooly/' })).out;
     });
     it('a /tree/<ref>/<path> URL requests git/trees/<ref>?recursive=1', () => {
-        assert.ok(plain.requests.includes('https://api.github.com/repos/someorg/mono/git/trees/main?recursive=1'));
+        assert.ok(new Set(plain.requests).has('https://api.github.com/repos/someorg/mono/git/trees/main?recursive=1'));
     });
     it('two folders of one repo get different capability sets', () => {
         assert.notDeepEqual(plain.out.capabilities, tooly.capabilities);
@@ -304,7 +304,7 @@ describe('cheatcodeVet on folder URLs (GH 1617)', () => {
     let huge;
     it('a truncated tree falls back to contents/<path>?ref=<ref> for that folder', async () => {
         huge = await vetLive({ name: 'mcpish', kind: 'skill', source_url: 'https://github.com/someorg/huge/tree/v2/skills/mcpish' });
-        assert.ok(huge.requests.includes('https://api.github.com/repos/someorg/huge/contents/skills/mcpish?ref=v2'));
+        assert.ok(new Set(huge.requests).has('https://api.github.com/repos/someorg/huge/contents/skills/mcpish?ref=v2'));
     });
     it('an MCP server definition flags code_execution + network but not fs_writes', () => {
         assert.deepEqual(huge.out.capabilities, ['code_execution', 'network']);
@@ -374,7 +374,7 @@ describe('cheatcodeVet on submodules, symlinks and plugin manifests', () => {
         const { out, requests } = await vetPlug('hooky', 'plugins/hooky');
         assert.deepEqual(out.capabilities, ['code_execution']);
         assert.equal(out.trust_tier, 'caution');
-        assert.ok(requests.includes('https://api.github.com/repos/someorg/plug/contents/plugins/hooky/.claude-plugin/plugin.json?ref=main'));
+        assert.ok(new Set(requests).has('https://api.github.com/repos/someorg/plug/contents/plugins/hooky/.claude-plugin/plugin.json?ref=main'));
     });
     it('(G) plugin.json declaring mcpServers -> code_execution + network', async () => {
         assert.deepEqual((await vetPlug('mcpy', 'plugins/mcpy')).out.capabilities, ['code_execution', 'network']);
@@ -437,7 +437,7 @@ describe('cheatcodeVet over a fixture tree', () => {
     it('(G2) live path: a nested manifest is fetched from contents/<folder>/<path>?ref=<ref>', async () => {
         const { out, requests } = await vetLive({ name: 'pack', kind: 'plugin', source_url: 'https://github.com/someorg/nestman/tree/main/pack' });
         assert.deepEqual(out.capabilities, ['code_execution']);
-        assert.ok(requests.includes('https://api.github.com/repos/someorg/nestman/contents/pack/plugins/x/.claude-plugin/plugin.json?ref=main'));
+        assert.ok(new Set(requests).has('https://api.github.com/repos/someorg/nestman/contents/pack/plugins/x/.claude-plugin/plugin.json?ref=main'));
     });
     it('(G3) plugin.json declaring lspServers -> code_execution', async () => {
         assert.deepEqual((await vetTree([PJ], { [PJ]: { name: 'l', lspServers: { go: { command: 'gopls' } } } })).capabilities, ['code_execution']);
@@ -510,7 +510,7 @@ describe('cheatcodeVet over a fixture tree', () => {
     it('(C) live path: an upper-case manifest is fetched at its exact listed path and read', async () => {
         const { out, requests } = await vetLive({ name: 'pack', kind: 'plugin', source_url: 'https://github.com/someorg/casey/tree/main/pack' });
         assert.deepEqual(out.capabilities, ['code_execution']);
-        assert.ok(requests.includes('https://api.github.com/repos/someorg/casey/contents/pack/.CLAUDE-PLUGIN/Plugin.json?ref=main'));
+        assert.ok(new Set(requests).has('https://api.github.com/repos/someorg/casey/contents/pack/.CLAUDE-PLUGIN/Plugin.json?ref=main'));
     });
     it('(U) fixture: a manifest path with ? is never read -> caution (unusual path)', async () => {
         const odd = 'x?y/.claude-plugin/plugin.json';
