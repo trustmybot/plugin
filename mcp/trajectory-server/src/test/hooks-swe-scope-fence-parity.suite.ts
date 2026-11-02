@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript swe-scope-fence gate with
- * scripts/hooks/swe-scope-fence.sh (GH 1692) over
+ * the bash swe-scope-fence.sh (GH 1692) over
  * tests/fixtures/hook-corpus/swe-scope-fence/. The sandbox is rebuilt at the
  * same path before each side runs; both sides must exit 0, print the same
  * stdout and stderr byte for byte, and leave the sandbox alike: the DB rows

@@ -20779,7 +20779,7 @@ Tasks created:
 ${tasks}
 
 For each task, run the two-step proven flow:
-1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` \u2014 capture the printed path.
+1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | node \${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create\` \u2014 capture the printed path.
 2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` \u2014 no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;
@@ -25320,32 +25320,10 @@ function routerTimeoutS(group) {
 }
 
 // src/hooks/router/main.ts
-import { spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync17, mkdirSync as mkdirSync13, readFileSync as readFileSync23 } from "node:fs";
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { existsSync as existsSync16, mkdirSync as mkdirSync13, readFileSync as readFileSync23 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
-
-// src/hooks/router/sh-gate.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync15 } from "node:fs";
-function shGate(name3) {
-  return (payload, env) => {
-    const script = `${env.CLAUDE_PLUGIN_ROOT ?? ""}/scripts/hooks/${name3}.sh`;
-    if (!existsSync15(script)) throw new Error(`no ${script} (TMB_HOOKS_IMPL=bash runs only .sh gates) \u2014 not run`);
-    const limit = spawnLimit(void 0, "SIGKILL");
-    const r = spawnSync11("bash", [script], {
-      input: payload,
-      env,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "inherit"],
-      ...spawnOptions(limit)
-    });
-    const cut4 = noteSpawn(limit, r);
-    if (r.error && !cut4) throw r.error;
-    return { stdout: r.stdout ?? "", code: r.status ?? 1 };
-  };
-}
 
 // src/hooks/router/decide.ts
 var ROUTER_NAME = "router";
@@ -25619,20 +25597,19 @@ async function decideCall(event, payload, env, deps) {
       denied: { gate: ROUTER_NAME, reason }
     };
   }
-  const bashImpl = env.TMB_HOOKS_IMPL === "bash";
   const group = routerGroup(event, tool, groups, deps.part);
-  const gates = routerGates(event, tool, groups, deps.part).filter((g) => !(bashImpl && g.tsOnly));
-  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
+  const gates = routerGates(event, tool, groups, deps.part);
+  if (event === "PreToolUse" && tool === "Bash" && gates.length > 0) await parserReady(deps.parserWait ?? bashParser);
   const call = {
     event,
     payload,
     env,
     now,
-    find: deps.findGate ?? (bashImpl ? shGate : findGate),
+    find: deps.findGate ?? findGate,
     budgetOf: (gate) => deps.budgetMs?.(gate) ?? gate.budgetMs,
     groupBudgetMs: deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0
   };
-  const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
+  const done = group?.concurrent === true ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
   const deny13 = done.find(({ j }) => j.outcome === "deny");
@@ -25660,7 +25637,7 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync16, mkdirSync as mkdirSync11, readdirSync as readdirSync8, readFileSync as readFileSync22, renameSync as renameSync5, rmSync as rmSync6, statSync as statSync38, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync11, readdirSync as readdirSync8, readFileSync as readFileSync22, renameSync as renameSync5, rmSync as rmSync6, statSync as statSync38, writeFileSync as writeFileSync7 } from "node:fs";
 import { setTimeout as sleep3 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -25724,7 +25701,7 @@ var Dedupe = class {
   windowS;
   sweepS;
   expired(lock) {
-    const done = existsSync16(`${lock}/rc`);
+    const done = existsSync15(`${lock}/rc`);
     if (!done) {
       const deadline = stamp(`${lock}/deadline`);
       if (deadline !== null) return nowS2() > deadline;
@@ -25759,7 +25736,7 @@ var Dedupe = class {
       }
       if (!st.isDirectory()) continue;
       const ageMin = (Date.now() - st.mtimeMs) / 6e4;
-      const done = existsSync16(`${d}/rc`);
+      const done = existsSync15(`${d}/rc`);
       const deadline = done ? null : stamp(`${d}/deadline`);
       const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now > deadline;
       if (gone) rmSync6(d, { recursive: true, force: true });
@@ -25816,7 +25793,7 @@ var Dedupe = class {
       return false;
     }
     try {
-      if (!existsSync16(lock) || this.expired(lock)) {
+      if (!existsSync15(lock) || this.expired(lock)) {
         rmSync6(lock, { recursive: true, force: true });
         return this.take(lock);
       }
@@ -25832,7 +25809,7 @@ var Dedupe = class {
     const giveUp = nowS2() + Math.max(1, this.timeoutS - 1);
     for (; ; ) {
       if (this.take(lock)) return { kind: "hold", lock };
-      if (existsSync16(`${lock}/rc`) && !this.expired(lock)) {
+      if (existsSync15(`${lock}/rc`) && !this.expired(lock)) {
         const out2 = this.replay(lock);
         return out2 === null ? { kind: "none" } : { kind: "replay", out: out2 };
       }
@@ -25998,7 +25975,7 @@ function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, part, payload, env) {
-  const r = spawnSync12(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
+  const r = spawnSync11(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",
@@ -26037,7 +26014,7 @@ function shimYields(payload, env) {
   const sessionRoot2 = project || shimProject;
   const sessionId = safeSessionId(payload);
   if (sessionRoot2 === "" || sessionId === "") return false;
-  return existsSync17(`${sessionRoot2}/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/sessions/${sessionId}.plugin-hooks`);
+  return existsSync16(`${sessionRoot2}/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/sessions/${sessionId}.plugin-hooks`);
 }
 function lockBase(env) {
   if (!haveSqlite(env)) return null;
@@ -26053,7 +26030,7 @@ async function routerMain(event, env, io, opts = {}) {
   if (opts.hop !== false && env[HOP_ENV] !== "1") {
     const root = activeInstall(env, io.writeStderr);
     if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
-      if (existsSync17(`${root}/${ROUTER_MANIFEST}`) && existsSync17(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
+      if (existsSync16(`${root}/${ROUTER_MANIFEST}`) && existsSync16(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
         const out2 = hopTo(root, event, opts.part, payload, env);
         io.writeStderr(out2.stderr);
         await io.writeStdout(out2.stdout);

@@ -7,7 +7,8 @@
  * another gate's sandbox has its output dropped, as the router drops it.
  * A gate with bash recordings answers alone as its recording did: the plain text
  * of a context event byte for byte, the bare path of WorktreeCreate or, for a
- * failure there, an empty stdout and exit 1.
+ * failure there, an empty stdout and exit 1; the spawn hint's pre-create
+ * command is masked on both sides (decision 703).
  * One router-parity.<gate>.test.ts per gate runs it as its own node --test process (GH 2118).
  */
 import assert from 'node:assert/strict';
@@ -18,6 +19,7 @@ import { after, before, describe, it } from 'node:test';
 import { eventHoldsEnforcement, findGate, ROUTER_GROUPS, routerGates, routerGroup } from '../hooks/registry.js';
 import { decide, denyOutput, failClosedReason, payloadTool, stdoutIsPath } from '../hooks/router/decide.js';
 import { goldenRecording } from './golden.js';
+import { preCreateMasked } from './hooks-swe-run-parity.suite.js';
 import { routerSandbox, underUid } from './router-sandboxes.js';
 const DENY = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
 function parsed(stdout) {
@@ -144,7 +146,7 @@ async function matchesRecording(c, group) {
     if (isText)
         assert.equal(got.stdout, recorded.stdout, `${name}: plain text unchanged`);
     else
-        assert.deepEqual(parsed(got.stdout), parsed(recorded.stdout), `${name}: output`);
+        assert.deepEqual(parsed(preCreateMasked(got.stdout)), parsed(preCreateMasked(recorded.stdout)), `${name}: output`);
 }
 async function inCase(c, fn) {
     const cwd = process.cwd();

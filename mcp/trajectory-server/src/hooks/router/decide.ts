@@ -6,10 +6,9 @@
  * (decisions 937 and 1136) starts them all in registry order and awaits all, so
  * their git waits overlap; each gate's deadline is its own start plus the
  * smaller of its budget and the group budget, and a sibling's synchronous work
- * counts in its ms. Any other group, and every group under TMB_HOOKS_IMPL=bash,
- * runs them one at a time, each on its own clock (decision 919), with a deadline
- * at its start plus the smaller of its budget and the group budget left
- * (decision 922). A hung child ends a gate at its deadline. Sync gates are
+ * counts in its ms. Any other group runs them one at a time, each on its own
+ * clock (decision 919), with a deadline at its start plus the smaller of its
+ * budget and the group budget left (decision 922). A hung child ends a gate at its deadline. Sync gates are
  * judged on return, async gates raced against their deadline. A tool no group
  * matches runs nothing, and a group marked stopAtFirstDeny runs no gate after
  * a deny. Outcomes, stderr and context stay in registry order however the gates
@@ -22,8 +21,7 @@
  * gate serves. Fail-closed as dispatch.sh is: an enforcement gate that throws,
  * exits other than 0 or 2 without a deny, prints unparseable output, is
  * unknown, runs past its deadline, or is left no group budget denies, naming
- * the gate; an advisory gate's failure is dropped and logged. Under the
- * TMB_HOOKS_IMPL=bash kill switch each gate runs as its .sh (router/sh-gate.ts).
+ * the gate; an advisory gate's failure is dropped and logged.
  * Claude Code adds a SessionStart or UserPromptSubmit gate's plain stdout as
  * context, so plain text is an output there, kept as is; only text shaped as JSON
  * that fails to parse is dropped. WorktreeCreate reads stdout as the path and
@@ -37,7 +35,6 @@ import type { Gate, GateResult } from '../gate.js';
 import { runWithDeadline } from '../lib/deadline.js';
 import { runWithGitMemo } from '../lib/git.js';
 import { type RouterGate, type RouterGroup, ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
-import { shGate } from './sh-gate.js';
 
 export type GateOutcomeKind = 'allow' | 'deny' | 'skipped_budget' | 'error';
 
@@ -426,20 +423,19 @@ async function decideCall(event: string, payload: string, env: NodeJS.ProcessEnv
       denied: { gate: ROUTER_NAME, reason },
     };
   }
-  const bashImpl = env.TMB_HOOKS_IMPL === 'bash';
   const group = routerGroup(event, tool, groups, deps.part);
-  const gates = routerGates(event, tool, groups, deps.part).filter((g) => !(bashImpl && g.tsOnly));
-  if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0 && !bashImpl) await parserReady(deps.parserWait ?? bashParser);
+  const gates = routerGates(event, tool, groups, deps.part);
+  if (event === 'PreToolUse' && tool === 'Bash' && gates.length > 0) await parserReady(deps.parserWait ?? bashParser);
   const call: GateCall = {
     event,
     payload,
     env,
     now,
-    find: deps.findGate ?? (bashImpl ? shGate : findGate),
+    find: deps.findGate ?? findGate,
     budgetOf: (gate) => deps.budgetMs?.(gate) ?? gate.budgetMs,
     groupBudgetMs: deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0,
   };
-  const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
+  const done = group?.concurrent === true ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
   const stderr = done.map(({ j }) => j.stderr).join('');
   const deny = done.find(({ j }) => j.outcome === 'deny');

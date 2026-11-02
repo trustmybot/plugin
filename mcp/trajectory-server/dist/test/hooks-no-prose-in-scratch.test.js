@@ -273,21 +273,21 @@ describe('no-prose-in-scratch', () => {
             assert.equal(gate('rm "/tmp/a b.md"'), '');
         });
     });
-    describe('dispatch.sh --shim, the headless entry (F345-1)', () => {
+    describe('the router --shim, the headless entry (F345-1)', () => {
         const shim = (toolName, toolInput, over = {}) => {
             const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'probe', cwd: project, tool_name: toolName, tool_input: toolInput });
-            return spawnSync('bash', [join(PLUGIN_ROOT, 'scripts/hooks/dispatch.sh'), 'no-prose-in-scratch', '--shim'], {
+            return spawnSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PreToolUse', '--shim'], {
                 input,
                 encoding: 'utf8',
                 env: { ...env, CLAUDE_PROJECT_DIR: project, TMB_SHIM_PROJECT: project, ...over },
             }).stdout;
         };
         const DENY = /"permissionDecision":"deny"/;
-        const SWITCH = { TMB_HOOKS_IMPL: 'bash' };
-        it('allows a harmless call and a prose write under TMB_HOOKS_IMPL=bash', () => {
-            assert.doesNotMatch(shim('Bash', { command: 'ls' }, SWITCH), DENY);
-            assert.doesNotMatch(shim('Write', { file_path: join(project, 'a.ts'), content: 'x' }, SWITCH), DENY);
-            assert.doesNotMatch(shim('Bash', { command: 'echo hi > /tmp/x.md' }, SWITCH), DENY);
+        const elsewhere = () => ({ CLAUDE_PROJECT_DIR: tmp });
+        it('yields to a session of another project, a prose write included', () => {
+            assert.doesNotMatch(shim('Bash', { command: 'ls' }, elsewhere()), DENY);
+            assert.doesNotMatch(shim('Write', { file_path: join(project, 'a.ts'), content: 'x' }, elsewhere()), DENY);
+            assert.doesNotMatch(shim('Bash', { command: 'echo hi > /tmp/x.md' }, elsewhere()), DENY);
         });
         it('still denies through the shim in normal mode', () => {
             assert.match(shim('Bash', { command: 'echo hi > /tmp/x.md' }), DENY);

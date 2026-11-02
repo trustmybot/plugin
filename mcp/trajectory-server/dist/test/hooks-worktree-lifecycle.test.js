@@ -1,10 +1,11 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { cleanupWorktree } from '../hooks/cleanup-worktree-on-task-close.js';
 import { worktreeCreateRun } from '../hooks/worktree-create.js';
 import { findGate } from '../hooks/registry.js';
@@ -62,10 +63,33 @@ describe('cleanup-worktree-on-task-close and worktree-create (GH 1692, GH 2032)'
         assert.doesNotMatch(git(repo, 'worktree', 'list', '--porcelain'), /\.claude\/worktrees\/provisioned/);
         assert.deepEqual(lines, [`tmb: cleaned up worktree ${provisioned} after task #2 closed\n`]);
     });
-    it('reads the validation_record pass with the HAS_PASS_SQL review-sql.ts holds, equal to the .sh copy', () => {
-        const sh = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks/cleanup-worktree-on-task-close.sh'), 'utf8');
-        const copy = /_CWC_HAS_PASS="([\s\S]*?)"\n/.exec(sh)?.[1]?.replaceAll('\\$', '$');
-        assert.equal(copy, HAS_PASS_SQL);
+    it('removes a worktree on a passing validation_record only once HAS_PASS_SQL finds the pass anchored to the commit', async () => {
+        const passed = addWorktree(repo, 'feat/passed');
+        const d = new DatabaseSync(db);
+        try {
+            d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, commit_sha, worktree_adopted, created_at, updated_at) VALUES (3, 1, 'feat/passed', 'd', 'closed', 'project', 'sha3', 0, ?, ?)").run(T1, T1);
+        }
+        finally {
+            d.close();
+        }
+        const validation = JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'mcp__plugin_tmb_trajectory-server__validation_record', tool_input: { agent: 'code-reviewer', task_id: 3, verdict: 'pass' } });
+        const unanchored = await cleanupWorktree(validation, hookEnv(db), () => undefined);
+        assert.deepEqual(unanchored, { stdout: '', code: 0 });
+        assert.ok(existsSync(passed), 'no anchored pass: the worktree stays');
+        const w = new DatabaseSync(db);
+        try {
+            w.prepare("INSERT INTO audit (issue_id, event_type, summary, content_json, created_at) VALUES (1, 'bro_verification_pass', 's', ?, ?)").run(JSON.stringify({ task_id: 3, commit_sha: 'sha3' }), T1);
+            w.prepare("INSERT INTO validation_attempts (task_id, attempt_n, verdict, mcp_available, created_at) VALUES (3, 1, 'pass', 1, '2026-10-01T11:00:00.000Z')").run();
+            assert.ok(w.prepare(`SELECT 1 AS hit FROM tasks t WHERE t.id = 3 AND ${HAS_PASS_SQL}`).get());
+        }
+        finally {
+            w.close();
+        }
+        const lines = [];
+        const anchored = await cleanupWorktree(validation, hookEnv(db), (line) => lines.push(line));
+        assert.deepEqual(anchored, { stdout: '', code: 0 });
+        assert.ok(!existsSync(passed), 'the anchored pass removes the worktree');
+        assert.deepEqual(lines, [`tmb: cleaned up worktree ${passed} after task #3 closed\n`]);
     });
     it('worktree-create prints the bare worktree path and exits 0, a failure exits 1 with stdout empty', async () => {
         const lines = [];

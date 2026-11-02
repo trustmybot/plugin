@@ -4,17 +4,18 @@
  * swe runs (budget handbacks aside), or its issue four FAILs across its tasks
  * with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind
  * 'decision' row) on the task or its issue; no agent-written row and no Human
- * note lifts it. agent-spawn-dispatch.sh returns that deny
+ * note lifts it. The agent-spawn-dispatch gate returns that deny
  * before any PREPARE step.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
+import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { reworkLimit } from '../hooks/rework-limit.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { ISSUE_FAIL_LIMIT, REWORK_FAIL_LIMIT, SWE_RUN_LIMIT } from '../task-rework.js';
@@ -370,56 +371,47 @@ describe('rework-limit', () => {
     denyReason(run(f).stdout);
   });
 
-  describe('agent-spawn-dispatch.sh', () => {
-    function dispatcherRoot(): { hooks: string; marks: string } {
-      seq += 1;
-      const root = join(sandbox, `plugin-${seq}`);
-      const hooks = join(root, 'scripts/hooks');
-      const marks = join(root, 'marks');
-      mkdirSync(hooks, { recursive: true });
-      mkdirSync(marks);
-      mkdirSync(join(root, 'mcp/trajectory-server'), { recursive: true });
-      symlinkSync(join(SERVER_ROOT, 'dist'), join(root, 'mcp/trajectory-server/dist'));
-      copyFileSync(join(PLUGIN_ROOT, 'scripts/hooks/agent-spawn-dispatch.sh'), join(hooks, 'agent-spawn-dispatch.sh'));
-      for (const step of ['ensure-swe-worktree', 'record-swe-spawn']) {
-        writeFileSync(join(hooks, `${step}.sh`), `#!/usr/bin/env bash\ntouch "${marks}/${step}"\n`);
-        chmodSync(join(hooks, `${step}.sh`), 0o755);
-      }
-      return { hooks, marks };
+  describe('the agent-spawn-dispatch gate', () => {
+    /** Of CHAIN only the gate under test runs, so the fixture needs no spec; PREPARE runs as markers. */
+    function dispatch(f: Fixture): Promise<{ result: GateResult; ran: string[] }> {
+      const ran: string[] = [];
+      const find = (name: string): Gate | undefined =>
+        PREPARE.includes(name)
+          ? () => {
+              ran.push(name);
+              return ALLOW;
+            }
+          : name === 'rework-limit' ? findGate(name) : undefined;
+      return agentSpawnDispatch(payload(), f.env, find).then((result) => ({ result, ran }));
     }
 
-    const dispatch = (hooks: string, env: NodeJS.ProcessEnv) =>
-      spawnSync('bash', [join(hooks, 'agent-spawn-dispatch.sh')], { input: payload(), env, encoding: 'utf8', timeout: 30_000 });
-
-    it('returns the rework deny and runs no PREPARE step', () => {
+    it('returns the rework deny and runs no PREPARE step', async () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.discuss({ kind: 'decision' });
-      const { hooks, marks } = dispatcherRoot();
-      const r = dispatch(hooks, f.env);
-      assert.equal(r.status, 0);
-      assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs/);
-      assert.equal(existsSync(join(marks, 'ensure-swe-worktree')), false, 'ensure-swe-worktree.sh did not run');
-      assert.equal(existsSync(join(marks, 'record-swe-spawn')), false, 'record-swe-spawn.sh did not run');
+      const { result, ran } = await dispatch(f);
+      assert.equal(result.code, 0);
+      assert.match(denyReason(result.stdout.trim()), /task FAILs: 2 review FAILs/);
+      assert.equal(ran.includes('ensure-swe-worktree'), false, 'ensure-swe-worktree did not run');
+      assert.equal(ran.includes('record-swe-spawn'), false, 'record-swe-spawn did not run');
     });
 
-    it('passes after a Human waiver and runs the PREPARE steps', () => {
+    it('passes after a Human waiver and runs the PREPARE steps', async () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.discuss({ author: 'human', kind: 'decision' });
-      const { hooks, marks } = dispatcherRoot();
-      const r = dispatch(hooks, f.env);
-      assert.equal(r.status, 0);
-      assert.equal(r.stdout.trim(), '');
-      assert.equal(existsSync(join(marks, 'ensure-swe-worktree')), true, 'ensure-swe-worktree.sh ran');
-      assert.equal(existsSync(join(marks, 'record-swe-spawn')), true, 'record-swe-spawn.sh ran');
+      const { result, ran } = await dispatch(f);
+      assert.equal(result.code, 0);
+      assert.equal(result.stdout.trim(), '');
+      assert.equal(ran.includes('ensure-swe-worktree'), true, 'ensure-swe-worktree ran');
+      assert.equal(ran.includes('record-swe-spawn'), true, 'record-swe-spawn ran');
     });
   });
 
   describe('hook docs', () => {
     for (const [doc, stale] of [
       ['scripts/hooks/README.md', 'a decision naming the change of approach'],
-      ['scripts/hooks/agent-spawn-dispatch.sh', 'needs a newer decision'],
+      ['mcp/trajectory-server/src/hooks/rework-limit.ts', 'needs a newer decision'],
     ]) {
       it(`${doc} names the Human-only waiver and no decision-row escape`, () => {
         const text = readFileSync(join(PLUGIN_ROOT, doc), 'utf8');

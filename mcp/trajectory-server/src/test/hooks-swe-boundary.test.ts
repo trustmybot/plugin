@@ -1,6 +1,6 @@
 /**
  * The TypeScript swe-boundary where it differs from
- * scripts/hooks/swe-boundary.sh (GH 1692), each difference stricter: a
+ * the bash swe-boundary.sh (GH 1692), each difference stricter: a
  * command tree-sitter-bash cannot parse is denied with PARSE_REASON, the DB
  * is read through node:sqlite with no sqlite3 CLI on PATH, where the .sh
  * enforces nothing, a gh api verb is upper-cased by toUpperCase in every
@@ -12,7 +12,6 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,9 +25,7 @@ import { GATE_NAME, PARSE_REASON, sweBoundary } from '../hooks/swe-boundary.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/swe-boundary.sh');
 const NOW = '2026-10-11T10:00:00.000Z';
-const HAVE_SQLITE_CLI = spawnSync('sqlite3', ['-version'], { stdio: 'ignore' }).status === 0;
 const UNPARSEABLE = 'cat <<E"M"\nx\nEM\necho x > agents/a.md';
 
 interface Out {
@@ -154,19 +151,10 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     const target = join(wt, 'src/a.ts');
     const record = join(dirname(db), 'locks/boundary-denies/unit', createHash('sha256').update(target).digest('hex'));
     const input = payload('Edit', { file_path: target, old_string: 'a', new_string: 'b' });
-    for (const impl of HAVE_SQLITE_CLI ? (['ts', 'bash'] as const) : (['ts'] as const)) {
-      mkdirSync(dirname(record), { recursive: true });
-      writeFileSync(record, 'containment-guard\n0999\n');
-      if (impl === 'ts') {
-        const r = await sweBoundary(input, env);
-        assert.deepEqual(r, { stdout: '', code: 0 });
-      } else {
-        const r = spawnSync('bash', [HOOK_SH], { input, env, encoding: 'utf8' });
-        assert.equal(r.status, 0, r.stderr);
-        assert.match(r.stderr, /0999: value too great for base/);
-        assert.equal(r.stdout, '');
-      }
-    }
+    mkdirSync(dirname(record), { recursive: true });
+    writeFileSync(record, 'containment-guard\n0999\n');
+    assert.deepEqual(await sweBoundary(input, env), { stdout: '', code: 0 });
+    assert.deepEqual(await sweBoundary(input, env), { stdout: '', code: 0 }, 'the record still holds no valid time on the next call');
     rmSync(join(dirname(db), 'locks'), { recursive: true, force: true });
   });
 });

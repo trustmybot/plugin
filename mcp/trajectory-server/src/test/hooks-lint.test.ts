@@ -28,8 +28,9 @@ function bashPayload(command: string): string {
   return JSON.stringify({ tool_name: 'Bash', tool_input: { command } });
 }
 
-function runSh(gate: string, input: string, env: NodeJS.ProcessEnv): string {
-  const r = spawnSync('/bin/bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], { input, env, encoding: 'utf8' });
+/** The gate as the shipped bundle runs it, `node dist/hooks.js <gate>`. */
+function runBundled(gate: string, input: string, env: NodeJS.ProcessEnv): string {
+  const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), gate], { input, env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
@@ -64,19 +65,19 @@ describe('lint hooks: the TypeScript gates', () => {
   describe('commit-msg-lint on a command tree-sitter-bash cannot parse', () => {
     const unparseable = 'git commit -m "wip" )';
 
-    it('denies it with PARSE_REASON, where the .sh lints what it reads', async () => {
+    it('denies it with PARSE_REASON, in process and bundled, where the .sh linted what it read', async () => {
       const result = await commitMsgLint(bashPayload(unparseable), { ...process.env, LC_ALL: 'C' });
       assert.deepEqual(context(result.stdout), { decision: 'deny', text: PARSE_REASON });
       assert.equal(result.code, 0);
-      const sh = runSh('commit-msg-lint', bashPayload(unparseable), { ...process.env, LC_ALL: 'C' });
-      assert.notEqual(sh === '' ? undefined : context(sh).decision, 'deny');
+      const bundled = runBundled('commit-msg-lint', bashPayload(unparseable), { ...process.env, LC_ALL: 'C' });
+      assert.deepEqual(context(bundled), { decision: 'deny', text: PARSE_REASON });
     });
 
-    it('stays silent when it builds its message with $( or a backtick, as the .sh does', async () => {
+    it('stays silent when it builds its message with $( or a backtick, as the .sh did', async () => {
       for (const command of ['git commit -m "$(cat <<EOF\\nfeat: x\\nEOF\\n)"', 'git commit -m "`cat msg`" )']) {
         const result = await commitMsgLint(bashPayload(command), { ...process.env, LC_ALL: 'C' });
         assert.deepEqual(result, { stdout: '', code: 0 }, command);
-        assert.equal(runSh('commit-msg-lint', bashPayload(command), { ...process.env, LC_ALL: 'C' }), '', command);
+        assert.equal(runBundled('commit-msg-lint', bashPayload(command), { ...process.env, LC_ALL: 'C' }), '', command);
       }
     });
 
@@ -97,26 +98,26 @@ describe('lint hooks: the TypeScript gates', () => {
     });
   });
 
-  describe('with no jq on PATH, where each .sh exits silently', () => {
+  describe('with no jq on PATH, where each .sh exited silently', () => {
     it('commit-msg-lint still warns', async () => {
       const env = { ...process.env, PATH: noJq, LC_ALL: 'C' };
       const result = await commitMsgLint(bashPayload('git commit -m "feat: add x"'), env);
       assert.match(context(result.stdout).text, /^commit-msg-lint: commit subject does not match/);
-      assert.equal(runSh('commit-msg-lint', bashPayload('git commit -m "feat: add x"'), env), '');
+      assert.match(context(runBundled('commit-msg-lint', bashPayload('git commit -m "feat: add x"'), env)).text, /^commit-msg-lint: commit subject does not match/);
     });
 
     it('naming-lint still warns', () => {
       const env = { ...process.env, PATH: noJq, LC_ALL: 'C' };
       const input = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: join(dir, 'new/BadName.py') } });
       assert.match(context(namingLint(input, env).stdout).text, /snake_case/);
-      assert.equal(runSh('naming-lint', input, env), '');
+      assert.match(context(runBundled('naming-lint', input, env)).text, /snake_case/);
     });
 
     it('code-quality-lint still warns', () => {
       const env = { ...process.env, PATH: noJq, LC_ALL: 'C' };
       const input = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: '/w/a.py', content: 'except:\n' } });
       assert.match(context(codeQualityLint(input, env).stdout).text, /bare 'except:'/);
-      assert.equal(runSh('code-quality-lint', input, env), '');
+      assert.match(context(runBundled('code-quality-lint', input, env)).text, /bare 'except:'/);
     });
 
     it('attribution-footer still writes the footer', () => {
@@ -127,8 +128,8 @@ describe('lint hooks: the TypeScript gates', () => {
       assert.deepEqual(attributionFooter(input, env), { stdout: '', code: 0 });
       assert.ok(readFileSync(log, 'utf8').includes(`[gh][pr][edit][7][--body][Body\n\n${TMB_FOOTER}]`));
       rmSync(log);
-      runSh('attribution-footer', input, env);
-      assert.equal(existsSync(log), false);
+      assert.equal(runBundled('attribution-footer', input, env), '');
+      assert.ok(readFileSync(log, 'utf8').includes(`[gh][pr][edit][7][--body][Body\n\n${TMB_FOOTER}]`), 'the bundled gate writes it too');
     });
   });
 

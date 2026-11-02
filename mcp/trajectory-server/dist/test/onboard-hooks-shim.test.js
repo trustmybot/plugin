@@ -138,7 +138,7 @@ describe('project enforcement shim', () => {
         assert.ok(!readFileSync(settingsPath(), 'utf8').includes('dispatch.sh'));
     });
     it('a hooks.json with no PreToolUse router entry writes nothing, with a reason', () => {
-        useHooksJson({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" git-guards', timeout: 10 }] }] } });
+        useHooksJson({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash "${CLAUDE_PLUGIN_ROOT}/legacy/git-guards.sh"', timeout: 10 }] }] } });
         const res = write();
         assert.equal(res.written, false);
         assert.equal(res.reason, 'hooks/hooks.json has no PreToolUse router entry');
