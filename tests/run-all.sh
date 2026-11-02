@@ -118,6 +118,8 @@ run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-des
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
+run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE/l1-lint/dist-bundles.sh" --self-test
+run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
 run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
 run_step "L1 lint: labels.json triage rule + LABELS.md generated fresh"  node --test "$HERE/l1-lint/labels.test.mjs"
 run_step "L1 lint: new ts/tsx/sh files open with a purpose header"  node --test "$HERE/l1-lint/purpose-header.test.mjs"
