@@ -19,6 +19,15 @@ const INFO = {
     ruby: /^(-v|--version|-h|--help|-c|-y)$/,
     sh: /^(--version|--help|-n)$/,
 };
+/** Characters read, scanned, printed or held in tracked variables, and syntax nodes walked, one unit each. */
+export const ANALYSIS_WORK_CAP = 1_000_000;
+const CAP_TEXT = `analysis cap reached (${ANALYSIS_WORK_CAP} work units): split this command into smaller ones`;
+const CAP_LINE = `UNRESOLVED:${COMPUTED}${CAP_TEXT}`;
+/** The deny of a gate that acts on the cap itself, in the shape router/records.ts reads as no path judged. */
+export const CAP_REASON = `BLOCKED: write target "${CAP_TEXT}" cannot be judged: the analyzer stopped before it finished reading this command, so the guard cannot tell what it writes.`;
+export const isCapLine = (line) => line === CAP_LINE;
+class WorkCapReached extends Error {
+}
 const basename = (w) => w.replace(/.*\//, '');
 const chomp = (s) => s.replace(/\n+$/, '');
 const dec = (s) => chomp(decode(s));
@@ -192,12 +201,18 @@ const stdinInterp = (words) => stdinProgram(words).kind;
 class WritePaths {
     parser;
     opts;
+    charge;
     out = '';
     pwd = '';
     rootc;
-    constructor(parser, opts) {
+    constructor(parser, opts, charge) {
         this.parser = parser;
         this.opts = opts;
+        this.charge = charge;
+    }
+    print(line) {
+        this.charge(line.length);
+        this.out += line;
     }
     envVar(name, level) {
         const { env } = this.opts;
@@ -371,15 +386,15 @@ class WritePaths {
     /** _tmb_cmd_emit */
     emit(level, dir, p, why = level.why) {
         if (p.startsWith(COMPUTED)) {
-            this.out += computedLine(p.slice(COMPUTED.length));
+            this.print(computedLine(p.slice(COMPUTED.length)));
             return;
         }
         if (p.startsWith(PARSE)) {
-            this.out += parseLine(p.slice(PARSE.length));
+            this.print(parseLine(p.slice(PARSE.length)));
             return;
         }
         if (p.startsWith(UNPROVEN)) {
-            this.out += unprovenLine(p.slice(UNPROVEN.length));
+            this.print(unprovenLine(p.slice(UNPROVEN.length)));
             return;
         }
         if (dir === '-' && why !== '' && !/^[/~$`]/.test(p)) {
@@ -390,14 +405,14 @@ class WritePaths {
             return;
         }
         if (!/[$`]/.test(p)) {
-            this.out += this.join(dir, p);
+            this.print(this.join(dir, p));
             return;
         }
         this.pwd = dirPath(dir, this.opts.cwd);
         const e = this.expand(p, level);
         if (e.ok) {
             for (const v of e.values)
-                this.out += this.join(dir, v);
+                this.print(this.join(dir, v));
             return;
         }
         if (!/^[/~$`]/.test(p)) {
@@ -409,7 +424,7 @@ class WritePaths {
                     p = `${base.replace(/\/$/, '')}/${p}`;
             }
         }
-        this.out += `UNRESOLVED:${e.unres}:${p}\n`;
+        this.print(`UNRESOLVED:${e.unres}:${p}\n`);
     }
     listerHost(level) {
         const { cwd, root, env } = this.opts;
@@ -541,7 +556,7 @@ class WritePaths {
             return;
         const text = dec(body);
         if (depth >= MAX_DEPTH) {
-            this.out += computedLine(text);
+            this.print(computedLine(text));
             return;
         }
         const outer = this.out;
@@ -555,10 +570,10 @@ class WritePaths {
             if (BODY_UNRESOLVED.test(line))
                 failed = true;
             else
-                this.out += line + '\n';
+                this.print(line + '\n');
         }
         if (failed)
-            this.out += computedLine(text);
+            this.print(computedLine(text));
     }
     /**
      * _tmb_cmd_proc_writes: what a program's process call writes, relative paths
@@ -580,7 +595,7 @@ class WritePaths {
             if (!cmd.includes('<<') && stdinInterp(words) !== '')
                 out.push('$(proc)');
         }
-        const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env });
+        const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env }, this.charge);
         nested.run(cmd, '@', 0, '');
         const lines = nested.out.split('\n');
         lines.pop();
@@ -607,11 +622,12 @@ class WritePaths {
     }
     /** _tmb_cmd_statements_enc to depth 3: bash -c / eval bodies listed as their own statements. */
     listing(cmd, base, depth) {
-        const encoded = encode(this.parser, cmd);
+        this.charge(cmd.length);
+        const encoded = encode(this.parser, cmd, this.charge);
         if (!encoded.ok)
             return [];
         const out = [];
-        for (const record of statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true)) {
+        for (const record of statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true, this.charge)) {
             if (/^\t*$/.test(record.stmt))
                 continue;
             const body = depth < MAX_DEPTH && !record.dir.startsWith('=') ? inner(record.stmt) : '';
@@ -718,9 +734,10 @@ class WritePaths {
     }
     /** _tmb_cmd_write_paths_in */
     run(cmd, base, depth, vars) {
-        const encoded = encode(this.parser, cmd);
+        this.charge(cmd.length);
+        const encoded = encode(this.parser, cmd, this.charge);
         if (!encoded.ok) {
-            this.out += parseLine(cmd);
+            this.print(parseLine(cmd));
             return;
         }
         const outer = this.held;
@@ -759,7 +776,9 @@ class WritePaths {
         let converged = false;
         for (let pass = 0; pass < 8 && !converged; pass++) {
             const prev = level.vars;
+            this.charge(prev.length + loop.length);
             loop.forEach((record, k) => {
+                this.charge(level.vars.length);
                 if (record.dir === LOOP_OPEN || record.dir === LOOP_CLOSE || record.dir === UNBALANCED)
                     return;
                 let dir = record.dir;
@@ -827,13 +846,14 @@ class WritePaths {
     runEncoded(text, heredocs, base, depth, vars) {
         const level = { vars, oldtok: '-', why: '' };
         const { cwd } = this.opts;
-        const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
+        const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true, this.charge).filter((r) => !/^\t*$/.test(r.stmt));
         const bodies = heredocAlign(heredocs, records);
         if (records.some((r) => r.dir === UNBALANCED))
             this.unbalanced = true;
         let idx = 0;
         for (const record of records) {
             idx++;
+            this.charge(level.vars.length);
             if (record.dir === LOOP_OPEN) {
                 this.loopVars(level, loopBody(records, idx), idx, bodies, depth);
                 continue;
@@ -873,11 +893,11 @@ class WritePaths {
                         this.poison(level, name);
             const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
             if (/[$`\x07]/.test(decode(argv0)))
-                this.out += unprovenLine(dec(record.stmt));
+                this.print(unprovenLine(dec(record.stmt)));
             if (evaluated?.some((w) => this.isHeld(w)))
-                this.out += unprovenLine(dec(record.stmt));
+                this.print(unprovenLine(dec(record.stmt)));
             else if (body !== '' && !evaluated && this.isHeld(body))
-                this.out += unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`);
+                this.print(unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`));
             const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
             if (ownWords) {
                 each((d, chain) => {
@@ -887,7 +907,7 @@ class WritePaths {
                 });
             }
             if (body !== '' && !evaluated && heldProgram(body)) {
-                this.out += computedLine(`${basename(dec(words[0]))} ${dec(body)}`);
+                this.print(computedLine(`${basename(dec(words[0]))} ${dec(body)}`));
                 continue;
             }
             if (body !== '' && depth < MAX_DEPTH) {
@@ -895,7 +915,7 @@ class WritePaths {
                 continue;
             }
             if (body !== '')
-                this.out += computedLine(dec(body));
+                this.print(computedLine(dec(body)));
             let stmt = record.stmt;
             let mark = '';
             if (basename(words[0]) === 'xargs' && words[words.length - 1].startsWith(SEP)) {
@@ -927,18 +947,18 @@ class WritePaths {
                 for (const h of bodies.get(idx) ?? [])
                     progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
                 if (progs.length === 0 && !info)
-                    this.out += computedLine(basename(dec(words[0])));
+                    this.print(computedLine(basename(dec(words[0]))));
                 const shownArgv0 = basename(dec(words[0]));
                 for (const { prog, held, partly } of progs) {
                     if (held)
-                        this.out += computedLine(`${shownArgv0} ${prog}`);
+                        this.print(computedLine(`${shownArgv0} ${prog}`));
                     else if (kind === 'sh') {
                         if (partly)
-                            this.out += unprovenLine(`${shownArgv0} ${prog}`);
+                            this.print(unprovenLine(`${shownArgv0} ${prog}`));
                         if (depth < MAX_DEPTH)
                             this.run(prog, tok, depth + 1, level.vars);
                         else
-                            this.out += computedLine(prog);
+                            this.print(computedLine(prog));
                     }
                     else {
                         const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
@@ -948,9 +968,9 @@ class WritePaths {
                                     this.emit(level, d, p);
                         });
                         if (found.computed)
-                            this.out += computedLine(shownArgv0);
+                            this.print(computedLine(shownArgv0));
                         if (partly || found.unproven)
-                            this.out += unprovenLine(`${shownArgv0} ${prog}`);
+                            this.print(unprovenLine(`${shownArgv0} ${prog}`));
                     }
                 }
             }
@@ -1003,8 +1023,22 @@ function heredocAlign(heredocs, records) {
 }
 /** The lines tmb_cmd_write_paths prints for `command`, parsed with the given tree-sitter-bash parser. */
 export function writePathsWith(parser, command, opts) {
-    const w = new WritePaths(parser, opts);
-    w.run(command, '@', 0, '');
+    if (command.length > ANALYSIS_WORK_CAP)
+        return [CAP_LINE];
+    let spent = 0;
+    const w = new WritePaths(parser, opts, (units) => {
+        spent += units;
+        if (spent > ANALYSIS_WORK_CAP)
+            throw new WorkCapReached();
+    });
+    try {
+        w.run(command, '@', 0, '');
+    }
+    catch (e) {
+        if (e instanceof WorkCapReached || e instanceof RangeError)
+            return [CAP_LINE];
+        throw e;
+    }
     const lines = w.out.split('\n');
     if (lines[lines.length - 1] === '')
         lines.pop();

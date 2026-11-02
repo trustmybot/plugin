@@ -20,11 +20,13 @@
  * wherever node:sqlite works, with no sqlite3 CLI on PATH. The analyzer's
  * never-judged targets (`$(parse)`, `$(computed)`, `$(unproven)`, which the
  * .sh's analyzer never prints) are containment-guard's to deny, not (g)'s.
+ * The analyzer's cap line (GH 2090) is denied here for every task, read first
+ * so a command past the cap never reaches the unbounded cmdStatements.
  */
 import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { ALLOW } from './gate.js';
 import { NEVER_JUDGED, UNJUDGED_PHRASE } from './containment-guard.js';
-import { cmdStatements, ghMutation, gitSubcommand, isPromptSurfacePath, payloadCwd, writePaths, writeShapes, } from './cmd-analysis/index.js';
+import { CAP_REASON, cmdStatements, ghMutation, gitSubcommand, isCapLine, isPromptSurfacePath, payloadCwd, writePaths, writeShapes, } from './cmd-analysis/index.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
 import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, sqlInt, sqliteRo, stateDir, stripTrailingNewlines, } from './lib/db.js';
@@ -93,6 +95,17 @@ class ArithmeticAbort {
         this.message = message;
     }
 }
+/** cmdStatements has no work cap, so the stack can run out in it on a shape the analyzer's own count let through. */
+async function statementsOrOverflow(command, cwd, env) {
+    try {
+        return await cmdStatements(command, cwd, env);
+    }
+    catch (e) {
+        if (e instanceof RangeError)
+            return 'overflow';
+        throw e;
+    }
+}
 class Boundary {
     input;
     env;
@@ -152,7 +165,13 @@ class Boundary {
     async bash() {
         const command = field(this.input, ['tool_input', 'command']);
         const cwd = payloadCwd(this.input, this.env);
-        const listed = await cmdStatements(command, cwd, this.env);
+        const root = this.worktree || capture(projectRoot(this.env));
+        const written = await writePaths(command, { cwd, root, env: this.env });
+        if (written.some(isCapLine))
+            return deny(CAP_REASON);
+        const listed = await statementsOrOverflow(command, cwd, this.env);
+        if (listed === 'overflow')
+            return deny(CAP_REASON);
         if (!listed.ok)
             return deny(PARSE_REASON);
         let push = false;
@@ -168,14 +187,12 @@ class Boundary {
             return deny(PUSH_REASON);
         if (mutating)
             return deny(GH_REASON);
-        const root = this.worktree || capture(projectRoot(this.env));
         let surface = '';
         let anchor = '';
         let rootClaudeMd = '';
         let unresolved = '';
         const fence = [];
-        const lines = (await writePaths(command, { cwd, root, env: this.env })).join('\n').split('\n');
-        for (const path of lines) {
+        for (const path of written.join('\n').split('\n')) {
             if (path === '')
                 continue;
             if (path.startsWith('UNRESOLVED:')) {

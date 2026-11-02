@@ -12,6 +12,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findGate, gateNames } from '../hooks/registry.js';
+import { CAP_REASON } from '../hooks/cmd-analysis/index.js';
 import { noSourceEditFromMain } from '../hooks/no-source-edit-from-main.js';
 import { buildSourceEditSandbox } from './hooks-no-source-edit-parity.suite.js';
 
@@ -72,6 +73,19 @@ describe('no-source-edit-from-main compares scratch roots canonically (GH 1796)'
 
   it('allows a write through a link into .claude/tmb/scratch/', async () => {
     assert.equal(await decide(join(s, 'scratchlink/x.ts')), '');
+  });
+
+  it('denies a padded prompt-surface write past the analyzer cap, naming the cap (GH 2090)', async () => {
+    const write = 'echo x > agents/swe.md';
+    const shapes = [
+      `echo ${'$('.repeat(5000)}x${')'.repeat(5000)}; ${write}`,
+      `echo ${'$('.repeat(2000)}x${')'.repeat(2000)}; ${write}`,
+    ];
+    for (const command of shapes) {
+      const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: checkout, tool_name: 'Bash', tool_input: { command } });
+      const r = await noSourceEditFromMain(payload, env());
+      assert.equal((JSON.parse(r.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason, CAP_REASON);
+    }
   });
 
   it('still denies main-checkout source and a climb out of scratch', async () => {

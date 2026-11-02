@@ -79,6 +79,11 @@ describe('containment-guard (TS): denies that judge no path', () => {
     });
     const bash = (command) => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', cwd: project, tool_input: { command } });
     const lines = (...out) => async () => out;
+    it('denies the analyzer cap line naming the cap (GH 2090)', async () => {
+        const capped = `echo ${'$('.repeat(2000)}x${')'.repeat(2000)}`;
+        const r = await containmentGuard(bash(capped), env);
+        assert.ok(reason(r.stdout)?.includes('analysis cap reached'), r.stdout);
+    });
     function denials() {
         const d = new DatabaseSync(db, { readOnly: true });
         try {
