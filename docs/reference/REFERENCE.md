@@ -131,6 +131,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task-create (batch insert path) | Remind bro to spawn SWE after a task is provisioned |
+| `bash-output-trim.ts` | PostToolUse Bash | In bro's main thread, cut a routine read's stdout over 4000 characters (`gh {pr,issue,run} {view,list,checks}` without `--json`, `git log`/`status`/`diff --stat`, `sqlite3 -readonly` SELECT/WITH; one simple command) to whole head lines within 2400 and tail lines within 800 around one marker line, via `updatedToolOutput`. Born in TypeScript: not run under `TMB_HOOKS_IMPL=bash`; never denies |
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |

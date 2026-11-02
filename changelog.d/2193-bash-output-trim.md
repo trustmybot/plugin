@@ -1,0 +1,2 @@
+### Changed
+- **Long output of bro's routine reads is trimmed** (GH 2193): a new PostToolUse Bash hook, `bash-output-trim`, cuts the stdout of bro's main-thread `gh {pr,issue,run} {view,list,checks}`, `git log`, `git status`, `git diff --stat` and `sqlite3 -readonly` SELECT calls when it is longer than 4000 characters. It keeps about 2400 characters from the start and 800 from the end, and puts one line between them saying how much was cut and how to get the rest. Piped, chained or redirected commands, `--json` output, subagent calls and calls with stderr are never touched.

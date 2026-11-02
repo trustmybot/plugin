@@ -4,7 +4,9 @@
  * gates at origin/dev 619ce711, the post-tool and stop gates at 54f9731c, the
  * session, prompt and worktree gates at 76ec206d, the rest at 9cc886e8). Every
  * gate was its own registration, so its share is that whole timeout; a
- * trajectory-gates chain member's is its chain-table budget.
+ * trajectory-gates chain member's is its chain-table budget. A gate born in
+ * the router (bash-output-trim) never had a registration; it takes the 4 s of
+ * the lightest advisory one.
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -40,6 +42,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'post-task-create-spawn-hint': 4,
   'task-overrun-alert': 6,
   'liveness-alert': 6,
+  'bash-output-trim': 4,
   'attribution-footer': 16,
   'clean-merged-branch': 11,
   'close-issue-on-merge': 16,

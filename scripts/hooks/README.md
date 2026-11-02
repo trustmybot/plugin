@@ -92,6 +92,13 @@ Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 ### PostToolUse — reactions after a tool succeeds
 `cleanup-worktree-on-task-close.sh`, `post-task-close-rescan.sh`, `post-atomic-close-readme.sh`, `post-task-create-spawn-hint.sh`, `roundtable-cleanup-postcheck.sh`, `attribution-footer.sh`, `swe-spawn-bind.sh`.
 
+`bash-output-trim` (TypeScript only, GH 2193; `src/hooks/bash-output-trim.ts`) is an advisory gate that runs first in the router's PostToolUse Bash group. It cuts the long output of bro's routine reads before that output enters context. It acts only in bro's main thread (no `agent_id` in the payload), on one simple command after optional `VAR=value` words, with no `;`, `&`, `|`, `>`, `<`, `$(`, backtick, unquoted newline, parenthesis or comment. The allowlist:
+- `gh {pr,issue,run} {view,list,checks}` without `--json`, `--jq`, `-q` or `--template`/`-t`;
+- `git [-C <path>] log`, `git [-C <path>] status`, and `git [-C <path>] diff` with `--stat`;
+- `sqlite3 -readonly <db> <sql>` whose SQL starts with `SELECT` or `WITH`.
+
+stderr must be empty, and `interrupted` and `isImage` not true. When stdout is longer than 4000 characters, the gate keeps whole head lines within 2400 characters and whole tail lines within 800. Between them it puts one marker line, `[bash-output-trim: cut <n> lines (<c> chars) of <total> lines; rerun with a narrower command, or append | cat for the full output]`. It answers with `hookSpecificOutput.updatedToolOutput`: the `tool_response` with only `stdout` replaced. Any other call, or an output its head and tail would cover whole, gets no output. It never denies. It has no `.sh` and does not run under `TMB_HOOKS_IMPL=bash`.
+
 `swe-spawn-bind.sh` (Agent) binds an accepted swe spawn's run row: the row `record-swe-spawn.sh` opened with `spawn_id` `tool_use:<tool_use_id>` takes `spawn_id` = `tool_response.agentId`, the `agent_id` every subagent hook of that spawn carries. A background spawn (`tool_response.status` `async_launched`) returns at once, so its row is bound before its first `task_brief`; a foreground spawn returns at its end, after SubagentStop already bound the row, and the update matches nothing. A row of the task already keyed by that `agentId` is left alone. Fail-open; it never blocks.
 
 ### PermissionDenied — a refused tool call

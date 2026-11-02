@@ -255,6 +255,7 @@ export function hooksParityShard(k, n) {
             });
             it('the gates born in TypeScript are the only registered gates without a bash twin', () => {
                 assert.deepEqual(gateNames().filter((gate) => !PARITY_GATES.includes(gate)), [
+                    'bash-output-trim',
                     'code-reviewer-preflight',
                     'code-reviewer-spawn-note',
                     'liveness-alert',

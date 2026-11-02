@@ -21,6 +21,8 @@ These differences from real hardware are where the design decisions sit.
 3. **Write through, never write back.** Context is volatile, so a decision reaches the DB when it is made. Evicting then loses nothing.
 4. **Evict at boundaries.** A session ends when its dispatched work has returned and been closed or parked. The one timer that matters is prompt cache expiry: the next call then pays full price for the whole context, so a cold restart is usually cheaper.
 
+Since nothing in hot storage can be evicted, the `bash-output-trim` hook cuts the long output of bro's routine reads (`gh` views and lists, `git log`, `status` and `diff --stat`, read-only `sqlite3`) to its head and tail before it enters context (GH 2193).
+
 ## Loading from cold
 
 - **Pages, not the disk.** A read returns the smallest useful unit: a concise brief, a section, a limit and a cursor.
