@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const HOOK = join(PLUGIN_ROOT, 'scripts/hooks/swe-boundary.sh');
+const HOOKS_JS = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const NOW = '2026-10-25T10:00:00.000Z';
 const UID = process.getuid?.() ?? 0;
 describe('swe-boundary: the session scratchpad (GH 1912)', () => {
@@ -90,7 +90,7 @@ describe('swe-boundary: the session scratchpad (GH 1912)', () => {
         };
         if (session !== null)
             payload.session_id = session;
-        const r = spawnSync('bash', [HOOK], { input: JSON.stringify(payload), env, cwd: wt, encoding: 'utf8', timeout: 20_000 });
+        const r = spawnSync(process.execPath, [HOOKS_JS, 'swe-boundary'], { input: JSON.stringify(payload), env, cwd: wt, encoding: 'utf8', timeout: 20_000 });
         if (r.error)
             throw r.error;
         return { code: r.status, stdout: r.stdout };

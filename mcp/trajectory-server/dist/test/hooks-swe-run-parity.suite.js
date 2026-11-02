@@ -3,7 +3,8 @@
  * (GH 1692): swe-brief-gate, swe-spawn-bind, swe-spawn-rollback and
  * post-task-create-spawn-hint, over tests/fixtures/hook-corpus/<gate>/. The
  * sandbox is rebuilt at the same path before each side runs; both sides must
- * exit 0, print the same stdout and stderr byte for byte, and leave the
+ * exit 0, print the same stdout and stderr byte for byte (the spawn hint's
+ * pre-create command aside, see preCreateMasked), and leave the
  * sandbox alike, each DB compared as its tasks, agent_runs and audit rows with
  * every timestamp the run wrote masked as <now> and a duration_ms equal to its
  * run's window as "window".
@@ -203,6 +204,15 @@ export function snapshot(root) {
     walk(root);
     return out;
 }
+const PRE_CREATE_COMMAND = /(Pre-create the worktree: `)[^`]*(`)/g;
+/**
+ * <text> with post-task-create-spawn-hint's pre-create command masked: the TS
+ * gate names node dist/hooks.js worktree-create where the .sh named its bash
+ * script (decision 703), and divergent-pre-create-through-node.json pins each side.
+ */
+export function preCreateMasked(text) {
+    return text.replace(PRE_CREATE_COMMAND, '$1<pre-create command>$2');
+}
 export function byLocale(expect, locale) {
     return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
@@ -307,7 +317,7 @@ export function sweRunParityShard(k, n) {
                 assert.equal(node.code, 0, `node exit: ${node.stderr}`);
                 if (c.divergent === undefined) {
                     assert.deepEqual(nodeTree, bashTree, 'the sandbox after the run');
-                    assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
+                    assert.equal(preCreateMasked(node.stdout), preCreateMasked(bash.stdout), 'stdout, byte for byte but the pre-create command');
                     assert.equal(node.stderr, bash.stderr, 'stderr, byte for byte');
                     assertExpect('bash', bash, bashTree, byLocale(c.expect, locale));
                 }

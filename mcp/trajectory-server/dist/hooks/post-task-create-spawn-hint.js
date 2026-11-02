@@ -9,8 +9,9 @@
  *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI: without jq it still
  * hints where the .sh printed nothing, and without the sqlite3 CLI it still
- * places each worktree where the .sh reported the DB read failed
- * (decision 703).
+ * places each worktree where the .sh reported the DB read failed; and its
+ * pre-create step runs the worktree-create gate through node, where the .sh
+ * named that gate's bash script (decision 703).
  */
 import { ALLOW } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
@@ -128,7 +129,7 @@ Tasks created:
 ${tasks}
 
 For each task, run the two-step proven flow:
-1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` — capture the printed path.
+1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | node \${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create\` — capture the printed path.
 2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;

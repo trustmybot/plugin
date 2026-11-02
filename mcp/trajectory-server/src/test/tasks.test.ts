@@ -2312,7 +2312,7 @@ describe('effort (GH 1349)', () => {
           task: { description: 'd', spec_body: SPEC, files, verification: ['true'], repo: 'app', ...extra },
         }));
 
-      const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/x.sh']);
+      const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/lib/x.sh']);
       assert.deepEqual([unset.effort, unset.effort_reason], ['medium', 'default']);
 
       const bearing = await provisionWith('feat/ce-bearing', ['docs/x.md'], { prompt_bearing: 1 });
@@ -2321,7 +2321,7 @@ describe('effort (GH 1349)', () => {
       const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['scripts/hooks/', 'src/api'] });
       assert.ok(!set.isError, JSON.stringify(parseResult(set)));
 
-      const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/x.sh']);
+      const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/lib/x.sh']);
       assert.deepEqual([hit.effort, hit.effort_reason], ['high', 'high_effort_paths']);
       assert.equal(effortOf(db, hit.task_id), 'high');
 
@@ -2334,7 +2334,7 @@ describe('effort (GH 1349)', () => {
       const miss = await provisionWith('feat/ce-miss', ['scripts/hooksy/x.sh', 'src/apis/x.ts']);
       assert.deepEqual([miss.effort, miss.effort_reason], ['medium', 'default'], 'a sibling sharing only a name prefix is no overlap');
 
-      const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/x.sh'], { effort: 'low' });
+      const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/lib/x.sh'], { effort: 'low' });
       assert.deepEqual([explicit.effort, explicit.effort_reason], ['low', 'explicit']);
     } finally {
       cleanup();

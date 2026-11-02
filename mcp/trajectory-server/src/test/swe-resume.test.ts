@@ -1,8 +1,8 @@
 /**
  * A swe resumed through SendMessage (GH 1742) on a temp project DB:
- * swe-brief-gate.sh records the resume at its task_brief, task_brief's
+ * the swe-brief-gate gate records the resume at its task_brief, task_brief's
  * openSweRun opens a row chained to its previous one by resumed_from,
- * swe-atomic-close.sh meters only the transcript entries from that row's
+ * the swe-atomic-close gate meters only the transcript entries from that row's
  * started_at on, and task_stats splits the reworks into fresh and resumed.
  */
 import { describe, it, before, after } from 'node:test';
@@ -19,8 +19,9 @@ import { tempDB } from './helpers.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
-const BRIEF_GATE = join(PLUGIN_ROOT, 'scripts/hooks/swe-brief-gate.sh');
-const ATOMIC_CLOSE = join(PLUGIN_ROOT, 'scripts/hooks/swe-atomic-close.sh');
+const HOOKS_JS = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
+const BRIEF_GATE = 'swe-brief-gate';
+const ATOMIC_CLOSE = 'swe-atomic-close';
 const ISSUE_ID = 9;
 const TASK_ID = 3;
 const FRESH_TASK_ID = 4;
@@ -77,8 +78,8 @@ function project(): Project {
   return { root, dbPath, env };
 }
 
-function hook(p: Project, script: string, payload: Record<string, unknown>) {
-  const r = spawnSync('bash', [script], { cwd: p.root, input: JSON.stringify(payload), env: p.env, encoding: 'utf8', timeout: 30_000 });
+function hook(p: Project, gate: string, payload: Record<string, unknown>) {
+  const r = spawnSync(process.execPath, [HOOKS_JS, gate], { cwd: p.root, input: JSON.stringify(payload), env: p.env, encoding: 'utf8', timeout: 30_000 });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
