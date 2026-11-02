@@ -25,7 +25,7 @@
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       "max_budget_ms": 1830000,
-      "p99_sum_ms": 5368.3,
+      "p99_sum_ms": 6707.7,
       "group_budget_ms": 1830000
     },
     "PreToolUse:AskUserQuestion": {
@@ -463,6 +463,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-10-31"
+    },
+    "worktree-adopt-guard": {
+      "kind": "enforcement",
+      "bench_p50": 728.8,
+      "bench_p95": 1227,
+      "bench_p99": 1339.4,
+      "bench_runs": 640,
+      "bench_load_avg": 140,
+      "transcript_p99": null,
+      "reason": "new gate: no worktree-adopt-guard PreToolUse hook attachment in any transcript of the last 14 days",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-02"
     },
     "askuserquestion-length-lint": {
       "kind": "advisory",

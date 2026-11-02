@@ -10,8 +10,8 @@
  */
 import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { SpawnOptions } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, type SpawnOptions } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -123,6 +123,50 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     } finally {
       d.close();
     }
+  });
+
+  const adoptTask = (id: number, branch: string, withCommit: boolean): string => {
+    const repo = join(s, 'project/checkout');
+    const session = join(s, 'project/session-wt');
+    const sh = (dir: string, ...args: string[]): string =>
+      execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+    sh(repo, 'worktree', 'add', '-q', '-b', branch, session, 'dev');
+    if (withCommit) {
+      writeFileSync(join(session, 'adopted.txt'), 'adopted\n');
+      sh(session, 'add', 'adopted.txt');
+      sh(session, 'commit', '-qm', 'adopted work');
+    }
+    const d = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'));
+    try {
+      d.prepare(
+        "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, repo, effort, worktree_path, worktree_adopted, created_at, updated_at) VALUES (?, 1, ?, 'dev', 'd', 'running', 'plugin', 'high', ?, 1, '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')",
+      ).run(id, branch, session);
+    } finally {
+      d.close();
+    }
+    const tx = join(s, 'transcripts');
+    writeFileSync(join(tx, `${id}.jsonl`), readFileSync(join(tx, '32.jsonl'), 'utf8').replaceAll('task_id=32', `task_id=${id}`));
+    return session;
+  };
+
+  it('auto-completes an adopted task at its recorded worktree head and names that worktree on the run row (GH 2240)', async () => {
+    const session = adoptTask(44, 'feat/adopted', true);
+    const head = execFileSync('git', ['-C', session, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    assert.deepEqual(await sweAtomicClose(stop('44'), { ...env }), ALLOWED);
+    const d = db();
+    try {
+      assert.deepEqual({ ...d.prepare('SELECT status, commit_sha FROM tasks WHERE id = 44').get() }, { status: 'completed', commit_sha: head });
+      assert.deepEqual({ ...d.prepare("SELECT root_dir FROM agent_runs WHERE spawn_id = 'agent-44'").get() }, { root_dir: session });
+      assert.equal((d.prepare("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_atomic_close_auto_completed'").get() as { n: number }).n, 1);
+    } finally {
+      d.close();
+    }
+  });
+
+  it('names the recorded worktree when an adopted task stopped without commits (GH 2240)', async () => {
+    const session = adoptTask(45, 'feat/adopted-empty', false);
+    const r = await sweAtomicClose(stop('45'), { ...env });
+    assert.ok(r.stdout.includes(`stopped without committing in worktree at ${session}.`), r.stdout);
   });
 
   it('warns bro when a running task stopped without commits', async () => {

@@ -75,6 +75,7 @@ import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-cr
 import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
 import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scratch.js';
+import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree-adopt-guard.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -148,6 +149,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [REMOTE_ID_GATE, remoteIdGuard],
   [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
   [NO_PROSE_GATE, noProseInScratch],
+  [WORKTREE_ADOPT_GATE, worktreeAdoptGuard],
 ]);
 
 export function findGate(name: string): Gate | undefined {
@@ -204,7 +206,7 @@ export interface RouterGroup {
   readonly concurrent?: boolean;
 }
 
-const TS_ONLY_GATES: ReadonlySet<string> = new Set([NO_PROSE_GATE]);
+const TS_ONLY_GATES: ReadonlySet<string> = new Set([NO_PROSE_GATE, WORKTREE_ADOPT_GATE]);
 
 function routerGate(name: string, kind: RouterGateKind, toolSuffix?: string): RouterGate {
   const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
@@ -261,6 +263,9 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
       routerGate(SWE_VERIFICATION_GATE, 'enforcement', 'task_update_status'),
       routerGate(REVIEWER_IDENTITY_GATE, 'enforcement', 'validation_record'),
       routerGate(CHEATCODE_APPROVAL_GATE, 'enforcement', 'cheatcode_install'),
+      routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
+      routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),
+      routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_retry'),
     ],
     { stopAtFirstDeny: true },
   ),

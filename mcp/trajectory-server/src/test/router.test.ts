@@ -851,7 +851,14 @@ describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', (
       assert.equal(registered?.kind, 'enforcement', tool);
       assert.equal(registered?.tsOnly, true, tool);
     }
-    assert.equal(ROUTER_GROUPS.flatMap((g) => g.gates).filter((g) => g.tsOnly).every((g) => g.name === 'no-prose-in-scratch'), true);
+    for (const tool of ['task_provision', 'task_reopen', 'task_retry']) {
+      const registered = routerGates('PreToolUse', `mcp__plugin_tmb_trajectory-server__${tool}`).filter((g) => g.name === 'worktree-adopt-guard');
+      assert.equal(registered.length, 1, tool);
+      assert.equal(registered[0]?.kind, 'enforcement', tool);
+      assert.equal(registered[0]?.tsOnly, true, tool);
+    }
+    assert.equal(routerGates('PreToolUse', 'mcp__plugin_tmb_trajectory-server__task_list').some((g) => g.name === 'worktree-adopt-guard'), false);
+    assert.deepEqual([...new Set(ROUTER_GROUPS.flatMap((g) => g.gates).filter((g) => g.tsOnly).map((g) => g.name))].sort(), ['no-prose-in-scratch', 'worktree-adopt-guard']);
   });
 
   it('a .sh exiting other than 0 or 2 fails closed as a gate does', async () => {

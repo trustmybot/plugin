@@ -22712,8 +22712,12 @@ SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTo
   const location = taskLocation(db, taskId, env);
   let repoRoot = location.code === 0 ? location.repoRoot : "";
   if (repoRoot === "") repoRoot = projectRoot(env);
+  const locatedRoot = repoRoot;
   repoRoot = realdir(repoRoot);
-  const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  let wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  if (location.code === 0) {
+    wtPath = location.worktree.startsWith(`${locatedRoot}/`) ? `${repoRoot}${location.worktree.slice(locatedRoot.length)}` : location.worktree;
+  }
   const safeRootDir = sqlQuote(wtPath);
   let wtHead = await gitOut(wtPath, ["rev-parse", "HEAD"], env);
   const headWithin = async (head, ...tips) => {
@@ -24003,6 +24007,75 @@ var noProseInScratch = async (payload, env) => {
   return FILE_TOOLS.has(toolName2) ? await fileRule(payload, toolName2, env) : ALLOW;
 };
 
+// src/hooks/worktree-adopt-guard.ts
+import { realpathSync as realpathSync8 } from "node:fs";
+var GATE_NAME70 = "worktree-adopt-guard";
+var ADOPT_TOOLS = ["task_provision", "task_reopen", "task_retry"];
+function deny12(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function realpath(path) {
+  try {
+    return realpathSync8(path);
+  } catch {
+    return null;
+  }
+}
+async function gitLine(dir, args2, env) {
+  const r = await gitRun(dir, args2, env);
+  const out2 = r.stdout.replace(/\n+$/, "");
+  return r.code === 0 && out2 !== "" ? out2 : null;
+}
+async function linkedWorktreeTop(root, env = process.env) {
+  if (root === "" || !isDir(root)) return null;
+  const gitDir = await gitLine(root, ["rev-parse", "--path-format=absolute", "--git-dir"], env);
+  const commonDir = await gitLine(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (gitDir === null || commonDir === null) return null;
+  const realGitDir = realpath(gitDir);
+  const realCommonDir = realpath(commonDir);
+  if (realGitDir === null || realCommonDir === null || realGitDir === realCommonDir) return null;
+  const top = await gitLine(root, ["rev-parse", "--show-toplevel"], env);
+  return top === null ? null : realpath(top);
+}
+function sessionRoot(payload, env) {
+  const projectDir = claudeProjectDir(env);
+  if (projectDir !== "") return projectDir;
+  return typeof payload.cwd === "string" ? payload.cwd : "";
+}
+var worktreeAdoptGuard = async (raw, env) => {
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return deny12("BLOCKED: worktree-adopt-guard could not read the hook payload, so it cannot tell which worktree this session may adopt.");
+  }
+  const toolName2 = typeof payload.tool_name === "string" ? payload.tool_name : "";
+  const tool = ADOPT_TOOLS.find((t) => toolName2.endsWith(`trajectory-server__${t}`));
+  if (tool === void 0) return ALLOW;
+  const root = sessionRoot(payload, env);
+  const top = await linkedWorktreeTop(root, env);
+  const arg = payload.tool_input?.adopt_worktree;
+  if (arg === void 0 || arg === null) {
+    if (top === null) return ALLOW;
+    return deny12(
+      `BLOCKED: this session runs in the linked worktree '${top}', so its task adopts that worktree instead of a new <repo>/.claude/worktrees/<slug>. Call ${tool} again with adopt_worktree: '${top}'.`
+    );
+  }
+  const asked = typeof arg === "string" ? arg : JSON.stringify(arg);
+  const real = typeof arg === "string" && arg.startsWith("/") ? realpath(arg) : null;
+  if (top !== null && real === top) return ALLOW;
+  if (top !== null) {
+    return deny12(
+      `BLOCKED: adopt_worktree '${asked}' is not this session's worktree. A session adopts only the linked worktree it runs in: pass adopt_worktree: '${top}'.`
+    );
+  }
+  return deny12(
+    `BLOCKED: adopt_worktree '${asked}' is refused: this session's root '${root}' is not in a linked git worktree (a main checkout or no git repo), so no worktree may be adopted from it. Call ${tool} without adopt_worktree; it creates <repo>/.claude/worktrees/<slug>.`
+  );
+};
+
 // src/hooks/router/budgets.json
 var budgets_default = {
   rounds: 20,
@@ -24031,7 +24104,7 @@ var budgets_default = {
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       max_budget_ms: 183e4,
-      p99_sum_ms: 5368.3,
+      p99_sum_ms: 6707.7,
       group_budget_ms: 183e4
     },
     "PreToolUse:AskUserQuestion": {
@@ -24469,6 +24542,22 @@ var budgets_default = {
       floor_ms: 6e3,
       budget_ms: 6e3,
       date: "2026-10-31"
+    },
+    "worktree-adopt-guard": {
+      kind: "enforcement",
+      bench_p50: 728.8,
+      bench_p95: 1227,
+      bench_p99: 1339.4,
+      bench_runs: 640,
+      bench_load_avg: 140,
+      transcript_p99: null,
+      reason: "new gate: no worktree-adopt-guard PreToolUse hook attachment in any transcript of the last 14 days",
+      transcript_samples: 0,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-11-02"
     },
     "askuserquestion-length-lint": {
       kind: "advisory",
@@ -25073,12 +25162,13 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME66, worktreeCreate],
   [GATE_NAME67, remoteIdGuard],
   [GATE_NAME68, noSourceEditFromMain],
-  [GATE_NAME69, noProseInScratch]
+  [GATE_NAME69, noProseInScratch],
+  [GATE_NAME70, worktreeAdoptGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
 }
-var TS_ONLY_GATES = /* @__PURE__ */ new Set([GATE_NAME69]);
+var TS_ONLY_GATES = /* @__PURE__ */ new Set([GATE_NAME69, GATE_NAME70]);
 function routerGate(name3, kind, toolSuffix) {
   const budgets = budgets_default.gates;
   return { name: name3, kind, budgetMs: budgets[name3].budget_ms, ...toolSuffix === void 0 ? {} : { toolSuffix }, ...TS_ONLY_GATES.has(name3) ? { tsOnly: true } : {} };
@@ -25128,7 +25218,10 @@ var ROUTER_GROUPS = [
       routerGate(GATE_NAME43, "enforcement"),
       routerGate(GATE_NAME44, "enforcement", "task_update_status"),
       routerGate(GATE_NAME48, "enforcement", "validation_record"),
-      routerGate(GATE_NAME49, "enforcement", "cheatcode_install")
+      routerGate(GATE_NAME49, "enforcement", "cheatcode_install"),
+      routerGate(GATE_NAME70, "enforcement", "task_provision"),
+      routerGate(GATE_NAME70, "enforcement", "task_reopen"),
+      routerGate(GATE_NAME70, "enforcement", "task_retry")
     ],
     { stopAtFirstDeny: true }
   ),
@@ -25324,9 +25417,9 @@ function mergeContext(outputs, event) {
   return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}
 `;
 }
-function blockKeepingContext(event, deny12, contexts) {
-  const out2 = trimNewlines(deny12.stdout);
-  if (event === "PreToolUse" || deny12.code === 2 || contexts.length === 0 || !parses(out2)) return deny12.stdout;
+function blockKeepingContext(event, deny13, contexts) {
+  const out2 = trimNewlines(deny13.stdout);
+  if (event === "PreToolUse" || deny13.code === 2 || contexts.length === 0 || !parses(out2)) return deny13.stdout;
   return mergeContext([out2, ...contexts], event);
 }
 var LATE = /* @__PURE__ */ Symbol("late");
@@ -25509,7 +25602,7 @@ async function decideCall(event, payload, env, deps) {
   const done = group?.concurrent === true && !bashImpl ? await runTogether(gates, call) : await runInTurn(gates, call, group?.stopAtFirstDeny === true);
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
-  const deny12 = done.find(({ j }) => j.outcome === "deny");
+  const deny13 = done.find(({ j }) => j.outcome === "deny");
   const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
   if (stdoutIsPath(event)) {
     const notAllowed = done.find(({ j }) => j.outcome !== "allow");
@@ -25517,8 +25610,8 @@ async function decideCall(event, payload, env, deps) {
     const cause = notAllowed ? `gate ${notAllowed.gate.name} ended in ${notAllowed.j.outcome}` : done.length === 0 ? "no gate serves it" : "no bare path printed";
     return { stdout: "", stderr: `${stderr2}${pathFailure(event, cause)}`, code: 1, tool, gates: outcomes, denied: null };
   }
-  if (deny12) {
-    return { stdout: blockKeepingContext(event, deny12.j, context4), stderr: stderr2, code: deny12.j.code, tool, gates: outcomes, denied: { gate: deny12.gate.name, reason: deny12.j.reason } };
+  if (deny13) {
+    return { stdout: blockKeepingContext(event, deny13.j, context4), stderr: stderr2, code: deny13.j.code, tool, gates: outcomes, denied: { gate: deny13.gate.name, reason: deny13.j.reason } };
   }
   return { stdout: mergeContext(context4, event), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
 }

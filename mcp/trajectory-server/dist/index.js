@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve4.call(this, root, ref2);
+      let _sch = resolve5.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve4(root, ref2) {
+    function resolve5(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3593,7 +3593,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve4(baseURI, relativeURI, options) {
+    function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve4,
+      resolve: resolve5,
       resolveComponent,
       equal,
       serialize,
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve4, reject) => {
-          readyPromiseResolve = resolve4;
+        var readyPromise = new Promise((resolve5, reject) => {
+          readyPromiseResolve = resolve5;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve4, reject) => {
+                return new Promise((resolve5, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve4(xhr.response);
+                      resolve5(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve4, reject) => {
+            return new Promise((resolve5, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve4(mod.exports);
+                resolve5(mod.exports);
               });
             });
           }
@@ -23561,7 +23561,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23578,7 +23578,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23656,7 +23656,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve4(parseResult.data);
+            resolve5(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23917,12 +23917,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve4, interval);
+      const timeoutId = setTimeout(resolve5, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24792,12 +24792,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve4) => {
+    return new Promise((resolve5) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve4();
+        resolve5();
       } else {
-        this._stdout.once("drain", resolve4);
+        this._stdout.once("drain", resolve5);
       }
     });
   }
@@ -38851,6 +38851,7 @@ function prMonitorTools(db2, _spawnFn) {
 // src/tools/composites.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
 import { existsSync as existsSync6, realpathSync as realpathSync5 } from "node:fs";
+import { resolve as resolve4 } from "node:path";
 
 // src/utils/worktree-deps.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
@@ -40869,6 +40870,150 @@ function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(
   }
   return { worktreePath, reused };
 }
+var ADOPT_HOLDING_STATUSES = ["pending", "running", "needs_validation"];
+function absoluteGitPath(dir, flag) {
+  try {
+    return realpathSync5(git2(dir, ["rev-parse", "--path-format=absolute", flag]));
+  } catch {
+    return null;
+  }
+}
+function isRegisteredWorktree(repoPath, worktreePath) {
+  try {
+    return git2(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === worktreePath);
+  } catch {
+    return false;
+  }
+}
+function canonicalPath2(path2) {
+  try {
+    return realpathSync5(path2);
+  } catch {
+    return resolve4(path2);
+  }
+}
+function worktreeHolder(db2, taskId, repoPath, realWorktree) {
+  const live = db2.all(
+    "SELECT id, status, branch_id, worktree_path, repo FROM tasks WHERE id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id",
+    [taskId, JSON.stringify(ADOPT_HOLDING_STATUSES)]
+  );
+  for (const t of live) {
+    const ownRepo = resolveRepoPath(db2, t.repo);
+    const dir = taskWorktreeDir(ownRepo?.startsWith("/") ? ownRepo : repoPath, t);
+    if (canonicalPath2(dir) === realWorktree) return { id: t.id, status: t.status };
+  }
+  return null;
+}
+function adoptWorktreeCheck(db2, input) {
+  const { taskId, repoPath, worktreePath } = input;
+  let realWorktree;
+  try {
+    realWorktree = realpathSync5(worktreePath);
+  } catch {
+    realWorktree = null;
+  }
+  const repoCommonDir = repoPath ? absoluteGitPath(repoPath, "--git-common-dir") : null;
+  const wtCommonDir = realWorktree ? absoluteGitPath(realWorktree, "--git-common-dir") : null;
+  if (!realWorktree || !repoCommonDir || wtCommonDir !== repoCommonDir) {
+    return {
+      ok: false,
+      error: "adopt_worktree_repo_mismatch",
+      message: `'${worktreePath}' is not a worktree of the repo at '${repoPath}' (a different --git-common-dir, or not a git worktree at all). Run the session from a linked worktree of that repo, or provision the task with task_provision.`
+    };
+  }
+  if (absoluteGitPath(realWorktree, "--git-dir") === repoCommonDir) {
+    return {
+      ok: false,
+      error: "adopt_worktree_main_checkout",
+      message: `'${realWorktree}' is the repo's main checkout, not a linked worktree. A main-checkout session provisions the task with task_provision, which creates <repo>/.claude/worktrees/<slug>.`
+    };
+  }
+  if (!isRegisteredWorktree(repoPath, realWorktree)) {
+    return {
+      ok: false,
+      error: "adopt_worktree_repo_mismatch",
+      message: `'${realWorktree}' is not the top of a registered linked worktree of '${repoPath}' (git worktree list). Pass the worktree's root directory.`
+    };
+  }
+  let dirty;
+  try {
+    dirty = git2(realWorktree, ["status", "--porcelain", "--untracked-files=no"]);
+  } catch (e) {
+    dirty = e.message;
+  }
+  if (dirty !== "") {
+    return {
+      ok: false,
+      error: "adopt_worktree_dirty",
+      message: `'${realWorktree}' has uncommitted changes to tracked files; commit or stash them, then adopt it again.`
+    };
+  }
+  const holder = worktreeHolder(db2, taskId ?? -1, repoPath, realWorktree);
+  if (holder) return worktreeInUse(realWorktree, holder);
+  return { ok: true, realWorktree };
+}
+function worktreeInUse(realWorktree, holder) {
+  return {
+    ok: false,
+    error: "worktree_in_use",
+    task_id: holder.id,
+    message: `'${realWorktree}' is already task ${holder.id}'s worktree (status '${holder.status}'). Finish or close task ${holder.id} first, or run this task from another worktree.`
+  };
+}
+function recordAdoptedWorktree(db2, taskId, repoPath, realWorktree) {
+  const holder = worktreeHolder(db2, taskId, repoPath, realWorktree);
+  if (holder) return worktreeInUse(realWorktree, holder);
+  db2.run("UPDATE tasks SET worktree_path = ?, worktree_adopted = 1, updated_at = ? WHERE id = ?", [
+    realWorktree,
+    nowISO(),
+    taskId
+  ]);
+  return null;
+}
+function switchAdoptedWorktree(realWorktree, branchId) {
+  try {
+    git2(realWorktree, ["switch", branchId], WORKTREE_TIMEOUT_MS);
+    return void 0;
+  } catch (e) {
+    return e.message;
+  }
+}
+var AdoptRefusedError = class extends Error {
+  constructor(refusal2) {
+    super(refusal2.message);
+    this.refusal = refusal2;
+  }
+  refusal;
+};
+function adoptingTransaction(db2, fn) {
+  try {
+    return db2.transaction(fn);
+  } catch (e) {
+    if (e instanceof AdoptRefusedError) return e.refusal;
+    throw e;
+  }
+}
+function isAdoptRefusal(value) {
+  return typeof value === "object" && value !== null && value.ok === false;
+}
+function adoptRefusalResult(refusal2) {
+  const { error: error2, message: message2, task_id } = refusal2;
+  return {
+    isError: true,
+    content: [{ type: "text", text: JSON.stringify({ error: error2, message: message2, ...task_id !== void 0 ? { task_id } : {} }) }]
+  };
+}
+function parseAdoptWorktree(value, tool) {
+  if (value === void 0 || value === null) return void 0;
+  if (typeof value !== "string" || !value.startsWith("/")) {
+    throw new Error(`${tool}: adopt_worktree must be an absolute path to the session's linked worktree.`);
+  }
+  return value;
+}
+var ADOPT_WORKTREE_SCHEMA = {
+  type: "string",
+  description: "Absolute path of the session's linked git worktree, its top level, to adopt as the task's worktree: the task branch is checked out there and recorded as the task worktree instead of <repo>/.claude/worktrees/<slug>. Refused, writing nothing, for another repo, the main checkout, tracked changes, or a worktree another live task holds."
+};
 function ensureTaskBranch(repoPath, branchId, base, reuseExisting = false) {
   const localRef = `refs/heads/${branchId}`;
   const originRef = `refs/remotes/origin/${branchId}`;
@@ -41056,7 +41201,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_retry",
-      description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, diagnostic?}.",
+      description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. With adopt_worktree, checks the new branch out in that session worktree and records it instead of creating a slug worktree; an adoption refusal writes nothing. Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41082,6 +41227,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             enum: [...EFFORT_LEVELS],
             description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework)."
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           session_id: RUN_SESSION_ID_SCHEMA
         },
         required: [
@@ -41229,7 +41375,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base \u2014 local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base \u2014 local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). With adopt_worktree, the session's linked worktree is checked before the branch is cut (a refusal writes nothing), recorded on the task and switched to the branch instead of creating <repo>/.claude/worktrees/<slug>. Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41248,6 +41394,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "boolean",
             description: "Keep an existing branch_id that has diverged from base as-is instead of refusing with branch_exists_diverged."
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
             type: "boolean",
@@ -41307,7 +41454,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, branch_created, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. With adopt_worktree, adopts that session worktree instead (checked before any write; a refusal leaves the task unchanged) and checks the branch out there. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41333,6 +41480,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             description: `Optional context for the rework swe beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it as spawn_note.`
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           wontfix: {
             type: "array",
             description: `Open findings of this task the Human accepts: each set to wontfix (no longer probed), with a review_finding_wontfix audit row. Reason \u2265${WONTFIX_REASON_MIN_CHARS} chars; any bad entry refuses the call.`,
@@ -41401,6 +41549,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const decisionBody = args2["decision_body"];
         const task = args2["task"];
         parseRunSessionId(args2["session_id"]);
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_provision");
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
           return err17("issue_id must be a number");
         }
@@ -41520,9 +41669,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
-        for (const path2 of [repoPath, taskWorktreePath(repoPath, branchId)]) {
+        for (const path2 of [repoPath, adoptPath ?? taskWorktreePath(repoPath, branchId)]) {
           const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
           if (refusal2) return outsideProjectResult(refusal2);
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: null, repoPath, worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
         }
         const base = normalizeBase(
           repoPath,
@@ -41554,7 +41709,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const { cutBase } = branch;
         const resolvedBaseRef = cutBase?.ref ?? null;
         const now2 = nowISO();
-        const result2 = db2.transaction(() => {
+        const gitRepoPath = repoPath;
+        const result2 = adoptingTransaction(db2, () => {
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -41580,6 +41736,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
+          if (adoptedWorktree !== null) {
+            const refused = recordAdoptedWorktree(db2, row.id, gitRepoPath, adoptedWorktree);
+            if (refused) throw new AdoptRefusedError(refused);
+          }
           const assigned = enrollEffortAb(db2, computedEffort, {
             id: row.id,
             issue_id: issueId,
@@ -41621,15 +41781,21 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           }
           return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason, effort_inputs: effortInputs2 };
         });
+        if (isAdoptRefusal(result2)) return adoptRefusalResult(result2);
         let gitSetup = branch.created ? "created" : "reused";
         let worktreeReused = false;
         let diagnostic;
-        const worktreePath = taskWorktreePath(repoPath, branchId);
-        try {
-          worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
-        } catch (e) {
-          gitSetup = "error";
-          diagnostic = e.message;
+        const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
+        if (adoptedWorktree !== null) {
+          diagnostic = switchAdoptedWorktree(adoptedWorktree, branchId);
+          if (diagnostic !== void 0) gitSetup = "error";
+        } else {
+          try {
+            worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
+          } catch (e) {
+            gitSetup = "error";
+            diagnostic = e.message;
+          }
         }
         return ok16({
           task_id: result2.task_id,
@@ -41642,6 +41808,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           ...resolvedBaseRef ? { base_ref: resolvedBaseRef } : {},
           ...cutBase?.diverged ? {
             base_diverged: {
@@ -41672,6 +41839,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         const spawnNote = parseSpawnNote(args2["spawn_note"], "task_reopen");
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_reopen");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
                   t.worktree_path, i.status AS issue_status
@@ -41690,10 +41858,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const wontfix = parseWontfix(db2, taskId, args2["wontfix"]);
         const repoPath = resolveRepoPath(db2, task.repo);
         if (repoPath) {
-          for (const path2 of [repoPath, taskWorktreeDir(repoPath, task)]) {
+          for (const path2 of [repoPath, adoptPath ?? taskWorktreeDir(repoPath, task)]) {
             const refusal2 = outsideProject("task_reopen", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: task.id, repoPath: repoPath ?? "", worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
         }
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
@@ -41705,7 +41879,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           current: task.effort
         });
         const now2 = nowISO();
-        db2.transaction(() => {
+        const refused = adoptingTransaction(db2, () => {
+          if (adoptedWorktree !== null && repoPath) {
+            const late2 = recordAdoptedWorktree(db2, task.id, repoPath, adoptedWorktree);
+            if (late2) throw new AdoptRefusedError(late2);
+          }
           db2.run(
             `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
                     completion_report = NULL, spawn_note = ?, updated_at = ? WHERE id = ?`,
@@ -41758,6 +41936,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             });
           }
         });
+        if (isAdoptRefusal(refused)) return adoptRefusalResult(refused);
         let worktreePath = null;
         let worktreeRecreated = false;
         let branchCreated = false;
@@ -41777,11 +41956,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
                 branchCreated = branch.kind === "ready" && branch.created;
               }
             }
-            const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
-            worktreePath = wt.worktreePath;
-            worktreeRecreated = !wt.reused;
+            if (adoptedWorktree !== null) {
+              worktreePath = adoptedWorktree;
+              diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
+            } else {
+              const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
+              worktreePath = wt.worktreePath;
+              worktreeRecreated = !wt.reused;
+            }
           } catch (e) {
-            worktreePath = taskWorktreeDir(repoPath, task);
+            worktreePath = adoptedWorktree ?? taskWorktreeDir(repoPath, task);
             diagnostic = e.message;
           }
         } else {
@@ -41797,6 +41981,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           branch_created: branchCreated,
           ...diagnostic ? { diagnostic } : {}
         });
@@ -42131,6 +42316,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const title = args2["title"] ?? "";
         const repoOverride = args2["repo"] ?? null;
         parseRunSessionId(args2["session_id"]);
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_retry");
         const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
           return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
@@ -42204,10 +42390,18 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const repoPath = resolvedPath && isGitRepo(resolvedPath) ? resolvedPath : null;
         let branchSetup = null;
         if (repoPath) {
-          for (const path2 of [repoPath, taskWorktreePath(repoPath, newBranchId)]) {
+          for (const path2 of [repoPath, adoptPath ?? taskWorktreePath(repoPath, newBranchId)]) {
             const refusal2 = outsideProject("task_retry", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: null, repoPath: repoPath ?? "", worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
+        }
+        if (repoPath) {
           const base = normalizeBase(repoPath, reworkBase(db2, repoPath, repoValue, failed.parent_branch_id));
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === "base_unresolved") {
@@ -42234,7 +42428,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           branchSetup = { gitSetup: branch.created ? "created" : "reused", baseRef: branch.cutBase.ref };
         }
         const now2 = nowISO();
-        const result2 = db2.transaction(() => {
+        const result2 = adoptingTransaction(db2, () => {
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -42296,8 +42490,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               created_at: now2
             });
           }
+          if (adoptedWorktree !== null && repoPath) {
+            const refused = recordAdoptedWorktree(db2, newTask.id, repoPath, adoptedWorktree);
+            if (refused) throw new AdoptRefusedError(refused);
+          }
           return { ...newTask, carried };
         });
+        if (isAdoptRefusal(result2)) return adoptRefusalResult(result2);
         if (!repoPath || !branchSetup) {
           return ok16({
             task_id: result2.id,
@@ -42308,12 +42507,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ""}'; no branch or worktree was created`
           });
         }
-        const worktreePath = taskWorktreePath(repoPath, newBranchId);
+        const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
         let diagnostic;
-        try {
-          ensureTaskWorktree(repoPath, newBranchId);
-        } catch (e) {
-          diagnostic = e.message;
+        if (adoptedWorktree !== null) {
+          diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
+        } else {
+          try {
+            ensureTaskWorktree(repoPath, newBranchId);
+          } catch (e) {
+            diagnostic = e.message;
+          }
         }
         return ok16({
           task_id: result2.id,
@@ -42323,6 +42526,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           ...diagnostic ? { diagnostic } : {}
         });
       })
@@ -45296,7 +45500,7 @@ function resolveScanScript() {
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
     const child = spawn("bash", [script, sessionDir], {
       cwd: sessionDir,
@@ -45349,7 +45553,7 @@ function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
@@ -45635,7 +45839,7 @@ function readRepoRemotes(path2) {
     return [];
   }
 }
-function canonicalPath2(p) {
+function canonicalPath3(p) {
   try {
     return realpathSync7(p);
   } catch {
@@ -45657,12 +45861,12 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   const candidates = [];
   for (const r of discovered) {
     if (existingNames.has(r.name)) continue;
-    const path2 = canonicalPath2(r.path);
+    const path2 = canonicalPath3(r.path);
     const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
     let match = null;
     for (const row of orphaned) {
       if (claimed.has(row.name)) continue;
-      if (canonicalPath2(row.path) === path2) {
+      if (canonicalPath3(row.path) === path2) {
         match = { name: row.name, by: "path" };
         break;
       }
@@ -46233,7 +46437,7 @@ function probeChildEnv(projectRoot = null) {
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
 function runClaude(args2, timeoutSec, projectRoot) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     try {
       const child = execFile(
         "claude",
@@ -46246,11 +46450,11 @@ function runClaude(args2, timeoutSec, projectRoot) {
           maxBuffer: MAX_LISTING_BYTES,
           encoding: "utf8"
         },
-        (error2, stdout) => resolve4(error2 ? null : stdout)
+        (error2, stdout) => resolve5(error2 ? null : stdout)
       );
       child.stdin?.end();
     } catch {
-      resolve4(null);
+      resolve5(null);
     }
   });
 }
@@ -46496,7 +46700,7 @@ var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -46542,7 +46746,7 @@ function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
@@ -46553,7 +46757,7 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "unknown"
 ]);
 function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -46603,13 +46807,13 @@ function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
 var PROPOSED_PR_TARGET = "proposed-pr";
 function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
@@ -46656,14 +46860,14 @@ function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) 
         reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
 function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -46709,7 +46913,7 @@ function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
