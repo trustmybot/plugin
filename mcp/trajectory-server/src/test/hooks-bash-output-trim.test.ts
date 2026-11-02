@@ -186,6 +186,9 @@ describe('bash-output-trim passes every other call unchanged (SC2)', () => {
     'A=1 B=2',
   ];
   for (const c of rejects) it(`rejects ${JSON.stringify(c)}`, () => assert.equal(run(payload(c)), ''));
+  const fullOutput = ['git log | cat', 'cd /x && git log | head -400 | cat', 'gh pr view 1 --json body -q .body | cat', 'sqlite3 -readonly db "SELECT 1" | cat'];
+  for (const c of fullOutput) it(`leaves the marker's | cat escape whole: ${JSON.stringify(c)}`, () => assert.equal(run(payload(c)), ''));
+  for (const c of ['cat f', 'cat f | head']) it(`still trims ${JSON.stringify(c)}`, () => assert.match(trimmed(payload(c)).stdout, MARKER));
   it('a non-Bash tool, a malformed payload, a missing tool_response', () => {
     assert.equal(run(JSON.stringify({ tool_name: 'Read', tool_input: { command: 'git log' }, tool_response: { stdout: LONG, stderr: '' } })), '');
     assert.equal(run('{not json'), '');

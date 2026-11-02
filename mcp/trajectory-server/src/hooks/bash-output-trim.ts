@@ -18,6 +18,7 @@
  *     (head, tail, grep, sort without -o, uniq with one positional, cut, wc,
  *     nl, cat, tr, column, jq, print-only `sed -n`); program words and git/gh
  *     verbs are literal;
+ *   - no pipeline ends in a bare `| cat`, the marker's escape to full output;
  *   - empty stderr, interrupted and isImage not true;
  *   - stdout longer than TRIM_ABOVE chars, its head and tail each keeping a
  *     whole line and together leaving some line out.
@@ -299,6 +300,15 @@ function stageRead(tokens: readonly Token[], first: boolean): boolean {
   return first ? sourceRead(program.text, args) : filterRead(program.text, args);
 }
 
+function stagesOf(tokens: readonly Token[]): Token[][] {
+  const stages: Token[][] = [[]];
+  for (const t of tokens) {
+    if (t.kind === 'op') stages.push([]);
+    else stages[stages.length - 1].push(t);
+  }
+  return stages;
+}
+
 function segmentRead(tokens: readonly Token[]): boolean {
   const words = tokens.filter((t): t is Word => t.kind === 'word');
   if (words.length === tokens.length) {
@@ -306,25 +316,35 @@ function segmentRead(tokens: readonly Token[]): boolean {
     const assignment = words[0].literal && words[0].text === 'export' ? words.slice(1) : words;
     if (assignment.length === 1 && isAssignment(assignment[0])) return true;
   }
-  const stages: Token[][] = [[]];
-  for (const t of tokens) {
-    if (t.kind === 'op') stages.push([]);
-    else stages[stages.length - 1].push(t);
-  }
-  return stages.every((stage, i) => stage.length > 0 && stageRead(stage, i === 0));
+  return stagesOf(tokens).every((stage, i) => stage.length > 0 && stageRead(stage, i === 0));
 }
 
-/** Whether <command> is provably a read: `cd`, assignments and read pipelines chained by `&&`, `;` or newline. */
-export function isRoutineRead(command: string): boolean {
+function endsInBareCat(tokens: readonly Token[]): boolean {
+  const stages = stagesOf(tokens);
+  const words = stages[stages.length - 1].filter((t): t is Word => t.kind === 'word');
+  return stages.length > 1 && words.length === 1 && words[0].literal && words[0].text === 'cat';
+}
+
+function segmentsOf(command: string): Token[][] | null {
   const tokens = tokenize(command);
-  if (tokens === null) return false;
+  if (tokens === null) return null;
   const segments: Token[][] = [[]];
   for (const t of tokens) {
     if (t.kind === 'op' && t.op !== '|') segments.push([]);
     else segments[segments.length - 1].push(t);
   }
-  const present = segments.filter((s) => s.length > 0);
-  return present.length > 0 && present.every(segmentRead);
+  return segments.filter((s) => s.length > 0);
+}
+
+/** Whether <command> is provably a read: `cd`, assignments and read pipelines chained by `&&`, `;` or newline. */
+export function isRoutineRead(command: string): boolean {
+  const present = segmentsOf(command);
+  return present !== null && present.length > 0 && present.every(segmentRead);
+}
+
+/** Whether some pipeline of <command> ends in a bare `| cat`, the marker's ask for the full output. */
+export function asksFullOutput(command: string): boolean {
+  return segmentsOf(command)?.some(endsInBareCat) ?? false;
 }
 
 export function trimMarker(cutLines: number, cutChars: number, totalLines: number): string {
@@ -370,7 +390,7 @@ export const bashOutputTrim: SyncGate = (payload: string): GateResult => {
   if (typeof command !== 'string' || response === null) return ALLOW;
   const { stdout, stderr, interrupted, isImage } = response;
   if (typeof stdout !== 'string' || stderr !== '' || interrupted === true || isImage === true) return ALLOW;
-  if (stdout.length <= TRIM_ABOVE || !isRoutineRead(command)) return ALLOW;
+  if (stdout.length <= TRIM_ABOVE || !isRoutineRead(command) || asksFullOutput(command)) return ALLOW;
   const trimmed = trimOutput(stdout);
   if (trimmed === null) return ALLOW;
   return { stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: { ...response, stdout: trimmed } } })}\n`, code: 0 };
