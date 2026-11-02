@@ -3984,12 +3984,12 @@ __export(loader_exports, {
 });
 import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 function parserLoadCount() {
   return loads;
 }
 function wasmDir() {
-  const here = dirname2(fileURLToPath2(import.meta.url));
+  const here = dirname2(fileURLToPath3(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
     if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
@@ -4750,6 +4750,10 @@ function runInstallWorker(env) {
   }
 }
 
+// src/hooks/lib/merge-driver.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 // src/hooks/lib/project-env.ts
 import { existsSync as existsSync2, readFileSync as readFileSync3, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3 } from "node:path";
@@ -4957,6 +4961,46 @@ function setlocaleUtf8(env = process.env) {
   return /(^|\.)utf-?8$/i.test(pick("LC_CTYPE"));
 }
 
+// src/hooks/lib/merge-driver.ts
+var MERGE_DRIVER_CLI = "install-merge-driver";
+var MERGE_DRIVER_NAME = "TMB generated artefact: keep ours, regenerate after the merge";
+var MERGE_DRIVER_COMMAND = `sh -c 'echo "tmb-regen: kept ours for $1 \u2014 run: node --experimental-strip-types scripts/maintenance/regen-generated.ts" >&2' tmb-regen %P`;
+function git(repo, args2, env) {
+  const r = spawnSync2("git", ["-C", repo, ...args2], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  return { ok: !r.error && r.status === 0, stdout: (r.stdout ?? "").replace(/\n+$/, "") };
+}
+function installMergeDriver(repo, env = process.env) {
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.name", MERGE_DRIVER_NAME], env).ok) return null;
+  if (!git(repo, ["config", "--local", "merge.tmb-regen.driver", MERGE_DRIVER_COMMAND], env).ok) return null;
+  const absolute = git(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  const common = absolute.ok ? absolute.stdout : git(repo, ["rev-parse", "--git-common-dir"], env).stdout;
+  return `${common}/config`;
+}
+function mergeDriverCli(args2, env, out2, err2) {
+  let repo = args2[0] ?? "";
+  if (repo === "") {
+    const self2 = installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? posixDirname(fileURLToPath(import.meta.url));
+    const common = git(self2, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+    if (!common.ok || common.stdout === "") {
+      err2(`install-merge-driver: ${self2} is not in a git repository; pass the repo dir
+`);
+      return 1;
+    }
+    repo = posixDirname(common.stdout);
+  }
+  if (!git(repo, ["rev-parse", "--git-dir"], env).ok) {
+    err2(`install-merge-driver: ${repo} is not a git repository
+`);
+    return 1;
+  }
+  const config = installMergeDriver(repo, env);
+  if (config === null) return 1;
+  out2(`install-merge-driver: merge.tmb-regen installed in ${config}
+`);
+  return 0;
+}
+
 // src/hooks/askuserquestion-length-lint.ts
 var LABEL_MAX_WORDS = 5;
 var DESC_MAX_WORDS = 15;
@@ -5062,7 +5106,7 @@ import { readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants4, readFileSync as readFileSync5, statSync as statSync4 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/hooks/lib/db.ts
 import { accessSync as accessSync3, closeSync as closeSync2, constants as constants3, existsSync as existsSync3, openSync as openSync2, readFileSync as readFileSync4, readSync, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
@@ -5207,7 +5251,7 @@ function agentRole(input = "") {
 }
 
 // src/hooks/lib/sqlite-shell.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { spawnSync as spawnSync3 } from "node:child_process";
 import { accessSync as accessSync2, constants as constants2 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
@@ -5308,7 +5352,7 @@ function cliArgs(call) {
 }
 function runCli(call, env) {
   const limit = spawnLimit(call.killAfterMs, "SIGKILL");
-  const r = spawnSync2("sqlite3", cliArgs(call), {
+  const r = spawnSync3("sqlite3", cliArgs(call), {
     env,
     input: call.sql === void 0 ? call.script ?? "" : void 0,
     stdio: [call.sql === void 0 ? "pipe" : "ignore", "pipe", "pipe"],
@@ -6152,7 +6196,7 @@ function auditWriter(fromNode) {
   return fromNode === "system" ? "server" : "";
 }
 function auditEventsFile(env = process.env) {
-  const here = posixDirname(fileURLToPath(import.meta.url));
+  const here = posixDirname(fileURLToPath2(import.meta.url));
   const root = installRoot(here) ?? env.CLAUDE_PLUGIN_ROOT ?? here;
   return `${root}/${AUDIT_EVENTS_REL}`;
 }
@@ -6691,7 +6735,7 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
@@ -7068,7 +7112,7 @@ function onPath3(name3, env) {
 }
 function run2(file, args2, cwd, env) {
   const limit = spawnLimit();
-  const r = spawnSync3(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
+  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30, ...spawnOptions(limit) });
   noteSpawn(limit, r);
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
@@ -9267,8 +9311,8 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
   const rootc = host.rootc();
   const rootTrim = trimSlash(rootc);
   let bound = rootc;
-  const git2 = cmd === "git";
-  if (git2) {
+  const git3 = cmd === "git";
+  if (git3) {
     bound = pathCanonical(m.gdir);
     if (!(bound + "/").startsWith(rootTrim + "/")) return null;
   }
@@ -9291,7 +9335,7 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
       w = pathCanonical(w);
       if (!(w + "/").startsWith(trimSlash(bound) + "/")) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
-      const at2 = git2 ? trimSlash(p) : trimSlash(v);
+      const at2 = git3 ? trimSlash(p) : trimSlash(v);
       if (isPromptSurfaceUnder(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at2}/*.md`);
       else if (cmd !== "ls") {
         const rel = w.replace(/^\//, "");
@@ -9308,7 +9352,7 @@ function listerBind(host, name3, dirtok, mode, words3, acts) {
           vals.push(`${at2}/${d === "CLAUDE.md" ? d : `${sub}/*.md`}`);
         }
       }
-      if (git2) continue;
+      if (git3) continue;
       vals.push(v, `${trimSlash(v)}/*`);
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
@@ -14712,9 +14756,9 @@ function containmentGuardWith(analyze2) {
 var containmentGuard = containmentGuardWith(writePaths);
 
 // src/hooks/deferred-tools-drift-warn.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { lstatSync as lstatSync5, readdirSync as readdirSync2, statSync as statSync14 } from "node:fs";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 var GATE_NAME8 = "deferred-tools-drift-warn";
 var ANCESTRY_GUARD = 40;
 var SERVER_PATTERN = "trajectory-server/dist/index.js";
@@ -14723,7 +14767,7 @@ var INT64_MIN = -(2n ** 63n);
 var ArithError = class extends Error {
 };
 function run3(cmd, args2, env) {
-  const r = spawnSync4(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync5(cmd, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function testInt(text) {
@@ -14858,7 +14902,7 @@ function isDir3(path) {
   }
 }
 function pluginRoot() {
-  return installRoot(posixDirname(fileURLToPath3(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
 }
 function driftContext(count, pid) {
   return `[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${pid}). CC's deferred-tools registry is session-scoped and only a new session replays tool discovery. Workaround (Tier 2): fully quit and relaunch Claude Code to bind the new tools. See #98.`;
@@ -15238,7 +15282,7 @@ var gitPushGuard = async (payload, env) => {
 };
 
 // src/hooks/mcp-health-check.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { appendFileSync as appendFileSync2, existsSync as existsSync8, mkdirSync as mkdirSync2, readdirSync as readdirSync3, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync17, writeFileSync as writeFileSync3 } from "node:fs";
 
 // src/hooks/lib/install.ts
@@ -15605,7 +15649,7 @@ function sampleCount(raw) {
   return Number(v);
 }
 function pgrepLines(pattern, env) {
-  const r = spawnSync5("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync6("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return (r.stdout ?? "").split("\n").length - 1;
 }
 function samplePgrep(env) {
@@ -15763,12 +15807,12 @@ var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
 var REGEN_DRIVER = "tmb-regen";
-async function git(repo, args2, env) {
+async function git2(repo, args2, env) {
   const r = await gitSpawn(repo, args2, { env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
   return { code: r.code, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") || (r.error?.message ?? "") };
 }
 async function revParse(repo, rev, env) {
-  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
+  const r = await git2(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
   const sha = r.stdout.trim();
   return r.code === 0 && sha !== "" ? sha : null;
 }
@@ -15799,7 +15843,7 @@ function dbUnavailable(env) {
 `, code: 0 };
 }
 async function treeBlobs(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
+  const r = await git2(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
   if (r.code !== 0) return null;
   const blobs = /* @__PURE__ */ new Map();
   for (const entry of nulFields(r.stdout)) {
@@ -15856,7 +15900,7 @@ function dirOf(path) {
   return slash < 0 ? "" : path.slice(0, slash);
 }
 async function removedInDiff(repo, base2, commit, env) {
-  const diff = await git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
+  const diff = await git2(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base2, commit], env);
   if (diff.code !== 0) return `git diff ${base2}..${commit} failed: ${diff.stderr.trim()}`;
   const fields = nulFields(diff.stdout);
   const paths = [];
@@ -15906,11 +15950,11 @@ async function staleDocRefs(repo, base2, commit, env) {
   return hits;
 }
 async function hasChangelogDir(repo, rev, env) {
-  const r = await git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
+  const r = await git2(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== "";
 }
 async function nonRegenPaths(repo, rev, paths, env) {
-  const r = await git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
+  const r = await git2(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
   if (r.code !== 0) return null;
   const fields = nulFields(r.stdout);
   if (fields.length % 3 !== 0) return null;
@@ -15995,7 +16039,7 @@ async function preflight(db, taskId, env) {
       actual: `no PR target ref resolves in ${repo}`
     });
   }
-  const merge = await git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
+  const merge = await git2(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
     const blocking = merge.code === 1 && conflicted.length > 0 ? await nonRegenPaths(repo, commit, conflicted, env) : null;
@@ -16007,7 +16051,7 @@ async function preflight(db, taskId, env) {
       });
     }
   }
-  const mergeBase = (await git(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
+  const mergeBase = (await git2(repo, ["merge-base", targetTip, commit], env)).stdout.trim();
   if (mergeBase === "") {
     return deny3({
       check: "base_conflict",
@@ -16024,7 +16068,7 @@ async function preflight(db, taskId, env) {
     });
   }
   if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
-    const added = await git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
+    const added = await git2(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === "") {
       return deny3({
         check: "missing_changelog",
@@ -17297,7 +17341,7 @@ import { availableParallelism, loadavg } from "node:os";
 // src/hooks/lib/persona.ts
 import { accessSync as accessSync8, constants as constants8, lstatSync as lstatSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync5, readFileSync as readFileSync12, realpathSync as realpathSync5, statSync as statSync19, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 var STALE_MINUTES = 1440;
 var OLD_BLOCK = "<!-- tmb:persona start";
 var OLD_BLOCK_NOTE = "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]";
@@ -17353,22 +17397,22 @@ function manifestField(root, key2, haveJq) {
 }
 function defaultPluginRoot() {
   try {
-    return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
   } catch {
     return "";
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot5 === "") return null;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot4 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot5);
+  const pluginReal = physicalDir2(pluginRoot4);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot5, "version", haveJq);
-  const name3 = manifestField(pluginRoot5, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot5, source: `${pluginRoot5}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot4, "version", haveJq);
+  const name3 = manifestField(pluginRoot4, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot4, source: `${pluginRoot4}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -17987,7 +18031,7 @@ function makeLivenessSentinel(clock = () => /* @__PURE__ */ new Date()) {
 var livenessSentinel = makeLivenessSentinel();
 
 // src/hooks/activation-routine.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { readFileSync as readFileSync14, statSync as statSync22 } from "node:fs";
 
 // src/hooks/cmd-analysis/harness-turn.ts
@@ -18076,7 +18120,7 @@ function saysBro(prompt, grep) {
 function serverDown(env) {
   if (!commandOnPath2("pgrep", env)) return false;
   try {
-    return spawnSync6("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+    return spawnSync7("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
   } catch {
     return false;
   }
@@ -18487,7 +18531,7 @@ function userPromptPersona(payload, env) {
 
 // src/hooks/prompt-intent-hints.ts
 import { statSync as statSync24 } from "node:fs";
-import { fileURLToPath as fileURLToPath5, pathToFileURL as pathToFileURL2 } from "node:url";
+import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
 
 // src/hooks/lib/jq-raw.ts
 var JqUnindexable = class extends Error {
@@ -19093,7 +19137,7 @@ function isFile11(path) {
 }
 function defaultPluginRoot2() {
   try {
-    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath6(import.meta.url))) ?? "";
   } catch {
     return "";
   }
@@ -19713,7 +19757,7 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn3, spawnSync as spawnSync7 } from "node:child_process";
+import { spawn as spawn3, spawnSync as spawnSync8 } from "node:child_process";
 import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync8, mkdtempSync, openSync as openSync3, readFileSync as readFileSync16, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { resolve as resolve3 } from "node:path";
@@ -19721,7 +19765,7 @@ import { resolve as resolve3 } from "node:path";
 // src/hooks/lib/verification-carry.ts
 import { realpathSync as realpathSync6 } from "node:fs";
 import { basename as basename7, matchesGlob } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
 var VERIFICATION_INPUTS_VERSION = 1;
 var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -19839,7 +19883,7 @@ async function planCarrySafe(req, env = process.env) {
 }
 function isMainModule() {
   const entry = process.argv[1];
-  const self2 = fileURLToPath6(import.meta.url);
+  const self2 = fileURLToPath7(import.meta.url);
   if (entry === void 0 || basename7(self2) !== "verification-carry.js") return false;
   try {
     return realpathSync6(entry) === realpathSync6(self2);
@@ -20033,7 +20077,7 @@ function executable(path) {
   }
 }
 function capture3(cmd, args2, dir, env) {
-  const r = spawnSync7(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync8(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
 function toolchainDirs(env, worktree) {
@@ -21192,7 +21236,7 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/orphan-scan.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync27 } from "node:fs";
 var GATE_NAME55 = "orphan-scan";
 var DEADLINE_S = 4;
@@ -21228,7 +21272,7 @@ function isCcCommand2(command) {
   return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
 }
 function capture4(cmd, args2, env) {
-  const r = spawnSync8(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  const r = spawnSync9(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.error ? "" : r.stdout ?? "";
 }
 function procPpid2(pid, env) {
@@ -21495,7 +21539,7 @@ var orphanScan = (_payload, env) => {
 // src/hooks/session-start-prescan.ts
 import { spawn as spawn4 } from "node:child_process";
 import { readdirSync as readdirSync7, readFileSync as readFileSync18, statSync as statSync28 } from "node:fs";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
+import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME56 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
 var SUBDIR_STACKS_MAX = 3;
@@ -21804,7 +21848,7 @@ function coldNote(root, db, env) {
   return "world model is cold \u2014 run /scan before planning so world_model_get has a project map";
 }
 function pluginRoot2() {
-  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
 }
 async function sessionStartPrescanRun(env, root, stderr2) {
   if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
@@ -22056,7 +22100,7 @@ var cleanMergedBranch = async (payload, env) => {
 };
 
 // src/hooks/close-issue-on-merge.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
+import { spawnSync as spawnSync10 } from "node:child_process";
 import { statSync as statSync30 } from "node:fs";
 
 // src/review-sql.ts
@@ -22105,7 +22149,7 @@ function isFile16(path) {
   }
 }
 function gh(args2, repoDir, env) {
-  const r = spawnSync9("gh", args2, {
+  const r = spawnSync10("gh", args2, {
     cwd: repoDir,
     encoding: "utf8",
     env,
@@ -22939,7 +22983,7 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 // src/hooks/post-task-close-rescan.ts
 import { spawn as spawn6 } from "node:child_process";
 import { statSync as statSync32 } from "node:fs";
-import { fileURLToPath as fileURLToPath8 } from "node:url";
+import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME60 = "post-task-close-rescan";
 var CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 function isFile18(path) {
@@ -22950,7 +22994,7 @@ function isFile18(path) {
   }
 }
 function pluginRoot3() {
-  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
 }
 function launchDetached(spawner, invoker, db, env) {
   const child = spawner(process.execPath, ["--experimental-sqlite", invoker], {
@@ -23381,12 +23425,9 @@ async function cleanupWorktree(payload, env, stderr2) {
 var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync20, statSync as statSync35 } from "node:fs";
-import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME66 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
-var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
 var fail = (stderr2, line) => {
   stderr2(line);
@@ -23399,10 +23440,7 @@ function isFile21(path) {
     return false;
   }
 }
-function pluginRoot4() {
-  return installRoot(posixDirname(fileURLToPath9(import.meta.url))) ?? "";
-}
-async function installMergeDriver(dir, env, stderr2) {
+async function installMergeDriver2(dir, env, stderr2) {
   const top = await gitRun(dir, ["rev-parse", "--show-toplevel"], env);
   if (top.code !== 0) return;
   const root = top.stdout.replace(/\n+$/, "");
@@ -23413,8 +23451,7 @@ async function installMergeDriver(dir, env, stderr2) {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync10("bash", [`${pluginRoot4()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
-  if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
+  if (installMergeDriver(root, env) === null) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
 async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
@@ -23425,7 +23462,7 @@ async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, 
   if (existsSync14(`${worktree}/.git`)) {
     stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
 `);
-    await installMergeDriver(repo, env, stderr2);
+    await installMergeDriver2(repo, env, stderr2);
     return { stdout: `${worktree}
 `, code: 0 };
   }
@@ -23439,7 +23476,7 @@ async function ensureWorktree(repo, worktree, branch, addFailed, created2, env, 
   }
   if (!await gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
   stderr2(created2);
-  await installMergeDriver(repo, env, stderr2);
+  await installMergeDriver2(repo, env, stderr2);
   return { stdout: `${worktree}
 `, code: 0 };
 }
@@ -23782,8 +23819,8 @@ function manifestName2(manifest) {
   }
 }
 async function targetIsPluginSourceRepo(target, input, env) {
-  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
-  const running = `${pluginRoot5}/.claude-plugin/plugin.json`;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
+  const running = `${pluginRoot4}/.claude-plugin/plugin.json`;
   let start2;
   if (target.startsWith("/")) {
     start2 = posixDirname(target);
@@ -26111,6 +26148,15 @@ async function runHook(name3, findGate2, env, io) {
 
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
+if (name2 === MERGE_DRIVER_CLI) {
+  const code = mergeDriverCli(
+    process.argv.slice(3),
+    process.env,
+    (text) => process.stdout.write(text),
+    (text) => process.stderr.write(text)
+  );
+  process.exit(code);
+}
 if (routerEvents().has(name2)) {
   const args2 = process.argv.slice(3);
   const part = args2[0] === "--shim" ? void 0 : args2[0];
