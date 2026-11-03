@@ -2,9 +2,7 @@
  * UserPromptSubmit hook (GH 1692): on a bro turn (the prompt says "bro" as a word and is not a harness turn,
  * or the transcript holds sticky bro mode) it pre-fetches the onboarded flag
  * and the newest open issue and injects them as additionalContext, prefixed
- * by a HALT notice when pgrep finds no trajectory-server, and followed by a
- * one-line warning when the mean input context of the transcript's last
- * RECENT_CALLS main-thread calls is past CONTEXT_LIMIT. Never blocks.
+ * by a HALT notice when pgrep finds no trajectory-server. Never blocks.
  *
  * The word test is grep's: `\b` and -i under the locale grep would run in
  * (ASCII word bytes in C; letters, digits and _ under UTF-8, where a
@@ -23,11 +21,6 @@ export const GATE_NAME = 'activation-routine';
 export const HALT_TEXT = '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
 export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
-export const RECENT_CALLS = 5;
-export const CONTEXT_LIMIT = 120000;
-const ASSISTANT_MARKER = Buffer.from('"type":"assistant"');
-const NEWLINE = 0x0a;
-const SYNTHETIC_MODEL = '<synthetic>';
 /** A grep -E pattern run line by line under C (bytes) or UTF-8 (code points). */
 export class LocaleGrep {
     utf8;
@@ -124,77 +117,6 @@ export function activationContext(onboardedCount, pending) {
     }
     return `[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${pendingLine}`;
 }
-function callContext(line) {
-    let entry;
-    try {
-        entry = JSON.parse(line);
-    }
-    catch {
-        return null;
-    }
-    if (entry === null || typeof entry !== 'object')
-        return null;
-    const { type, isSidechain, message } = entry;
-    if (type !== 'assistant' || isSidechain === true || message === null || typeof message !== 'object')
-        return null;
-    const { id, model, usage } = message;
-    if (model === SYNTHETIC_MODEL || usage === null || typeof usage !== 'object')
-        return null;
-    const count = (key) => {
-        const value = usage[key];
-        return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-    };
-    return {
-        id: typeof id === 'string' ? id : null,
-        context: count('input_tokens') + count('cache_creation_input_tokens') + count('cache_read_input_tokens'),
-    };
-}
-function* assistantLines(transcript) {
-    let from = 0;
-    for (;;) {
-        const hit = transcript.indexOf(ASSISTANT_MARKER, from);
-        if (hit === -1)
-            return;
-        const start = transcript.lastIndexOf(NEWLINE, hit) + 1;
-        const newline = transcript.indexOf(NEWLINE, hit);
-        const end = newline === -1 ? transcript.length : newline;
-        yield transcript.toString('utf8', start, end);
-        from = end + 1;
-    }
-}
-/** The mean input context of the last RECENT_CALLS distinct main-thread assistant calls in <transcript>, and its first call's; null with none. */
-export function recentContext(transcript) {
-    if (transcript === null)
-        return null;
-    const seen = new Set();
-    let first = null;
-    const recent = [];
-    for (const line of assistantLines(transcript)) {
-        const call = callContext(line);
-        if (call === null)
-            continue;
-        if (call.id !== null) {
-            if (seen.has(call.id))
-                continue;
-            seen.add(call.id);
-        }
-        first ??= call.context;
-        recent.push(call.context);
-        if (recent.length > RECENT_CALLS)
-            recent.shift();
-    }
-    if (first === null)
-        return null;
-    return { mean: Math.ceil(recent.reduce((sum, c) => sum + c, 0) / recent.length), calls: recent.length, first };
-}
-export function pastContextLimit(recent) {
-    return recent !== null && recent.mean > CONTEXT_LIMIT;
-}
-export function usageWarning(recent) {
-    if (recent === null || !pastContextLimit(recent))
-        return '';
-    return `⚠️ This bro session's recent context is past its limit: ${recent.mean} mean input context over the last ${recent.calls} calls (limit ${CONTEXT_LIMIT}; its first call took ${recent.first}, the cold-start reference). Finish what is in flight, then end the session and resume cold from the DB.`;
-}
 /** The issue of the handoff <sessionId> consumed, while that issue is open; '' otherwise. */
 function handoffPending(db, sessionId, env) {
     if (!SESSION_ID_LINE.test(sessionId))
@@ -224,9 +146,6 @@ export function activationRoutine(payload, env) {
             context = `${halt} ${context}`;
         if (sessionId.split('\n').some((line) => SESSION_ID_LINE.test(line)))
             context = `${context} session_id=${sessionId}`;
-        const warning = usageWarning(recentContext(transcript));
-        if (warning !== '')
-            context = `${context}\n${warning}`;
         return emit(context);
     }
     catch {

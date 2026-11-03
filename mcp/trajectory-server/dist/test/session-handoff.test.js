@@ -1,7 +1,8 @@
 /**
- * The session-handoff gate (GH 2193) on a temp trajectory DB: each Stop boundary
- * gate, the once-only notice, consumption by session-start-persona and the
- * issue activation-routine reports afterwards.
+ * The session-handoff gate (GH 2275) on a temp trajectory DB: the PreCompact
+ * gate that records a bro session's row before each compaction, its
+ * consumption by the same session's SessionStart with source 'compact' through
+ * session-start-persona, and the issue activation-routine reports afterwards.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,11 +19,13 @@ const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
 const HOOKS_BUNDLE = join(SERVER_ROOT, 'dist/hooks.js');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
-const SESSION = 'sess-source';
-const NEW_SESSION = 'sess-new-one';
+const SESSION = 'sess-compacted';
+const OTHER_SESSION = 'sess-other-one';
 const CWD = '/work/project';
 const ROW_TIME = '2026-10-26T10:00:00.000Z';
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const CONTEXT = 'persona context';
+const HEADER = '[Compaction restore';
 let sandbox;
 let seq = 0;
 function freshDb() {
@@ -31,7 +34,7 @@ function freshDb() {
     mkdirSync(dirname(db), { recursive: true });
     const d = new DatabaseSync(db);
     d.exec(SCHEMA);
-    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'ship the handoff', 'open', ?, ?)").run(ROW_TIME, ROW_TIME);
+    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'ship the restore', 'open', ?, ?)").run(ROW_TIME, ROW_TIME);
     d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'newest open issue', 'open', ?, ?)").run(ROW_TIME, ROW_TIME);
     d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (5, 'finished work', 'closed', ?, ?)").run(ROW_TIME, ROW_TIME);
     d.close();
@@ -46,28 +49,14 @@ function withDb(db, fn) {
         d.close();
     }
 }
-const HOT = [130000, 125000, 128000, 131000, 126000];
-const COOL = [90000, 88000, 92000, 91000, 89000];
-function transcriptOf(db) {
-    return join(dirname(db), 'transcript.jsonl');
-}
-function writeTranscript(db, contexts) {
-    const lines = contexts.map((context, i) => JSON.stringify({ type: 'assistant', isSidechain: false, message: { id: `msg-${i}`, usage: { input_tokens: 2, cache_creation_input_tokens: 1000, cache_read_input_tokens: context - 1002 } } }));
-    writeFileSync(transcriptOf(db), lines.map((line) => `${line}\n`).join(''));
-}
-/** A bro row of <session>, with the shared transcript's last calls past the limit (<hot>) or under it. */
-function broRow(db, hot = true, session = SESSION) {
+function broRow(db, session = SESSION) {
     withDb(db, (d) => {
-        d.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens, started_at, completed_at) VALUES ('bro', ?, 0, 0, ?, ?)").run(session, ROW_TIME, ROW_TIME);
+        d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at, completed_at) VALUES ('bro', ?, ?, ?)").run(session, ROW_TIME, ROW_TIME);
     });
-    writeTranscript(db, hot ? HOT : COOL);
-}
-function hoursAgo(hours) {
-    return new Date(Date.now() - hours * 3_600_000).toISOString();
 }
 function run(db, opts = {}) {
     withDb(db, (d) => {
-        d.prepare("INSERT INTO agent_runs (agent_type, session_id, issue_id, started_at, completed_at) VALUES ('swe', ?, ?, ?, ?)").run(opts.session ?? SESSION, opts.issue ?? null, opts.startedAt ?? hoursAgo(1), opts.completedAt ?? null);
+        d.prepare("INSERT INTO agent_runs (agent_type, session_id, issue_id, started_at, completed_at) VALUES ('swe', ?, ?, ?, ?)").run(opts.session ?? SESSION, opts.issue ?? null, ROW_TIME, opts.completedAt === undefined ? ROW_TIME : opts.completedAt);
     });
 }
 function task(db, id, issue, status, title) {
@@ -75,418 +64,362 @@ function task(db, id, issue, status, title) {
         d.prepare('INSERT INTO tasks (id, issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, issue, `feat/${id}-x`, title, 'd', status, ROW_TIME, ROW_TIME);
     });
 }
+function discussion(db, issue, kind, body) {
+    return withDb(db, (d) => Number(d.prepare("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', ?, ?, ?)").run(issue, kind, body, ROW_TIME).lastInsertRowid));
+}
 function rows(db) {
-    return withDb(db, (d) => d.prepare('SELECT * FROM session_handoffs').all());
+    return withDb(db, (d) => d.prepare('SELECT * FROM session_handoffs ORDER BY session_id').all());
 }
 function setRow(db, sql, ...args) {
     withDb(db, (d) => {
         d.prepare(sql).run(...args);
     });
 }
-function stopPayload(env, extra = {}) {
-    const transcript = transcriptOf(env.TRAJECTORY_DB_PATH ?? '');
-    return JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION, cwd: CWD, transcript_path: transcript, last_assistant_message: 'the last note', ...extra });
+function preCompactPayload(extra = {}) {
+    return JSON.stringify({ hook_event_name: 'PreCompact', session_id: SESSION, cwd: CWD, transcript_path: '/nonexistent/transcript.jsonl', trigger: 'auto', custom_instructions: '', ...extra });
 }
-function stop(env, extra = {}) {
-    const r = sessionHandoff(stopPayload(env, extra), env);
+function preCompact(env, extra = {}) {
+    const r = sessionHandoff(preCompactPayload(extra), env);
     return { stdout: r.stdout ?? '', code: r.code ?? 0 };
 }
 function startPayload(extra = {}) {
-    return JSON.stringify({ hook_event_name: 'SessionStart', session_id: NEW_SESSION, cwd: CWD, source: 'startup', ...extra });
+    return JSON.stringify({ hook_event_name: 'SessionStart', session_id: SESSION, cwd: CWD, source: 'compact', ...extra });
 }
-function handedOver(db, env) {
+function compacted(db, env) {
     broRow(db);
-    stop(env);
+    preCompact(env);
 }
 before(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'tmb-session-handoff-'));
 });
 after(() => rmSync(sandbox, { recursive: true, force: true }));
-describe('session-handoff Stop gates', () => {
-    it('under the limit: no row', () => {
-        const { db, env } = freshDb();
-        broRow(db, false);
-        assert.equal(stop(env).stdout, '');
-        assert.deepEqual(rows(db), []);
-    });
-    it('past the limit: a row', () => {
+describe('session-handoff PreCompact gate (GH 2275)', () => {
+    it('GH 2275: a PreCompact payload of a bro session writes one row with consumed_at NULL, silently', () => {
         const { db, env } = freshDb();
         broRow(db);
-        stop(env);
-        assert.equal(rows(db).length, 1);
-    });
-    it('pre-compaction calls past the limit followed by 5 cool calls: no row, whatever the bro row usage says', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        setRow(db, "UPDATE agent_runs SET tool_uses = 900, cache_read_tokens = 90000000 WHERE agent_type = 'bro'");
-        writeTranscript(db, [...Array.from({ length: 50 }, () => 167000), ...COOL]);
-        assert.equal(stop(env).stdout, '');
-        assert.deepEqual(rows(db), []);
-    });
-    for (const [what, extra] of [
-        ['a missing transcript', { transcript_path: '/nonexistent/transcript.jsonl' }],
-        ['no transcript_path', { transcript_path: undefined }],
-        ['a transcript_path that is not a string', { transcript_path: 7 }],
-    ]) {
-        it(`past the limit in the DB fixture but ${what}: no row, exit 0`, () => {
-            const { db, env } = freshDb();
-            broRow(db);
-            assert.deepEqual(stop(env, extra), { stdout: '', code: 0 });
-            assert.deepEqual(rows(db), []);
-        });
-    }
-    it('an unreadable transcript: no row, exit 0', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        assert.deepEqual(stop(env, { transcript_path: dirname(db) }), { stdout: '', code: 0 });
-        assert.deepEqual(rows(db), []);
-    });
-    it('past the limits with a recent open run in this session: no row', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        run(db, { startedAt: hoursAgo(11) });
-        assert.equal(stop(env).stdout, '');
-        assert.deepEqual(rows(db), []);
-    });
-    it('past the limits with only an open run older than 12h: a row', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        run(db, { startedAt: hoursAgo(13) });
-        stop(env);
-        assert.equal(rows(db).length, 1);
-    });
-    it('an open run only in another session does not block: a row', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        run(db, { session: 'sess-other' });
-        stop(env);
-        assert.equal(rows(db).length, 1);
-    });
-    it('a stale running task of any session does not block: global task status is never read', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        task(db, 130, 7, 'running', 'stale');
-        stop(env);
-        assert.equal(rows(db).length, 1);
-    });
-    for (const [what, extra] of [
-        ['non-empty background_tasks', { background_tasks: [{ id: 'b1' }] }],
-        ['non-empty session_crons', { session_crons: [{ id: 'c1' }] }],
-        ['stop_hook_active', { stop_hook_active: true }],
-        ['a session id that is not an id', { session_id: "bad'id" }],
-    ]) {
-        it(`${what}: no row`, () => {
-            const { db, env } = freshDb();
-            broRow(db);
-            assert.equal(stop(env, extra).stdout, '');
-            assert.deepEqual(rows(db), []);
-        });
-    }
-    it('empty background_tasks and session_crons are not work', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        stop(env, { background_tasks: [], session_crons: [] });
-        assert.equal(rows(db).length, 1);
-    });
-    it('a row needs a bro row of this session', () => {
-        const { db, env } = freshDb();
-        broRow(db, true, 'sess-other');
-        stop(env);
-        assert.deepEqual(rows(db), []);
-    });
-});
-describe('session-handoff Stop write', () => {
-    it('the first boundary Stop writes every column and one systemMessage naming the issue', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        run(db, { issue: 5, completedAt: ROW_TIME });
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        run(db, { issue: null, completedAt: ROW_TIME });
-        const r = stop(env);
-        assert.equal(r.code, 0);
-        const output = JSON.parse(r.stdout);
-        assert.deepEqual(Object.keys(output), ['systemMessage']);
-        assert.match(output.systemMessage, /new session/);
-        assert.match(output.systemMessage, /#7: ship the handoff/);
-        const [row] = rows(db);
+        run(db, { issue: 5 });
+        run(db, { issue: 7 });
+        run(db, { issue: null });
+        assert.deepEqual(preCompact(env), { stdout: '', code: 0 });
+        const all = rows(db);
+        assert.equal(all.length, 1);
+        const [row] = all;
         assert.equal(row.session_id, SESSION);
         assert.equal(row.cwd, CWD);
         assert.equal(row.issue_id, 7);
-        assert.equal(row.summary, 'the last note');
-        assert.match(row.created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-        assert.match(row.updated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+        assert.equal(row.summary, null);
+        assert.match(row.created_at, ISO);
+        assert.match(row.updated_at, ISO);
         assert.equal(row.consumed_at, null);
         assert.equal(row.consumed_by_session, null);
     });
-    it('with no non-bro run the row has no issue and the notice says so', () => {
+    for (const trigger of ['manual', 'auto']) {
+        it(`GH 2275: trigger ${trigger} writes the row`, () => {
+            const { db, env } = freshDb();
+            broRow(db);
+            assert.deepEqual(preCompact(env, { trigger }), { stdout: '', code: 0 });
+            assert.equal(rows(db).length, 1);
+        });
+    }
+    it('GH 2275: with no non-bro run the row has no issue', () => {
         const { db, env } = freshDb();
-        broRow(db);
-        const output = JSON.parse(stop(env).stdout);
-        assert.match(output.systemMessage, /No issue was recorded/);
+        compacted(db, env);
         assert.equal(rows(db)[0].issue_id, null);
     });
-    it('truncates the summary to 2000 chars and stores NULL when the message is absent', () => {
+    it('GH 2275: an open run in the session does not stop the write', () => {
         const { db, env } = freshDb();
         broRow(db);
-        stop(env, { last_assistant_message: `it's; a "note"\n${'x'.repeat(3000)}` });
-        const { summary } = rows(db)[0];
-        assert.equal(summary?.length, 2000);
-        assert.ok(summary?.startsWith(`it's; a "note"\n`));
-        stop(env, { last_assistant_message: undefined });
-        assert.equal(rows(db)[0].summary, null);
+        run(db, { issue: 7, completedAt: null });
+        preCompact(env);
+        assert.equal(rows(db)[0].issue_id, 7);
     });
-    it('a second Stop outputs nothing and refreshes summary and updated_at', () => {
+    it('GH 2275: a session with no bro row of its own writes nothing', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
-        setRow(db, 'UPDATE session_handoffs SET updated_at = ?, created_at = ?', ROW_TIME, ROW_TIME);
-        const r = stop(env, { last_assistant_message: 'a later note' });
-        assert.equal(r.stdout, '');
-        const [row] = rows(db);
-        assert.equal(row.summary, 'a later note');
-        assert.equal(row.created_at, ROW_TIME);
-        assert.notEqual(row.updated_at, ROW_TIME);
-    });
-    it('a Stop after consumption changes nothing and outputs nothing', () => {
-        const { db, env } = freshDb();
-        handedOver(db, env);
-        withHandoff(CONTEXT, startPayload(), env);
-        const before = rows(db)[0];
-        assert.equal(stop(env, { last_assistant_message: 'after the handoff' }).stdout, '');
-        assert.deepEqual(rows(db)[0], before);
-    });
-    it('with the hook bypass: no row and no output', () => {
-        const { db, env } = freshDb();
-        broRow(db);
-        assert.deepEqual(stop({ ...env, TMB_DISABLE_SESSION_HANDOFF_HOOK: '1' }), { stdout: '', code: 0 });
+        broRow(db, OTHER_SESSION);
+        run(db, { issue: 7 });
+        assert.deepEqual(preCompact(env), { stdout: '', code: 0 });
         assert.deepEqual(rows(db), []);
     });
-    it('a missing table exits 0 with no output', () => {
+    for (const [what, extra] of [
+        ['a session id that is not an id', { session_id: "bad'id" }],
+        ['no session id', { session_id: undefined }],
+        ['no cwd', { cwd: undefined }],
+        ['an empty cwd', { cwd: '' }],
+        ['a cwd that is not a string', { cwd: 7 }],
+    ]) {
+        it(`GH 2275: ${what}: no row, no output`, () => {
+            const { db, env } = freshDb();
+            broRow(db);
+            assert.deepEqual(preCompact(env, extra), { stdout: '', code: 0 });
+            assert.deepEqual(rows(db), []);
+        });
+    }
+    it('GH 2275: a cwd with a quote is stored as given', () => {
+        const { db, env } = freshDb();
+        broRow(db);
+        preCompact(env, { cwd: "/work/it's" });
+        assert.equal(rows(db)[0].cwd, "/work/it's");
+    });
+    it('GH 2275: a second compaction re-arms a consumed row and refreshes it', () => {
+        const { db, env } = freshDb();
+        compacted(db, env);
+        assert.notEqual(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
+        setRow(db, 'UPDATE session_handoffs SET updated_at = ?, created_at = ?, summary = ?', ROW_TIME, ROW_TIME, 'stale');
+        assert.equal(rows(db)[0].consumed_by_session, SESSION);
+        run(db, { issue: 7 });
+        assert.deepEqual(preCompact(env, { cwd: '/work/moved' }), { stdout: '', code: 0 });
+        const all = rows(db);
+        assert.equal(all.length, 1);
+        const [row] = all;
+        assert.equal(row.consumed_at, null);
+        assert.equal(row.consumed_by_session, null);
+        assert.equal(row.issue_id, 7);
+        assert.equal(row.cwd, '/work/moved');
+        assert.equal(row.summary, null);
+        assert.equal(row.created_at, ROW_TIME);
+        assert.notEqual(row.updated_at, ROW_TIME);
+        assert.match(withHandoff(CONTEXT, startPayload(), env), /Issue #7: ship the restore/);
+    });
+    it('GH 2275: with the hook bypass: no row and no output', () => {
+        const { db, env } = freshDb();
+        broRow(db);
+        assert.deepEqual(preCompact({ ...env, TMB_DISABLE_SESSION_HANDOFF_HOOK: '1' }), { stdout: '', code: 0 });
+        assert.deepEqual(rows(db), []);
+    });
+    it('GH 2275: a missing table, an unreadable DB and an unparseable payload exit 0 with no output', () => {
         const { db, env } = freshDb();
         broRow(db);
         withDb(db, (d) => d.exec('DROP TABLE session_handoffs'));
-        assert.deepEqual(stop(env), { stdout: '', code: 0 });
-    });
-    it('an unreadable DB and an unparseable payload exit 0 with no output', () => {
-        const { db, env } = freshDb();
+        assert.deepEqual(preCompact(env), { stdout: '', code: 0 });
         writeFileSync(db, 'not a database');
-        assert.deepEqual(stop(env), { stdout: '', code: 0 });
+        assert.deepEqual(preCompact(env), { stdout: '', code: 0 });
         const bad = sessionHandoff('{not json', env);
         assert.equal(bad.stdout ?? '', '');
         assert.equal(bad.code ?? 0, 0);
+        assert.deepEqual(preCompact({ PATH: process.env.PATH, HOME: join(sandbox, 'home'), TRAJECTORY_DB_PATH: join(sandbox, 'missing/trajectory.db') }), { stdout: '', code: 0 });
     });
-    it('through the router: Stop handoff prints only the systemMessage', async () => {
+    it('GH 2275: through the router, PreCompact prints nothing, exits 0 and writes the row', async () => {
         const { db, env } = freshDb();
         broRow(db);
-        const out = await bundle(['Stop', 'handoff'], stopPayload(env), env);
-        assert.equal(out.code, 0);
-        assert.deepEqual(Object.keys(JSON.parse(out.stdout)), ['systemMessage']);
+        for (const trigger of ['auto', 'manual']) {
+            const out = await bundle(['PreCompact'], preCompactPayload({ trigger }), env);
+            assert.deepEqual(out, { code: 0, stdout: '' });
+        }
         assert.equal(rows(db).length, 1);
+        assert.deepEqual(await bundle(['PreCompact'], '{not json', env), { code: 0, stdout: '' });
     });
 });
-describe('hooks.json registration', () => {
-    it('has the handoff Stop entry without async and leaves the async entry alone', () => {
+describe('hooks.json registration (GH 2275)', () => {
+    it('GH 2275: PreCompact runs the router with matcher "" and no async, and Stop keeps only the async usage entry', () => {
         const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8'));
-        const entries = hooks.hooks.Stop.flatMap((g) => g.hooks);
-        const handoff = entries.filter((h) => h.command.endsWith('dist/hooks.js" Stop handoff'));
-        const usage = entries.filter((h) => h.command.endsWith('dist/hooks.js" Stop'));
-        assert.equal(handoff.length, 1);
-        assert.equal('async' in handoff[0], false);
+        const preCompactEntries = hooks.hooks.PreCompact;
+        assert.equal(preCompactEntries.length, 1);
+        assert.equal(preCompactEntries[0].matcher, '');
+        assert.equal(preCompactEntries[0].hooks.length, 1);
+        const [entry] = preCompactEntries[0].hooks;
+        assert.ok(entry.command.endsWith('dist/hooks.js" PreCompact'), entry.command);
+        assert.equal('async' in entry, false);
+        const stop = hooks.hooks.Stop.flatMap((g) => g.hooks);
+        assert.equal(stop.filter((h) => / Stop handoff$/.test(h.command)).length, 0);
+        const usage = stop.filter((h) => h.command.endsWith('dist/hooks.js" Stop'));
         assert.equal(usage.length, 1);
         assert.equal(usage[0].async, true);
-        assert.equal(usage[0].timeout, 9);
     });
 });
-describe('session-handoff consumption', () => {
-    for (const source of ['startup', 'clear']) {
-        it(`source ${source} consumes: both consumed columns set`, () => {
+describe('session-handoff compaction restore (GH 2275)', () => {
+    it('GH 2275: source compact consumes the same session row: both consumed columns set', () => {
+        const { db, env } = freshDb();
+        compacted(db, env);
+        const out = withHandoff(CONTEXT, startPayload(), env);
+        assert.ok(out.startsWith(`${CONTEXT}\n\n${HEADER}`), out);
+        const [row] = rows(db);
+        assert.match(row.consumed_at ?? '', ISO);
+        assert.equal(row.consumed_by_session, SESSION);
+    });
+    for (const source of ['startup', 'clear', 'resume', 'fork', undefined]) {
+        it(`GH 2275: source ${source} adds nothing and leaves the row armed`, () => {
             const { db, env } = freshDb();
-            handedOver(db, env);
-            const out = withHandoff(CONTEXT, startPayload({ source }), env);
-            assert.notEqual(out, CONTEXT);
-            const [row] = rows(db);
-            assert.match(row.consumed_at ?? '', /^\d{4}-\d{2}-\d{2}T/);
-            assert.equal(row.consumed_by_session, NEW_SESSION);
-        });
-    }
-    for (const source of ['resume', 'compact', 'fork', undefined]) {
-        it(`source ${source} does not consume`, () => {
-            const { db, env } = freshDb();
-            handedOver(db, env);
+            compacted(db, env);
             assert.equal(withHandoff(CONTEXT, startPayload({ source }), env), CONTEXT);
             assert.equal(rows(db)[0].consumed_at, null);
         });
     }
-    it('a different cwd does not consume', () => {
+    it('GH 2275: a row from another session is never consumed, in the same cwd or not', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
-        assert.equal(withHandoff(CONTEXT, startPayload({ cwd: '/work/other' }), env), CONTEXT);
-        assert.equal(rows(db)[0].consumed_at, null);
+        compacted(db, env);
+        for (const source of ['compact', 'startup', 'clear', 'resume']) {
+            assert.equal(withHandoff(CONTEXT, startPayload({ session_id: OTHER_SESSION, source }), env), CONTEXT);
+        }
+        const [row] = rows(db);
+        assert.equal(row.consumed_at, null);
+        assert.equal(row.consumed_by_session, null);
     });
-    it('the same session does not consume its own row', () => {
+    it('GH 2275: a session takes its own row only, beside another armed row', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
-        assert.equal(withHandoff(CONTEXT, startPayload({ session_id: SESSION }), env), CONTEXT);
-        assert.equal(rows(db)[0].consumed_at, null);
+        compacted(db, env);
+        broRow(db, OTHER_SESSION);
+        run(db, { session: OTHER_SESSION, issue: 9 });
+        preCompact(env, { session_id: OTHER_SESSION });
+        assert.match(withHandoff(CONTEXT, startPayload({ session_id: OTHER_SESSION }), env), /Issue #9: newest open issue/);
+        const [own, other] = rows(db);
+        assert.equal(other.session_id, OTHER_SESSION);
+        assert.equal(other.consumed_by_session, OTHER_SESSION);
+        assert.equal(own.consumed_at, null);
     });
-    it('an expired row does not consume, one just inside 24h does', () => {
+    it('GH 2275: a row is consumed once', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
-        setRow(db, 'UPDATE session_handoffs SET updated_at = ?', hoursAgo(25));
+        compacted(db, env);
+        assert.notEqual(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
         assert.equal(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
-        setRow(db, 'UPDATE session_handoffs SET updated_at = ?', hoursAgo(23));
-        assert.notEqual(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
     });
-    it('a source session with a blocking open run does not consume; a dead open run does not block', () => {
+    it('GH 2275: separate connections racing have exactly one winner', async () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
-        run(db);
-        assert.equal(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
-        assert.equal(rows(db)[0].consumed_at, null);
-        setRow(db, "UPDATE agent_runs SET started_at = ? WHERE agent_type = 'swe'", hoursAgo(13));
-        assert.notEqual(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
-    });
-    it('takes the newest of several rows in the cwd', () => {
-        const { db, env } = freshDb();
-        handedOver(db, env);
-        setRow(db, 'UPDATE session_handoffs SET updated_at = ?', hoursAgo(2));
-        broRow(db, true, 'sess-second');
-        stop(env, { session_id: 'sess-second', last_assistant_message: 'the newer note' });
-        assert.match(withHandoff(CONTEXT, startPayload(), env), /the newer note/);
-        assert.equal(rows(db).find((r) => r.session_id === SESSION)?.consumed_at, null);
-    });
-    it('double consumption in one process has exactly one winner', () => {
-        const { db, env } = freshDb();
-        handedOver(db, env);
-        assert.notEqual(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
-        assert.equal(withHandoff(CONTEXT, startPayload({ session_id: 'sess-another' }), env), CONTEXT);
-        assert.equal(rows(db)[0].consumed_by_session, NEW_SESSION);
-    });
-    it('separate connections racing have exactly one winner', async () => {
-        const { db, env } = freshDb();
-        handedOver(db, env);
-        const racers = ['sess-racer-1', 'sess-racer-2', 'sess-racer-3', 'sess-racer-4'];
-        const outs = await Promise.all(racers.map((id) => racer(startPayload({ session_id: id }), env)));
-        const won = outs.filter((o) => o.includes('[Session handoff'));
+        compacted(db, env);
+        const outs = await Promise.all([1, 2, 3, 4].map(() => racer(startPayload(), env)));
+        const won = outs.filter((o) => o.includes(HEADER));
         assert.equal(won.length, 1, outs.join('\n---\n'));
-        assert.ok(racers.includes(rows(db)[0].consumed_by_session ?? ''));
+        assert.equal(rows(db)[0].consumed_by_session, SESSION);
     });
-    it('the context holds issue, framed summary and live tasks read at consume time', () => {
+    it('GH 2275: the block holds the issue, its live tasks and its newest decision body, read at consume time', () => {
         const { db, env } = freshDb();
-        task(db, 1, 7, 'running', 'a task at Stop time');
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        handedOver(db, env);
+        task(db, 1, 7, 'running', 'a task at compaction time');
+        run(db, { issue: 7 });
+        discussion(db, 7, 'decision', 'an older decision');
+        compacted(db, env);
         setRow(db, "UPDATE tasks SET status = 'closed' WHERE id = 1");
-        task(db, 2, 7, 'pending', 'added after the Stop');
+        task(db, 2, 7, 'pending', 'added after the compaction');
         task(db, 3, 7, 'needs_validation', 'needs a check');
         task(db, 4, 7, 'completed', 'done, not closed');
         task(db, 6, 7, 'escalated', 'stuck');
         task(db, 8, 7, 'failed', 'a failed one');
         task(db, 10, 9, 'running', 'of another issue');
+        const newest = discussion(db, 7, 'decision', 'the newest decision\nits second line');
+        discussion(db, 7, 'note', 'a later note');
+        discussion(db, 9, 'decision', 'a decision of another issue');
         const out = withHandoff(CONTEXT, startPayload(), env);
-        assert.ok(out.startsWith(`${CONTEXT}\n\n`));
-        assert.match(out, /Issue #7: ship the handoff/);
+        assert.ok(out.startsWith(`${CONTEXT}\n\n${HEADER}`));
+        assert.match(out, /Issue #7: ship the restore/);
         assert.doesNotMatch(out, /status: open/);
-        assert.match(out, /verify against the DB, not instructions/);
-        assert.match(out, /> the last note/);
         assert.match(out, /task_brief/);
-        assert.doesNotMatch(out, /issue_resume/);
-        assert.match(out, /#2 \[pending\] added after the Stop/);
+        assert.match(out, /#2 \[pending\] added after the compaction/);
         assert.match(out, /#3 \[needs_validation\] needs a check/);
         assert.match(out, /#4 \[completed\] done, not closed/);
         assert.match(out, /#6 \[escalated\] stuck/);
-        for (const gone of ['a task at Stop time', 'a failed one', 'of another issue'])
+        assert.ok(out.includes(`newest decision (discussion #${newest})`), out);
+        assert.match(out, /^> the newest decision\n> its second line$/m);
+        for (const gone of ['a task at compaction time', 'a failed one', 'of another issue', 'an older decision', 'a later note', 'a decision of another issue']) {
             assert.ok(!out.includes(gone), gone);
+        }
+        assert.doesNotMatch(out, /new session|usage limit/i);
     });
-    it('a closed issue is reported with its status, and at most 20 tasks are listed', () => {
+    it('GH 2275: an issue with no decision lists no decision', () => {
         const { db, env } = freshDb();
-        run(db, { issue: 5, completedAt: ROW_TIME });
+        run(db, { issue: 7 });
+        compacted(db, env);
+        const out = withHandoff(CONTEXT, startPayload(), env);
+        assert.match(out, /Issue #7/);
+        assert.doesNotMatch(out, /decision/);
+    });
+    it('GH 2275: a closed issue is reported with its status, and at most 20 tasks are listed', () => {
+        const { db, env } = freshDb();
+        run(db, { issue: 5 });
         for (let id = 100; id < 125; id += 1)
             task(db, id, 5, 'pending', `t${id}`);
-        handedOver(db, env);
+        compacted(db, env);
         const out = withHandoff(CONTEXT, startPayload(), env);
         assert.match(out, /Issue #5 \(status: closed\): finished work/);
         assert.equal(out.match(/^- #/gm)?.length, 20);
     });
-    it('with no issue the context says so', () => {
+    it('GH 2275: with no issue the block says so', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
+        compacted(db, env);
         assert.match(withHandoff(CONTEXT, startPayload(), env), /No issue was recorded/);
     });
-    it('trims only the handoff block to keep the context within 10,000 chars', () => {
+    it('GH 2275: a long decision is truncated to keep the context within 10,000 chars', () => {
         const { db, env } = freshDb();
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        for (let id = 100; id < 120; id += 1)
-            task(db, id, 7, 'pending', 'long title '.repeat(50));
-        handedOver(db, env);
-        const persona = 'p'.repeat(8000);
+        run(db, { issue: 7 });
+        for (let id = 100; id < 110; id += 1)
+            task(db, id, 7, 'pending', `task ${id}`);
+        discussion(db, 7, 'decision', 'decided '.repeat(2000));
+        compacted(db, env);
+        const persona = 'p'.repeat(6000);
         const out = withHandoff(persona, startPayload(), env);
         assert.equal(out.length, 10_000);
-        assert.ok(out.startsWith(`${persona}\n\n[Session handoff`));
+        assert.ok(out.startsWith(`${persona}\n\n${HEADER}`));
+        assert.match(out, /#109 \[pending\] task 109/);
+        assert.match(out, /> decided decided/);
     });
-    it('with no room for a block the persona stays and the row is not consumed', () => {
+    it('GH 2275: with no room for a block the persona stays and the row is not consumed', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
+        compacted(db, env);
         const persona = 'p'.repeat(9950);
         assert.equal(withHandoff(persona, startPayload(), env), persona);
         assert.equal(rows(db)[0].consumed_at, null);
     });
-    it('a failure or the bypass leaves the persona unchanged', () => {
+    it('GH 2275: a failure, an invalid payload or the bypass leaves the persona unchanged', () => {
         const { db, env } = freshDb();
-        handedOver(db, env);
+        compacted(db, env);
         assert.equal(withHandoff(CONTEXT, startPayload(), { ...env, TMB_DISABLE_SESSION_HANDOFF_HOOK: '1' }), CONTEXT);
+        assert.equal(withHandoff(CONTEXT, startPayload({ cwd: undefined }), env), CONTEXT);
+        assert.equal(withHandoff(CONTEXT, startPayload({ session_id: "bad'id" }), env), CONTEXT);
         assert.equal(rows(db)[0].consumed_at, null);
         assert.equal(withHandoff(CONTEXT, '{not json', env), CONTEXT);
         withDb(db, (d) => d.exec('DROP TABLE session_handoffs'));
         assert.equal(withHandoff(CONTEXT, startPayload(), env), CONTEXT);
     });
-    it('sessionStartPersona carries the handoff in its additionalContext', () => {
+    it('GH 2275: sessionStartPersona carries the restore in its additionalContext on compact only', () => {
         const { db, env } = freshDb();
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        handedOver(db, env);
+        run(db, { issue: 7 });
+        compacted(db, env);
         const project = join(sandbox, 'persona-project');
         mkdirSync(project, { recursive: true });
-        const r = sessionStartPersona(startPayload(), { ...env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, CLAUDE_PROJECT_DIR: project });
-        const stdout = r.stdout ?? '';
-        const context = stdout.startsWith('{') ? JSON.parse(stdout).hookSpecificOutput.additionalContext : stdout;
+        const personaEnv = { ...env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, CLAUDE_PROJECT_DIR: project };
+        const contextOf = (payload) => {
+            const stdout = sessionStartPersona(payload, personaEnv).stdout ?? '';
+            return stdout.startsWith('{') ? JSON.parse(stdout).hookSpecificOutput.additionalContext : stdout;
+        };
+        assert.doesNotMatch(contextOf(startPayload({ source: 'startup' })), /Compaction restore/);
+        const context = contextOf(startPayload());
         assert.match(context, /You are bro/);
-        assert.match(context, /Issue #7: ship the handoff/);
+        assert.match(context, /Issue #7: ship the restore/);
         assert.ok(context.length <= 10_000, `${context.length} chars`);
     });
 });
-describe('activation-routine pending after a handoff', () => {
+describe('activation-routine pending after a compaction restore (GH 2275)', () => {
     const pendingOf = (env, session) => {
         const r = activationRoutine(JSON.stringify({ prompt: 'hey bro', session_id: session }), env);
         const context = JSON.parse(r.stdout ?? '').hookSpecificOutput.additionalContext;
         const match = /pending=#(\d+): ([^\n]*?)(?: session_id=|$)/m.exec(context);
         assert.ok(match, context);
         assert.match(context, /do NOT also call issue_resume|onboarded=/);
+        assert.doesNotMatch(context, /past its limit|new session/);
         return `#${match[1]}: ${match[2]}`;
     };
-    it('uses the consumed handoff issue while it is open', () => {
+    it('GH 2275: uses the restored issue while it is open', () => {
         const { db, env } = freshDb();
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        handedOver(db, env);
+        run(db, { issue: 7 });
+        compacted(db, env);
         withHandoff(CONTEXT, startPayload(), env);
-        assert.equal(pendingOf(env, NEW_SESSION), '#7: ship the handoff');
+        assert.equal(pendingOf(env, SESSION), '#7: ship the restore');
     });
-    it("another session's, and no handoff, report today's newest open issue", () => {
+    it("GH 2275: another session, and no restore, report today's newest open issue", () => {
         const { db, env } = freshDb();
-        run(db, { issue: 7, completedAt: ROW_TIME });
-        handedOver(db, env);
+        run(db, { issue: 7 });
+        compacted(db, env);
         withHandoff(CONTEXT, startPayload(), env);
-        assert.equal(pendingOf(env, 'sess-unrelated'), '#9: newest open issue');
+        assert.equal(pendingOf(env, OTHER_SESSION), '#9: newest open issue');
     });
-    it("a closed handoff issue reports today's newest open issue", () => {
+    it("GH 2275: a closed restored issue reports today's newest open issue", () => {
         const { db, env } = freshDb();
-        run(db, { issue: 5, completedAt: ROW_TIME });
-        handedOver(db, env);
+        run(db, { issue: 5 });
+        compacted(db, env);
         withHandoff(CONTEXT, startPayload(), env);
-        assert.equal(pendingOf(env, NEW_SESSION), '#9: newest open issue');
+        assert.equal(pendingOf(env, SESSION), '#9: newest open issue');
     });
-    it("a DB with no session_handoffs table reports today's newest open issue", () => {
+    it("GH 2275: a DB with no session_handoffs table reports today's newest open issue", () => {
         const { db, env } = freshDb();
         withDb(db, (d) => d.exec('DROP TABLE session_handoffs'));
-        assert.equal(pendingOf(env, NEW_SESSION), '#9: newest open issue');
+        assert.equal(pendingOf(env, SESSION), '#9: newest open issue');
     });
 });
 function bundle(args, input, env) {
