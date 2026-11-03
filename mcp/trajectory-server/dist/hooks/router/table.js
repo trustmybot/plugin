@@ -7,9 +7,9 @@
  */
 export const EMPTY_MATCHER_COLUMN = '-';
 /**
- * A tsOnly gate's kind column. dispatch.sh fails closed on `enforcement` and,
- * on its bash path, has no script to run for this gate, so that word
- * would deny every call reaching it through the headless shim. The router reads
+ * A tsOnly gate's kind column. The retired dispatch.sh failed closed on
+ * `enforcement` and, on its bash path, had no script to run for this gate, so
+ * that word would have denied every call reaching it through the headless shim. The router reads
  * the gate's real kind from ROUTER_GROUPS.
  */
 export function kindColumn(gate) {

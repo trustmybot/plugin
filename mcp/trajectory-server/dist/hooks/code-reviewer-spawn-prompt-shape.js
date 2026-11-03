@@ -1,7 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1692), the port of
- * scripts/hooks/code-reviewer-spawn-prompt-shape.sh, run by
- * agent-spawn-dispatch.sh: a code-reviewer spawn prompt must carry every
+ * PreToolUse(Agent) gate (GH 1692), run by agent-spawn-dispatch: a code-reviewer spawn prompt must carry every
  * anchor of code-reviewer-spawn-note's ANCHORS as name=value, and must not
  * carry a rubber-stamp shortcut. The first failing check denies: the missing
  * anchors, else the first phrase matched. Other agent types and tools are

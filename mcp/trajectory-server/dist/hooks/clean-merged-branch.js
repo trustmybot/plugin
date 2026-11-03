@@ -1,6 +1,5 @@
 /**
- * PostToolUse(Bash) hook (GH 1692), the port of
- * scripts/hooks/clean-merged-branch.sh: after a successful `gh pr merge` /
+ * PostToolUse(Bash) hook (GH 1692): after a successful `gh pr merge` /
  * `glab mr merge`, the merged feature branch (an explicit branch argument,
  * else the branch checked out where the merge ran) and its worktree are
  * removed when the branch is not protected, its work is already in its base

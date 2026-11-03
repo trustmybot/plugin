@@ -1,6 +1,6 @@
 /**
  * What a router call leaves behind, after its decision is printed: one
- * hook_call audit row (per-gate timings and outcomes), dispatch.sh's
+ * hook_call audit row (per-gate timings and outcomes), the
  * hook_denied row on a deny, and its Bash deny records under
  * <state>/locks/boundary-denies for swe-boundary. Observes only: a missing DB
  * or a failed write records nothing and never changes the decision.

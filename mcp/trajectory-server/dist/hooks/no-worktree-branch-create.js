@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/no-worktree-branch-create.sh:
- * `git worktree add` may neither create a branch (-b/-B/--create-branch,
+ * PreToolUse gate (GH 1692): `git worktree add` may neither create a branch (-b/-B/--create-branch,
  * bypass TMB_ALLOW_WORKTREE_BRANCH_CREATE=1) nor detach (--detach, bypass
  * TMB_ALLOW_WORKTREE_DETACH=1) once a trajectory DB resolves; a DB read error
  * denies.

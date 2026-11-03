@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/ensure-swe-worktree.sh (GH 1692), the
+ * The ensure-swe-worktree gate (GH 1692), the
  * first PREPARE step of agent-spawn-dispatch: before a swe spawn for
  * task_id=<N> it makes sure the task's branch has a linked worktree at
  * <repo>/.claude/worktrees/<slug>, creating it with `git worktree add` when

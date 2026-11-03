@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/require-spawn-effort.sh (GH 1692): the
+ * The require-spawn-effort gate (GH 1692): the
  * Agent call's `effort` must be the effort the trajectory DB holds for the
  * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
  * code-reviewer spawn needs plugin_config.reviewer_effort (high when unset);

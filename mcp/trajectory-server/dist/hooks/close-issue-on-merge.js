@@ -1,6 +1,5 @@
 /**
- * PostToolUse(Bash) hook (GH 1692), the port of
- * scripts/hooks/close-issue-on-merge.sh: after a successful `gh pr merge` /
+ * PostToolUse(Bash) hook (GH 1692): after a successful `gh pr merge` /
  * `glab mr merge` statement (heredoc bodies and quoted text never match), one
  * transaction closes the merged head branch's live tasks and their open
  * agent_runs, writes review_gate_bypassed for each of its tasks with no

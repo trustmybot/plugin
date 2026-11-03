@@ -1,6 +1,5 @@
 /**
- * PostToolUse hook on task_update_status and validation_record (GH 1692), the
- * port of scripts/hooks/cleanup-worktree-on-task-close.sh: once a task is
+ * PostToolUse hook on task_update_status and validation_record (GH 1692): once a task is
  * closed (bro's task_update_status to closed, or a passing validation_record
  * on a closed task whose pass is anchored to its commit), the task's linked
  * worktree under `<repo>/.claude/worktrees/<slug>` is removed and pruned, and

@@ -1,6 +1,5 @@
 /**
- * UserPromptSubmit hook (GH 1692), the port of scripts/hooks/session-log-capture.sh:
- * appends {ts, event, prompt, additional_context} to
+ * UserPromptSubmit hook (GH 1692): appends {ts, event, prompt, additional_context} to
  * <project>/.claude/<plugin>/logs/<UTC date>-<session_id>.jsonl, the session
  * id from the payload, else the .current-session-id sentinel, else
  * <UTC timestamp>-<pid>, and prints {"continue": true}. Silent in a project

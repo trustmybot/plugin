@@ -1,6 +1,5 @@
 /**
- * PreToolUse(cheatcode_install) gate of the trajectory-gates chain (GH 1692),
- * the port of scripts/hooks/cheatcode-install-approval.sh: installs are
+ * PreToolUse(cheatcode_install) gate of the trajectory-gates chain (GH 1692): installs are
  * human-approved, never silent, so a tool whose name holds cheatcode_install
  * is allowed only when a cheatcode_approved audit row carries the
  * candidate's source_url. It fails closed: no source_url, no trajectory DB,

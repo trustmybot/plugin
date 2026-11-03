@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/require-task-spec.sh (GH 1692): a swe
+ * The require-task-spec gate (GH 1692): a swe
  * spawn needs task_id=<N> in its prompt naming a tasks row that is pending, or
  * running with no live swe agent_runs row, with a spec_body. A pending task
  * also needs its branch in a linked worktree of its repo, and a task touching

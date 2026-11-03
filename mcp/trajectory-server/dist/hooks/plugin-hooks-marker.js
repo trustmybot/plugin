@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/plugin-hooks-marker.sh:
- * writes <state_dir>/sessions/<session_id>.plugin-hooks, the proof that this
+ * SessionStart hook (GH 1692): writes <state_dir>/sessions/<session_id>.plugin-hooks, the proof that this
  * session loaded the plugin's hooks, pruning such markers over 24 h old. It
  * writes only into an existing state dir and prints nothing. Unlike the .sh,
  * which exits without jq, it reads the payload itself (decision 703).

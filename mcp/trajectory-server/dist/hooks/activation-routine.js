@@ -1,6 +1,5 @@
 /**
- * UserPromptSubmit hook (GH 1692), the port of scripts/hooks/activation-routine.sh:
- * on a bro turn (the prompt says "bro" as a word and is not a harness turn,
+ * UserPromptSubmit hook (GH 1692): on a bro turn (the prompt says "bro" as a word and is not a harness turn,
  * or the transcript holds sticky bro mode) it pre-fetches the onboarded flag
  * and the newest open issue and injects them as additionalContext, prefixed
  * by a HALT notice when pgrep finds no trajectory-server, and followed by a

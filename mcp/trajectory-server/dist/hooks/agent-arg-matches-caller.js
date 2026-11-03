@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate of the trajectory-gates chain (GH 1692), the port of
- * scripts/hooks/agent-arg-matches-caller.sh: a trajectory-server tool call's
+ * PreToolUse gate of the trajectory-gates chain (GH 1692): a trajectory-server tool call's
  * `agent` argument must name the real caller, the payload's agent_type (else
  * subagent_type), or bro when the payload carries none. Both sides drop a
  * plugin prefix and compare lowercased as tr '[:upper:]' '[:lower:]' does in
