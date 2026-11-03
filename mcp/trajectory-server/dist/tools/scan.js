@@ -1,7 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
@@ -19,6 +18,7 @@ import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import { projectRootFromDbPath } from './containment.js';
+import { walkProject } from './scan-walk.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -37,97 +37,6 @@ function wrap(fn) {
             return err(e.message);
         }
     };
-}
-// Locate scripts/scan.sh relative to this compiled module. Plugin layout:
-//   <plugin>/mcp/trajectory-server/dist/tools/scan.js
-//   <plugin>/scripts/scan.sh
-// Walking up four levels lands at the plugin root.
-function resolveScanScript() {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-        join(here, '..', '..', '..', '..', 'scripts', 'scan.sh'),
-        join(here, '..', '..', '..', 'scripts', 'scan.sh'),
-    ];
-    for (const c of candidates)
-        if (existsSync(c))
-            return c;
-    // Fall back to the plugin root via CLAUDE_PLUGIN_ROOT.
-    const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
-    if (pluginRoot) {
-        const c = join(pluginRoot, 'scripts', 'scan.sh');
-        if (existsSync(c))
-            return c;
-    }
-    throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
-}
-export function runScanWithScript(script, sessionDir, timeoutMs, dbPath = '') {
-    return new Promise((resolve, reject) => {
-        const env = dbPath && dbPath !== ':memory:' ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
-        const child = spawn('bash', [script, sessionDir], {
-            cwd: sessionDir,
-            env,
-            detached: true,
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        const stdoutChunks = [];
-        const stderrChunks = [];
-        child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
-        child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
-        let settled = false;
-        let killTimer = null;
-        function killGroup() {
-            try {
-                process.kill(-child.pid, 'SIGKILL');
-            }
-            catch {
-                // Process may have already exited — ignore.
-            }
-        }
-        killTimer = setTimeout(() => {
-            if (settled)
-                return;
-            settled = true;
-            killGroup();
-            reject(new Error('scan.sh timed out after 10 minutes'));
-        }, timeoutMs);
-        child.on('error', (e) => {
-            if (settled)
-                return;
-            settled = true;
-            if (killTimer)
-                clearTimeout(killTimer);
-            reject(new Error(`scan.sh spawn error: ${e.message}`));
-        });
-        child.on('close', (code) => {
-            if (settled)
-                return;
-            settled = true;
-            if (killTimer)
-                clearTimeout(killTimer);
-            const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-            const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
-            if (code !== 0) {
-                reject(new Error(`scan.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
-                return;
-            }
-            let parsed;
-            try {
-                parsed = JSON.parse(stdout);
-            }
-            catch {
-                reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-                return;
-            }
-            if (!parsed.repos || !parsed.files) {
-                reject(new Error('scan.sh emitted unexpected shape (missing repos/files)'));
-                return;
-            }
-            resolve(parsed);
-        });
-    });
-}
-function runScan(sessionDir, timeoutMs, dbPath) {
-    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath);
 }
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
 // matches the historical un-tagged behavior (bro hit the registry-cold gate
@@ -741,54 +650,6 @@ async function persistScan(db, graph, out, sessionDir) {
         rename_candidates,
     };
 }
-/**
- * The one writer for a discovered resource, keyed on (name, kind) — the server
- * twin of scripts/scan.sh `_register`. A new row is inserted with a
- * scan_discovered audit row; an existing row only gets a blank description /
- * NULL version filled and a legacy 'mcp:<server>' source_url rewritten to the
- * bundled 'mcp:<plugin>/<server>' form, without an audit row.
- */
-export function upsertDiscoveredCheatcode(db, r) {
-    const description = r.description ?? '';
-    const version = r.version ?? null;
-    return db.transaction(() => {
-        const now = nowISO();
-        const res = db.run(`INSERT INTO cheatcodes
-         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?,
-               (SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = ?),
-               'project-local', ?, ?, ?, ?)
-       ON CONFLICT (name, kind) DO NOTHING`, [
-            r.name, r.kind, r.origin, description, r.source_url, r.file_path ?? null, version,
-            r.trust_parent ?? null, r.status, now, now, now,
-        ]);
-        if (res.changes > 0) {
-            insertAudit(db, {
-                issue_id: -1,
-                from_node: r.from_node ?? 'system',
-                event_type: 'scan_discovered',
-                summary: `${r.name} (${r.kind}): discovered`,
-                content_json: JSON.stringify({ name: r.name, kind: r.kind, origin: r.origin, source: r.source_url }),
-            });
-            return { id: Number(res.lastInsertRowid), inserted: true };
-        }
-        db.run(`UPDATE cheatcodes
-          SET description = CASE WHEN description = '' THEN ? ELSE description END,
-              version = COALESCE(version, ?),
-              source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
-                                THEN ? ELSE source_url END,
-              updated_at = ?
-        WHERE name = ? AND kind = ?
-          AND ((description = '' AND ? <> '')
-               OR (version IS NULL AND ? IS NOT NULL)
-               OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`, [
-            description, version, r.source_url, r.source_url, now, r.name, r.kind,
-            description, version, r.source_url,
-        ]);
-        const row = db.get('SELECT id FROM cheatcodes WHERE name = ? AND kind = ?', [r.name, r.kind]);
-        return { id: row.id, inserted: false };
-    });
-}
 const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
 function readLock(lockPath) {
     try {
@@ -910,7 +771,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 }
             }
             try {
-                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
+                const out = await walkProject(db, sessionDir, { timeoutMs: SCAN_TIMEOUT_MS });
                 if (!graph && out.files.length > 0) {
                     return err('world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged');
                 }

@@ -66,7 +66,7 @@ Freshness is keyed by `symbols_md5`, stamped `<content_md5>:<EXTRACTOR_VERSION>`
 
 ## Population
 
-`scan_run` walks the session dir for git repos, derives the unique directory set from each repo's tracked file list, then writes `wm_directories` and `wm_files` rows via `src/graph.ts`, all in one transaction. `scripts/scan.sh` supplies each tracked file's `size_bytes`, `content_md5` and `last_commit_sha`.
+`scan_run` walks the session dir for git repos, derives the unique directory set from each repo's tracked file list, then writes `wm_directories` and `wm_files` rows via `src/graph.ts`, all in one transaction. Its walker, `src/tools/scan-walk.ts`, supplies each tracked file's `size_bytes`, `content_md5` and `last_commit_sha`.
 
 **Repos.** The session dir itself is always scanned. A repo below it is skipped, with one `scan_skipped` audit row per path and reason, when its path below the session dir has a dot-prefixed segment (`dot_dir`, e.g. `.tmp-*/proj`), an enclosing repo ignores it (`git_ignored`), or it has no commit (`no_commits`). A `repos` row under the session dir that the scan does not find is deleted, unless a task or another row still references it; such a row is kept and listed in the result's `repos_stale_kept` (`name`, `path`, `reason`: `task_referenced` or `row_referenced`).
 

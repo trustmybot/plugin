@@ -395,7 +395,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_
 -- on builtin rows. trust_tier carries the cheatcode_vet (#658) classification for
 -- installed rows and the curation tier for builtin ones; status tracks lifecycle.
 -- The natural key is (name, kind): a plugin and the MCP server it bundles
--- routinely share a name (\`linear\` plugin → \`linear\` server). scan.sh records a
+-- routinely share a name (\`linear\` plugin → \`linear\` server). scan_run records a
 -- plugin-bundled server with source_url 'mcp:<plugin>/<server>'.
 CREATE TABLE IF NOT EXISTS cheatcodes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
