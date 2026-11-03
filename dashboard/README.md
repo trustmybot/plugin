@@ -22,10 +22,10 @@ A local web view of the trajectory DB: issues, tasks, agent runs, gate results (
 ## Run
 
 ```bash
-scripts/dashboard.sh
+node dashboard/dist/server.mjs
 ```
 
-Or run `/tmb:dashboard` in a Claude Code session: it starts the same script in the background and reports the URL. Run it from an onboarded project (or set `CLAUDE_PROJECT_DIR`), or point it at a DB with `TRAJECTORY_DB_PATH=/path/to/trajectory.db`. It listens on port 7477; set `TMB_DASHBOARD_PORT` to change it (`0` picks a free port). It prints the URL to open. It binds to loopback only and answers only requests whose `Host` is `127.0.0.1:<port>` (anything else, `localhost` included, is 403), so a DNS-rebinding page cannot read it. Reads need no auth; writes need the per-launch token (see Writes).
+Or run `/tmb:dashboard` in a Claude Code session: it starts the same server in the background and reports the URL. Run it from an onboarded project (or set `CLAUDE_PROJECT_DIR`), or point it at a DB with `TRAJECTORY_DB_PATH=/path/to/trajectory.db`. It listens on port 7477; set `TMB_DASHBOARD_PORT` to change it (`0` picks a free port). It prints the URL to open. It binds to loopback only and answers only requests whose `Host` is `127.0.0.1:<port>` (anything else, `localhost` included, is 403), so a DNS-rebinding page cannot read it. Reads need no auth; writes need the per-launch token (see Writes).
 
 ## API
 
