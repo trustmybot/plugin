@@ -1,14 +1,14 @@
 ---
 name: tmb_recovery
 description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan). Loaded reactively on the first failure of a session.
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__discussion_append
+allowed-tools: Bash(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly:*), mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
 # Recovery — three failure modes, three responses
 
 Bro keeps the user-visible flow moving on recoverable errors. Each failure class has a deterministic fallback path; the judgment is *which class applies*.
 
-The bundled script `${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh` is for §B (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
+The bundled fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly` is for §B (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
 
 ## A. MCP tool returns is_error=true
 
@@ -39,7 +39,7 @@ Two distinct sub-cases — read the `additionalContext` warning from `mcp-health
 The plugin's MCP server is missing from CC's resolved-plugin list — a full quit + relaunch won't fix it because CC persists the cached config to disk.
 
 <!-- LOAD-BEARING-SAFETY: halt-on-B.1 (MCP absent) is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
-**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh`) is still available for emergency reads.
+**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) is still available for emergency reads.
 
 Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
@@ -50,13 +50,13 @@ Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
 The MCP child process was alive at session start but is now gone — CC's plugin list is correct; the process just needs to be re-spawned. (`forbidden`/`validation`/`constraint` errors are §A, not this — they mean the server IS running and rejected bad input.)
 
-**Read fallback:** `${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh <tool_name> [json_args]`. Run `--list` to see supported tools. Parse stdout as JSON — same shape as the corresponding MCP tool. Write tools are refused with a structured error; surface the refusal to the Human.
+**Read fallback:** `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly <tool_name> [json_args]`. Run `--list` to see supported tools. Parse stdout as JSON — same shape as the corresponding MCP tool. Write tools are refused with a structured error; surface the refusal to the Human.
 
 **Recovery:**
 
 1. Kill only THIS project's zombie server — identify it by the `trajectory.db` it holds open, never a machine-wide match that would take down every project's server:
    ```bash
-   DB=$(${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh --dry-run \
+   DB=$(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly --dry-run \
      | python3 -c 'import json,sys; print(json.load(sys.stdin)["db_path"])')
    PIDS=$(lsof -t "$DB" 2>/dev/null); [ -n "$PIDS" ] && kill $PIDS
    ```

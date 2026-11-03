@@ -5,7 +5,7 @@
 # gone, a detached WAL DB (no -wal, no -shm), and a WAL DB held open with its
 # -shm all resolve, every sqlite3 open is -readonly, and the main file's size
 # and mtime and the -wal's size and checksum stay as they were: no checkpoint
-# runs before bro-sqlite-readonly.sh snapshots the DB.
+# runs before `cli.js bro-sqlite-readonly` snapshots the DB.
 #
 # Everything lives under a temp HOME and each state dir holds a `standalone`
 # file, so the walk stops at the planted DB and never reaches a live one. The

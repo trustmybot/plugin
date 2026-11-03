@@ -165,7 +165,7 @@ _tmb_db_immutable_uri() {
 # _tmb_db_read_ro <db> <sql>
 # A read that never writes the DB: prints the output, or __ERR__ when it fails.
 # -readonly first; when that fails on a WAL DB with no -shm (_tmb_db_wal_cold),
-# once more through an immutable URI, as bro-sqlite-readonly.sh snapshots it.
+# once more through an immutable URI, as cli.js bro-sqlite-readonly snapshots it.
 # Never a writable open, so no checkpoint moves the -wal into the main file
 # before a read-only helper snapshots it. An immutable read sees the main file
 # only, not rows still in a -wal.
