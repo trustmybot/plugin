@@ -286,7 +286,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
   eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
   eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
-  eventGroup('Stop', '', [routerGate(SESSION_HANDOFF_GATE, 'advisory')], { part: 'handoff' }),
+  eventGroup('PreCompact', '', [routerGate(SESSION_HANDOFF_GATE, 'advisory')]),
   eventGroup('SubagentStop', '', [routerGate(CONSULTANT_PERSISTENCE_GATE, 'enforcement'), routerGate(SWE_ATOMIC_CLOSE_GATE, 'advisory')]),
   eventGroup('SessionStart', '', [
     routerGate(ENSURE_GITIGNORE_GATE, 'advisory'),
