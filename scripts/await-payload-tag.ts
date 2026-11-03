@@ -1,6 +1,6 @@
 // Waits until release-payload.yml has pushed payload/<tag> (the tag's
 // runtime-only build) to the plugin remote, then prints the payload commit SHA.
-// Run by publish-rc-channel.sh before it pins a catalog to payload/<tag>.
+// Run by publish-rc-channel.ts before it pins a catalog to payload/<tag>.
 //
 //   node --experimental-strip-types scripts/await-payload-tag.ts <tag> [--remote <url>] [--timeout <s>] [--interval <s>]
 //
