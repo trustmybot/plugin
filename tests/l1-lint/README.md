@@ -84,6 +84,7 @@ bash tests/l1-lint/link-check.sh
 | [`manifest-shape.sh`](./manifest-shape.sh) | Plugin manifest shape; `claude plugin validate --strict` findings when the `claude` CLI is on PATH and the run is not offline (`TMB_L1_OFFLINE` / `TMB_FORBID_LIVE_SYNC`) |
 | [`codex-scope4-contract.sh`](./codex-scope4-contract.sh) | Exact Codex Agent catalog, sandbox defaults, MCP isolation, and 15-tool surface |
 | [`valid-permission-decisions.sh`](./valid-permission-decisions.sh) | A `permissionDecision` other than allow / deny / ask in a TypeScript gate (`mcp/trajectory-server/src/hooks/**/*.ts`) |
+| [`no-retired-hook-gate-paths.sh`](./no-retired-hook-gate-paths.sh) | A citation of a retired shell gate (`scripts/hooks/<gate>.sh` or its persona and scope-fence libraries) outside changelogs, research, dist and fixtures, or the `scripts/hooks/*.sh` glob in `docs/` or `mcp/trajectory-server/src/` — the gates are `mcp/trajectory-server/src/hooks/<gate>.ts` (GH 1692) |
 
 ### Hooks, toolchain & secrets
 | Script | Catches |

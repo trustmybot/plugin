@@ -154,6 +154,7 @@ run_step "L1 lint: L5 harness helpers (flow-helpers.test.sh)" bash "$HERE/l5-l6/
 run_step "L1 lint: hook wrapper timeouts cover budgets" bash "$HERE/l1-lint/hook-timeout-budget.sh"
 run_step "L1 lint: deny-capable hooks register onFailure: block" bash "$HERE/l1-lint/hook-onfailure.sh"
 run_step "L1 lint: valid permissionDecision values"    bash "$HERE/l1-lint/valid-permission-decisions.sh"
+run_step "L1 lint: no citations of the retired shell gates" bash "$HERE/l1-lint/no-retired-hook-gate-paths.sh"
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
 run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"

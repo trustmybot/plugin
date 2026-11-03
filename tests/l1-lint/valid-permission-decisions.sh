@@ -11,7 +11,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 HOOKS_SRC="mcp/trajectory-server/src/hooks"
-if ! find "$HOOKS_SRC" -name '*.ts' -type f 2>/dev/null | grep -q .; then
+GATE_SOURCES="$(find "$HOOKS_SRC" -name '*.ts' -type f 2>/dev/null || true)"
+if [ -z "$GATE_SOURCES" ]; then
   printf "valid-permission-decisions: FAIL (no gate sources under %s)\n" "$HOOKS_SRC" >&2
   exit 1
 fi

@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript cleanup-worktree-on-task-close and worktree-create
- * gates with their scripts/hooks/*.sh (GH 1692), over
+ * gates with the golden recordings of the retired shell gates (GH 1692), over
  * tests/fixtures/hook-corpus/<gate>/. Both sides must exit alike, print the
  * same stdout and stderr byte for byte and leave every sandbox repo in the
  * same state: its worktrees, branches, HEAD, merge driver config, status and

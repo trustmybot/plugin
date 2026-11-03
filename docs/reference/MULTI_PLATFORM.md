@@ -59,7 +59,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ⚠️ Shared core with isolated entries | Claude retains `dist/index.js` and its full registry. Codex uses `dist/codex.js` and a fixed 15-tool registry: 13 local planning tools plus two Agent materialization tools. |
 | `hooks/hooks.json` | ✗ CC-only | Each platform has different hook event names + decision protocol |
-| `scripts/hooks/*.sh` | ⚠️ Partly | Shell logic is portable; the JSON-decision contract is CC-specific |
+| `mcp/trajectory-server/src/hooks/*.ts` | ⚠️ Partly | Gate logic is portable; the JSON-decision contract is CC-specific |
 | `CLAUDE.md` (bro persona) | ⚠️ Partly | Doctrine is portable; trigger-word mechanism is CC-specific |
 
 ## What an adapter would do

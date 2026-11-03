@@ -1,6 +1,6 @@
 /**
- * The TypeScript lint hooks where they part from their scripts/hooks/*.sh
- * twins (GH 1692): commit-msg-lint denies a commit command tree-sitter-bash
+ * The TypeScript lint hooks where they part from the retired shell gates
+ * (GH 1692): commit-msg-lint denies a commit command tree-sitter-bash
  * cannot parse with git-guards' PARSE_REASON unless it holds `$(` or a
  * backtick, all four lint with no jq on PATH (the .sh exit silently), and
  * attribution-footer's `[:alnum:]` under a UTF-8 locale is node's Unicode
