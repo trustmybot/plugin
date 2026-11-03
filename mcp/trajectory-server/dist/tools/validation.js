@@ -3,6 +3,11 @@ import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware
 import { insertAudit } from './audit.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
+/** The head of code-reviewer's final message (GH 1959), built from the row validation_record just wrote. */
+export function reviewerReturnLine(row, commitSha, findings) {
+    const sha = commitSha ? commitSha.slice(0, 8) : '-';
+    return `verdict=${row.verdict} task=${row.task_id} sha=${sha} attempt=${row.attempt_n} row=${row.id} findings=${findings}`;
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -198,7 +203,7 @@ export function validationTools(db) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
             }
             const findings = parseFindings(verdict, args['findings']);
-            const taskExists = db.get(`SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
+            const taskExists = db.get(`SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`, [taskId]);
             if (!taskExists) {
@@ -282,7 +287,11 @@ export function validationTools(db) {
             });
             const row = db.get(`SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`, [taskId, attemptN]);
             const recorded = findingIds.map((id) => ({ ...db.get('SELECT * FROM review_findings WHERE id = ?', [id]) }));
-            return ok({ ...row, findings: recorded });
+            return ok({
+                ...row,
+                findings: recorded,
+                return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : undefined,
+            });
         })),
         validation_history: wrapHandler(async (args) => {
             const agent = normalizeAgent(args['agent']);

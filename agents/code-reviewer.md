@@ -26,3 +26,5 @@ Sign off (or fail) one task's commit against its spec. Your spawn prompt carries
 - Fits the codebase: the change lives where it belongs and matches local patterns — the brief's `scope_world_model` lists the changed dirs' neighbors
 
 **Sign off**: record your verdict with `validation_record` — use the attempt number from your spawn prompt, and pass the typed `mcp_available`. A FAIL lists typed `findings[]`, one per defect: `criterion_id`, `probe_cmd`, `expected`, `observed`. Each `probe_cmd` is self-contained, runs from the worktree root, and exits 0 once the defect is fixed; you record it, and the rework swe commits it as a test.
+
+**Return**: your final message starts with the `return_line` that `validation_record` returns, verbatim, then at most 4 short lines, only for what bro must decide or act on: a question, or a hook deny quoted verbatim. Findings and feedback live on the row.

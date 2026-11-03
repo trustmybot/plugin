@@ -10,6 +10,12 @@ type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
 
+/** The head of code-reviewer's final message (GH 1959), built from the row validation_record just wrote. */
+export function reviewerReturnLine(row: ValidationAttempt, commitSha: string | null, findings: number): string {
+  const sha = commitSha ? commitSha.slice(0, 8) : '-';
+  return `verdict=${row.verdict} task=${row.task_id} sha=${sha} attempt=${row.attempt_n} row=${row.id} findings=${findings}`;
+}
+
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -253,8 +259,8 @@ export function validationTools(db: TrajectoryDB): {
       }
       const findings = parseFindings(verdict, args['findings']);
 
-      const taskExists = db.get<{ id: number; issue_id: number; repo: string | null }>(
-        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
+      const taskExists = db.get<{ id: number; issue_id: number; repo: string | null; commit_sha: string | null }>(
+        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`,
         [taskId],
@@ -382,7 +388,11 @@ export function validationTools(db: TrajectoryDB): {
       );
       const recorded = findingIds.map((id) => ({ ...db.get<ReviewFinding>('SELECT * FROM review_findings WHERE id = ?', [id]) }));
 
-      return ok({ ...row, findings: recorded });
+      return ok({
+        ...row,
+        findings: recorded,
+        return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : undefined,
+      });
     })),
 
     validation_history: wrapHandler(async (args) => {

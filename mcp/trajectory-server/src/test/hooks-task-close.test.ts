@@ -191,6 +191,65 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     }
   });
 
+  const withMessage = (payload: string, chars: number): string =>
+    JSON.stringify({ ...JSON.parse(payload), last_assistant_message: `status=completed task=1 sha=-\n${'x'.repeat(chars - 30)}` });
+  const oversizeRows = (): Array<Record<string, unknown>> => {
+    const d = db();
+    try {
+      return d
+        .prepare("SELECT issue_id, content_json FROM audit WHERE event_type = 'subagent_return_oversize' ORDER BY id")
+        .all()
+        .map((r) => ({ issue_id: r.issue_id, ...JSON.parse(String(r.content_json)) }));
+    } finally {
+      d.close();
+    }
+  };
+
+  const taskIssue = (id: number): number => {
+    const d = db();
+    try {
+      return (d.prepare('SELECT issue_id FROM tasks WHERE id = ?').get(id) as { issue_id: number }).issue_id;
+    } finally {
+      d.close();
+    }
+  };
+
+  it('GH 1959: a 601-char swe final message writes one subagent_return_oversize row and keeps the gate output', async () => {
+    const message = withMessage(stop('30'), 601);
+    assert.equal([...(JSON.parse(message) as { last_assistant_message: string }).last_assistant_message].length, 601);
+    assert.deepEqual(await sweAtomicClose(message, { ...env }), ALLOWED);
+    assert.deepEqual(oversizeRows(), [{ issue_id: taskIssue(30), task_id: 30, agent_type: 'swe', chars: 601 }]);
+    const d = db();
+    try {
+      assert.deepEqual({ ...d.prepare('SELECT status FROM tasks WHERE id = 30').get() }, { status: 'completed' });
+    } finally {
+      d.close();
+    }
+  });
+
+  it('GH 1959: the oversize flag leaves the no-commit warning byte-identical', async () => {
+    const plain = await sweAtomicClose(stop('32'), { ...env });
+    const long = await sweAtomicClose(withMessage(stop('32'), 601), { ...env });
+    assert.deepEqual(long, plain);
+    assert.equal(oversizeRows().length, 1);
+  });
+
+  it('GH 1959: a code-reviewer or unbound swe over budget is flagged, the unbound one with a null task_id', async () => {
+    assert.deepEqual(await sweAtomicClose(withMessage(stop('43', 'code-reviewer'), 900), { ...env }), ALLOWED);
+    assert.deepEqual(await sweAtomicClose(withMessage(stop('unbound'), 601), { ...env }), ALLOWED);
+    assert.deepEqual(oversizeRows(), [
+      { issue_id: taskIssue(43), task_id: 43, agent_type: 'code-reviewer', chars: 900 },
+      { issue_id: -1, task_id: null, agent_type: 'swe', chars: 601 },
+    ]);
+  });
+
+  it('GH 1959: a 600-char message, a missing message or another agent type writes no oversize row', async () => {
+    assert.deepEqual(await sweAtomicClose(withMessage(stop('30'), 600), { ...env }), ALLOWED);
+    assert.equal((await sweAtomicClose(stop('32'), { ...env })).code, 0);
+    assert.deepEqual(await sweAtomicClose(withMessage(stop('32', 'consultant'), 5000), { ...env }), ALLOWED);
+    assert.deepEqual(oversizeRows(), []);
+  });
+
   it('records an unbound swe spawn as agent_runs_capture_skipped and ignores any other subagent', async () => {
     assert.deepEqual(await sweAtomicClose(stop('unbound'), { ...env }), ALLOWED);
     assert.deepEqual(await sweAtomicClose(stop('30', 'consultant'), { ...env }), ALLOWED);
