@@ -19,10 +19,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startClient, call } from '../l3-integration/mcp/harness.mjs';
 
-const SLASH_HOOK = fileURLToPath(new URL('../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
+const HOOKS_BUNDLE = fileURLToPath(new URL('../../mcp/trajectory-server/dist/hooks.js', import.meta.url));
 
 function typeRoundtable(dbPath, topic) {
-  const hook = spawnSync('bash', [SLASH_HOOK], {
+  const hook = spawnSync(process.execPath, [HOOKS_BUNDLE, 'roundtable-slash-detect'], {
     input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: `/roundtable ${topic}` }),
     env: { ...process.env, TRAJECTORY_DB_PATH: dbPath },
     encoding: 'utf8',

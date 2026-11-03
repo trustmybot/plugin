@@ -1,6 +1,6 @@
 /**
  * PostToolUse hook on roundtable_close / roundtable_close_with_decisions
- * (GH 1692), the port of scripts/hooks/roundtable-cleanup-postcheck.sh:
+ * (GH 1692):
  * advisory additionalContext naming each capture surface the closed
  * roundtable lacks (analysis and decision discussions, closed state, outcome,
  * votes, the roundtable_summary audit row). Never blocks; silent on any local

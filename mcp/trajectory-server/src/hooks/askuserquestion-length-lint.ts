@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (#96), the port of scripts/hooks/askuserquestion-length-lint.sh:
- * warns through additionalContext when an AskUserQuestion option's label,
+ * PreToolUse gate (#96): warns through additionalContext when an AskUserQuestion option's label,
  * description or preview exceeds its brevity target. Never blocks.
  *
  * Fields are read the way the .sh reads them with `jq -r '.<field> // ""'`

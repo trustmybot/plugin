@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of
- * scripts/hooks/deferred-tools-drift-warn.sh (#98): when a dist/tools/*.js on
+ * SessionStart hook (GH 1692, #98): when a dist/tools/*.js on
  * disk is newer than this session's own trajectory-server child, a Tier 2
  * restart note. The child is the trajectory-server whose ppid chain holds
  * the nearest Claude Code ancestor of this process (ps and pgrep, as the .sh

@@ -60,7 +60,7 @@ else
   sqlite3 "$REONBOARD_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT); INSERT INTO plugin_config VALUES ('onboarded', 'true');"
   REONBOARD_OUT=$(jq -n --arg p "$(l5_compose_test_prompt "@bro this project needs to live on a remote — set it up.")" '{prompt:$p}' \
     | TRAJECTORY_DB_PATH="$REONBOARD_DB" CLAUDE_PROJECT_DIR="$REONBOARD_PROJECT" \
-      bash "$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh" 2>/dev/null || true)
+      bash "$PLUGIN_ROOT/tests/lib/ts-hooks/prompt-intent-hints.sh" 2>/dev/null || true)
   assert_contains "$REONBOARD_OUT" "reonboard-intent hint" "hook output"
 fi
 
@@ -75,7 +75,7 @@ replay_hook() {
   local project="$1" composed="$2"
   jq -n --arg p "$composed" '{prompt:$p}' \
     | TRAJECTORY_DB_PATH="$project/.claude/tmb/trajectory.db" CLAUDE_PROJECT_DIR="$project" \
-      bash "$PLUGIN_ROOT/scripts/hooks/roundtable-slash-detect.sh" >/dev/null 2>&1 || true
+      bash "$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-slash-detect.sh" >/dev/null 2>&1 || true
 }
 
 test_case "slash hook: composed /roundtable prompt writes one roundtable_slash_invoked row"

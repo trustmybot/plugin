@@ -64,13 +64,13 @@ export interface Task {
   prompt_bearing: number;
   /**
    * Typed Rails (#673): JSON array of path-like strings — the task's expected
-   * scope at directory granularity. swe-scope-fence.sh / swe-boundary.sh note
+   * scope at directory granularity. swe-scope-fence / swe-boundary note
    * writes outside it; bro_atomic_close judges the task's diff against it.
    */
   files: string;
   /**
    * Typed Rails (#673): JSON array of command strings. The verification gate
-   * (swe-verification-gate.sh) runs each entry in the worktree. An empty array
+   * (swe-verification-gate) runs each entry in the worktree. An empty array
    * means the gate skips with a warning.
    */
   verification: string;

@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692, #171), the port of scripts/hooks/ensure-gitignore.sh:
- * the .gitignore of the project's git repo and of every registered repos
+ * SessionStart hook (GH 1692, #171): the .gitignore of the project's git repo and of every registered repos
  * row's repo lists `.claude/`, created or appended to when it does not, with
  * one stderr line per file it changed. No stdout; it never denies.
  *

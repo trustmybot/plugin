@@ -6,7 +6,7 @@
  * The install this
  * project runs (activeInstall) answers when it is another install whose dist
  * ships the router and serves the call's event, part and tool; else this one
- * decides: under dispatch.sh's per-call dedupe when the project has TMB state,
+ * decides: under the per-call dedupe of router/dedupe.ts when the project has TMB state,
  * then prints the decision and writes its records. The event loop stays open
  * until the decision: every deadline timer is unref'd, so a wait with no live
  * handle behind it would otherwise end the process with no answer.
@@ -91,7 +91,7 @@ function servesCall(root: string, event: string, part: string | undefined, tool:
 }
 
 /**
- * dispatch.sh --shim's yield: CLAUDE_PROJECT_DIR is another project than
+ * The --shim yield, as the retired dispatch.sh --shim had it: CLAUDE_PROJECT_DIR is another project than
  * TMB_SHIM_PROJECT (physical paths), or the plugin's SessionStart hook left
  * <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks for the
  * payload's session_id, so the plugin's own hooks judge this session.

@@ -136,7 +136,7 @@ RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-ser
      || { echo "❌ FAIL: cold start — embeddings did not load transformers from the plugin data dir (GH 1748)"; exit 1; }
 RUN echo "✓ A0e: cold start — transformers in the plugin data dir, no bridge link → embeddings ready; no data dir → degraded"
 
-# A0c: the SessionStart hook ensure-mcp-deps-installed.sh makes the external
+# A0c: the SessionStart hook ensure-mcp-deps-installed makes the external
 # @huggingface/transformers resolve from the INSTALLED mcp/trajectory-server
 # (GH 1669: nothing installed it, so every install ran with embeddings
 # degraded). On the stripped cache: transformers must NOT resolve first (else
@@ -155,7 +155,7 @@ RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-ser
     mkdir -p /tmp/a0c-project/.claude/tmb && : > /tmp/a0c-project/.claude/tmb/trajectory.db; \
     echo '{"hook_event_name":"SessionStart","session_id":"l0-a0c"}' \
       | CLAUDE_PLUGIN_ROOT="$INSTALL_ROOT" CLAUDE_PROJECT_DIR=/tmp/a0c-project TRAJECTORY_DB_PATH=/tmp/a0c-project/.claude/tmb/trajectory.db \
-        bash "$INSTALL_ROOT/scripts/hooks/ensure-mcp-deps-installed.sh"; \
+        node "$INSTALL_ROOT/mcp/trajectory-server/dist/hooks.js" ensure-mcp-deps-installed; \
     i=0; while [ -d "$MCP/.deps-install.lock" ] && [ "$i" -lt 300 ]; do sleep 1; i=$((i + 1)); done; \
     LOG=/tmp/a0c-project/.claude/tmb/logs/mcp-deps-install.log; \
     test ! -d "$MCP/.deps-install.lock" \
@@ -168,7 +168,7 @@ RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-ser
     AFTER=$(cd "$MCP/dist" && find . -type f -exec sha256sum {} + | sort); \
     test "$BEFORE" = "$AFTER" \
      || { echo "❌ FAIL: the installed dist/ changed during the dependency install — the root postinstall build ran in the plugin cache"; cat "$LOG"; exit 1; }
-RUN echo "✓ A0c: one ensure-mcp-deps-installed.sh run → @huggingface/transformers resolves from the installed MCP dir; dist/ untouched (no root postinstall)"
+RUN echo "✓ A0c: one ensure-mcp-deps-installed run → @huggingface/transformers resolves from the installed MCP dir; dist/ untouched (no root postinstall)"
 
 # Simulate CC's plugin install path: `bun install --ignore-scripts`.
 # CC sandboxes plugin installs and DOES NOT run lifecycle scripts (postinstall,
@@ -241,10 +241,9 @@ RUN echo "✓ A3c: discussion_search(mode=semantic) — results, semantic_unavai
 RUN bash tests/l1-lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
-# A5: hook scripts are executable + syntactically valid
+# A5: the hook shell libraries are syntactically valid
 RUN set -e && \
-    for h in scripts/hooks/*.sh; do \
-      test -x "$h" || { echo "❌ FAIL: $h not executable" >&2; exit 1; }; \
+    for h in scripts/hooks/lib/*.sh; do \
       bash -n "$h" || { echo "❌ FAIL: $h has syntax error" >&2; exit 1; }; \
     done
 

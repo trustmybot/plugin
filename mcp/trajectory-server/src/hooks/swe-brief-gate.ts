@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/swe-brief-gate.sh:
- * deny-until-briefed for swe. A swe calling a trajectory-server MCP tool, or
+ * PreToolUse gate (GH 1692): deny-until-briefed for swe. A swe calling a trajectory-server MCP tool, or
  * Edit, Write, MultiEdit or NotebookEdit, is denied until the task_brief handler has
  * written the task's swe_brief_fetched audit row; every other tool passes. The
  * task comes from the swe's own spawn transcript, else tool_input.task_id,

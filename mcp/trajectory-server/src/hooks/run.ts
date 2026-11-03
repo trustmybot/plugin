@@ -1,7 +1,7 @@
 /**
  * One hook gate run: the payload read, the gate awaited, its stdout and any
  * stderr written and its exit code returned. An unknown gate or a gate that throws or
- * rejects writes one stderr line and returns 1, so dispatch.sh fails a
+ * rejects writes one stderr line and returns 1, so the router fails a
  * fail-closed gate closed; it never allows on error.
  */
 import type { Gate } from './gate.js';

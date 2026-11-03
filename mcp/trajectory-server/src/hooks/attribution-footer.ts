@@ -1,6 +1,5 @@
 /**
- * PostToolUse hook (#601, GH 1692), the port of
- * scripts/hooks/attribution-footer.sh: after `gh pr create`, `gh issue
+ * PostToolUse hook (#601, GH 1692): after `gh pr create`, `gh issue
  * create`, `glab mr create` or `glab issue create` succeeds, reads the new
  * artifact's body and writes it back carrying exactly the TMB footer. Best
  * effort: a missing CLI, a failed read or no URL in the response is a no-op.

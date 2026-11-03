@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/substrate-preflight.sh:
- * a TMB DEGRADED banner naming each of jq, sqlite3, git and node missing from
+ * SessionStart hook (GH 1692): a TMB DEGRADED banner naming each of jq, sqlite3, git and node missing from
  * PATH, and, when jq and sqlite3 are on PATH as the .sh needs them to look,
  * the offline note for a project repo with no remote URL. It never denies.
  */

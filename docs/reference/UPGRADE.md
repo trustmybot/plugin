@@ -111,10 +111,10 @@ Both columns should match the version you just installed.
 
 ### Upgrading into v1.2.0 — the headless shim runs the router
 
-This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `scripts/hooks/dispatch.sh` (GH 1692). The shim now writes one entry per PreToolUse group, `resolve-hook.sh --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
+This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `dispatch.sh`, which this release removes (GH 1692). The shim now writes one entry per PreToolUse group, `resolve-hook.sh --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
 
 - **Re-run the shim step once.** Re-run `/onboard`, or ask bro to turn headless enforcement on again (`onboard_apply(headless_enforcement='yes')`). It replaces every old `_tmb_managed` or `resolve-hook.sh` entry with the new ones, rewrites `.claude/tmb/resolve-hook.sh`, and leaves your own hooks as they are.
-- **Until you do,** the old entries keep running through `dispatch.sh`. A later release removes `dispatch.sh`; from then on an old entry prints a `failing OPEN` warning and enforces nothing. If a new resolver meets an old per-gate entry, it prints `--hook <gate> is not a hook event (re-run /onboard to rewrite the shim)` and allows the call.
+- **Until you do,** an old entry prints a `failing OPEN` warning and enforces nothing, since `dispatch.sh` is gone. If a new resolver meets an old per-gate entry, it prints `--hook <gate> is not a hook event (re-run /onboard to rewrite the shim)` and allows the call.
 - **`node` is required.** With `node` off PATH, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call, as it does when no install resolves.
 
 ### Upgrading into v1.2.0 — pr-reviewer is now code-reviewer
@@ -132,7 +132,7 @@ The push-gate reviewer agent was renamed from `pr-reviewer` to `code-reviewer` (
 
 ### Upgrading into v1.1.0 — the bro persona loads from the plugin
 
-Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona.sh` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona.sh` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, fully quit and relaunch Claude Code. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
+Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, fully quit and relaunch Claude Code. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
 
 An earlier release candidate's `/onboard` copied the persona into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`. TMB leaves that block where it is; the injected context notes that it is not needed, and you may delete the marked lines yourself.
 
@@ -177,7 +177,7 @@ v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal ch
 
 ### Two enabled TMB copies — gates silently missing
 
-Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a plugin load error; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check.sh` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: from the project root, disable the extra copy at the scope it is installed at, e.g. `claude plugin disable tmb@trustmybot-rc --scope local` (the warnings print the command for each copy), then fully quit and relaunch Claude Code.
+Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a plugin load error; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: from the project root, disable the extra copy at the scope it is installed at, e.g. `claude plugin disable tmb@trustmybot-rc --scope local` (the warnings print the command for each copy), then fully quit and relaunch Claude Code.
 
 ### MCP server disabled via CC's per-project state (rare, hard to detect)
 
@@ -232,7 +232,7 @@ After disabling and re-enabling the plugin, or after CC's auto-update lands a ne
    ```
    Then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root and relaunch CC.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
 
 ### "stored schema_version N is newer than code's max M"
 

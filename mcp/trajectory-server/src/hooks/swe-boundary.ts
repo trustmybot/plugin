@@ -1,5 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/swe-boundary.sh: the
+ * PreToolUse gate (GH 1692): the
  * structural fence of an swe, keyed on its identity (agentRole) and the task
  * and worktree its spawn transcript resolves to (agentContext).
  *

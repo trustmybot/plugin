@@ -1,6 +1,5 @@
 /**
- * UserPromptSubmit hook (GH 1692), the port of scripts/hooks/roundtable-slash-detect.sh:
- * when the Human types /roundtable (at the start of the prompt, or after a
+ * UserPromptSubmit hook (GH 1692): when the Human types /roundtable (at the start of the prompt, or after a
  * newline or a space) it records a roundtable_slash_invoked audit row, the
  * signal roundtable_create's gate checks so a phrase trigger cannot fire the
  * ceremony. A harness turn quoting /roundtable is not the Human. Fail-open: a

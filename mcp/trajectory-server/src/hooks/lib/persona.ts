@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/lib/persona.sh (GH 1692), shared by
+ * The persona helper (GH 1692), shared by
  * session-start-persona and user-prompt-persona, which deliver bro's persona:
  * Claude Code never loads a plugin's CLAUDE.md, so the hooks inject
  * $CLAUDE_PLUGIN_ROOT/CLAUDE.md as context. As the .sh does, it falls back to

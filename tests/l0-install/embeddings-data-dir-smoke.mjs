@@ -23,7 +23,7 @@
 //   very-cold  nothing installed anywhere: an empty data dir (temp, or a
 //              --data-dir that must be empty and is kept for a later cold
 //              run). The server and the real ensure-mcp-deps-installed gate
-//              (node dist/hooks.js, what dispatch.sh runs) start together with
+//              (node dist/hooks.js ensure-mcp-deps-installed) start together with
 //              the same CLAUDE_PLUGIN_DATA, as at SessionStart. Embeddings must
 //              reach ready within 300 s; a transient degraded is allowed. Then
 //              deps/<key>/ must be installed and the bridge link must exist.

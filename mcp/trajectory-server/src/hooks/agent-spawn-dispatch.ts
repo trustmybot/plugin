@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/agent-spawn-dispatch.sh (GH 1692), the
+ * The agent-spawn-dispatch gate (GH 1692), the
  * PreToolUse(Agent) dispatcher: it runs the nine spawn gates of CHAIN in
  * order, in-process through the gate lookup it is given, with their stderr
  * dropped. The first deny is printed verbatim and ends the run. Otherwise the

@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/containment-guard.sh:
- * an agent writes only under its run's root — a swe under its task's
+ * PreToolUse gate (GH 1692): an agent writes only under its run's root — a swe under its task's
  * worktree, bro and code-reviewer under the project — plus the model cache,
  * the host temp dir, Claude Code's /tmp/claude-<uid>, the devices and, for
  * the main session only, Claude Code's own project and plans dirs.
@@ -17,7 +16,7 @@
  * never through the literal-dir allowance. That deny, and the deny of a
  * target behind a variable, substitution or cd the guard cannot resolve,
  * reads `BLOCKED: write target "<target>" cannot be judged: <why>`;
- * dispatch.sh matches the phrase (its UNJUDGED_PHRASE) and keeps no
+ * router/records.ts matches the phrase (UNJUDGED_PHRASE) and keeps no
  * boundary-deny record for it, since no path was judged (GH 1750, GH 1772).
  *
  * A second exception (GH 1912): with no absolute TMPDIR in the hook env, a
@@ -55,7 +54,7 @@ const GLOB_CHAR = /[*?[]/;
 
 export const UNJUDGED_PHRASE = 'cannot be judged:';
 
-/** Why each never-judged target is denied; dispatch.sh relies on no text holding a double quote. */
+/** Why each never-judged target is denied; router/records.ts relies on no text holding a double quote. */
 export const NEVER_JUDGED: Readonly<Record<string, string>> = {
   '$(parse)': 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.',
   '$(computed)':

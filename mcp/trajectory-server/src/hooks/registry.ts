@@ -1,7 +1,6 @@
 /**
- * The TypeScript hook gates, by name. dispatch.sh runs a gate through
- * `node dist/hooks.js <gate>` only when its name is a line of
- * dist/hooks-gates.txt, which the build writes from gateNames().
+ * The TypeScript hook gates, by name. The build writes gateNames() to
+ * dist/hooks-gates.txt, and `node dist/hooks.js <gate>` runs one directly.
  */
 import type { Gate } from './gate.js';
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
@@ -184,7 +183,7 @@ export interface RouterGate {
   readonly budgetMs: number;
   /** Runs only for a tool_name ending in `trajectory-server__<toolSuffix>`; absent, for every tool of its group. */
   readonly toolSuffix?: string;
-  /** Has no .sh and is a discipline rule, not containment: dispatch.sh's bash path drops it rather than deny every call for the missing script, through its `ts-only` column in dist/hooks-router.txt. The router runs it as any other gate. */
+  /** Never had a .sh and is a discipline rule, not containment: the retired dispatch.sh's bash path dropped it rather than deny every call for the missing script, through its `ts-only` column in dist/hooks-router.txt. The router runs it as any other gate. */
   readonly tsOnly?: boolean;
 }
 
@@ -202,7 +201,7 @@ export interface RouterGroup {
    * and this, from its own start.
    */
   readonly groupBudgetMs: number;
-  /** The first deny ends the call, as a dispatch.sh chain does: the later gates' side effects never happen. */
+  /** The first deny ends the call, as a chain of the retired dispatch.sh did: the later gates' side effects never happen. */
   readonly stopAtFirstDeny?: boolean;
   /** Every gate starts at once and all are awaited (decisions 937 and 1136); absent, they run one at a time. An allowlist, and never with stopAtFirstDeny, whose purpose it would defeat. */
   readonly concurrent?: boolean;

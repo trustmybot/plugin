@@ -27,15 +27,6 @@ scripts/hooks/lib/resolve-repo.sh	tmb_cmd_cwd() {	join-base	the definition: the 
 scripts/hooks/lib/resolve-repo.sh	declare -F tmb_payload_cwd	join-base	sources the helper tmb_cmd_cwd joins to
 scripts/hooks/lib/resolve-repo.sh	base=$(tmb_payload_cwd "$input")	join-base	tmb_cmd_cwd: the join base of a relative cd / git -C path
 scripts/hooks/lib/query-task.sh	start="$(pwd)"	fallback	_tmb_db_resolve: DB walk-up discovery, reached only when TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR are both unset and no test flag is set
-scripts/hooks/lib/persona.sh	PERSONA_PROJECT="${CLAUDE_PROJECT_DIR:-$PWD}"	fallback	bro's persona: the project root when CLAUDE_PROJECT_DIR is unset (a bare SessionStart); never a subagent's location
-scripts/hooks/branch-up-to-date-with-remote.sh	CWD=$(tmb_payload_cwd "$INPUT")	join-base	the dir the git command starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
-scripts/hooks/git-guards.sh	CWD=$(tmb_payload_cwd "$INPUT")	join-base	the dir the git command starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
-scripts/hooks/git-push-guard.sh	CWD=$(tmb_payload_cwd "$INPUT")	join-base	the dir the push starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
-scripts/hooks/clean-merged-branch.sh	cwd=$(tmb_cmd_cwd "$cmd" "$input")	join-base	gh pr merge with no ref merges the branch checked out where it runs
-scripts/hooks/close-issue-on-merge.sh	cwd=$(tmb_cmd_cwd "$cmd" "$input")	join-base	gh pr merge with no ref merges the branch checked out where it runs
-scripts/hooks/containment-guard.sh	CWD=$(tmb_payload_cwd "$INPUT")	join-base	join base of relative targets; for a non-swe, the dir a Bash command runs in must sit under the project root. An swe's root comes from agent-context
-scripts/hooks/worktree-create.sh	CWD_REPO="$(pwd)"	fallback	WorktreeCreate with no trajectory DB (a non-TMB project): the repo Claude Code runs in is the only one there is
-scripts/hooks/dispatch.sh	cwd: (.cwd? // null)	not-location	the hook_denied audit row records the payload cwd as data; nothing is resolved from it
 scripts/release.sh	git 	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
 scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
 scripts/publish-rc-channel.sh	git ls-remote --tags "$PLUGIN_REPO"	not-location	ls-remote names its remote URL; reads no checkout
@@ -64,7 +55,6 @@ mcp/trajectory-server/src/hooks/router/main.ts	const r = spawnSync(process.execP
 mcp/trajectory-server/src/hooks/swe-scope-fence.ts	const cwd = jqFirst(input, [['cwd']], true) || env.PWD || process.cwd();	join-base	the dir a relative Write / Edit target joins to, before the fence compares it to the swe's worktree from agent-context
 mcp/trajectory-server/src/startup-catchup.ts	const child = spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {	anchored-cd	run-scan.mjs gets decision.projectRoot as its argument and the DB as TRAJECTORY_DB_PATH
 scripts/await-payload-tag.ts	const r = spawnSync('git', ['ls-remote', '--tags', remote, ref,	not-location	ls-remote against an explicit URL (the default or --remote) and a full ref; reads no checkout
-scripts/hooks/git-guards.sh	cd|echo|printf|true|false|test|'['|pwd) return 0 ;;	not-location	ff_sync_other_ok: `pwd` is a word in a list of harmless command names; it is matched, not run
 scripts/hooks/lib/cmd-analysis.sh	vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"	not-location	awk regex of command names whose variable assignments are plain; `pwd` is matched, not run
 scripts/hooks/lib/cmd-analysis.sh	printf 'UNRESOLVED:PWD:$PWD	not-location	_tmb_cmd_join prints the literal marker text UNRESOLVED:PWD:$PWD (single-quoted, never expanded) for an unknown dir
 scripts/hooks/lib/cmd-analysis.sh	p="\$PWD/$p"	not-location	an escaped literal $PWD in the UNRESOLVED marker for a path under an unknown dir; never expanded

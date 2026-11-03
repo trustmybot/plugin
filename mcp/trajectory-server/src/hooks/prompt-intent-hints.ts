@@ -1,6 +1,5 @@
 /**
- * UserPromptSubmit hook (GH 1692), the port of scripts/hooks/prompt-intent-hints.sh:
- * one pass over the Human's prompt, where the first hint class that fires
+ * UserPromptSubmit hook (GH 1692): one pass over the Human's prompt, where the first hint class that fires
  * emits its additionalContext — cheatcode-install, consultant-spawn,
  * search-grounding, concerns-protocol, push-intent, reonboard-intent,
  * headless-intent, resume-intent, adr-required, audit-intent — each with its
