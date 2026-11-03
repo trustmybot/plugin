@@ -1,13 +1,20 @@
 // hooks/hooks.json as L1 symbols (GH 1680, ADR 0002): one kind='hook' row per
 // registered hook, qualified '<Event>#<pos>:<gate>', with run_order = event
 // rank * 100 + position so the Claude Code lifecycle order is queryable, and a
-// 'runs' edge to the gate's scripts/hooks/<gate>.sh module. A gate that is a
+// 'runs' edge to the gate's TypeScript module, src/hooks/<gate>.ts (GH 1692:
+// never to the bash script it was ported from). A gate that is a
 // dispatch chain in registrations.sh gets one 'runs' edge per member instead,
-// edges.line holding the chain position. Ported from the GH 1680 MVP enrich.mjs.
+// edges.line holding the chain position. A router entry (`dist/hooks.js <Event>`)
+// takes its gates from dist/hooks-router.txt the same way, named by its first
+// gate (GH 2185). Ported from the GH 1680 MVP enrich.mjs.
+import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
 import { clip, md5, oneLine, type Extraction } from './extract.js';
 
 export const HOOKS_PATH = 'hooks/hooks.json';
 export const REGISTRATIONS_PATH = 'scripts/hooks/lib/registrations.sh';
+export const ROUTER_TABLE_PATH = 'mcp/trajectory-server/dist/hooks-router.txt';
+export const ROUTER_TABLE_SOURCE = 'mcp/trajectory-server/src/hooks/registry.ts';
+export const GATE_MODULE_DIR = 'mcp/trajectory-server/src/hooks';
 
 const EVENT_ORDER = [
   'SessionStart',
@@ -52,9 +59,20 @@ function eventRanks(events: string[]): Map<string, number> {
   return new Map(order.map((e, i) => [e, i + 1]));
 }
 
-const scriptOf = (gate: string): string => `scripts/hooks/${gate}.sh`;
+const gateModule = (gate: string): string => `${GATE_MODULE_DIR}/${gate}.ts`;
 
-export function extractHooks(src: string, chains: Map<string, string[]>): Extraction {
+// A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
+// <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*> [<part>].
+function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
+  const rows = table
+    .split('\n')
+    .map((line) => line.split(' '))
+    .filter((f) => f[3] === event && f[4] !== undefined && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part))
+    .map((f) => f[0]!);
+  return [...new Set(rows)];
+}
+
+export function extractHooks(src: string, chains: Map<string, string[]>, routerTable = ''): Extraction {
   const out: Extraction = { symbols: [], edges: [] };
   const parsed = JSON.parse(src) as { hooks?: Record<string, HookGroup[]> };
   const hooks = parsed.hooks ?? {};
@@ -75,11 +93,14 @@ export function extractHooks(src: string, chains: Map<string, string[]>): Extrac
         const cmd = hook.command ?? '';
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : (cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null);
-        const name = gate ?? direct?.split('/').pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
+        const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable, event, matcher, routerCommand[2]) : [];
+        const isRouted = routed.length > 0;
+        const name = gate ?? direct?.split('/').pop() ?? routed[0] ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted ? 'dist/hooks.js' : cmd), cursor);
         cursor = line || cursor;
-        const members = gate ? chains.get(gate) : undefined;
-        const target = members ? `chain ${members.join(', ')}` : gate ? scriptOf(gate) : (direct ?? cmd);
+        const members = isRouted ? routed : gate ? chains.get(gate) : undefined;
+        const target = isRouted ? `router gates ${routed.join(', ')}` : members ? `chain ${members.join(', ')}` : gate ? gateModule(gate) : (direct ?? cmd);
         const qualifiedName = `${event}#${pos}:${name}`;
         out.symbols.push({
           kind: 'hook',
@@ -88,15 +109,15 @@ export function extractHooks(src: string, chains: Map<string, string[]>): Extrac
           doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ''} runs ${target}`,
           start_line: line,
           end_line: line,
-          body_hash: md5(`${matcher}\u0000${cmd}`),
+          body_hash: md5(isRouted ? `${matcher}\u0000${cmd}\u0000${routed.join(' ')}` : `${matcher}\u0000${cmd}`),
           exported: 1,
           run_order: rank * 100 + pos,
         });
         const at = out.symbols.length - 1;
         if (members) {
-          members.forEach((m, i) => out.edges.push({ src: at, kind: 'runs', dst_name: scriptOf(m), line: i + 1, hint: null }));
+          members.forEach((m, i) => out.edges.push({ src: at, kind: 'runs', dst_name: gateModule(m), line: i + 1, hint: null }));
         } else if (gate || direct) {
-          out.edges.push({ src: at, kind: 'runs', dst_name: gate ? scriptOf(gate) : direct!, line, hint: null });
+          out.edges.push({ src: at, kind: 'runs', dst_name: gate ? gateModule(gate) : direct!, line, hint: null });
         }
       }
     }

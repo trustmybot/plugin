@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "s4",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:sqlite3@"
+  },
+  "corpus_expect": "TMB DEGRADED: missing sqlite3 — task/spawn gates cannot verify state. Install"
+}

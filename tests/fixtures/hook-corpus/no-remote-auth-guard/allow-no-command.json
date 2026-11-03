@@ -1,0 +1,6 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {},
+  "corpus_cwd": "stale",
+  "corpus_expect": "empty"
+}

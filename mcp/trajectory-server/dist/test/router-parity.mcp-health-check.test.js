@@ -1,0 +1,4 @@
+// The mcp-health-check gate of router-parity.suite.ts, run as its own node --test process (GH 2118).
+import { routerParityGate } from './router-parity.suite.js';
+routerParityGate('mcp-health-check');
+//# sourceMappingURL=router-parity.mcp-health-check.test.js.map

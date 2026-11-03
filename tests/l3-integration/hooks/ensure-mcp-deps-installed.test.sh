@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/ensure-mcp-deps-installed.sh (SessionStart, GH 1669):
+# Tests for the TypeScript ensure-mcp-deps-installed gate (SessionStart, GH 1669):
 # lazy-installs the MCP server's @huggingface/transformers in the background.
 # A fake plugin root and stub bun/npm on PATH record every invocation (cwd,
 # args, cache env), so no real install or network call runs.
@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 . "$HERE/fixtures/no-jq-path.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-mcp-deps-installed.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-mcp-deps-installed.sh"
 
 BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-ensure-mcp-deps.XXXXXX")
 trap 'rm -rf "$BASE"' EXIT
@@ -27,7 +27,7 @@ mkdir -p "$PROJECT/.claude/tmb"
 : > "$PROJECT/.claude/tmb/trajectory.db"
 export CLAUDE_PROJECT_DIR="$PROJECT"
 export TRAJECTORY_DB_PATH="$PROJECT/.claude/tmb/trajectory.db"
-unset NODE_PATH BUN_INSTALL_CACHE_DIR npm_config_cache TMB_SKIP_MCP_DEPS_INSTALL
+unset NODE_PATH BUN_INSTALL_CACHE_DIR npm_config_cache TMB_SKIP_MCP_DEPS_INSTALL CLAUDE_PLUGIN_DATA
 
 STUBS="$BASE/stubs"
 mkdir -p "$STUBS/bun" "$STUBS/npm"
@@ -40,6 +40,11 @@ EOF
 done
 NO_PM_PATH=$(no_cmd_path "$BASE/shadow-bun" bun)
 NO_PM_PATH=$(PATH="$NO_PM_PATH" no_cmd_path "$BASE/shadow-npm" npm)
+# A version-manager shim for node (mise) puts the real npm back on PATH, so the
+# hook runs the node binary itself from a directory holding nothing else.
+NODE_BIN="$BASE/node-bin"
+mkdir -p "$NODE_BIN"
+ln -s "$(node -p process.execPath)" "$NODE_BIN/node"
 
 # fake_root <name> — a plugin root holding mcp/trajectory-server/package.json.
 fake_root() {
@@ -64,14 +69,15 @@ run_hook() {
   shift 2
   RC=0
   OUT=$(echo '{"hook_event_name":"SessionStart","session_id":"s1"}' \
-    | env PATH="$path" CLAUDE_PLUGIN_ROOT="$root" "$@" bash "$HOOK" 2>&1) || RC=$?
+    | env PATH="$NODE_BIN:$path" CLAUDE_PLUGIN_ROOT="$root" "$@" bash "$HOOK" 2>&1) || RC=$?
 }
 
 test_case "installed: transformers resolves from the MCP dir → no installer, no output"
 ROOT=$(fake_root installed)
 PKG="$ROOT/node_modules/@huggingface/transformers"
 mkdir -p "$PKG"
-echo '{"name":"@huggingface/transformers","version":"3.0.0","exports":"./index.js"}' > "$PKG/package.json"
+PINNED=$(jq -r '.dependencies["@huggingface/transformers"]' "$PLUGIN_ROOT/mcp/trajectory-server/package.json")
+jq -nc --arg v "$PINNED" '{name:"@huggingface/transformers", version:$v, exports:"./index.js"}' > "$PKG/package.json"
 echo 'export const pipeline = 1;' > "$PKG/index.js"
 export STUB_RECORD="$BASE/installed.rec"
 run_hook "$STUBS/bun:$PATH" "$ROOT"

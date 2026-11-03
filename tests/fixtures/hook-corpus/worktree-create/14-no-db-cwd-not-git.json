@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/nodb",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/absent.db"
+  },
+  "corpus_cwd": "@SANDBOX@/nodb",
+  "corpus_expect": "tmb worktree-create: no trajectory DB and cwd @SANDBOX@/nodb is not a git repo"
+}

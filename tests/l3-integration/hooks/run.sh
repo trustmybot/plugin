@@ -23,6 +23,9 @@ SLOW_FILES=(
   swe-boundary.test.sh
   git-push-guard.test.sh
   roundtable-slash-detect.test.sh
+  cmd-analysis.test.sh
+  containment-guard.test.sh
+  merge-driver.test.sh
 )
 
 file_timeout() {
@@ -33,9 +36,10 @@ file_timeout() {
   echo "$DEFAULT_TIMEOUT_S"
 }
 
-# Hooks resolve the trajectory DB from CLAUDE_PROJECT_DIR first; a value
-# inherited from a Claude Code session would point tests at a live DB.
-unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
+# Hooks resolve the trajectory DB from CLAUDE_PROJECT_DIR first and plugin
+# state from CLAUDE_PLUGIN_DATA; a value inherited from a Claude Code session
+# would point tests at live state.
+unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
 . "$HERE/../../lib/tmp-footprint.sh"
 . "$HERE/../../lib/live-db-shim.sh"

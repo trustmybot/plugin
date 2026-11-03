@@ -27,13 +27,13 @@ export function TasksByStatus({ rows }: { rows: Summary['tasks_by_status'] }) {
   return (
     <Box className="min-w-0">
       <BoxHeader className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-fg">Tasks by status</h2>
+        <h2 className="text-sm font-semibold text-fg">Tasks by Status</h2>
         <a href="#/tasks" className="text-xs text-accent hover:underline">
-          View all tasks
+          View All Tasks
         </a>
       </BoxHeader>
       {rows.length === 0 ? (
-        <Blankslate icon={TasklistIcon} heading="No tasks yet" />
+        <Blankslate icon={TasklistIcon} heading="No Tasks Yet" />
       ) : (
         byCount(rows).map((t) => (
           <BoxRow key={t.status} data-status={t.status} className="grid grid-cols-[minmax(0,9rem)_auto_minmax(0,1fr)] items-center gap-3">

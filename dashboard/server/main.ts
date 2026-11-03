@@ -95,6 +95,10 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
     const body = 'error' in filter ? filter : q.explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, 'error' in body ? 400 : 200, body);
   }
+  if (parts.length === 2 && resource === 'insights' && id === 'compare') {
+    const query = q.compareQuery(url.searchParams);
+    return 'error' in query ? sendJson(res, 400, query) : sendJson(res, 200, q.compare(db, query.filter, query.p1, query.p2));
+  }
   if (parts.length === 2 && resource === 'world-model' && id === 'search') {
     const p = url.searchParams;
     return sendJson(res, 200, q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit'))));

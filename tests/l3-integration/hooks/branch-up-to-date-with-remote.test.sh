@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/branch-up-to-date-with-remote.sh.
+# Tests for the TypeScript branch-up-to-date-with-remote gate.
 # Hook contract: when SWE attaches a worktree to <branch>, deny if <branch>
 # is behind origin/<pr_target>. Allows when up-to-date, when not a worktree
 # add, when offline / origin missing, when bypass env set.
@@ -8,7 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/branch-up-to-date-with-remote.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/branch-up-to-date-with-remote.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-branch-up-to-date-with-remote.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

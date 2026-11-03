@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 52`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 55`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -10,7 +10,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 | Group | Tables | Keyed by |
 |---|---|---|
-| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
+| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `session_handoffs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
 | **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta` | own primary keys; not tied to any issue |
 | **Search** | `discussions_embeddings`, `audit_embeddings`, and the FTS5 tables `discussions_fts`, `audit_fts` with their shadow tables | the source row's id |
 | **Eval mode** (`schema-eval.sql`, only with `TMB_EVAL_MODE=1`) | `debug_trajectory`, `eval_results` | own primary keys |
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 52`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 55`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -57,6 +57,8 @@ erDiagram
     issues |o--o{ agent_runs : "issue_id (NO ACTION)"
     repos |o--o{ agent_runs : "repo (RESTRICT)"
     agent_runs |o--o{ agent_runs : "resumed_from (NO ACTION)"
+    issues |o--o{ session_handoffs : "issue_id (NO ACTION)"
+    agent_runs ||--o{ agent_run_tool_output : "run_id (CASCADE)"
     tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
     audit ||--o| audit_embeddings : "audit_id (CASCADE)"
@@ -132,6 +134,8 @@ erDiagram
         TEXT completion_report
         TEXT spawn_note
         TEXT checkpoint
+        TEXT worktree_path
+        INTEGER worktree_adopted "NOT NULL; CHECK worktree_adopted IN (0,1)"
     }
 
     audit {
@@ -274,6 +278,26 @@ erDiagram
         TEXT plugin_version
         TEXT stop_cause "CHECK budget|hook_block"
         TEXT stop_detail
+    }
+
+    session_handoffs {
+        TEXT session_id PK
+        TEXT cwd "NOT NULL"
+        INTEGER issue_id FK "→ issues.id NO ACTION"
+        TEXT summary
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+        TEXT consumed_at
+        TEXT consumed_by_session
+    }
+
+    agent_run_tool_output {
+        INTEGER id PK "NOT NULL"
+        INTEGER run_id FK "NOT NULL; → agent_runs.id CASCADE"
+        TEXT tool_name "NOT NULL"
+        INTEGER calls "NOT NULL"
+        INTEGER result_chars "NOT NULL"
+        INTEGER est_tokens "NOT NULL"
     }
 
     pr_review_runs {
@@ -520,6 +544,8 @@ Table constraints:
 | `completion_report` | TEXT | nullable |  |  |
 | `spawn_note` | TEXT | nullable |  |  |
 | `checkpoint` | TEXT | nullable |  |  |
+| `worktree_path` | TEXT | nullable |  |  |
+| `worktree_adopted` | INTEGER | NOT NULL | `0` | CHECK `worktree_adopted IN (0,1)` |
 
 ### `audit`
 
@@ -694,6 +720,34 @@ Table constraints:
 | `plugin_version` | TEXT | nullable |  |  |
 | `stop_cause` | TEXT | nullable |  | CHECK `stop_cause IN ('budget','hook_block')` |
 | `stop_detail` | TEXT | nullable |  |  |
+
+### `session_handoffs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `session_id` | TEXT | nullable |  | PK |
+| `cwd` | TEXT | NOT NULL |  |  |
+| `issue_id` | INTEGER | nullable |  | FK → `issues.id` ON DELETE NO ACTION |
+| `summary` | TEXT | nullable |  |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+| `consumed_at` | TEXT | nullable |  |  |
+| `consumed_by_session` | TEXT | nullable |  |  |
+
+### `agent_run_tool_output`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `run_id` | INTEGER | NOT NULL |  | FK → `agent_runs.id` ON DELETE CASCADE |
+| `tool_name` | TEXT | NOT NULL |  |  |
+| `calls` | INTEGER | NOT NULL | `0` |  |
+| `result_chars` | INTEGER | NOT NULL | `0` |  |
+| `est_tokens` | INTEGER | NOT NULL | `0` |  |
+
+Table constraints:
+
+- UNIQUE `(run_id, tool_name)`
 
 ### `pr_review_runs`
 
@@ -937,6 +991,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `agent_runs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_runs` | `repo` | `repos(name)` | RESTRICT |
 | `agent_runs` | `resumed_from` | `agent_runs(id)` | NO ACTION |
+| `session_handoffs` | `issue_id` | `issues(id)` | NO ACTION |
+| `agent_run_tool_output` | `run_id` | `agent_runs(id)` | CASCADE |
 | `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
 | `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
@@ -983,6 +1039,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_agent_runs_spawn` | `agent_runs` | `task_id, spawn_id` | yes | `spawn_id IS NOT NULL AND resumed_from IS NULL` |
 | `idx_agent_runs_resumed` | `agent_runs` | `resumed_from` | yes | `resumed_from IS NOT NULL` |
 | `idx_agent_runs_session` | `agent_runs` | `session_id` |  | `session_id IS NOT NULL` |
+| `idx_agent_run_tool_output_run` | `agent_run_tool_output` | `run_id` |  |  |
 | `idx_audit_event_type` | `audit` | `event_type` |  |  |
 | `idx_audit_issue_branch` | `audit` | `issue_id, branch_id` |  |  |
 | `idx_pr_review_runs_task` | `pr_review_runs` | `task_id` |  |  |
@@ -999,6 +1056,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
+| _UNIQUE constraint_ | `agent_run_tool_output` | `run_id, tool_name` | yes | |
 | _UNIQUE constraint_ | `pr_review_runs` | `pr_number, repo` | yes | |
 | _UNIQUE constraint_ | `cheatcodes` | `name, kind` | yes | |
 | _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
@@ -1147,6 +1205,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `single_tmb_plugin_enabled` | error | file contract: at most one enabled copy of the plugin applies to `CLAUDE_PROJECT_DIR`, read from `installed_plugins.json` and the `enabledPlugins` maps (rules in `src/utils/plugin-installs.ts`, mirrored by `tmb_duplicate_installs`); skipped when `CLAUDE_PROJECT_DIR` is unset or `installed_plugins.json` is unreadable |
 | `no_stale_running` | warn | no `running` task has gone `TMB_STALE_RUNNING_HOURS` (default 6) without an update and without an open swe `agent_runs` row |
 | `scan_fresh` | warn | some `repos.last_scanned_at` is within 7 days (passes with no repo row) |
+| `issues_open_after_remote_close` | warn | no open issue carries an `issue_remote_closed_local_open` audit row (`issue_reconcile_remote` found its GitHub/GitLab twin closed but left it open for live tasks); the sample names `issue_id`, `remote_iid` and the newest row's `blocking_task_ids` — once those tasks close, rerun `issue_reconcile_remote` (GH 2228) |
 | `waiver_not_duplicated` | warn | no `(task_id, commit_sha)` has two `verification_gate_waived` rows (the v39 migration re-typed the legacy swe-written duplicates as `legacy_event`) |
 | `spec_shape_waived_rows_name_a_task` | warn | every `spec_shape_gate_waived` audit row names an existing task: `content_json.task_id` is a positive integer (or its decimal string) matching a `tasks` row and `content_json.gate` is `spec_shape` — the shape `require-task-spec` reads; batch-level rows written before the per-task writer are reported, not backfilled |
 | `no_unconsumed_reviewer_observations` | warn | no `reviewer_identity_observed` audit row older than 1 hour is still unconsumed and unsuperseded (a code-reviewer `validation_record` call that never recorded a verdict; `validation_record` never consumes a row past its 600 s freshness window, and a row left by a retried call is superseded when the retry's row is consumed) |
@@ -1167,6 +1226,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `populated_agent_runs_root_dir` | warn | NULL rate over rows started in the last 30 days, and not before the first run carrying a `root_dir` (plugin_meta keeps no applied-at timestamp; earlier rows predate the writers; min_schema 33) ≤ 0.05 |
 | `populated_agent_runs_exit_reason` | warn | NULL rate over completed rows started in the last 30 days ≤ 0.05 |
 | `populated_tasks_prompt_bearing` | warn | NULL rate over tasks created in the last 30 days = 0 |
+| `scratch_no_prose` | warn | File contract, not a column: prose files (`.md`, `.markdown`, `.txt`, `.rst`) under the scratch folder beside the checked DB, at any depth, = 0, with a path sample. Skipped with no DB path; 0 when the folder is missing. Written by the check itself; populated by a test placing a `.md` by hand (GH 2089) |
 
 The `populated_agent_runs_*` contracts skip per-task bro rows (`agent_type = 'bro' AND task_id IS NOT NULL`): older versions opened them, bro is now metered per session, and nothing fills them. Columns added in v29–v33 that stay NULL by design are declared in `NULLABLE_COLUMNS` with a reason and get no contract: `discussions.remote_comment_id` (set only on discussions ingested from a PR/MR comment) and `agent_runs.spawn_id` (swe rows only). A new DB contract is a new entry in `DATA_CONTRACTS` with a violating and a passing fixture in `src/test/trajectory-doctor.test.ts`; `npm run build` in `mcp/trajectory-server/` regenerates the hook copy through `scripts/maintenance/emit-data-contracts.mjs` (the unit suite fails while it is stale).
 
@@ -1188,7 +1248,7 @@ The `cheatcodes` table is the unified capability catalog (#101): a **portable ca
 
 `agent_runs` captures **SWE spawns** per task *and* bro itself — the main process — **per session**: bro lives across tasks, so one bro row per CC session, and per-task cost is the task's swe + code-reviewer rows.
 
-- **Bro rows** are written by the `bro-turn-usage.sh` Stop hook, one per session: `agent_type = 'bro'`, `task_id` and `issue_id` NULL, `session_id` the payload's session, `usage_source = 'transcript'`, `host = 'claude'`, `exit_reason = 'completed'`, `started_at` / `completed_at` the first / last main-loop message of the session transcript, `model` the model with the most tokens, and `root_dir` the project holding the trajectory DB (NULL when the DB sits elsewhere). Every Stop rewrites the row with the absolute sums of the session's main-loop usage, or inserts it when absent — idempotent, and parallel sessions never share a row. The task tools open no bro row; `session_id` stays an accepted, validated argument. Per-task bro rows opened by older versions stay as history: the closing paths below still close them, and `task_stats` and the data contracts skip them.
+- **Bro rows** are written by the `bro-turn-usage` Stop hook (`src/hooks/bro-turn-usage.ts`), one per session: `agent_type = 'bro'`, `task_id` and `issue_id` NULL, `session_id` the payload's session, `usage_source = 'transcript'`, `host = 'claude'`, `exit_reason = 'completed'`, `started_at` / `completed_at` the first / last main-loop message of the session transcript, `model` the model with the most tokens, and `root_dir` the project holding the trajectory DB (NULL when the DB sits elsewhere). Every Stop rewrites the row with the absolute sums of the session's main-loop usage, or inserts it when absent — idempotent, and parallel sessions never share a row. The hook runs async and does not block the turn: when runs overlap, one holding an older transcript read leaves a row with a later `completed_at` alone, and a lost run is recovered by the next, which re-reads the whole transcript; a session never resumed can stay one turn short. The task tools open no bro row; `session_id` stays an accepted, validated argument. Per-task bro rows opened by older versions stay as history: the closing paths below still close them, and `task_stats` and the data contracts skip them.
 - **Swe rows** open when the swe calls `task_brief` (one open row per task). The `swe-atomic-close.sh` SubagentStop hook binds the spawn to the task named by `task_id=<N>` in its spawn prompt, for any task status, and writes the spawn transcript's totals onto that row (`spawn_id` = the payload's `agent_id`), or inserts a complete row when none was opened. A spawn with no resolvable task id writes an `agent_runs_capture_skipped` audit row instead — the hook never guesses a task.
 - **Rework.** `task_stats` derives a task's rework at read time, nothing stored (GH 1738): `swe_spawn_count` counts its swe rows minus those closed `swept_orphan` (spawns that never started, duplicate rows), `rework_count` is that minus 1 (floor 0), `review_fail_count` its `validation_attempts` FAIL verdicts, `wall_clock_ms` its `created_at` to its close (`updated_at` of a `closed` task) or to now while open. The `rework-limit` and `task-overrun-alert` hook gates count spawns the same way (`src/task-rework.ts`). `reworks` splits the reworks into `fresh` (fresh swe rows after the first) and `resumed` (rows with `resumed_from` set), each with `count`, `wall_clock_ms` (summed `duration_ms`), `tool_uses` and `cache_read_tokens` (GH 1742).
 - **Resumed swe runs.** A swe bro resumes through `SendMessage` (GH 1742) gets a row of its own at its next `task_brief`: `swe-brief-gate.sh` sees every row keyed by its `agent_id` closed and records a `swe_resume_observed` audit row, and `openSweRun` opens a row with that `spawn_id`, the previous row's `effort` and `resumed_from` = the previous row, consuming the observation. `swe-atomic-close.sh` meters only the transcript entries from that row's `started_at` on. The unique index on `(task_id, spawn_id)` covers fresh rows only; `resumed_from` is unique, so a row is resumed at most once.

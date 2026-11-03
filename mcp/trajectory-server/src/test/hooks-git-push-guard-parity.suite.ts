@@ -1,6 +1,6 @@
 /**
  * Byte-for-byte parity of the TypeScript git-push-guard with
- * scripts/hooks/git-push-guard.sh (GH 1692) over
+ * the bash git-push-guard.sh (GH 1692) over
  * tests/fixtures/hook-corpus/git-push-guard/, in a sandbox of real git repos
  * and a trajectory DB: signed, unsigned and untracked commits, rebases of
  * task commits with and without a verification run, a rebase with
@@ -20,11 +20,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/git-push-guard');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/git-push-guard.sh');
+const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'git-push-guard.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];
@@ -40,6 +41,8 @@ const GIT_ENV: NodeJS.ProcessEnv = {
   GIT_AUTHOR_EMAIL: 'test@example.com',
   GIT_COMMITTER_NAME: 'Test',
   GIT_COMMITTER_EMAIL: 'test@example.com',
+  GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+  GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
 };
 
 function git(dir: string, ...args: string[]): string {
@@ -90,7 +93,7 @@ function rebased(sandbox: string, name: string, files: Record<string, string>, r
   return { task, rebase: git(dir, 'rev-parse', 'HEAD') };
 }
 
-function buildSandbox(sandbox: string): void {
+export function buildSandbox(sandbox: string): void {
   mkdirSync(join(sandbox, 'project'));
   mkdirSync(join(sandbox, 'db'));
   writeFileSync(join(sandbox, 'bad.db'), 'this is not a sqlite database\n'.repeat(64));
@@ -167,7 +170,7 @@ interface Materialized {
   expect: string;
 }
 
-function materialize(file: string, sandbox: string): Materialized {
+export function materialize(file: string, sandbox: string): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
   const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text) as {
     corpus_env?: NodeJS.ProcessEnv;
@@ -222,7 +225,7 @@ export function gitPushGuardParityShard(k: number, n: number): void {
           };
           delete env.TMB_HOOKS_SQLITE;
           const cwd = join(sandbox, 'project');
-          const bash = run('bash', [HOOK_SH], input, env, cwd);
+          const bash = goldenBash('git-push-guard', f, locale, goldenRoots({ '@SANDBOX@': sandbox }), () => run('bash', [HOOK_SH], input, env, cwd));
           const node = run(process.execPath, [HOOKS_BUNDLE, 'git-push-guard'], input, env, cwd);
           assert.equal(node.code, bash.code, 'exit code');
           assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');

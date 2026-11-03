@@ -35,7 +35,7 @@ export function DerivedPanel({ steps }: { steps: ConceptStep[] }) {
   return (
     <StepsAndGraph
       key={steps.map((s) => s.symbol?.id).join(',')}
-      title={steps[0]?.symbol?.qualified_name ?? 'Call chain'}
+      title={steps[0]?.symbol?.qualified_name ?? 'Call Chain'}
       subtitle=""
       badge={<DerivedBadge />}
       note={null}
@@ -99,7 +99,7 @@ function StepsAndGraph({
         <ol>
           {steps.map((s, i) => {
             const location = stepLocation(s);
-            const name = s.symbol ? (isFileAnchor(s.symbol) ? s.symbol.path : s.symbol.qualified_name) : 'Anchor gone';
+            const name = s.symbol ? (isFileAnchor(s.symbol) ? s.symbol.path : s.symbol.qualified_name) : 'Anchor Gone';
             const active = step === s.ordinal;
             return (
               <li key={s.ordinal}>

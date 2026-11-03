@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Lint: every script referenced by a hooks.json command must be executable
 # (git mode 100755). CC execs hook commands directly — a 644 hook fails
-# with Permission denied and the hook silently never fires.
+# with Permission denied and the hook silently never fires. A router command
+# execs node, so its bundle only has to be tracked.
 
 set -euo pipefail
 
@@ -12,6 +13,17 @@ FAIL=0
 CHECKED=0
 
 while IFS= read -r cmd; do
+  router="${cmd#node }"
+  if [ "$router" != "$cmd" ]; then
+    rel="${router#\"\${CLAUDE_PLUGIN_ROOT\}/}"
+    rel="${rel%%\"*}"
+    CHECKED=$((CHECKED + 1))
+    if [ -z "$(git ls-files -s -- "$rel")" ]; then
+      printf "hooks-executable: MISSING from git: %s\n" "$rel" >&2
+      FAIL=$((FAIL + 1))
+    fi
+    continue
+  fi
   unquoted="${cmd#\"}"
   rel="${unquoted#\$\{CLAUDE_PLUGIN_ROOT\}/}"
   [ "$rel" = "$unquoted" ] && continue

@@ -10,7 +10,7 @@ export const AGENT_RUN_COLUMNS: Column[] = [
   ...RUN_COLUMNS,
   { key: 'issue_id', header: 'Issue', cell: entityLink('issue', 'issue_id'), hideBelow: 'md' },
   { key: 'model', header: 'Model', hideBelow: 'md' },
-  { key: 'tokens_out', header: 'Tokens out', hideBelow: 'md' },
+  { key: 'tokens_out', header: 'Tokens Out', hideBelow: 'md' },
   { key: 'duration_ms', header: 'Duration', cell: (r) => `${Math.round(Number(r['duration_ms'] ?? 0) / 1000)}s`, hideBelow: 'sm' },
 ];
 
@@ -45,18 +45,18 @@ export function RunsView() {
   return (
     <div className="space-y-8">
       <section>
-        <Subhead>Agent runs</Subhead>
+        <Subhead>Agent Runs</Subhead>
         <Loading q={runs}>{(rows) => <DataTable rows={rows} columns={AGENT_RUN_COLUMNS} />}</Loading>
       </section>
       <Loading q={gates}>
         {(g) => (
           <>
             <section>
-              <Subhead>Review verdicts</Subhead>
+              <Subhead>Review Verdicts</Subhead>
               <DataTable rows={g.validations} columns={VALIDATION_COLUMNS} />
             </section>
             <section>
-              <Subhead>Verification runs</Subhead>
+              <Subhead>Verification Runs</Subhead>
               <DataTable rows={g.verifications} columns={VERIFICATION_COLUMNS} />
             </section>
           </>

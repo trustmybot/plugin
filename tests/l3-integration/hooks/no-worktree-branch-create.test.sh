@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/no-worktree-branch-create.sh.
+# Tests for the TypeScript no-worktree-branch-create gate.
 # Hook contract: blocks `git worktree add -b|-B|--create-branch ...` calls
 # when a TMB DB exists. Allows worktree adds that attach to existing branches.
 # Silent pass-through for non-Bash, non-worktree commands, and outside TMB.
@@ -8,7 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/no-worktree-branch-create.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/no-worktree-branch-create.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-worktree-branch-create.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

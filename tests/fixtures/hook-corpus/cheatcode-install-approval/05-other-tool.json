@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__cheatcode_search",
+  "tool_input": {
+    "query": "x"
+  },
+  "corpus_expect": "empty"
+}

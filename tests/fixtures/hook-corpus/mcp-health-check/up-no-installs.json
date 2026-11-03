@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "sess-up",
+  "source": "startup",
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "\"event\":\"SessionStart\",\"mcp_alive\":true,\"pgrep_count\":1,\"samples\":1,\"session_id\":\"sess-up\""
+  ]
+}

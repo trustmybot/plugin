@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/agent-spawn-dispatch.sh
+# Tests for the TypeScript agent-spawn-dispatch gate
 #
 # Dispatcher contract:
 #   - Runs the nine Agent-spawn gate hooks in order.
@@ -12,7 +12,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-DISPATCHER="$PLUGIN_ROOT/scripts/hooks/agent-spawn-dispatch.sh"
+DISPATCHER="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-spawn-dispatch.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 # ----- fixture helpers ------------------------------------------------------
 
@@ -122,7 +124,7 @@ rm -rf "$WORK"
 
 # ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----
 
-SHAPE_HOOK="$PLUGIN_ROOT/scripts/hooks/code-reviewer-spawn-prompt-shape.sh"
+SHAPE_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/code-reviewer-spawn-prompt-shape.sh"
 
 test_case "code-reviewer spawn with legacy four anchors but no attempt_n/subagent_session_id is denied"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin"
@@ -193,6 +195,7 @@ sqlite3 "$db" "
   CREATE TABLE repos (name TEXT, path TEXT);
   CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
   CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY, task_id INTEGER, agent_type TEXT, exit_reason TEXT, stop_cause TEXT, started_at TEXT);
   INSERT INTO repos (name, path) VALUES ('fixture', '$WORK');
   INSERT INTO issues (id) VALUES (1);
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
@@ -208,17 +211,21 @@ spawn() {
 out=$(spawn)
 assert_eq "" "$out" "silent pass — no deny, no context"
 
-test_case "rework-limit: a swe spawn after two review FAILs is denied until a newer decision"
+test_case "rework-limit: a swe spawn after two review FAILs is denied until a Human waiver"
 sqlite3 "$db" "
   INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES
     (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');
 " >/dev/null
 out=$(spawn)
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
-assert_contains "$out" "2 review FAILs since its last pass" "rework-limit wording present"
+assert_contains "$out" "task FAILs: 2 review FAILs on the task since its last pass" "rework-limit names the task-FAILs limit"
+assert_contains "$out" 'waive task 1' "rework-limit names the Human waiver"
 sqlite3 "$db" "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');" >/dev/null
 out=$(spawn)
-assert_not_contains "$out" '"permissionDecision":"deny"' "a newer decision lets the spawn through"
+assert_contains "$out" '"permissionDecision":"deny"' "a newer bro decision keeps the spawn denied"
+sqlite3 "$db" "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'human', 'decision', '2026-10-25T12:00:00.000Z');" >/dev/null
+out=$(spawn)
+assert_not_contains "$out" '"permissionDecision":"deny"' "a newer Human decision lets the spawn through"
 rm -rf "$WORK"
 
 # ----- tests: non-Agent tool is a no-op ------------------------------------
@@ -230,57 +237,37 @@ assert_eq "" "$out" "silent no-op for non-Agent tool"
 
 # ----- tests: context union -------------------------------------------------
 
-test_case "context union: real dispatcher merges additionalContext from gate hooks"
-# Drive the REAL dispatcher (copied verbatim) against stub gate hooks named
-# exactly as the dispatcher expects. SCRIPT_DIR resolves to the temp dir, so the
-# shipped union logic is exercised — no reimplemented dispatcher.
-WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
-STUB_HOOKS_DIR="$WORK/hooks"
-mkdir -p "$STUB_HOOKS_DIR"
-cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
+# stub_dispatch <stubs-json> — the real TypeScript dispatcher (dist) on '{}',
+# with each gate named in <stubs-json> replaced by a stub printing its value and
+# every other gate absent, so the shipped union and short-circuit are exercised.
+stub_dispatch() {
+  node --input-type=module -e '
+    const [, mod, stubs] = process.argv;
+    const { agentSpawnDispatch } = await import(mod);
+    const table = JSON.parse(stubs);
+    const find = (n) => (n in table ? () => ({ stdout: `${JSON.stringify(table[n])}\n`, code: 0 }) : undefined);
+    process.stdout.write((await agentSpawnDispatch("{}", process.env, find)).stdout);
+  ' "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks/agent-spawn-dispatch.js" "$1"
+}
 
+test_case "context union: real dispatcher merges additionalContext from gate hooks"
 # First and last gate in the dispatcher's fixed order emit additionalContext;
 # the union must carry both, separated.
-cat > "$STUB_HOOKS_DIR/require-task-spec.sh" <<'EOF'
-#!/usr/bin/env bash
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-A"}}'
-EOF
-cat > "$STUB_HOOKS_DIR/code-reviewer-after-atomic-close.sh" <<'EOF'
-#!/usr/bin/env bash
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-B"}}'
-EOF
-chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/code-reviewer-after-atomic-close.sh"
-
-out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null || true)
+out=$(stub_dispatch '{"require-task-spec":{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"part-A"}},
+  "code-reviewer-after-atomic-close":{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"part-B"}}}' 2>/dev/null || true)
 assert_contains "$out" "part-A" "first context part present"
 assert_contains "$out" "part-B" "second context part present"
 assert_contains "$out" "additionalContext" "result wrapped in additionalContext"
-rm -rf "$WORK"
 
 # ----- tests: deny short-circuits context collection -----------------------
 
 test_case "deny in first gate short-circuits real dispatcher; later context not emitted"
-WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
-STUB_HOOKS_DIR="$WORK/hooks"
-mkdir -p "$STUB_HOOKS_DIR"
-cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
-
 # First gate denies; a later gate emits context that must never be reached.
-cat > "$STUB_HOOKS_DIR/require-task-spec.sh" <<'EOF'
-#!/usr/bin/env bash
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",denyReason:"BLOCKED: first hook denied"}}'
-EOF
-cat > "$STUB_HOOKS_DIR/require-feature-branch-active.sh" <<'EOF'
-#!/usr/bin/env bash
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"should-not-appear"}}'
-EOF
-chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/require-feature-branch-active.sh"
-
-out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null || true)
+out=$(stub_dispatch '{"require-task-spec":{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: first hook denied"}},
+  "require-feature-branch-active":{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"should-not-appear"}}}' 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "deny present"
 assert_contains "$out" "first hook denied" "deny reason from first hook"
 assert_not_contains "$out" "should-not-appear" "later gate context not emitted"
-rm -rf "$WORK"
 
 # ----- tests: tmb:code-reviewer passes every Agent-spawn gate (GH 1641) -------
 

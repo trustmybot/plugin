@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { performance } from 'node:perf_hooks';
+import { noteSpawn, spawnLimit, spawnOptions } from './deadline.js';
 const KILLED_CODE = 124;
 const NOT_FOUND_CODE = 127;
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -92,14 +93,16 @@ export function cliArgs(call) {
     return args;
 }
 function runCli(call, env) {
+    const limit = spawnLimit(call.killAfterMs, 'SIGKILL');
     const r = spawnSync('sqlite3', cliArgs(call), {
         env,
         input: call.sql === undefined ? (call.script ?? '') : undefined,
         stdio: [call.sql === undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         encoding: 'utf8',
         maxBuffer: MAX_BUFFER,
-        ...(call.killAfterMs !== undefined ? { timeout: call.killAfterMs, killSignal: 'SIGKILL' } : {}),
+        ...spawnOptions(limit),
     });
+    noteSpawn(limit, r);
     const stdout = r.stdout ?? '';
     const stderr = r.stderr ?? '';
     const errno = r.error?.code;

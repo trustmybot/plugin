@@ -2,11 +2,14 @@
  * Bash-vs-node parity for the TypeScript hook gates (GH 1692): every corpus
  * payload in tests/fixtures/hook-corpus/<gate>/ gives the same exit code and
  * the same stdout (empty, or deep-equal JSON) through
- * `bash scripts/hooks/<gate>.sh` and `node dist/hooks.js <gate>`, and a gate
- * that audits writes the same audit rows (id and created_at aside). A gate
+ * `node dist/hooks.js <gate>` as the recording of `bash scripts/hooks/<gate>.sh`
+ * in tests/fixtures/hook-golden/<gate>.json (golden.ts), and a gate that audits
+ * writes the same audit rows (id and created_at aside). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
- * (code-reviewer-preflight, code-reviewer-spawn-note, rework-limit,
- * swe-resume-gate, task-overrun-alert), has no bash side and is not in the parity set.
+ * (code-reviewer-preflight, code-reviewer-spawn-note, liveness-alert,
+ * liveness-sentinel, rework-limit, rework-waiver-capture, swe-resume-gate,
+ * task-overrun-alert), has no bash side
+ * and is not in the parity set.
  * The gate × payload × locale runs split across
  * hooks-parity.shard-<k>of<n>.test.ts (GH 1947); shard 1 also runs the
  * whole-corpus checks, and each shard checks its own sandbox stayed untouched.
@@ -16,19 +19,20 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
 import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
+import { GENERIC_CASE_PREFIX, goldenBash, goldenRoots, hasGolden, isRecording } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const MIN_CORPUS = 8;
-const PARITY_GATES = gateNames().filter((gate) => existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)));
+const PARITY_GATES = gateNames().filter((gate) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)) : hasGolden(gate)));
 const LOCALES = ['C', 'en_US.UTF-8', 'UTF-8'];
 const FAKE_UID = 4242424;
 
@@ -65,7 +69,7 @@ function parsedStdout(stdout: string): unknown {
  * MCP dir resolves @huggingface/transformers at the pinned version, and an
  * empty temp data dir, so neither implementation installs anything.
  */
-function readyDepsEnv(scratch: string): NodeJS.ProcessEnv {
+export function readyDepsEnv(scratch: string): NodeJS.ProcessEnv {
   const root = join(scratch, 'ready-root');
   const mcp = join(root, 'mcp/trajectory-server');
   const pkg = join(root, 'node_modules/@huggingface/transformers');
@@ -88,7 +92,7 @@ function readyDepsEnv(scratch: string): NodeJS.ProcessEnv {
  * whose audit rows both sides must write alike, and the payload as fed (the
  * corpus file with its placeholders filled, plus per-payload env).
  */
-interface GateSetup {
+export interface GateSetup {
   env: NodeJS.ProcessEnv;
   cwd?: string;
   auditDb?: string;
@@ -107,7 +111,7 @@ const NOW = '2026-10-11T10:00:00.000Z';
  * @SANDBOX@ and the project's Claude Code slug as @PROJECT_SLUG@; a payload's
  * top-level corpus_env (removed before the run) overrides the env.
  */
-function containmentGuardSetup(scratch: string): GateSetup {
+export function containmentGuardSetup(scratch: string): GateSetup {
   const project = join(scratch, 'project');
   const wt = join(project, '.claude/worktrees/cg-task');
   const db = join(project, '.claude/tmb/trajectory.db');
@@ -199,16 +203,66 @@ interface ParityCase {
 }
 
 /**
- * Gates that write markers, logs or DB rows into the project, so they run in
- * hooks-session-parity.suite.ts, which rebuilds its sandbox before each side.
+ * Gates that write markers, logs or DB rows into the project, or read the
+ * host's processes and installs, so they run in hooks-session-parity.suite.ts
+ * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
+ * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts; remote-id-guard,
+ * which reads a sandbox DB of local issues in
+ * hooks-remote-id-guard-parity.suite.ts; and no-source-edit-from-main, which
+ * reads registered repos and plugin manifests in
+ * hooks-no-source-edit-parity.suite.ts.
  */
 const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'activation-routine',
+  'bro-turn-usage',
   'debug-trajectory',
+  'deferred-tools-drift-warn',
+  'ensure-gitignore',
+  'mcp-health-check',
   'plugin-hooks-marker',
+  'require-feature-branch-active',
+  'require-spawn-effort',
+  'require-task-spec',
   'session-log-capture',
   'session-start-persona',
+  'substrate-preflight',
   'user-prompt-persona',
+  'consultant-persistence-gate',
+  'roundtable-auq-shape',
+  'roundtable-cleanup-postcheck',
+  'roundtable-slash-detect',
+  'code-reviewer-no-worktree',
+  'code-reviewer-spawn-prompt-shape',
+  'code-reviewer-after-atomic-close',
+  'swe-brief-gate',
+  'swe-spawn-bind',
+  'swe-spawn-rollback',
+  'post-task-create-spawn-hint',
+  'agent-arg-matches-caller',
+  'reviewer-identity-observe',
+  'cheatcode-install-approval',
+  'stay-on-base-guard',
+  'branch-up-to-date-with-remote',
+  'no-worktree-branch-create',
+  'no-remote-auth-guard',
+  'prompt-intent-hints',
+  'swe-scope-fence',
+  'orphan-scan',
+  'session-start-prescan',
+  'clean-merged-branch',
+  'close-issue-on-merge',
+  'swe-atomic-close',
+  'post-task-close-rescan',
+  'swe-verification-gate',
+  'post-atomic-close-readme',
+  'agent-spawn-dispatch',
+  'ensure-swe-worktree',
+  'record-swe-spawn',
+  'cleanup-worktree-on-task-close',
+  'worktree-create',
+  'remote-id-guard',
+  'no-source-edit-from-main',
 ]);
 
 function parityCases(): ParityCase[] {
@@ -240,12 +294,20 @@ export function hooksParityShard(k: number, n: number): void {
 
       it('the gates born in TypeScript are the only registered gates without a bash twin', () => {
         assert.deepEqual(gateNames().filter((gate) => !PARITY_GATES.includes(gate)), [
+          'bash-output-trim',
           'code-reviewer-preflight',
           'code-reviewer-spawn-note',
+          'liveness-alert',
+          'liveness-sentinel',
+          'no-prose-in-scratch',
           'rework-limit',
+          'rework-waiver-capture',
+          'session-handoff',
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',
+          'tool-output-size',
+          'worktree-adopt-guard',
         ]);
       });
 
@@ -278,13 +340,15 @@ export function hooksParityShard(k: number, n: number): void {
           ...payloadEnv,
         };
         const db = setup?.auditDb;
-        const before = db ? auditMark(db) : 0;
-        const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, setup?.cwd);
+        const { audit: bashAudit, ...bash } = goldenBash(gate, `${GENERIC_CASE_PREFIX}${basename(file)}`, locale, goldenRoots({ '@PROJECT@': project, '@SCRATCH@': scratch, '@PROJECT_SLUG@': (setup?.cwd ?? project).replace(/[^A-Za-z0-9]/g, '-') }), () => {
+          const start = db ? auditMark(db) : 0;
+          return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, setup?.cwd), audit: db ? auditRowsAfter(db, start) : [] };
+        });
         const middle = db ? auditMark(db) : 0;
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, setup?.cwd);
         assert.equal(node.code, bash.code, 'exit code');
         assert.deepEqual(parsedStdout(node.stdout), parsedStdout(bash.stdout), 'stdout');
-        if (db) assert.deepEqual(auditRowsAfter(db, middle), auditRowsAfter(db, before).slice(0, middle - before), 'audit rows');
+        if (db) assert.deepEqual(auditRowsAfter(db, middle), bashAudit, 'audit rows');
       });
     }
 

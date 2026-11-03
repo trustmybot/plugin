@@ -20,7 +20,7 @@ export function AuditView() {
   const q = useApi<Row[]>('audit?limit=300');
   return (
     <section>
-      <Subhead>Audit feed</Subhead>
+      <Subhead>Audit Feed</Subhead>
       <Loading q={q}>{(rows) => <DataTable rows={rows} columns={AUDIT_COLUMNS} />}</Loading>
     </section>
   );

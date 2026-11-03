@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g5",
+  "source": "startup",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/proj-crlf"
+  },
+  "corpus_cwd": "proj-crlf",
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "proj-crlf/.gitignore"
+}

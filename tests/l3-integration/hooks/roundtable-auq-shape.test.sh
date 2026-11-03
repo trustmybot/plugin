@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/roundtable-auq-shape.sh
+# Tests for the TypeScript roundtable-auq-shape gate
 # Hook validates AUQ shape when a roundtable is awaiting_human + no human vote.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/roundtable-auq-shape.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/roundtable-auq-shape.sh"
 
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true

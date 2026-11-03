@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=30"},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/single/.claude/tmb/trajectory.db"},"corpus_expect":"ensure-swe-worktree: created worktree @SANDBOX@/single/solo/.claude/worktrees/solo for branch feat/solo"}

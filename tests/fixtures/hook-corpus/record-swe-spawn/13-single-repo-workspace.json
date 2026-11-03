@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_r13","tool_input":{"subagent_type":"swe","prompt":"task_id=30"},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/single/.claude/tmb/trajectory.db"},"corpus_expect":"\"repo\":null,\"root_dir\":\"@SANDBOX@/single/solo/.claude/worktrees/solo\""}

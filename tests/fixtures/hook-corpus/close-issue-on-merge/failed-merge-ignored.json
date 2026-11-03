@@ -1,0 +1,1 @@
+{"session_id":"sess-merge","hook_event_name":"PostToolUse","cwd":"@SANDBOX@/project/repo","tool_name":"Bash","tool_input":{"command":"gh pr merge 42 --squash","description":"merge"},"tool_response":"GraphQL: Pull request is not mergeable (mergePullRequest)","corpus_expect":"empty"}

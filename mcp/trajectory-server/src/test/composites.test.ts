@@ -935,7 +935,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
 
   it('dev advancing with unrelated files after the task base does not count: close passes', async () => {
     const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], {
-      devAdvance: ['docs/elsewhere.md', 'scripts/hooks/other.sh'],
+      devAdvance: ['docs/elsewhere.md', 'scripts/hooks/lib/other.sh'],
     });
     try {
       const r = await call(composites.handlers, 'bro_atomic_close', {
@@ -953,7 +953,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
   it('refusal names only the task commit path outside files[], grouped by surface', async () => {
     const { composites, taskId, sha, cleanup } = await setup(
       ['src/a.ts'],
-      ['src/a.ts', 'scripts/hooks/rogue.sh'],
+      ['src/a.ts', 'scripts/hooks/lib/rogue.sh'],
       { devAdvance: ['docs/elsewhere.md'] },
     );
     try {
@@ -962,8 +962,8 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       });
       assert.equal(r.isError, true);
       const out = parse(r);
-      assert.deepEqual(out['extras_by_surface'], { scripts: { count: 1, paths: ['scripts/hooks/rogue.sh'] } });
-      assert.match(out['error'] as string, /scripts \(1\): scripts\/hooks\/rogue\.sh/);
+      assert.deepEqual(out['extras_by_surface'], { scripts: { count: 1, paths: ['scripts/hooks/lib/rogue.sh'] } });
+      assert.match(out['error'] as string, /scripts \(1\): scripts\/hooks\/lib\/rogue\.sh/);
       assert.doesNotMatch(out['error'] as string, /elsewhere/);
       assert.match(out['error'] as string, /scope_waiver_reason/);
     } finally {
@@ -2133,7 +2133,7 @@ describe('task_brief (#300)', () => {
       ],
     } as unknown as WorldModelGraph;
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
-    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'scope' })) as RawResult;
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'scope', response_format: 'detailed' })) as RawResult;
     const out = parse(r) as Record<string, unknown>;
     assert.equal(out['world_model_warning'], undefined);
     const scope = out['scope_world_model'] as Array<{ dir: string; summary: string | null; children: Array<{ path: string }> }>;
@@ -2260,7 +2260,7 @@ describe('task_brief (#300)', () => {
       [longBody],
     );
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'history' })) as RawResult;
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id, section: 'history', response_format: 'detailed' })) as RawResult;
     const out = parse(r) as Record<string, unknown>;
     const disc = out['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
 
@@ -2283,7 +2283,7 @@ describe('task_brief (#300)', () => {
 describe('task_brief sections (GH 1743)', () => {
   const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
   const CORE_KEYS = [
-    'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'effort',
+    'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'worktree_path', 'effort',
     'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
   ];
   const ALL_KEYS = [
@@ -2313,6 +2313,33 @@ describe('task_brief sections (GH 1743)', () => {
     );
     assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'history' })), ['task_discussions']);
     assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'all' })), [...ALL_KEYS].sort(), 'all carries no sections hint');
+    db.close();
+  });
+
+  it('worktree_path is the slug path under the repo when no path is recorded, and the recorded path when one is', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    const branch = db.get<{ branch_id: string }>('SELECT branch_id FROM tasks WHERE id = ?', [id])!.branch_id;
+    const slug = branch.replace(/^[^/]+\//, '');
+    const core = async (): Promise<Record<string, unknown>> => parse(await brief(db, { agent: 'swe', task_id: id, section: 'core' }));
+    assert.equal((await core())['worktree_path'], `/tmp/app/.claude/worktrees/${slug}`);
+
+    db.run('UPDATE tasks SET worktree_path = ?, worktree_adopted = 1 WHERE id = ?', ['/tmp/adopted-session-worktree', id]);
+    assert.equal((await core())['worktree_path'], '/tmp/adopted-session-worktree');
+    db.close();
+  });
+
+  it('worktree_path is null with the rest of the brief intact when the repo path cannot be resolved', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('one', '/tmp/one'), ('two', '/tmp/two')`);
+    const id = seedTask(db, { spec: SPEC, files: ['src/a.ts'], verification: ['true'] });
+    const r = await brief(db, { agent: 'swe', task_id: id, section: 'core' });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    const core = parse(r);
+    assert.equal(core['worktree_path'], null);
+    assert.deepEqual(Object.keys(core).sort(), [...CORE_KEYS, 'sections'].sort());
+    assert.equal(core['spec_body'], SPEC);
+    assert.equal(core['branch_id'], 'fix/1-brief');
     db.close();
   });
 
@@ -2555,6 +2582,9 @@ describe('task_provision (#157)', () => {
       assert.equal(out['git_setup'], 'created');
       assert.equal(out['worktree_path'], join(repoRoot, '.claude', 'worktrees', 'the-thing'));
       assert.equal(out['diagnostic'], undefined);
+
+      const briefed = parse(await call(composites.handlers, 'task_brief', { agent: 'swe', task_id: out['task_id'], section: 'core' }));
+      assert.equal(briefed['worktree_path'], out['worktree_path'], 'task_brief returns the provisioned path');
 
       // Decision discussion written.
       const decision = db.get<{ body: string; author: string }>(
@@ -3288,6 +3318,96 @@ describe('task_provision (#157)', () => {
         rmSync(ws, { recursive: true, force: true });
       }
     });
+
+    it('GH 1731: a branch_id the issue already uses is refused with branch_id_used_on_issue, with and without reuse_existing, changing no ref, worktree or row', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        git(repoRoot, 'branch', 'feat/dup', 'refs/remotes/origin/main');
+        advanceOrigin(repoRoot, git);
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        db.run(
+          `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, commit_sha, created_at, updated_at)
+           VALUES (1, 'feat/dup', '', 'd', 'closed', ?, 'app', 'abc1234', datetime('now'), datetime('now'))`,
+          [SPEC],
+        );
+        const existingId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'feat/dup'`)!.id;
+        const snapshot = () => ({
+          ref: git(repoRoot, 'rev-parse', 'refs/heads/feat/dup'),
+          worktrees: git(repoRoot, 'worktree', 'list', '--porcelain'),
+          tasks: db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c,
+          discussions: db.get<{ c: number }>('SELECT COUNT(*) AS c FROM discussions')!.c,
+          audit: db.get<{ c: number }>('SELECT COUNT(*) AS c FROM audit')!.c,
+        });
+        const before = snapshot();
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        for (const extra of [{}, { reuse_existing: true }]) {
+          const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/dup', extra));
+          assert.equal(r.isError, true);
+          const out = parse(r);
+          assert.equal(out['error'], 'branch_id_used_on_issue', JSON.stringify(out));
+          assert.equal(out['issue_id'], 1);
+          assert.equal(out['branch_id'], 'feat/dup');
+          assert.equal(out['task_id'], existingId);
+          assert.equal(out['status'], 'closed');
+          assert.equal(out['commit_sha'], 'abc1234');
+          assert.match(String(out['message']), new RegExp(`task_reopen\\(task_id=${existingId}\\)`));
+          assert.match(
+            String(out['message']),
+            /pick a new name with branch_id_propose, or call task_provision with base='feat\/dup' to stack on it\./,
+          );
+          assert.match(String(out['message']), /No task row or branch was changed\.$/);
+          assert.deepEqual(snapshot(), before);
+        }
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('GH 1731: the existing task with no commit_sha reports commit_sha null', async () => {
+      const { ws, repoRoot } = makeRepo();
+      try {
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        db.run(
+          `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+           VALUES (1, 'feat/no-sha', '', 'd', 'pending', ?, 'app', datetime('now'), datetime('now'))`,
+          [SPEC],
+        );
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/no-sha')));
+        assert.equal(out['error'], 'branch_id_used_on_issue');
+        assert.equal(out['status'], 'pending');
+        assert.equal(out['commit_sha'], null);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('GH 1731: the same branch_id used by a different issue still provisions', async () => {
+      const { ws, repoRoot } = makeRepo();
+      try {
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+                VALUES (2, 'o2', 'd2', 'open', datetime('now'), datetime('now'))`);
+        db.run(
+          `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+           VALUES (2, 'feat/shared', '', 'd', 'closed', ?, 'app', datetime('now'), datetime('now'))`,
+          [SPEC],
+        );
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/shared'));
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        assert.equal(parse(r)['git_setup'], 'created');
+        assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/shared'`)!.c, 2);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
   });
 
   it('rejects a non-bro caller', async () => {
@@ -3869,6 +3989,42 @@ describe('task_retry and task_reopen cut a missing branch and worktree (GH 1781)
     }
   });
 
+  it('GH 1731: task_retry refuses a new_branch_id the issue already uses with branch_id_used_on_issue, changing no ref, worktree or row', async () => {
+    const { ws, repoRoot, db, git, first, failedTask, retry, taskCount } = setup();
+    try {
+      const id = failedTask('fix/orig', 'main');
+      git(repoRoot, 'branch', 'fix/orig-v2', first);
+      db.run(
+        `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, commit_sha, created_at, updated_at)
+         VALUES (1, 'fix/orig-v2', '', 'd', 'closed', ?, 'app', 'def5678', datetime('now'), datetime('now'))`,
+        [SPEC],
+      );
+      const existingId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/orig-v2'`)!.id;
+      const snapshot = () => ({
+        ref: git(repoRoot, 'rev-parse', 'refs/heads/fix/orig-v2'),
+        worktrees: git(repoRoot, 'worktree', 'list', '--porcelain'),
+        tasks: taskCount(),
+        discussions: db.get<{ c: number }>('SELECT COUNT(*) AS c FROM discussions')!.c,
+        audit: db.get<{ c: number }>('SELECT COUNT(*) AS c FROM audit')!.c,
+      });
+      const before = snapshot();
+      const r = await retry(id, 'fix/orig-v2');
+      assert.equal(r.isError, true);
+      const out = parse(r);
+      assert.equal(out['error'], 'branch_id_used_on_issue', JSON.stringify(out));
+      assert.equal(out['issue_id'], 1);
+      assert.equal(out['branch_id'], 'fix/orig-v2');
+      assert.equal(out['task_id'], existingId);
+      assert.equal(out['status'], 'closed');
+      assert.equal(out['commit_sha'], 'def5678');
+      assert.match(String(out['message']), /^task_retry: .*new_branch_id from branch_id_propose\. No task row or branch was changed\.$/);
+      assert.deepEqual(snapshot(), before);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('SC4: task_reopen creates a branch missing locally and on origin from the base, then its worktree', async () => {
     const { ws, repoRoot, db, handlers, git, tip } = setup();
     try {
@@ -4024,7 +4180,8 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
         [`note ${i}`, at(10 + i)],
       );
     }
-    const disc = (await brief(db, taskId!))['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
+    const detailed = parse((await compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null).handlers['task_brief']!({ agent: 'bro', task_id: taskId!, response_format: 'detailed' })) as RawResult);
+    const disc = detailed['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
     const intent = disc.find((d) => d.kind === 'intent');
     assert.ok(intent);
     assert.equal(intent!.truncated, true);

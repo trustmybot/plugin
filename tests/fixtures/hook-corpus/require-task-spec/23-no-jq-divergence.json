@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=6 go"},"corpus_env":{"PATH":"@PATH_WITHOUT:jq@"},"corpus_expect":"has status=closed","corpus_divergence":{"why":"without jq the .sh reads no subagent_type and allows; the gate needs no jq","bash_expect":"empty"}}

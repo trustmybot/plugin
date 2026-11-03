@@ -1,0 +1,11 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add ../wt feat/behind"
+  },
+  "corpus_cwd": "stale",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad.db"
+  },
+  "corpus_expect": "trajectory DB unavailable — branch-up-to-date-with-remote"
+}

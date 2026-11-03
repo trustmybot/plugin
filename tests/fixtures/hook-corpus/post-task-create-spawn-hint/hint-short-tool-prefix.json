@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__tmb__trajectory-server__task_create_batch","tool_response":{"is_error":false,"content":[{"type":"text","text":"[{\"id\":10,\"branch_id\":\"feat/briefed\"}]"}]},"corpus_expect":"🚀 SWE-spawn hint: task_create_batch created the following tasks."}

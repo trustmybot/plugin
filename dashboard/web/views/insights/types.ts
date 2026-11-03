@@ -1,3 +1,5 @@
+import type { MetricKey } from './params.ts';
+
 export type AgentKey = 'swe' | 'code-reviewer' | 'bro';
 
 export interface Metric {
@@ -23,7 +25,7 @@ export interface AgentStats {
   cache_hit: Metric;
   duration_ms: Metric;
   tool_uses: Metric;
-  histogram: Bucket[];
+  histograms: Record<MetricKey, Bucket[]>;
 }
 
 export interface Outlier {
@@ -48,7 +50,7 @@ export interface SlowCommand extends Metric {
 export interface Insights {
   range: { key: string; since: string | null; until: string };
   filters: { repo: string | null; agent: AgentKey | null; model: string | null; effort: string | null };
-  options: { repos: string[]; models: string[] };
+  options: { repos: string[]; models: string[]; max_task_id?: number | null };
   agents: AgentStats[];
   cost: {
     priced: boolean;
@@ -65,6 +67,38 @@ export interface Insights {
   };
   throughput: Array<{ day: string; closed: number }>;
   outliers: { tokens_out: Outlier[]; context: Outlier[]; duration_ms: DurationOutlier[] };
+}
+
+export interface ServerSlice {
+  key: string;
+  kind: 'range' | 'prev' | 'dates' | 'tasks';
+  since: string | null;
+  until: string | null;
+  from_task: number | null;
+  to_task: number | null;
+}
+
+export interface PerTask {
+  tasks: number;
+  runs: number;
+  tokens_out: number | null;
+  context: number | null;
+  cache_hit: number | null;
+  cost_usd: number | null;
+  unpriced_runs: number;
+}
+
+export interface PeriodInsights extends Insights {
+  slice: ServerSlice;
+  per_task: PerTask;
+}
+
+export interface Comparison {
+  p1: PeriodInsights;
+  p2: PeriodInsights;
+  shared_runs: number;
+  bro_excluded: boolean;
+  options: Insights['options'];
 }
 
 export interface ExploreGroup {

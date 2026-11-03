@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { performance } from 'node:perf_hooks';
+import { noteSpawn, spawnLimit, spawnOptions } from './deadline.js';
 
 type SqliteModule = typeof import('node:sqlite');
 type Database = InstanceType<SqliteModule['DatabaseSync']>;
@@ -120,14 +121,16 @@ export function cliArgs(call: SqliteCall): string[] {
 }
 
 function runCli(call: SqliteCall, env: NodeJS.ProcessEnv): SqliteResult {
+  const limit = spawnLimit(call.killAfterMs, 'SIGKILL');
   const r = spawnSync('sqlite3', cliArgs(call), {
     env,
     input: call.sql === undefined ? (call.script ?? '') : undefined,
     stdio: [call.sql === undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     encoding: 'utf8',
     maxBuffer: MAX_BUFFER,
-    ...(call.killAfterMs !== undefined ? { timeout: call.killAfterMs, killSignal: 'SIGKILL' as const } : {}),
+    ...spawnOptions(limit),
   });
+  noteSpawn(limit, r);
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const errno = (r.error as NodeJS.ErrnoException | undefined)?.code;

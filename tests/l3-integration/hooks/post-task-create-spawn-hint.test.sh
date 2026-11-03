@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/post-task-create-spawn-hint.sh
+# Tests for the TypeScript post-task-create-spawn-hint gate
 # PostToolUse hook on task_create_batch. Injects additionalContext reminding
 # bro to spawn SWE after tasks are created. Tests focus on:
 # - bypass env var
@@ -17,7 +17,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/post-task-create-spawn-hint.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-task-create-spawn-hint.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-post-task-create-spawn-hint.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT
@@ -104,7 +106,7 @@ assert_contains "$out" "branch_id=feat/my-feature" "hint lists branch_id"
 assert_contains "$out" "Step 4" "hint cites tmb_planning Step 4"
 assert_contains "$out" "spawn every created task's SWE in one turn" "hint asks for every SWE spawn in one turn"
 assert_contains "$out" "one Agent call each" "hint asks for one Agent call per task"
-assert_contains "$out" "worktree-create.sh" "hint includes worktree-create pre-create step"
+assert_contains "$out" "dist/hooks.js worktree-create" "hint includes worktree-create pre-create step"
 assert_contains "$out" "CLAUDE_PLUGIN_ROOT" "hint uses CLAUDE_PLUGIN_ROOT variable"
 assert_not_contains "$out" "isolation='worktree'" "hint must not use isolation='worktree' in recipe"
 

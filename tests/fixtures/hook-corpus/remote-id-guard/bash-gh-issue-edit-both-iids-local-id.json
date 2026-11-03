@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh issue edit 4 --title 'see #10'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "#10 → #50 (GitHub)"
+}

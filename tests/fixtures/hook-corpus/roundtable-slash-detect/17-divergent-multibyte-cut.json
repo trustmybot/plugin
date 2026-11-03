@@ -1,0 +1,11 @@
+{
+  "prompt": "/roundtable aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa€ tail",
+  "corpus_divergent": "a multibyte character cut at byte 200: the .sh stores its lone first byte under LC_ALL=C and, in a UTF-8 locale, an empty summary after a sed error; the TypeScript hook stores U+FFFD",
+  "corpus_expect": {
+    "bash": {
+      "C": "61E2\n",
+      "en_US.UTF-8": "sed: RE error: illegal byte sequence"
+    },
+    "ts": "61EFBFBD\n"
+  }
+}

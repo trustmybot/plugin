@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"which one is better for gdpr compliance?","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/fresh/.claude/tmb/trajectory.db"},"corpus_expect":"looks like a `legal` judgment call"}

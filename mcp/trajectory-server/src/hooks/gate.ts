@@ -1,9 +1,11 @@
 /**
  * The contract every TypeScript hook gate implements: the hook payload as read
- * from stdin in, the gate's stdout and exit code out, at once or as a Promise.
+ * from stdin in, the gate's stdout, optional stderr and exit code out, at once
+ * or as a Promise.
  */
 export interface GateResult {
   stdout: string;
+  stderr?: string;
   code: number;
 }
 

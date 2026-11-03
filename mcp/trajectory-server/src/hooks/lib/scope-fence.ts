@@ -46,7 +46,7 @@ function rawElements(json: string): string[] {
 }
 
 /** Whether `sort` collates by the locale's LC_COLLATE table rather than by byte. */
-function localeCollates(env: NodeJS.ProcessEnv): boolean {
+export function localeCollates(env: NodeJS.ProcessEnv): boolean {
   const locale = env.LC_ALL || env.LC_COLLATE || env.LANG || 'C';
   return !locale.includes('/') && locale !== 'C' && locale !== 'POSIX' && existsSync(`/usr/share/locale/${locale}/LC_COLLATE`);
 }

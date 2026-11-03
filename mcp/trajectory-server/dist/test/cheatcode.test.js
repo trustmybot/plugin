@@ -4,33 +4,24 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
+import { cleanEnv } from './cheatcode-stubs.js';
 import { TrajectoryDB } from '../db.js';
 import { cheatcodeTools, projectRootFromDbPath } from '../tools/cheatcode.js';
+import { cheatcodeInstall } from '../tools/cheatcode-install.js';
+import { cheatcodeUninstall } from '../tools/cheatcode-uninstall.js';
 import { sep } from 'node:path';
-// The plugin root on disk — four levels up from dist/test, the same walk the
-// tool's script resolution uses. Carries .claude-plugin/plugin.json, whose
-// version the builtin-version backfill (#111) reads.
+// The plugin root on disk — four levels up from dist/test. Carries
+// .claude-plugin/plugin.json, whose version the builtin-version backfill (#111) reads.
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-// The real cheatcode-uninstall.sh on disk — same resolution the tool uses
-// (dist/test → ../../../../scripts). Run directly so the mcp-deregister branch
-// is exercised on the real dispatch, not a fixtured shortcut.
-const UNINSTALL_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'cheatcode-uninstall.sh');
-const INSTALL_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'cheatcode-install.sh');
-// Run the script with a PATH that has jq/bash coreutils but NO `claude`, so the
-// teardown adapters take their soft-degrade branch deterministically. This lets
-// us assert which dispatch branch (plugin marketplace vs mcp deregister) ran by
+// Run the uninstall engine with a PATH that holds NO `claude`, so the teardown
+// adapters take their soft-degrade branch deterministically. This lets us
+// assert which dispatch branch (plugin marketplace vs mcp deregister) ran by
 // its method + error note, without touching the network or a real CLI.
-function runUninstallScript(candidate) {
+async function runUninstallEngine(candidate) {
     const root = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-uninstall-root-'));
     try {
-        const r = spawnSync('bash', [UNINSTALL_SCRIPT, '--candidate', JSON.stringify(candidate)], {
-            encoding: 'utf8',
-            env: { ...process.env, PATH: '/usr/bin:/bin', TMB_PROJECT_ROOT: root },
-        });
-        assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
-        return JSON.parse(r.stdout);
+        return await cheatcodeUninstall({ candidate }, { projectRoot: root, env: cleanEnv({ PATH: '/usr/bin:/bin' }) });
     }
     finally {
         rmSync(root, { recursive: true, force: true });
@@ -370,10 +361,10 @@ describe('cheatcode_install', () => {
         return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
     }
     // Offline proof of the marketplace-ref fix (#108), un-fixtured per #109: run
-    // the REAL script with a stubbed `claude` on PATH that records every argv to a
-    // file. The script must register the source URL as a marketplace, then install
+    // the REAL install engine with a stubbed `claude` on PATH that records every
+    // argv to a file. It must register the source URL as a marketplace, then install
     // by <name>@<marketplace> — and must NEVER pass the bare URL to `plugin install`.
-    it('marketplace install: registers the URL then installs name@marketplace, never the bare URL', () => {
+    it('marketplace install: registers the URL then installs name@marketplace, never the bare URL', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-'));
         const argvLog = join(dir, 'argv.log');
         const fakeClaude = join(dir, 'claude');
@@ -392,26 +383,10 @@ describe('cheatcode_install', () => {
         chmodSync(fakeClaude, 0o755);
         try {
             const url = 'https://github.com/x/pdf-plugin.git';
-            const r = spawnSync('bash', [
-                INSTALL_SCRIPT,
-                '--candidate',
-                JSON.stringify({ name: 'pdf-plugin', kind: 'plugin', source_url: url }),
-            ], {
-                encoding: 'utf8',
-                // Prepend the stub dir so its `claude` shadows any real CLI, while
-                // keeping the inherited PATH so jq/timeout still resolve. No
-                // TMB_CHEATCODE_INSTALL_FIXTURE and a CWD with no default fixture file,
-                // so the live marketplace adapter actually runs against the stub.
-                env: {
-                    ...process.env,
-                    PATH: `${dir}:${process.env['PATH'] ?? ''}`,
-                    TMB_CHEATCODE_INSTALL_FIXTURE: '',
-                    TMB_PROJECT_ROOT: dir,
-                },
-                cwd: dir,
-            });
-            assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
-            const out = JSON.parse(r.stdout);
+            // The stub dir shadows any real CLI. No TMB_CHEATCODE_INSTALL_FIXTURE and a
+            // project with no default fixture file, so the live marketplace adapter
+            // actually runs against the stub.
+            const out = await cheatcodeInstall({ candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: url } }, { projectRoot: dir, env: cleanEnv({ PATH: `${dir}:/usr/bin:/bin` }) });
             assert.equal(out.installed, true, 'stubbed install reports installed');
             const calls = readFileSync(argvLog, 'utf8').trim().split('\n');
             const addCall = calls.find((c) => c.startsWith('plugin marketplace add '));
@@ -430,10 +405,10 @@ describe('cheatcode_install', () => {
         }
     });
     // GH 1885: the candidate carries only name + source_url, and a source URL is
-    // not a run command, so an mcp-kind install fails closed. The REAL script runs
-    // with a stubbed `claude` on PATH that records every argv: no `mcp add`, no
-    // plugin marketplace call, no .mcp.json.
-    it('mcp kind fails closed: no claude mcp add, no plugin marketplace add/install, no .mcp.json', () => {
+    // not a run command, so an mcp-kind install fails closed. The REAL install
+    // engine runs with a stubbed `claude` on PATH that records every argv: no
+    // `mcp add`, no plugin marketplace call, no .mcp.json.
+    it('mcp kind fails closed: no claude mcp add, no plugin marketplace add/install, no .mcp.json', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-mcp-'));
         const argvLog = join(dir, 'argv.log');
         const fakeClaude = join(dir, 'claude');
@@ -446,26 +421,11 @@ describe('cheatcode_install', () => {
         chmodSync(fakeClaude, 0o755);
         try {
             const url = 'https://github.com/x/pdf-mcp.git';
-            const r = spawnSync('bash', [
-                INSTALL_SCRIPT,
-                '--candidate',
-                JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: url }),
-            ], {
-                encoding: 'utf8',
-                env: {
-                    ...process.env,
-                    PATH: `${dir}:${process.env['PATH'] ?? ''}`,
-                    TMB_CHEATCODE_INSTALL_FIXTURE: '',
-                    TMB_PROJECT_ROOT: dir,
-                },
-                cwd: dir,
-            });
-            assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
-            const out = JSON.parse(r.stdout);
+            const out = await cheatcodeInstall({ candidate: { name: 'pdf-mcp', kind: 'mcp', source_url: url } }, { projectRoot: dir, env: cleanEnv({ PATH: `${dir}:/usr/bin:/bin` }) });
             assert.equal(out.method, 'mcp-register', 'mcp kind emits the mcp-register method');
             assert.equal(out.installed, false, 'a source URL is never a run command');
             assert.equal(out.version, null);
-            assert.ok(out.error && /run-command/.test(out.error), `run-command error: ${out.error}`);
+            assert.ok(typeof out.error === 'string' && /run-command/.test(out.error), `run-command error: ${out.error}`);
             assert.ok(!existsSync(join(dir, '.mcp.json')), 'no .mcp.json is written');
             const calls = existsSync(argvLog)
                 ? readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean)
@@ -477,31 +437,20 @@ describe('cheatcode_install', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     });
-    // Soft-degrade proof: no `claude` CLI on PATH, mcp kind, no fixture. The script
-    // must not crash — it reports a clean not-installed result with a follow-up note.
-    it('mcp kind soft-degrades when the claude CLI is absent', () => {
+    // Soft-degrade proof: no `claude` CLI on PATH, mcp kind, no fixture. The engine
+    // must not throw — it reports a clean not-installed result with a follow-up note.
+    it('mcp kind soft-degrades when the claude CLI is absent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-mcp-degrade-'));
-        // A PATH carrying only the dirs that hold jq/bash coreutils, minus any claude.
         const minimalPath = (process.env['PATH'] ?? '')
             .split(':')
             .filter((p) => !existsSync(join(p, 'claude')))
             .join(':');
         try {
-            const r = spawnSync('bash', [
-                INSTALL_SCRIPT,
-                '--candidate',
-                JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: 'https://github.com/x/pdf-mcp.git' }),
-            ], {
-                encoding: 'utf8',
-                env: { ...process.env, PATH: minimalPath, TMB_CHEATCODE_INSTALL_FIXTURE: '', TMB_PROJECT_ROOT: dir },
-                cwd: dir,
-            });
-            assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
-            const out = JSON.parse(r.stdout);
+            const out = await cheatcodeInstall({ candidate: { name: 'pdf-mcp', kind: 'mcp', source_url: 'https://github.com/x/pdf-mcp.git' } }, { projectRoot: dir, env: cleanEnv({ PATH: minimalPath }) });
             assert.equal(out.method, 'mcp-register');
             assert.equal(out.installed, false, 'no CLI → not installed');
             assert.equal(out.version, null);
-            assert.ok(out.error && /run-command|follow-up/i.test(out.error), `degrade note: ${out.error}`);
+            assert.ok(typeof out.error === 'string' && /run-command|follow-up/i.test(out.error), `degrade note: ${out.error}`);
         }
         finally {
             rmSync(dir, { recursive: true, force: true });
@@ -585,7 +534,7 @@ describe('cheatcode_install', () => {
         const db = tempDB();
         const tools = cheatcodeTools(db);
         // The fixture carries the attachment target: feature-dev → swe,
-        // code-review → code-reviewer. The script passes it through, the handler
+        // code-review → code-reviewer. The install engine passes it through, the handler
         // records it on cheatcode_attachments.target.
         const featureDev = withFixture(JSON.stringify({
             installed: true,
@@ -709,7 +658,7 @@ describe('cheatcode_install', () => {
         // No row, no attachment — the orphan never reaches the install.
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n, before, 'no cheatcodes row written for a rejected orphan');
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`).n, 0, 'no attachment row written for a rejected orphan');
-        // No install audit row either — the script never forked.
+        // No install audit row either — the install engine never ran.
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_install'`).n, 0, 'no install audit row for a rejected orphan');
     });
     it('mcp/plugin with no target still installs (exempt from the orphan guard)', async () => {
@@ -844,7 +793,7 @@ describe('cheatcode_install', () => {
         try {
             const tools = cheatcodeTools(db);
             // Raw install with NO preceding cheatcode_approve — the server-side gate
-            // must refuse before the script forks.
+            // must refuse before the install engine runs.
             const r = await call(tools.handlers, 'cheatcode_install', {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
@@ -1501,6 +1450,95 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
             cleanup();
         }
     });
+    describe('attaching a new target to an already-registered cheatcode (GH 2121)', () => {
+        const CANDIDATE = { name: 'typescript-lsp', kind: 'plugin', source_url: 'https://github.com/x/typescript-lsp' };
+        function registerUnattached(db) {
+            const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, scope, status, installed_at)
+         VALUES (?, 'plugin', 'external', 'reconciled', ?, NULL, '1.0.0', 'project-local', 'active', 'then')`, [CANDIDATE.name, CANDIDATE.source_url]);
+            return Number(res.lastInsertRowid);
+        }
+        function attachmentCount(db, id, target) {
+            return db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ? AND target = ?`, [id, target]).n;
+        }
+        function withAttachEnv(body) {
+            const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+            process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+            const { root, db, cleanup } = tempProject();
+            const mf = withManifest({ name: CANDIDATE.name, lsp: { command: 'typescript-language-server' } });
+            process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+            const id = registerUnattached(db);
+            return body({ root, db, id }).finally(() => {
+                delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+                delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+                if (prev === undefined)
+                    delete process.env['CLAUDE_PLUGIN_ROOT'];
+                else
+                    process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+                mf.cleanup();
+                db.close();
+                cleanup();
+            });
+        }
+        it('approved target=swe materializes the tool grant, records one attachment, and uninstall reverses it', () => withAttachEnv(async ({ root, db, id }) => {
+            const snapshot = pluginRepoSnapshot();
+            const rowBefore = db.get('SELECT * FROM cheatcodes WHERE id = ?', [id]);
+            const tools = cheatcodeTools(db);
+            const r = await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            assert.notEqual(r.isError, true, `attach errored: ${r.content[0]?.text}`);
+            const out = parse(r);
+            assert.equal(out['attached'], true);
+            assert.equal(out['installed'], false);
+            assert.equal(out['materialized'].length, 1);
+            const localSwe = join(root, '.claude', 'agents', 'swe.md');
+            assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+            const toolsLine = readFileSync(localSwe, 'utf8').match(/^tools:\s*(.*)$/m)[1];
+            assert.ok(toolsLine.split(',').map((s) => s.trim()).includes('LSP'), `LSP granted, got: ${toolsLine}`);
+            assert.equal(attachmentCount(db, id, 'swe'), 1, 'exactly one swe attachment row');
+            assert.deepEqual(db.get('SELECT * FROM cheatcodes WHERE id = ?', [id]), rowBefore, 'cheatcodes row unchanged on attach');
+            const audit = db.get(`SELECT content_json FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id DESC LIMIT 1`);
+            assert.ok(audit, 'attach audit row written');
+            assert.equal(JSON.parse(audit.content_json)['attached'], true);
+            assertPluginRepoUntouched(snapshot);
+            const unfxDir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-unfx-'));
+            const unfx = join(unfxDir, 'uninstall.json');
+            writeFileSync(unfx, JSON.stringify({ removed: true, error: null }));
+            process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = unfx;
+            try {
+                await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+            }
+            finally {
+                rmSync(unfxDir, { recursive: true, force: true });
+            }
+            const afterTools = readFileSync(localSwe, 'utf8').match(/^tools:\s*(.*)$/m)[1].split(',').map((s) => s.trim());
+            assert.ok(!afterTools.includes('LSP'), 'uninstall removed the LSP grant');
+            assert.ok(afterTools.includes('Read'), 'original tools preserved through uninstall');
+        }));
+        it('refuses the attach without an approval record and writes no file or attachment row', () => withAttachEnv(async ({ root, db, id }) => {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            assert.equal(r.isError, true, 'unapproved attach refused');
+            assert.match(parse(r)['error'], /no approval on record/);
+            assert.ok(!existsSync(join(root, '.claude', 'agents', 'swe.md')), 'no agent md written');
+            assert.equal(attachmentCount(db, id, 'swe'), 0, 'no attachment row');
+        }));
+        it('a repeat call for an attached target, or a call with no target, is an idempotent no-op', () => withAttachEnv(async ({ root, db, id }) => {
+            const tools = cheatcodeTools(db);
+            const noTarget = parse(await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE }));
+            assert.equal(noTarget['idempotent'], true);
+            assert.ok(!existsSync(join(root, '.claude', 'agents')), 'no-target call wrote no agent md');
+            assert.equal(db.get('SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ?', [id]).n, 0);
+            await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            const localSwe = join(root, '.claude', 'agents', 'swe.md');
+            const bodyBefore = readFileSync(localSwe, 'utf8');
+            const auditsBefore = db.get('SELECT COUNT(*) AS n FROM audit WHERE event_type = \'cheatcode_installed\'').n;
+            const repeat = parse(await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' }));
+            assert.equal(repeat['idempotent'], true);
+            assert.equal(repeat['attached'], undefined);
+            assert.equal(readFileSync(localSwe, 'utf8'), bodyBefore, 'agent md unchanged');
+            assert.equal(attachmentCount(db, id, 'swe'), 1, 'still exactly one swe attachment row');
+            assert.equal(db.get('SELECT COUNT(*) AS n FROM audit WHERE event_type = \'cheatcode_installed\'').n, auditsBefore, 'no new audit row');
+        }));
+    });
     it('no target: a skill install is rejected and writes no agent md (orphan guard)', async () => {
         const prev = process.env['CLAUDE_PLUGIN_ROOT'];
         process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
@@ -1625,20 +1663,20 @@ describe('cheatcode_uninstall', () => {
             cleanup();
         }
     });
-    it('mcp kind dispatches to the claude mcp remove deregister path (method mcp-deregister), distinct from plugin marketplace', () => {
-        // Real script, no fixture, no `claude` on PATH → both adapters soft-degrade.
+    it('mcp kind dispatches to the claude mcp remove deregister path (method mcp-deregister), distinct from plugin marketplace', async () => {
+        // Real engine, no fixture, no `claude` on PATH → both adapters soft-degrade.
         // The mcp branch must produce method 'mcp-deregister' with an mcp-flavoured
         // error, while the plugin branch produces 'marketplace' — proving the
         // dispatch split routes mcp to the deregister adapter, not marketplace.
-        const mcp = runUninstallScript({
+        const mcp = await runUninstallEngine({
             name: 'serena',
             kind: 'mcp',
             source_url: 'https://github.com/x/serena',
         });
         assert.equal(mcp.method, 'mcp-deregister');
         assert.equal(mcp.removed, false);
-        assert.ok(mcp.error && /mcp/i.test(mcp.error), `mcp branch error mentions mcp: ${mcp.error}`);
-        const plugin = runUninstallScript({
+        assert.ok(typeof mcp.error === 'string' && /mcp/i.test(mcp.error), `mcp branch error mentions mcp: ${mcp.error}`);
+        const plugin = await runUninstallEngine({
             name: 'pdf-plugin',
             kind: 'plugin',
             source_url: 'https://github.com/x/pdf',
@@ -2094,7 +2132,7 @@ describe('cheatcodes lookups qualify by more than name (natural key is (name, ki
         assert.deepEqual(offenders, [], 'every cheatcodes lookup by name must also qualify by kind, origin or source_url');
     });
 });
-describe('cheatcode scripts resolve fixtures in the project root, not the server cwd (GH 1553)', () => {
+describe('cheatcode engines resolve fixtures in the project root, not the server cwd (GH 1553)', () => {
     const FIXTURE_ENV = [
         'TMB_CHEATCODE_SEARCH_FIXTURE',
         'TMB_CHEATCODE_VET_FIXTURE',

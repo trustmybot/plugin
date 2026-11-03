@@ -1,0 +1,953 @@
+{
+  "allow-a-force-push-left-to-git-guards.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-a-push-named-in-commit-message.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-b-gh-api-get.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-b-gh-pr-view.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-c-relative-in-worktree.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-c-scratchpad.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-d-nested-claude-md-prompt-bearing.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-d-prompt-bearing.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-d-src-edit.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-e-prompt-bearing-lift.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-e-read-of-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-edit-without-a-path.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-f-empty-files.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-f-listed-file.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-f-tests-entry-covers-tests.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-g-prompt-bearing-lift.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-g-variable-set-in-command.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-malformed-record.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-record-of-another-session.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-record-time-not-octal.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-session-with-a-slash.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-stale-record.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-h-window-not-octal.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-heredoc-data-body.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-db-edit-outside.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-swe-bash-push.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-swe-edit-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-read-tool.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "context-f-outside-files.json": {
+    "C": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: lib/util.ts is outside this task's files[] (README.md, Zeta, _gen, docs/guide.md, src, tests/l3); list it and why in your report\"}}\n"
+    },
+    "en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: lib/util.ts is outside this task's files[] (_gen, docs/guide.md, README.md, src, tests/l3, Zeta); list it and why in your report\"}}\n"
+    }
+  },
+  "context-f-two-paths.json": {
+    "C": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: lib/a.ts is outside this task's files[] (README.md, Zeta, _gen, docs/guide.md, src, tests/l3); list it and why in your report; lib/b.ts is outside this task's files[] (README.md, Zeta, _gen, docs/guide.md, src, tests/l3); list it and why in your report\"}}\n"
+    },
+    "en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: lib/a.ts is outside this task's files[] (_gen, docs/guide.md, README.md, src, tests/l3, Zeta); list it and why in your report; lib/b.ts is outside this task's files[] (_gen, docs/guide.md, README.md, src, tests/l3, Zeta); list it and why in your report\"}}\n"
+    }
+  },
+  "context-h-bypass-after-deny.json": {
+    "C,en_US.UTF-8": {
+      "audit": [
+        {
+          "branch_id": null,
+          "content_json": "{\"tool\":\"Edit\",\"path\":\"@SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts\",\"denied_gate\":\"containment-guard\",\"denied_at\":\"<ts>\",\"session_id\":\"sb-h\",\"task_id\":10}",
+          "event_type": "hook_block_bypassed",
+          "from_node": "hook:swe-boundary",
+          "issue_id": 3,
+          "summary": "Edit to src/a.ts after containment-guard denied a Bash write to it"
+        }
+      ],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: Edit to @SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts follows a containment-guard Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool.\"}}\n"
+    }
+  },
+  "context-h-prompt-bearing-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [
+        {
+          "branch_id": null,
+          "content_json": "{\"tool\":\"Edit\",\"path\":\"@SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md\",\"denied_gate\":\"swe-boundary\",\"denied_at\":\"<ts>\",\"session_id\":\"sb-h\",\"task_id\":11}",
+          "event_type": "hook_block_bypassed",
+          "from_node": "hook:swe-boundary",
+          "issue_id": 3,
+          "summary": "Edit to agents/swe.md after swe-boundary denied a Bash write to it"
+        }
+      ],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: Edit to @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md follows a swe-boundary Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool.\"}}\n"
+    }
+  },
+  "context-h-relative-target.json": {
+    "C,en_US.UTF-8": {
+      "audit": [
+        {
+          "branch_id": null,
+          "content_json": "{\"tool\":\"Edit\",\"path\":\"src/b.ts\",\"denied_gate\":\"swe-boundary\",\"denied_at\":\"<ts>\",\"session_id\":\"sb-h\",\"task_id\":10}",
+          "event_type": "hook_block_bypassed",
+          "from_node": "hook:swe-boundary",
+          "issue_id": 3,
+          "summary": "Edit to src/b.ts after swe-boundary denied a Bash write to it"
+        }
+      ],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: Edit to src/b.ts follows a swe-boundary Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool.\"}}\n"
+    }
+  },
+  "context-h-window-octal.json": {
+    "C,en_US.UTF-8": {
+      "audit": [
+        {
+          "branch_id": null,
+          "content_json": "{\"tool\":\"Edit\",\"path\":\"@SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts\",\"denied_gate\":\"containment-guard\",\"denied_at\":\"<ts>\",\"session_id\":\"sb-h\",\"task_id\":10}",
+          "event_type": "hook_block_bypassed",
+          "from_node": "hook:swe-boundary",
+          "issue_id": 3,
+          "summary": "Edit to src/a.ts after containment-guard denied a Bash write to it"
+        }
+      ],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: Edit to @SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts follows a containment-guard Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool.\"}}\n"
+    }
+  },
+  "context-h-window-zero-means-default.json": {
+    "C,en_US.UTF-8": {
+      "audit": [
+        {
+          "branch_id": null,
+          "content_json": "{\"tool\":\"Edit\",\"path\":\"@SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts\",\"denied_gate\":\"containment-guard\",\"denied_at\":\"<ts>\",\"session_id\":\"sb-h\",\"task_id\":10}",
+          "event_type": "hook_block_bypassed",
+          "from_node": "hook:swe-boundary",
+          "issue_id": 3,
+          "summary": "Edit to src/a.ts after containment-guard denied a Bash write to it"
+        }
+      ],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: Edit to @SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts follows a containment-guard Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool.\"}}\n"
+    }
+  },
+  "deny-a-git-dash-c-push.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "deny-a-git-push-after-cd.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "deny-a-git-push.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "deny-b-gh-api-post.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "deny-b-gh-pr-create.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "deny-b-glab-mr-merge.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "deny-c-multiedit-outside.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may only edit files inside its assigned worktree (@SANDBOX@/project/.claude/worktrees/sb-task) of task 10. Target '@SANDBOX@/outside/y.txt' is outside the worktree. Scratch files go in this session's scratchpad, @CLAUDE_TMP@/<project>/<session_id>/scratchpad/.\"}}\n"
+    }
+  },
+  "deny-c-outside-worktree.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may only edit files inside its assigned worktree (@SANDBOX@/project/.claude/worktrees/sb-task) of task 10. Target '@SANDBOX@/outside/x.txt' is outside the worktree. Scratch files go in this session's scratchpad, @CLAUDE_TMP@/<project>/<session_id>/scratchpad/.\"}}\n"
+    }
+  },
+  "deny-c-scratch-hint-names-the-dir.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may only edit files inside its assigned worktree (@SANDBOX@/project/.claude/worktrees/sb-task) of task 10. Target '@SANDBOX@/outside/z.txt' is outside the worktree. Scratch files go in this session's scratchpad, @SCRATCH@/@SESSION@/scratchpad/.\"}}\n"
+    }
+  },
+  "deny-c-scratchpad-of-another-session.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may only edit files inside its assigned worktree (@SANDBOX@/project/.claude/worktrees/sb-task) of task 10. Target '@SCRATCH@/@SESSION@/scratchpad/notes.md' is outside the worktree. Scratch files go in this session's scratchpad, @CLAUDE_TMP@/<project>/<session_id>/scratchpad/.\"}}\n"
+    }
+  },
+  "deny-d-agents.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "deny-d-dot-claude-rules.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "deny-d-notebook-template.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "deny-d-root-claude-md-prompt-bearing.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "deny-d-root-claude-md.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-task/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "deny-d-skill.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "deny-db-error.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — swe-boundary could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "deny-e-cp-into-other-worktree-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/x.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-e-glob-loop-over-agents.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: a loop or glob over @SANDBOX@/project/.claude/worktrees/sb-task/agents reaches prompt-surface paths (@SANDBOX@/project/.claude/worktrees/sb-task/agents/*.md); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.\"}}\n"
+    }
+  },
+  "deny-e-redirect-into-agents.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-e-root-claude-md-prompt-bearing.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "deny-e-tee-skill.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/foo/SKILL.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-g-variable-target.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$OUT\\\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.\"}}\n"
+    }
+  },
+  "deny-loop-back-edge-for.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/s/SKILL.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-loop-back-edge-reaches-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/p.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-no-db-edit-surface.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "deny-unresolved-ctx-bash-surface-by-branch.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/a.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "deny-unresolved-ctx-edit.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe-boundary cannot resolve this swe's worktree: no task_id: the spawn transcript @SANDBOX@/tr/task-none.jsonl carries no task_id=<N>. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: @SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts. Report this to bro.\"}}\n"
+    }
+  },
+  "deny-unresolved-ctx-repo.json": {
+    "C,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: swe-boundary cannot resolve this swe's worktree: task 12's repo 'ghost' has no repos row with a path. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: @SANDBOX@/project/.claude/worktrees/sb-task/src/a.ts. Report this to bro.\"}}\n"
+    }
+  },
+  "generic/allow-a-force-push-left-to-git-guards.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-a-push-named-in-commit-message.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-b-gh-api-get.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-b-gh-pr-view.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-c-relative-in-worktree.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-c-scratchpad.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-d-nested-claude-md-prompt-bearing.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/docs/CLAUDE.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/allow-d-prompt-bearing.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/allow-d-src-edit.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-e-prompt-bearing-lift.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/new.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/allow-e-read-of-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-edit-without-a-path.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-f-empty-files.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-f-listed-file.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-f-tests-entry-covers-tests.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-g-prompt-bearing-lift.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$OUT\\\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.\"}}\n"
+    }
+  },
+  "generic/allow-g-variable-set-in-command.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-malformed-record.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-record-of-another-session.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-record-time-not-octal.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-session-with-a-slash.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-stale-record.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-h-window-not-octal.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-heredoc-data-body.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-no-db-edit-outside.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-non-swe-bash-push.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-non-swe-edit-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-read-tool.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-f-outside-files.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-f-two-paths.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-h-bypass-after-deny.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-h-prompt-bearing-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/context-h-relative-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-h-window-octal.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/context-h-window-zero-means-default.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-a-git-dash-c-push.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "generic/deny-a-git-push-after-cd.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "generic/deny-a-git-push.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).\"}}\n"
+    }
+  },
+  "generic/deny-b-gh-api-post.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "generic/deny-b-gh-pr-create.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "generic/deny-b-glab-mr-merge.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.\"}}\n"
+    }
+  },
+  "generic/deny-c-multiedit-outside.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-c-outside-worktree.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-c-scratch-hint-names-the-dir.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-c-scratchpad-of-another-session.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-d-agents.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/deny-d-dot-claude-rules.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/.claude/rules/style.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/deny-d-notebook-template.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/templates/a.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/deny-d-root-claude-md-prompt-bearing.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "generic/deny-d-root-claude-md.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-task/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "generic/deny-d-skill.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/x/SKILL.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/deny-db-error.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-e-cp-into-other-worktree-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/@SANDBOX@/project/.claude/worktrees/sb-prompt/agents/x.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-e-glob-loop-over-agents.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: a loop or glob over @SANDBOX@/project/.claude/worktrees/sb-task/agents reaches prompt-surface paths (@SANDBOX@/project/.claude/worktrees/sb-task/agents/*.md); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.\"}}\n"
+    }
+  },
+  "generic/deny-e-redirect-into-agents.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-e-root-claude-md-prompt-bearing.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: @SANDBOX@/project/.claude/worktrees/sb-prompt/CLAUDE.md. Propose the change in your report; the Human applies it.\"}}\n"
+    }
+  },
+  "generic/deny-e-tee-skill.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/foo/SKILL.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-g-variable-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$OUT\\\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.\"}}\n"
+    }
+  },
+  "generic/deny-loop-back-edge-for.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/skills/s/SKILL.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-loop-back-edge-reaches-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/p.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-no-db-edit-surface.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.\"}}\n"
+    }
+  },
+  "generic/deny-unresolved-ctx-bash-surface-by-branch.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, >|, &>, exec N>, heredoc into a redirect, tee, tee -a, sed -i, perl -i, dd of=, truncate, cp, mv, install, rsync, git mv, ln, mkdir, rm, touch, tar -C / make -C / env -C / npm --prefix, git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir, git init <dir> / format-patch -o / archive -o / checkout-index --prefix, python -c / node -e / perl -e / ruby -e with a write mode, a program fed to python / node / perl / ruby / sh through a heredoc, find -exec / -execdir / -ok / -delete / -fprint, fd -x / -X, xargs fed by find or fd). Target: @SANDBOX@/project/.claude/worktrees/sb-task/agents/a.md. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.\"}}\n"
+    }
+  },
+  "generic/deny-unresolved-ctx-edit.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-unresolved-ctx-repo.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  }
+}

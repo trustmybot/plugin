@@ -1,0 +1,10 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__cheatcode_install",
+  "tool_input": {
+    "candidate": {
+      "name": "x",
+      "kind": "skill"
+    }
+  },
+  "corpus_expect": "BLOCKED: cheatcode_install requires a candidate.source_url"
+}

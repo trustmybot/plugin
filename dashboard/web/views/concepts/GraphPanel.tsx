@@ -14,10 +14,10 @@ const EDGE_STYLE: Record<string, { dash?: string; label: string }> = {
 };
 
 const LEGEND: Array<[string, string]> = [
-  ['calls', 'calls'],
-  ['imports', 'imports'],
-  ['runs', 'runs or sources'],
-  ['then', 'then (next step)'],
+  ['calls', 'Calls'],
+  ['imports', 'Imports'],
+  ['runs', 'Runs or Sources'],
+  ['then', 'Then (Next Step)'],
 ];
 
 const DIR_HUES = [
@@ -103,7 +103,7 @@ export function GraphPanel({
             <span className={`font-mono text-xs break-all ${MUTED}`}>{pathOf(picked.id)}</span>
             <CopyButton value={pathOf(picked.id)} label={`Copy ${pathOf(picked.id)}`} />
           </span>
-          {canExpand && <button type="button" className={TARGET} onClick={onExpand}>Show neighbours</button>}
+          {canExpand && <button type="button" className={TARGET} onClick={onExpand}>Show Neighbours</button>}
         </BoxRow>
       )}
       <div ref={box} className="max-h-[70vh] overflow-auto border-t border-(--borderColor-muted) bg-canvas-inset">

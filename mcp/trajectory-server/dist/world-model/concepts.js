@@ -9,7 +9,7 @@ import { keywordSearchSymbols, outsideConceptLane, symbolById } from '../symbol-
 import { splitWords, STOPWORDS } from '../parsing/extract.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { CLAIMS, CONCEPT_KINDS, HANDOFFS, parseStoredReport } from '../success-criteria.js';
-import { HAS_PASS_SQL } from '../tools/lifecycle.js';
+import { HAS_PASS_SQL } from '../review-sql.js';
 import { insertAudit } from '../tools/audit.js';
 export { CLAIMS, CONCEPT_KINDS, HANDOFFS };
 export const DERIVED_LABEL = 'derived, unverified';

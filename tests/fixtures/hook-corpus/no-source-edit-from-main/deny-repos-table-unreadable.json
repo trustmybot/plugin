@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Write","tool_input":{"file_path":"@SANDBOX@/project/checkout/src/x.ts","content":"x"},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/norepos/.claude/tmb/trajectory.db"},"corpus_expect":"trajectory DB unavailable — no-source-edit-from-main could not read"}

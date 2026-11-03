@@ -2,7 +2,7 @@
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync as existsSync3, readFileSync as readFileSync5, statSync as statSync2 } from "node:fs";
-import { extname, join as join8, normalize, sep as sep3 } from "node:path";
+import { extname, join as join9, normalize, sep as sep4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
@@ -524,14 +524,17 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop, SubagentStop, SessionStart, UserPromptSubmit or WorktreeCreate): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, as Stop), `decision` (`allow`, `deny`, or `failed` on a WorktreeCreate that exited non-zero), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_denied", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`) or `dispatch.sh` (the headless shim) returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or its own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch` from both, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
   { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_closed_from_remote", writers: ["bro"], description: "`issue_reconcile_remote` (`reconcileRemoteCloses`, `sync/issue-reconcile.ts`) closed an open local issue because its linked GitHub/GitLab twin reports closed and the issue has no live task; one row per close, in the close's transaction, on the issue, from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_remote_closed_local_open", writers: ["bro"], description: "`issue_reconcile_remote` found an open local issue whose linked remote twin is closed but left it open because tasks of it are still live (`pending`/`running`/`needs_validation`/`completed`); one row per issue and blocking task set (a rerun with the same `blocking_task_ids` writes none), from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`, `blocking_task_ids`; the `issues_open_after_remote_close` contract reads it" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
@@ -570,6 +573,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
   { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
   { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
@@ -582,7 +586,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -695,7 +699,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 55;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1255,6 +1259,15 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3100,6 +3113,78 @@ function migrateV51toV52(db) {
     throw err3;
   }
 }
+function migrateV52toV53(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV53toV54(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "worktree_path")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db, "tasks", "worktree_adopted")) {
+        db.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV54toV55(db) {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -4043,6 +4128,21 @@ function symbolById(db, id) {
 // ../mcp/trajectory-server/src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
 
+// ../mcp/trajectory-server/src/review-sql.ts
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
 // ../mcp/trajectory-server/src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
 function normalizeAgent(name) {
@@ -4160,6 +4260,16 @@ async function topKByCosine(db, table, query, k, filterParams = []) {
   return scored.slice(0, k);
 }
 
+// ../mcp/trajectory-server/src/hooks/ensure-mcp-deps-installed.ts
+import { basename as basename3, delimiter, dirname as dirname4, isAbsolute as isAbsolute4, join as join7, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
+
+// ../mcp/trajectory-server/src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// ../mcp/trajectory-server/src/hooks/ensure-mcp-deps-installed.ts
+var MCP_REL = join7("mcp", "trajectory-server");
+var STAGING_STALE_MS = 60 * 60 * 1e3;
+
 // ../mcp/trajectory-server/src/embeddings/backfill.ts
 var MISSING_WHERE = {
   discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
@@ -4173,6 +4283,7 @@ var MISSING_SQL = {
   wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
   wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
 };
+var RECHECK_BATCH = 50;
 function embedText(table, r) {
   if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
   if (table === "wm_directories" || table === "wm_files") return worldModelEmbedText(r.text, r.body ?? null);
@@ -4180,13 +4291,27 @@ function embedText(table, r) {
 }
 async function backfillMissing(db, table, limit = 50, onRow) {
   const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db, table, r.id, embedText(table, r)).catch(
-      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+  let attempted = 0;
+  for (let i = 0; i < rows.length; i += RECHECK_BATCH) {
+    if (!db.isOpen) break;
+    const batch = rows.slice(i, i + RECHECK_BATCH);
+    const ids = batch.map((r) => r.id);
+    const stillMissing = new Set(
+      db.all(
+        `SELECT id FROM ${table} WHERE ${MISSING_WHERE[table]} AND id IN (${ids.map(() => "?").join(", ")})`,
+        [MODEL_ID, ...ids]
+      ).map((r) => r.id)
     );
-    onRow?.();
+    for (const r of batch) {
+      if (!stillMissing.has(r.id)) continue;
+      attempted++;
+      await embedAndStore(db, table, r.id, embedText(table, r)).catch(
+        (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+      );
+      onRow?.();
+    }
   }
-  return rows.length;
+  return attempted;
 }
 
 // ../mcp/trajectory-server/src/fts-query.ts
@@ -4256,85 +4381,6 @@ function insertAudit(db, entry) {
     (e) => console.error("[embeddings] insertAudit embed failed:", e)
   );
   return id;
-}
-
-// ../mcp/trajectory-server/src/tools/agent-runs.ts
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
-function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
-  return db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ${exitReasonSql},
-            ${UNMEASURED_IF_NO_USAGE_SQL}
-      WHERE completed_at IS NULL
-        AND (${where})`,
-    [now2, now2, ...params]
-  ).changes;
-}
-function closeOpenRunsForTask(db, taskId, now2, exitReason) {
-  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
-}
-
-// ../mcp/trajectory-server/src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
-var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
-    SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
-        AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
-var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
-      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
-var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE ${reviewSkipAuthoredSql("g")}
-    AND json_valid(g.content_json)
-    AND json_extract(g.content_json, '$.task_id') = t.id
-    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
-function liveTasksOfIssue(db, issueId) {
-  return db.all(
-    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
-      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
-    [issueId]
-  );
-}
-function closedTasksWithoutReview(db, issueId) {
-  return db.all(
-    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
-      WHERE t.issue_id = ? AND t.status = 'closed'
-        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
-      ORDER BY t.id`,
-    [issueId]
-  );
-}
-function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
-  for (const task of tasks2) {
-    db.run(
-      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now2, task.id]
-    );
-    insertAudit(db, {
-      issue_id: task.issue_id,
-      branch_id: task.branch_id,
-      from_node: "bro",
-      event_type: "task_escalated_by_issue_close",
-      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
-      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
-      created_at: now2
-    });
-    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
-  }
-}
-function markIssueClosed(db, issueId, now2) {
-  db.run(
-    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
-    [now2, now2, issueId]
-  );
 }
 
 // ../mcp/trajectory-server/src/world-model/concepts.ts
@@ -5036,17 +5082,83 @@ var AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'code-reviewer' THEN 'code-reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
+var DAY_MS = 864e5;
 var sinceOf = (range, now2) => {
   const days = INSIGHT_RANGES[range];
-  return days === null ? null : new Date(now2.getTime() - days * 864e5).toISOString();
+  return days === null ? null : new Date(now2.getTime() - days * DAY_MS).toISOString();
 };
+var VERSION_PERIODS_ERROR = "version periods are not supported yet";
+var PREV_RANGES = { prev7d: 7, prev30d: 30, prev90d: 90 };
+var utcDay = (s) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = /* @__PURE__ */ new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? null : d;
+};
+var taskBound = (s) => {
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+};
+function parseSlice(s, now2) {
+  const slice = (kind, since, until, from_task = null, to_task = null) => ({ key: s, kind, since, until, from_task, to_task });
+  if (isRange(s)) return slice("range", sinceOf(s, now2), now2.toISOString());
+  if (Object.hasOwn(PREV_RANGES, s)) {
+    const days = PREV_RANGES[s];
+    return slice("prev", new Date(now2.getTime() - 2 * days * DAY_MS).toISOString(), new Date(now2.getTime() - days * DAY_MS).toISOString());
+  }
+  if (s.startsWith("ver:")) return { error: VERSION_PERIODS_ERROR };
+  const dates = /^dates:([^.]*)\.\.([^.]*)$/.exec(s);
+  if (dates) {
+    const [, a = "", b = ""] = dates;
+    const from = a === "" ? null : utcDay(a);
+    const to = b === "" ? null : utcDay(b);
+    if (a !== "" && from === null || b !== "" && to === null) return { error: `${s}: dates must be real YYYY-MM-DD days` };
+    if (from && to && from.getTime() > to.getTime()) return { error: `${s}: the start date is after the end date` };
+    return slice("dates", from?.toISOString() ?? null, to ? new Date(to.getTime() + DAY_MS).toISOString() : null);
+  }
+  const tasks2 = /^tasks:([^-]*)-([^-]*)$/.exec(s);
+  if (tasks2) {
+    const [, a = "", b = ""] = tasks2;
+    const from = a === "" ? 1 : taskBound(a);
+    const to = b === "" ? null : taskBound(b);
+    if (from === null || b !== "" && to === null) return { error: `${s}: task ids must be integers of at least 1` };
+    if (to !== null && from > to) return { error: `${s}: the start task is after the end task` };
+    return slice("tasks", null, null, from, to);
+  }
+  return { error: `${s || "an empty string"} is not a period` };
+}
+var periodOf = (s) => ({
+  since: s.since,
+  before: s.kind === "range" ? null : s.until,
+  fromTask: s.from_task,
+  toTask: s.to_task
+});
+function periodWhere(p, time, task) {
+  return {
+    sql: `(? IS NULL OR ${time} >= ?) AND (? IS NULL OR ${time} < ?) AND (? IS NULL OR ${task} >= ?) AND (? IS NULL OR ${task} <= ?)`,
+    args: [p.since, p.since, p.before, p.before, p.fromTask, p.fromTask, p.toTask, p.toTask]
+  };
+}
 var context = (r) => r.tokens_in + r.cache_read + r.cache_creation;
+var cacheHit = (r) => context(r) > 0 ? r.cache_read / context(r) : 0;
+var HISTOGRAM_METRICS = ["tokens_out", "context", "cache_hit", "tool_uses"];
+var HISTOGRAM_VALUE = {
+  tokens_out: (r) => r.tokens_out,
+  context,
+  cache_hit: cacheHit,
+  tool_uses: (r) => r.tool_uses
+};
+var CACHE_HIT_EDGES = Array.from({ length: HISTOGRAM_BUCKETS + 1 }, (_, i) => i / HISTOGRAM_BUCKETS);
+function edgesOf(measured) {
+  const log = (m) => logEdges(measured.map(HISTOGRAM_VALUE[m]));
+  return { tokens_out: log("tokens_out"), context: log("context"), cache_hit: [...CACHE_HIT_EDGES], tool_uses: log("tool_uses") };
+}
 function agentStats(runs, agent, edges) {
   const all2 = runs.filter((r) => r.agent === agent);
   const measured = all2.filter((r) => r.measured === 1);
   const contextSum = measured.reduce((s, r) => s + context(r), 0);
   const cacheRead = measured.reduce((s, r) => s + r.cache_read, 0);
-  const hit = metric(measured.map((r) => context(r) > 0 ? r.cache_read / context(r) : 0));
+  const hit = metric(measured.map(cacheHit));
   return {
     agent,
     per: agent === "bro" ? "session" : "run",
@@ -5057,7 +5169,7 @@ function agentStats(runs, agent, edges) {
     cache_hit: { ...hit, avg: contextSum > 0 ? cacheRead / contextSum : null },
     duration_ms: metric(measured.map((r) => r.duration_ms)),
     tool_uses: metric(measured.map((r) => r.tool_uses)),
-    histogram: histogram(measured.map((r) => r.tokens_out), edges)
+    histograms: Object.fromEntries(HISTOGRAM_METRICS.map((m) => [m, histogram(measured.map(HISTOGRAM_VALUE[m]), edges[m])]))
   };
 }
 function priceOf(prices, r) {
@@ -5130,16 +5242,17 @@ function bySlowest(a, b) {
   const key = (c) => (ranked(c) ? c.p95 : c.max) ?? 0;
   return key(b) - key(a) || a.command.localeCompare(b.command);
 }
-function qualityOf(db, f, since) {
+function qualityOf(db, f, p) {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
+  const attemptIn = periodWhere(p, "v.created_at", "v.task_id");
+  const runIn = periodWhere(p, "r.started_at", "r.task_id");
   const attempts = all(
     db,
     `SELECT v.task_id, v.attempt_n, v.verdict FROM validation_attempts v JOIN tasks t ON t.id = v.task_id
-      WHERE (? IS NULL OR v.created_at >= ?) AND ${taskWhere}
+      WHERE ${attemptIn.sql} AND ${taskWhere}
       ORDER BY v.task_id, v.attempt_n, v.id`,
-    since,
-    since,
+    ...attemptIn.args,
     ...taskArgs
   );
   const verdicts = { pass: 0, fail: 0, escalate: 0 };
@@ -5158,9 +5271,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT COUNT(*) AS total, COALESCE(SUM(r.exit_code = 0), 0) AS passed
        FROM verification_runs r JOIN tasks t ON t.id = r.task_id
-      WHERE r.exit_code IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE r.exit_code IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   );
   const commands = /* @__PURE__ */ new Map();
@@ -5168,9 +5280,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT c.command, c.elapsed_s FROM verification_run_commands c
        JOIN verification_runs r ON r.id = c.run_id JOIN tasks t ON t.id = r.task_id
-      WHERE c.elapsed_s IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE c.elapsed_s IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   )) {
     const command = normalizeCommand(String(c["command"]));
@@ -5187,16 +5298,16 @@ function qualityOf(db, f, since) {
     slowest_commands: slowest
   };
 }
-function throughputOf(db, f, since) {
+function throughputOf(db, f, p) {
+  const closedIn = periodWhere(p, "COALESCE(t.completed_at, t.updated_at)", "t.id");
   return all(
     db,
     `SELECT substr(COALESCE(t.completed_at, t.updated_at), 1, 10) AS day, COUNT(*) AS closed
        FROM tasks t
-      WHERE t.status = 'closed' AND (? IS NULL OR COALESCE(t.completed_at, t.updated_at) >= ?)
+      WHERE t.status = 'closed' AND ${closedIn.sql}
         AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
       GROUP BY day ORDER BY day`,
-    since,
-    since,
+    ...closedIn.args,
     f.repo,
     f.repo,
     f.effort,
@@ -5220,9 +5331,9 @@ function outliersOf(runs) {
   const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
   return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
-function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
-  const since = sinceOf(f.range, now2);
-  const rows = all(
+function insightRows(db, f, p) {
+  const runIn = periodWhere(p, "COALESCE(r.started_at, r.completed_at)", "r.task_id");
+  return all(
     db,
     `SELECT * FROM (
        SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model,
@@ -5231,12 +5342,11 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
               COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
               r.duration_ms, r.tool_uses
          FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+        WHERE ${runIn.sql}
           AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
      ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
      ORDER BY id`,
-    since,
-    since,
+    ...runIn.args,
     f.repo,
     f.repo,
     f.model,
@@ -5246,24 +5356,93 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
     f.agent,
     f.agent
   );
-  const perRunTokens = rows.filter((r) => r.measured === 1 && r.agent !== "bro").map((r) => r.tokens_out);
-  const broTokens = rows.filter((r) => r.measured === 1 && r.agent === "bro").map((r) => r.tokens_out);
-  const sharedEdges = logEdges(perRunTokens);
-  const broEdges = logEdges(broTokens);
+}
+var agentEdgesOf = (rows) => ({
+  shared: edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== "bro")),
+  bro: edgesOf(rows.filter((r) => r.measured === 1 && r.agent === "bro"))
+});
+function insightsBody(db, f, p, rows, edges, range) {
   const names = (sql) => all(db, sql).map((r) => String(r["v"]));
+  const maxTask = one(db, `SELECT MAX(task_id) AS v FROM agent_runs WHERE (? IS NULL OR repo = ?)`, f.repo, f.repo)?.["v"];
   return {
-    range: { key: f.range, since, until: now2.toISOString() },
+    range,
     filters: { repo: f.repo, agent: f.agent, model: f.model, effort: f.effort },
     options: {
       repos: names(`SELECT DISTINCT repo AS v FROM agent_runs WHERE repo IS NOT NULL ORDER BY repo`),
-      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`)
+      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`),
+      max_task_id: maxTask === null || maxTask === void 0 ? null : Number(maxTask)
     },
-    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? broEdges : sharedEdges)),
+    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? edges.bro : edges.shared)),
     cost: costOf(db, rows),
-    quality: qualityOf(db, f, since),
-    throughput: throughputOf(db, f, since),
+    quality: qualityOf(db, f, p),
+    throughput: throughputOf(db, f, p),
     outliers: outliersOf(rows)
   };
+}
+function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
+  const since = sinceOf(f.range, now2);
+  const period = { since, before: null, fromTask: null, toTask: null };
+  const rows = insightRows(db, f, period);
+  return insightsBody(db, f, period, rows, agentEdgesOf(rows), { key: f.range, since, until: now2.toISOString() });
+}
+var usd4 = (usd) => Math.round(usd * 1e4) / 1e4;
+function perTaskOf(prices, rows) {
+  const runs = rows.filter((r) => r.measured === 1 && r.agent !== "bro" && r.task_id !== null);
+  const tasks2 = new Set(runs.map((r) => r.task_id)).size;
+  const sum = (v) => runs.reduce((s, r) => s + v(r), 0);
+  const contextSum = sum(context);
+  let usd = 0;
+  let unpriced = 0;
+  for (const r of runs) {
+    const price = priceOf(prices, r);
+    if (price === null) unpriced += 1;
+    else usd += price;
+  }
+  const perTask = (total) => tasks2 === 0 ? null : total / tasks2;
+  return {
+    tasks: tasks2,
+    runs: runs.length,
+    tokens_out: perTask(sum((r) => r.tokens_out)),
+    context: perTask(contextSum),
+    cache_hit: tasks2 === 0 || contextSum === 0 ? null : sum((r) => r.cache_read) / contextSum,
+    cost_usd: tasks2 === 0 || prices.size === 0 ? null : usd4(usd / tasks2),
+    unpriced_runs: unpriced
+  };
+}
+var PERIOD_HINT = "must be a period like 30d, prev30d, dates:2026-10-01..2026-10-15 or tasks:100-200";
+function compareQuery(p, now2 = /* @__PURE__ */ new Date()) {
+  const slices = [];
+  for (const key of ["p1", "p2"]) {
+    const raw = p.get(key);
+    const s = raw === null ? { error: "" } : parseSlice(raw, now2);
+    if ("error" in s) return { error: s.error === VERSION_PERIODS_ERROR ? `${key}: ${VERSION_PERIODS_ERROR}` : `${key} ${PERIOD_HINT}` };
+    slices.push(s);
+  }
+  const rest = new URLSearchParams(p);
+  rest.delete("range");
+  const filter = insightFilter(rest);
+  return "error" in filter ? filter : { filter, p1: slices[0], p2: slices[1] };
+}
+function compare(db, f, s1, s2) {
+  const broExcluded = s1.kind === "tasks" || s2.kind === "tasks";
+  const rowsOf = (s) => {
+    const rows = insightRows(db, f, periodOf(s));
+    return broExcluded ? rows.filter((r) => r.agent !== "bro") : rows;
+  };
+  const r1 = rowsOf(s1);
+  const r2 = rowsOf(s2);
+  const union = /* @__PURE__ */ new Map();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  const edges = agentEdgesOf([...union.values()]);
+  const ids1 = new Set(r1.map((r) => r.id));
+  const prices = modelPrices(db);
+  const body = (s, rows) => ({
+    ...insightsBody(db, f, periodOf(s), rows, edges, { key: s.key, since: s.since, until: s.until }),
+    slice: s,
+    per_task: perTaskOf(prices, rows)
+  });
+  const p1 = body(s1, r1);
+  return { p1, p2: body(s2, r2), shared_runs: r2.filter((r) => ids1.has(r.id)).length, bro_excluded: broExcluded, options: p1["options"] };
 }
 var EXPLORE_MEASURES = ["tokens_out", "context", "cache_hit", "cost", "duration_ms", "tool_uses"];
 var EXPLORE_AGGS = ["avg", "p50", "p95", "max", "sum", "count"];
@@ -5726,7 +5905,7 @@ function remoteSyncGate(db, opts = {}) {
 // ../mcp/trajectory-server/src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -5740,7 +5919,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join7(logDir, "issue-sync.log"), line);
+    appendFileSync2(join8(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -6283,6 +6462,291 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
   }
 }
 
+// ../mcp/trajectory-server/src/tools/agent-runs.ts
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
+  return db.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
+  ).changes;
+}
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
+}
+
+// ../mcp/trajectory-server/src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+function liveTasksOfIssue(db, issueId) {
+  return db.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function closedTasksWithoutReview(db, issueId) {
+  return db.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
+  for (const task of tasks2) {
+    db.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now2, task.id]
+    );
+    insertAudit(db, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now2
+    });
+    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
+  }
+}
+function markIssueClosed(db, issueId, now2) {
+  db.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now2, now2, issueId]
+  );
+}
+
+// ../mcp/trajectory-server/src/sync/issue-reconcile.ts
+var GH_RECONCILE_BATCH = 50;
+function resolveRepoCtx(db, repo) {
+  const resolved = resolveRepoForSync(db, repo);
+  if (!resolved) return null;
+  const remotes = syncRemotes(db, resolved.name);
+  return {
+    cwd: resolved.path,
+    slugFor(kind) {
+      const entry = remotes.find((r) => r.provider === kind);
+      return entry ? { slug: repoSlugFromRemoteUrl(entry.url) } : null;
+    }
+  };
+}
+function spawnOptsFor(cwd) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (cwd) opts.cwd = cwd;
+  return opts;
+}
+function splitGhSlug(slug) {
+  const parts = slug.split("/");
+  if (parts.length < 3 || parts.some((p) => p === "")) return null;
+  return { host: parts[0], owner: parts[1], name: parts.slice(2).join("/") };
+}
+function gqlString(value) {
+  return JSON.stringify(value);
+}
+function readGithubBatch(slug, iids, cwd, spawnFn) {
+  const out = /* @__PURE__ */ new Map();
+  const failAll = (error, message2) => {
+    for (const iid of iids) out.set(iid, { error, ...message2 ? { message: message2 } : {} });
+    return out;
+  };
+  const repo = splitGhSlug(slug);
+  if (!repo) return failAll("slug_unresolved", `cannot split repo slug "${slug}"`);
+  const fields = iids.map((n) => `i${n}: issue(number: ${n}) { state }`).join(" ");
+  const query = `query { repository(owner: ${gqlString(repo.owner)}, name: ${gqlString(repo.name)}) { ${fields} } }`;
+  let result;
+  try {
+    result = spawnFn("gh", ["api", "graphql", "--hostname", repo.host, "-f", `query=${query}`], spawnOptsFor(cwd));
+  } catch (e) {
+    return failAll("read_failed", e instanceof Error ? e.message : String(e));
+  }
+  let data = null;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    data = parsed?.data?.repository ?? null;
+  } catch {
+    data = null;
+  }
+  if (data === null) {
+    if (result.status !== 0) return failAll("read_failed", (result.stderr || `gh exited ${String(result.status)}`).slice(0, 500));
+    return failAll("parse_failed", "gh api graphql returned no repository data");
+  }
+  for (const iid of iids) {
+    const node = data[`i${iid}`];
+    const state = node && typeof node.state === "string" ? node.state.toUpperCase() : null;
+    if (state === "CLOSED") out.set(iid, { state: "closed" });
+    else if (state === "OPEN") out.set(iid, { state: "open" });
+    else out.set(iid, { error: "not_found", message: `github #${iid} returned no issue state` });
+  }
+  return out;
+}
+function readGitlabIssue(slug, iid, cwd, spawnFn) {
+  let result;
+  try {
+    result = spawnFn("glab", ["issue", "view", String(iid), "-R", slug, "--output", "json"], spawnOptsFor(cwd));
+  } catch (e) {
+    return { error: "read_failed", message: e instanceof Error ? e.message : String(e) };
+  }
+  if (result.status !== 0) {
+    return { error: "read_failed", message: (result.stderr || `glab exited ${String(result.status)}`).slice(0, 500) };
+  }
+  let state;
+  try {
+    state = JSON.parse(result.stdout)?.state;
+  } catch {
+    return { error: "parse_failed", message: "glab issue view returned no JSON" };
+  }
+  if (state === "closed") return { state: "closed" };
+  if (state === "opened" || state === "reopened") return { state: "open" };
+  return { error: "parse_failed", message: `gitlab #${iid} returned state ${JSON.stringify(state)}` };
+}
+function sameIds(a, b) {
+  if (!Array.isArray(b) || a.length !== b.length) return false;
+  const sorted = [...b].map(Number).sort((x, y) => x - y);
+  return a.every((v, i) => v === sorted[i]);
+}
+function lastDeferralIds(db, issueId) {
+  const row = db.get(
+    `SELECT content_json FROM audit WHERE issue_id = ? AND event_type = 'issue_remote_closed_local_open' ORDER BY id DESC LIMIT 1`,
+    [issueId]
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.content_json).blocking_task_ids ?? null;
+  } catch {
+    return null;
+  }
+}
+function reconcileRemoteCloses(db, opts = {}) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const probe = opts._spawnFn ? (cmd, args) => opts._spawnFn(cmd, args, { encoding: "utf8" }) : void 0;
+  const result = { checked: 0, closed: [], deferred: [], errors: [], ...opts.dryRun ? { dry_run: true } : {} };
+  const candidates = db.all(
+    `SELECT id, repo, gh_iid, gl_iid FROM issues
+      WHERE status = 'open' AND id > 0 AND (gh_iid IS NOT NULL OR gl_iid IS NOT NULL)
+      ORDER BY id`
+  );
+  const ctxByRepo = /* @__PURE__ */ new Map();
+  const ctxOf = (repo) => {
+    const key = repo ?? "\0";
+    if (!ctxByRepo.has(key)) ctxByRepo.set(key, resolveRepoCtx(db, repo));
+    return ctxByRepo.get(key);
+  };
+  for (const c of candidates) ctxOf(c.repo);
+  if (candidates.length === 0) ctxOf(null);
+  const contexts = [...ctxByRepo.values()].filter((c) => c !== null);
+  const gate = remoteSyncGate(db, {
+    repoRemotes: contexts.length > 0 ? { github: contexts.some((c) => c.slugFor("github") !== null), gitlab: contexts.some((c) => c.slugFor("gitlab") !== null) } : null,
+    spawnFn: probe
+  });
+  if (!gate.enabled) {
+    return { ...result, skipped: gate.reason ?? "no_backend" };
+  }
+  result.checked = candidates.length;
+  const targetsByIssue = /* @__PURE__ */ new Map();
+  const states = /* @__PURE__ */ new Map();
+  const ghBySlug = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    const ctx = ctxOf(c.repo);
+    const targets = [];
+    if (c.gh_iid != null) targets.push({ issueId: c.id, kind: "github", iid: c.gh_iid, slug: null, cwd: ctx?.cwd ?? null });
+    if (c.gl_iid != null) targets.push({ issueId: c.id, kind: "gitlab", iid: c.gl_iid, slug: null, cwd: ctx?.cwd ?? null });
+    targetsByIssue.set(c.id, targets);
+    for (const t of targets) {
+      if (ctx === null) {
+        states.set(t, { error: "repo_unresolved", message: `issue repo ${JSON.stringify(c.repo)} resolves to no repos row` });
+        continue;
+      }
+      const remote = ctx.slugFor(t.kind);
+      if (remote === null) {
+        states.set(t, { error: "not_synced", message: `the repo has no synced ${t.kind} remote` });
+        continue;
+      }
+      if (remote.slug === null) {
+        states.set(t, { error: "slug_unresolved", message: `cannot derive a repo slug from the ${t.kind} remote url` });
+        continue;
+      }
+      t.slug = remote.slug;
+      if (t.kind === "github") {
+        const list = ghBySlug.get(remote.slug) ?? [];
+        list.push(t);
+        ghBySlug.set(remote.slug, list);
+      } else {
+        states.set(t, readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
+      }
+    }
+  }
+  for (const [slug, targets] of ghBySlug) {
+    for (let i = 0; i < targets.length; i += GH_RECONCILE_BATCH) {
+      const batch = targets.slice(i, i + GH_RECONCILE_BATCH);
+      const iids = [...new Set(batch.map((t) => t.iid))];
+      const read = readGithubBatch(slug, iids, batch[0].cwd, spawnFn);
+      for (const t of batch) states.set(t, read.get(t.iid));
+    }
+  }
+  const now2 = nowISO();
+  for (const [issueId, targets] of targetsByIssue) {
+    const read = targets.map((t) => ({ t, s: states.get(t) }));
+    const failed = read.filter((r) => "error" in r.s);
+    if (failed.length > 0) {
+      for (const { t, s } of failed) {
+        const e = s;
+        result.errors.push({ issue_id: issueId, remote_kind: t.kind, remote_iid: t.iid, reason: e.error, ...e.message ? { message: e.message } : {} });
+      }
+      continue;
+    }
+    if (read.some((r) => "state" in r.s && r.s.state === "open")) continue;
+    const first = targets[0];
+    const blocking = liveTasksOfIssue(db, issueId).map((t) => t.id);
+    if (blocking.length > 0) {
+      result.deferred.push({ issue_id: issueId, blocking_task_ids: blocking });
+      if (!opts.dryRun && !sameIds(blocking, lastDeferralIds(db, issueId))) {
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_remote_closed_local_open",
+          summary: `issue ${issueId}: ${first.kind} #${first.iid} is closed; left open for live tasks ${blocking.join(", ")}`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid, blocking_task_ids: blocking }),
+          created_at: now2
+        });
+      }
+      continue;
+    }
+    if (!opts.dryRun) {
+      const closedNow = db.transaction(() => {
+        const still = db.get(`SELECT status FROM issues WHERE id = ?`, [issueId]);
+        if (still?.status !== "open" || liveTasksOfIssue(db, issueId).length > 0) return false;
+        markIssueClosed(db, issueId, now2);
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_closed_from_remote",
+          summary: `issue ${issueId} closed: its ${first.kind} twin #${first.iid} is closed`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid }),
+          created_at: now2
+        });
+        return true;
+      });
+      if (!closedNow) continue;
+    }
+    result.closed.push({ issue_id: issueId, remote_kind: first.kind, remote_iid: first.iid });
+  }
+  return result;
+}
+
 // ../mcp/trajectory-server/src/tools/issues.ts
 var DEFAULT_CLASSIFICATION_LABELS = [
   "Bug",
@@ -6794,6 +7258,18 @@ function issueTools(db, dbPath = "", options = {}) {
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
+      name: "issue_reconcile_remote",
+      description: "Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          dry_run: { type: "boolean", description: "Report what would close or defer and write nothing (default false)." }
+        },
+        required: ["agent"]
       }
     },
     {
@@ -7822,6 +8298,14 @@ function issueTools(db, dbPath = "", options = {}) {
       }
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+    })),
+    issue_reconcile_remote: requireRoles("issue_reconcile_remote", ["bro"], wrapHandler(async (args) => {
+      const dryRun = args["dry_run"];
+      if (dryRun !== void 0 && typeof dryRun !== "boolean") {
+        return err("invalid_dry_run: dry_run must be a boolean");
+      }
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      return ok(reconcileRemoteCloses(db, { dryRun: dryRun === true, _spawnFn: spawnFn }));
     }))
   };
   return { definitions, handlers };
@@ -7830,6 +8314,8 @@ function issueTools(db, dbPath = "", options = {}) {
 // ../mcp/trajectory-server/src/tools/discussions.ts
 var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
 var MAX_BODY_BYTES = 65536;
+var HUMAN_AUTHOR = "human";
+var HUMAN_AUTHOR_REFUSED = "author_forbidden: discussion_append never writes author='human'. Human rows come only from the rework-waiver-capture hook, which records the Human's own prompt. Write the row under your own name and quote the Human verbatim.";
 function ok2(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -7937,7 +8423,7 @@ function discussionTools(db) {
         properties: {
           agent: { type: "string", description: "Caller agent name" },
           issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
-          author: { type: "string", description: "Author of this entry (agent name or human)" },
+          author: { type: "string", description: "Author of this entry: an agent name. 'human' is refused; quote the Human verbatim under your own name." },
           kind: {
             type: "string",
             enum: ["intent", "question", "answer", "decision", "note", "analysis"],
@@ -7951,10 +8437,6 @@ function discussionTools(db) {
           supersedes: {
             type: "string",
             description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
-          },
-          verified_human: {
-            type: "boolean",
-            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
           }
         },
         required: ["agent", "author", "body"]
@@ -8165,6 +8647,7 @@ function discussionTools(db) {
         const rawIssueId = args["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
         const author = requireArg2(args, "author");
+        if (String(author).trim().toLowerCase() === HUMAN_AUTHOR) return err2(HUMAN_AUTHOR_REFUSED);
         const body = requireArg2(args, "body");
         const kind = args["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body, "utf8");
@@ -8178,12 +8661,6 @@ function discussionTools(db) {
         }
         if (!author.trim()) {
           throw new Error("author must be a non-empty string");
-        }
-        const verifiedHuman = Boolean(args["verified_human"]);
-        if (author === "human" && !verifiedHuman) {
-          throw new Error(
-            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
-          );
         }
         const issue = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
         if (!issue) {
@@ -8517,10 +8994,9 @@ var IssueWriter = class {
     }
     const res = await this.call("discussion_append", {
       issue_id: String(issueId),
-      author: "human",
+      author: "dashboard",
       kind: "note",
-      body: text,
-      verified_human: true
+      body: text
     });
     if (!res.ok) return handlerError("discussion_append", res.data);
     this.audit(issueId, "discussion_append", ["comment"], { discussion_id: res.data["id"] });
@@ -8612,6 +9088,10 @@ function handleApi(db, url, res) {
     const body = "error" in filter ? filter : explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, "error" in body ? 400 : 200, body);
   }
+  if (parts.length === 2 && resource === "insights" && id === "compare") {
+    const query = compareQuery(url.searchParams);
+    return "error" in query ? sendJson(res, 400, query) : sendJson(res, 200, compare(db, query.filter, query.p1, query.p2));
+  }
   if (parts.length === 2 && resource === "world-model" && id === "search") {
     const p = url.searchParams;
     return sendJson(res, 200, worldModelSearch(db, p.get("q") ?? "", clampHits(p.get("limit"))));
@@ -8631,12 +9111,12 @@ function handleApi(db, url, res) {
 }
 function serveStatic(ctx, pathname, res) {
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "");
-  let file = join8(WEB_ROOT, rel);
-  if (!file.startsWith(WEB_ROOT) || rel.split(sep3).includes("..")) {
+  let file = join9(WEB_ROOT, rel);
+  if (!file.startsWith(WEB_ROOT) || rel.split(sep4).includes("..")) {
     res.writeHead(403).end();
     return;
   }
-  if (!existsSync3(file) || !statSync2(file).isFile()) file = join8(WEB_ROOT, "index.html");
+  if (!existsSync3(file) || !statSync2(file).isFile()) file = join9(WEB_ROOT, "index.html");
   if (!existsSync3(file)) {
     res.writeHead(500, { "content-type": "text/plain" }).end("dashboard web bundle missing; run `bun run build` in dashboard/");
     return;
@@ -8661,7 +9141,7 @@ function tokenMatches(expected, given) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function readBody(req) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const chunks = [];
     let size = 0;
     const onData = (chunk) => {
@@ -8669,13 +9149,13 @@ function readBody(req) {
       if (size > MAX_BODY_BYTES2) {
         req.off("data", onData);
         req.resume();
-        resolve3(null);
+        resolve4(null);
         return;
       }
       chunks.push(chunk);
     };
     req.on("data", onData);
-    req.on("end", () => resolve3(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve4(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }

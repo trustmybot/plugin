@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"ok, push it","corpus_expect":"task_id=1  branch=feat/done  (done task)"}

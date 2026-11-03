@@ -32,7 +32,7 @@ import { agentContext, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
 import { dbPath, dbState, denyDbUnavailable, projectRoot, sqlInt, sqliteRo, stripTrailingNewlines, sweContext, } from './lib/db.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
-import { ctypeUtf8, posixDirname, shellPwd } from './lib/project-env.js';
+import { ctypeUtf8, pluginName, posixDirname, shellPwd, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
 import { writePaths } from './cmd-analysis/index.js';
 const HOOK = 'containment-guard';
@@ -63,8 +63,8 @@ function stripSlash(dir) {
 function under(path, dir) {
     return path === dir || path.startsWith(`${stripSlash(dir)}/`);
 }
-/** /tmp/claude-<uid> counts only when absent, or a real dir (not a link) this user owns. */
-function harnessTmp(uid) {
+/** The canonical /tmp/claude-<uid>, which counts only when absent or a real dir (not a link) this user owns; "" otherwise. */
+export function harnessTmp(uid) {
     const dir = `/tmp/claude-${uid}`;
     let link;
     try {
@@ -173,7 +173,7 @@ class Guard {
         if (written.error !== '')
             process.stderr.write(`${written.error}\n`);
         if (reason === '') {
-            reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/.claude/tmb/scratch/ (or /tmp/claude-${this.uid}).`;
+            reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/ (or /tmp/claude-${this.uid}); plans, decisions and analysis go in the trajectory DB.`;
         }
         const decision = jqCompact({
             hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
@@ -311,15 +311,15 @@ async function judgeBash(g, input, analyze) {
     }
 }
 /** The TMPDIR the command runs with: the hook's when absolute, else the sandbox's for a sandboxed Bash call. */
-function runTmpdir(input, g) {
-    const hookTmp = g.env.TMPDIR ?? '';
+export function runTmpdir(input, toolName, env, uid, harnessTmpC) {
+    const hookTmp = env.TMPDIR ?? '';
     if (/^\/./s.test(hookTmp))
         return hookTmp;
-    if (g.toolName !== 'Bash' || g.harnessTmpC === '')
+    if (toolName !== 'Bash' || harnessTmpC === '')
         return hookTmp;
     if (jqField(input, ['tool_input', 'dangerouslyDisableSandbox']) === 'true')
         return hookTmp;
-    return `/tmp/claude-${g.uid}`;
+    return `/tmp/claude-${uid}`;
 }
 async function guard(input, env, analyze) {
     const g = new Guard(env);
@@ -357,7 +357,7 @@ async function guard(input, env, analyze) {
     g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
     g.cacheC = canonical(g.cacheDir);
     g.harnessTmpC = harnessTmp(g.uid);
-    const tmpdir = runTmpdir(input, g);
+    const tmpdir = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
     if (tmpdir !== (env.TMPDIR ?? ''))
         g.runEnv = { ...env, TMPDIR: tmpdir };
     if (/^\/./s.test(tmpdir))

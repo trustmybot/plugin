@@ -9,7 +9,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 # ---- require-task-spec: tmb:swe prefix is gated identically to bare swe ----
 
-HOOK_RTS="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
+HOOK_RTS="$PLUGIN_ROOT/tests/lib/ts-hooks/require-task-spec.sh"
 
 TMPDIR_RTS=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-normalize-role-prefix.XXXXXX")
 trap 'rm -rf "$TMPDIR_RTS"' EXIT
@@ -40,7 +40,7 @@ assert_eq "" "$out" "tmb:swe with valid task_id passes silently"
 
 # ---- code-reviewer-no-worktree: tmb:code-reviewer prefix is denied for worktree ----
 
-HOOK_PRW="$PLUGIN_ROOT/scripts/hooks/code-reviewer-no-worktree.sh"
+HOOK_PRW="$PLUGIN_ROOT/tests/lib/ts-hooks/code-reviewer-no-worktree.sh"
 
 test_case "code-reviewer-no-worktree: tmb:code-reviewer with isolation=worktree is denied"
 out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:code-reviewer","isolation":"worktree"}}' \

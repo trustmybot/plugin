@@ -1,0 +1,11 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add -b feat/x ../x"
+  },
+  "corpus_cwd": "project",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad.db"
+  },
+  "corpus_expect": "trajectory DB unavailable — no-worktree-branch-create"
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/ensure-swe-worktree.sh
+# Tests for the TypeScript ensure-swe-worktree gate
 #
 # Hook contract: at swe-spawn time, deterministically create swe's worktree at
 # the CANONICAL slug path (<repo-root>/.claude/worktrees/<slug>) via
@@ -15,7 +15,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-swe-worktree.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-swe-worktree.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 # ----- helpers ----------------------------------------------------------
 

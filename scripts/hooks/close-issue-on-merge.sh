@@ -37,7 +37,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _CIM_FROM="hook:close-issue-on-merge"
 _CIM_LIVE="'pending','running','needs_validation','completed'"
 
-# Byte-identical copies of lifecycle.ts HAS_PASS_SQL and
+# Byte-identical copies of review-sql.ts HAS_PASS_SQL and
 # GATE_SKIP_RECORDED_SQL (lifecycle.test.ts pins them equal): a pass verdict
 # counts only at or after the earliest bro_verification_pass naming the task
 # and its current commit; with no such row there is no pass. `t` is the task

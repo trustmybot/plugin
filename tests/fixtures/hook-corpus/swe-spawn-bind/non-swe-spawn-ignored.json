@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_use_id":"toolu_11","tool_input":{"subagent_type":"code-reviewer"},"tool_response":{"agentId":"agent-cr"},"corpus_expect":"\"task_id\":11,\"spawn_id\":\"tool_use:toolu_11\""}

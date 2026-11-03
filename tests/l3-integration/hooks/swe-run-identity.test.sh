@@ -18,8 +18,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-DISPATCH="$PLUGIN_ROOT/scripts/hooks/dispatch.sh"
-STOP_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
+HOOKS_JS="$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js"
+STOP_HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-run-identity.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -72,19 +72,19 @@ agent_event() {
 
 # spawn <task_id> <tool_use_id> — the bro Agent spawn through the PreToolUse(Agent) chain.
 spawn() {
-  (cd "$REPO" && agent_event PreToolUse "$1" "$2" | bash "$DISPATCH" agent-spawn-dispatch 2>/dev/null || true)
+  (cd "$REPO" && agent_event PreToolUse "$1" "$2" | node "$HOOKS_JS" agent-spawn-dispatch 2>/dev/null || true)
 }
 
 # bind <task_id> <tool_use_id> <agentId> — PostToolUse(Agent) once CC accepted the spawn.
 bind() {
   (cd "$REPO" && agent_event PostToolUse "$1" "$2" "$(jq -nc --arg a "$3" '{tool_response:{status:"async_launched", agentId:$a}}')" \
-    | bash "$DISPATCH" swe-spawn-bind >/dev/null 2>&1 || true)
+    | node "$HOOKS_JS" swe-spawn-bind >/dev/null 2>&1 || true)
 }
 
 # refuse <task_id> <tool_use_id> — PermissionDenied(Agent): auto mode refused the spawn.
 refuse() {
   (cd "$REPO" && agent_event PermissionDenied "$1" "$2" '{"reason":"auto mode refused"}' \
-    | bash "$DISPATCH" swe-spawn-rollback >/dev/null 2>&1 || true)
+    | node "$HOOKS_JS" swe-spawn-rollback >/dev/null 2>&1 || true)
 }
 
 # brief <task_id> <agent_id> <tool_use_id> — the swe's task_brief: its PreToolUse gate, then the built handler.
@@ -94,7 +94,7 @@ brief() {
     '{hook_event_name:"PreToolUse", tool_name:"mcp__plugin_tmb_trajectory-server__task_brief",
       tool_use_id:$u, agent_type:"tmb:swe", agent_id:$a, session_id:"sess-main",
       tool_input:{agent:"swe", task_id:($t | tonumber)}}')
-  (cd "$REPO" && printf '%s' "$payload" | bash "$DISPATCH" swe-brief-gate >/dev/null 2>&1 || true)
+  (cd "$REPO" && printf '%s' "$payload" | node "$HOOKS_JS" swe-brief-gate >/dev/null 2>&1 || true)
   (cd "$REPO" && node --experimental-sqlite --no-warnings --input-type=module -e "
     const { TrajectoryDB } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js');
     const { compositeTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/composites.js');
@@ -245,7 +245,7 @@ q "UPDATE tasks SET status='running' WHERE id=7;
    VALUES (7, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hours'), 'ag-1', 'claude');"
 BOUND="SELECT COALESCE(completed_at, '') || '|' || COALESCE(exit_reason, '') FROM agent_runs WHERE spawn_id='ag-1';"
 assert_contains "$(spawn 7 tu-9)" "live swe run" "require-task-spec still treats the bound row as live"
-(cd "$REPO" && agent_event PreToolUse 7 tu-9 | bash "$PLUGIN_ROOT/scripts/hooks/record-swe-spawn.sh" >/dev/null 2>&1 || true)
+(cd "$REPO" && agent_event PreToolUse 7 tu-9 | bash "$PLUGIN_ROOT/tests/lib/ts-hooks/record-swe-spawn.sh" >/dev/null 2>&1 || true)
 assert_eq "|" "$(q "$BOUND")" "record-swe-spawn's sweep leaves ag-1 open"
 refuse 7 tu-9
 assert_eq "swept_orphan" "$(q "SELECT exit_reason FROM agent_runs WHERE spawn_id='tool_use:tu-9';")" "PermissionDenied closes tu-9"

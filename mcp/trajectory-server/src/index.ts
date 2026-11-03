@@ -199,4 +199,4 @@ if (db.legacyNoPluginMeta) {
 void reconcileAtStartup(db);
 recordEmbeddingTransitions(db);
 embed('warmup').catch(() => {});
-startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
+startBackfill(db, dbPath).catch((e) => console.error('[embeddings] startBackfill error:', e));

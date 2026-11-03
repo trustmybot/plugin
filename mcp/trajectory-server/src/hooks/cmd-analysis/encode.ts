@@ -72,26 +72,36 @@ function bodyText(src: string, from: Node, end: Node): string {
 
 const plainBody = (body: string): boolean => !body.includes('`') && plainDollars(body);
 
-function specials(node: Node, out: Span[]): Span[] {
+/** Spends units of the analysis in progress; the write-path analyzer's throws past its cap. */
+export type Charge = (units: number) => void;
+
+export const NO_CHARGE: Charge = () => {};
+
+function specials(node: Node, out: Span[], charge: Charge): Span[] {
+  charge(1);
   if (SPECIAL.has(node.type)) {
     out.push({ start: node.startIndex, end: node.endIndex, node });
     return out;
   }
-  for (const child of node.children) if (child) specials(child, out);
+  for (const child of node.children) if (child) specials(child, out, charge);
   return out;
 }
 
-function substitutions(node: Node, out: Node[]): Node[] {
+function substitutions(node: Node, out: Node[], charge: Charge): Node[] {
+  charge(1);
   for (const child of node.children) {
     if (!child) continue;
     if (child.type === 'command_substitution' || child.type === 'arithmetic_expansion') out.push(child);
-    else substitutions(child, out);
+    else substitutions(child, out, charge);
   }
   return out;
 }
 
 export class Encoder {
-  constructor(private readonly src: string) {}
+  constructor(
+    private readonly src: string,
+    private readonly charge: Charge,
+  ) {}
 
   /** Unquoted text: a backslash escapes the next char. */
   private plain(from: number, to: number): string {
@@ -137,7 +147,7 @@ export class Encoder {
   private dquoted(node: Node, from: number, to: number): string {
     let out = '';
     let at = from;
-    for (const sub of substitutions(node, [])) {
+    for (const sub of substitutions(node, [], this.charge)) {
       if (sub.startIndex < from || sub.endIndex > to) continue;
       const start = this.opener(sub);
       out += this.quoted(at, start, true);
@@ -159,7 +169,7 @@ export class Encoder {
     const rest: Span[] = [];
     const opEnd = start ? start.endIndex : node.startIndex + 2;
     for (const c of kids) {
-      if (c.startIndex >= opEnd && c !== body && c !== end) specials(c, rest);
+      if (c.startIndex >= opEnd && c !== body && c !== end) specials(c, rest, this.charge);
     }
     const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
@@ -169,19 +179,20 @@ export class Encoder {
 
   /** One word node, encoded as `range` encodes it inside its command. */
   word(node: Node): string {
-    return this.spans(specials(node, []), node.startIndex, node.endIndex);
+    return this.spans(specials(node, [], this.charge), node.startIndex, node.endIndex);
   }
 
   /** [from, to) of `node`'s source, encoded as unquoted shell text. */
   range(node: Node, from: number, to: number): string {
     const spans = node.children
       .filter((c): c is Node => c !== null)
-      .flatMap((c) => specials(c, []))
+      .flatMap((c) => specials(c, [], this.charge))
       .filter((s) => s.start >= from && s.end <= to);
     return this.spans(spans, from, to);
   }
 
   private spans(spans: Span[], from: number, to: number): string {
+    this.charge(to - from);
     let out = '';
     let at = from;
     const queue = [...spans].sort((a, b) => a.start - b.start);
@@ -316,14 +327,14 @@ function heredocMisread(src: string, root: Node): boolean {
 }
 
 /** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927). */
-export function encode(parser: Parser, command: string): Encoded {
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command);
+    const encoder = new Encoder(command, charge);
     const text = encoder.range(root, 0, command.length);
     return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
   } finally {

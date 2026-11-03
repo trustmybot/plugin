@@ -1,6 +1,6 @@
 /**
  * Byte-for-byte parity of the TypeScript swe-boundary with
- * scripts/hooks/swe-boundary.sh (GH 1692) over
+ * the bash swe-boundary.sh (GH 1692) over
  * tests/fixtures/hook-corpus/swe-boundary/, in a sandbox project with three
  * worktrees and a trajectory DB: task 10 (files[] with mixed-case entries,
  * prompt_bearing 0, a git checkout on its branch), task 11 (prompt_bearing 1),
@@ -23,15 +23,18 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/swe-boundary');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/swe-boundary.sh');
+const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'swe-boundary.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];
 const MIN_CORPUS = 40;
 const SCRATCH_SESSION = 'sb-parity-scratch-session';
+/** The hint names a session's scratchpad only when one directory holds it, and every shard shares the base directory. */
+const shardSession = (dir) => `${SCRATCH_SESSION}-${basename(dir)}`;
 const HAVE_SQLITE_CLI = spawnSync('sqlite3', ['-version'], { stdio: 'ignore' }).status === 0;
 const NOW = '2026-10-11T10:00:00.000Z';
 const GIT_ENV = {
@@ -51,7 +54,7 @@ function write(path, text) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, text);
 }
-function buildSandbox(dir) {
+export function buildSandbox(dir) {
     const project = join(dir, 'project');
     const wts = join(project, '.claude/worktrees');
     for (const rel of ['src/a.ts', 'src/b.ts', 'agents/swe.md', 'docs/guide.md', 'CLAUDE.md'])
@@ -88,17 +91,17 @@ function buildSandbox(dir) {
     }
     const uid = process.geteuid?.() ?? 0;
     const scratchProject = join(realpathSync('/tmp'), `claude-${uid}`, `tmb-sb-parity-${basename(dir)}`);
-    const scratch = join(scratchProject, SCRATCH_SESSION, 'scratchpad');
+    const scratch = join(scratchProject, shardSession(dir), 'scratchpad');
     mkdirSync(scratch, { recursive: true });
     return { dir, db, scratch, scratchProject };
 }
-function materialize(file, sb) {
-    const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sb.dir).replaceAll('@SCRATCH@', sb.scratch);
+export function materialize(file, sb) {
+    const text = readFileSync(file, 'utf8').replaceAll(SCRATCH_SESSION, shardSession(sb.dir)).replaceAll('@SANDBOX@', sb.dir).replaceAll('@SCRATCH@', sb.scratch);
     const { corpus_env: env = {}, corpus_record: record = null, corpus_expect: expect = '', ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, record, expect };
 }
 /** The state a run starts from: no scope-note markers or deny records, then <record> as dispatch.sh writes it. */
-function resetState(sb, record, now) {
+export function resetState(sb, record, now) {
     rmSync(join(dirname(sb.db), 'locks'), { recursive: true, force: true });
     if (record === null)
         return;
@@ -121,7 +124,7 @@ function auditRowsAfter(db, mark) {
         return d
             .prepare('SELECT issue_id, branch_id, from_node, event_type, summary, content_json FROM audit WHERE id > ? ORDER BY id')
             .all(mark)
-            .map((row) => ({ ...row }));
+            .map((row) => ({ ...row, content_json: String(row.content_json).replace(/"denied_at":\d+/, '"denied_at":"<ts>"') }));
     }
     finally {
         d.close();
@@ -183,15 +186,17 @@ export function sweBoundaryParityShard(k, n) {
                 delete env.NODE_OPTIONS;
                 const cwd = join(sb.dir, 'project');
                 const now = Math.floor(Date.now() / 1000);
+                const { audit: bashAudit, ...bash } = goldenBash('swe-boundary', f, locale, goldenRoots({ '@SANDBOX@': sb.dir, '@SCRATCH@': sb.scratchProject, '@SESSION@': shardSession(sb.dir), '@CLAUDE_TMP@': `/tmp/claude-${process.geteuid?.() ?? 0}` }), () => {
+                    resetState(sb, record, now);
+                    const start = auditMark(sb.db);
+                    return { ...run('bash', [HOOK_SH], input, env, cwd), audit: auditRowsAfter(sb.db, start) };
+                });
                 resetState(sb, record, now);
-                const start = auditMark(sb.db);
-                const bash = run('bash', [HOOK_SH], input, env, cwd);
                 const middle = auditMark(sb.db);
-                resetState(sb, record, now);
                 const node = run(process.execPath, [HOOKS_BUNDLE, 'swe-boundary'], input, env, cwd);
                 assert.equal(node.code, bash.code, 'exit code');
                 assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
-                assert.deepEqual(auditRowsAfter(sb.db, middle), auditRowsAfter(sb.db, start).slice(0, middle - start), 'audit rows');
+                assert.deepEqual(auditRowsAfter(sb.db, middle), bashAudit, 'audit rows');
                 assert.equal(bash.code, 0);
                 checkExpectation(bash.stdout, expect);
             });

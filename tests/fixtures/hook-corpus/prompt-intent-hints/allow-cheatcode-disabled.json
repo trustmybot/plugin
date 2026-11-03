@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"install the playwright skill in local scope","corpus_env":{"TMB_DISABLE_CHEATCODE_INSTALL_HINT":"1"},"corpus_expect":"empty"}

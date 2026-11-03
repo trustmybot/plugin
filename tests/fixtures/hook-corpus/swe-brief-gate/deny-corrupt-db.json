@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"Write","tool_input":{"file_path":"/tmp/x","task_id":10},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/bad/.claude/tmb/trajectory.db"},"corpus_expect":"BLOCKED: SWE must call task_brief(agent='swe', task_id=10) before Write."}

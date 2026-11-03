@@ -110,6 +110,7 @@ describe('task_stats — hook blocks (GH 1915)', () => {
         blocks_per_run: 1,
         by_reason: { 'git-guards:ambiguous_git_target': 2, 'containment-guard:gate_failure': 1 },
       },
+      tool_output: {},
     });
     const later = parse(await taskStats(db, { since: '2026-10-26T10:50:00Z' }));
     assert.equal(later.window.runs, 2);

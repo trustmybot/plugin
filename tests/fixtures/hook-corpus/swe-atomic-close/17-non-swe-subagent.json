@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "SubagentStop",
+  "agent_type": "consultant",
+  "agent_id": "agent-30",
+  "agent_transcript_path": "@SANDBOX@/transcripts/30.jsonl",
+  "session_id": "sess-1",
+  "corpus_expect": "\"agent_type_resolved\":\"consultant\""
+}

@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_d04","tool_input":{"subagent_type":"swe","prompt":"task_id=10","effort":"low"},"corpus_expect":"BLOCKED: task_id=10 (tasks.effort) runs at effort \\\"high\\\""}

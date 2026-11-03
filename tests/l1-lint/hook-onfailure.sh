@@ -23,7 +23,11 @@
 # (denyUnreadable -> denyDbUnavailable, …), derived to a fixpoint.
 # A chain registration (`dispatch.sh <chain>`, scripts/hooks/lib/
 # registrations.sh) is checked once per gate it runs, under the chain's
-# onFailure; an observe-only gate in a fail-closed chain is not warned.
+# onFailure; an observe-only gate in a fail-closed chain is not warned. The
+# router entry (`node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/
+# hooks.js" <Event> [part]`) is checked the same way, once per gate that
+# dist/hooks-router.txt lists for <Event>, that entry's matcher and its part,
+# a leading node guard (`command -v node … || { …; exit 2; }; `, GH 2215) dropped.
 # FAIL: a deny-capable registration without "onFailure": "block", or an
 #       onFailure value other than "block" / "continue".
 # FAIL (no jq): a deny-capable gate that allows silently when jq is missing
@@ -149,11 +153,24 @@ deny_capable() {
   return 1
 }
 
-# expand_chains — "<event>\t<name>\t<onFailure>" lines in, one
+# expand_chains — "<event>\t<name>\t<onFailure>" lines in (a router entry's
+# <name> is router:<event>[+<part>]:<matcher>), one
 # "<event>\t<gate>\t<onFailure>\t<chain or ->" line per gate out.
 expand_chains() {
-  local event name on_failure members g
+  local root="$1" event name on_failure members g routed routed_event routed_part
   while IFS=$'\t' read -r event name on_failure; do
+    case "$name" in
+      router:*)
+        routed="${name#router:}"
+        routed_event="${routed%%:*}"
+        routed_part=-
+        case "$routed_event" in *+*) routed_part="${routed_event#*+}"; routed_event="${routed_event%%+*}" ;; esac
+        for g in $(tmb_router_gates "$root" "$routed_event" "${routed#*:}" "" "$routed_part"); do
+          printf '%s\t%s\t%s\trouter\n' "$event" "$g" "$on_failure"
+        done
+        continue
+        ;;
+    esac
     members=$(tmb_chain_table "$name" | cut -d' ' -f1)
     if [ -z "$members" ]; then
       printf '%s\t%s\t%s\t-\n' "$event" "$name" "$on_failure"
@@ -206,9 +223,9 @@ check() {
     fi
     printf '%-18s %-34s %-12s %-10s %s\n' "$event" "$gate" "$capable" "$on_failure" "$status"
   done < <(jq -r '
-    .hooks | to_entries[] | .key as $e | .value[]?.hooks[]?
-    | [$e, ((.command // "") | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g // ""), (.onFailure // "-")]
-    | @tsv' "$hooks_json" | expand_chains)
+    .hooks | to_entries[] | .key as $e | .value[]? | (.matcher // "") as $m | .hooks[]?
+    | [$e, ((.command // "") | sub("^command -v node >/dev/null 2>&1 \\|\\| \\{ [^}]*\\}; "; "") | (capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g // capture("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" (?<g>liveness-sentinel)$").g // (capture("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" (?<r>[A-Za-z]+)( (?<p>[a-z-]+))?$") | "router:" + .r + (if .p then "+" + .p else "" end) + ":" + $m) // "")), (.onFailure // "-")]
+    | @tsv' "$hooks_json" | expand_chains "$(dirname "$hooks_json")/..")
   if [ "$n" -eq 0 ]; then
     printf "hook-onfailure: parsed 0 registrations from %s — jq path wrong?\n" "$hooks_json" >&2
     return 1

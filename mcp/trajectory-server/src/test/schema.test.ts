@@ -32,6 +32,8 @@ describe('schema — current table set, default values, constraints', () => {
       'plugin_meta',
       'plugin_config',
       'agent_runs',
+      'agent_run_tool_output',
+      'session_handoffs',
       'pr_review_runs',
       'repos',
       'repo_remotes',
@@ -258,20 +260,41 @@ describe('schema — current table set, default values, constraints', () => {
       { name: 'stop_cause', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
     ]);
-    assert.deepEqual(tail('tasks', 1), [{ name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null }]);
+    assert.deepEqual(tail('tasks', 3), [
+      { name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null },
+      { name: 'worktree_path', type: 'TEXT', notnull: 0, dflt_value: null },
+      { name: 'worktree_adopted', type: 'INTEGER', notnull: 1, dflt_value: '0' },
+    ]);
     db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'budget'), ('swe', 'hook_block'), ('swe', NULL)`);
     assert.throws(() => db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'timeout')`), /CHECK/);
     db.close();
   });
 
-  it('fresh DB has schema_version = 52 in plugin_meta', () => {
+  it('fresh DB: agent_run_tool_output keys one row per (run, tool) and cascades from agent_runs (v53)', () => {
+    const db = tempDB();
+    assert.deepEqual(
+      db.all<{ name: string; notnull: number }>('PRAGMA table_info(agent_run_tool_output)').map((c) => [c.name, c.notnull]),
+      [['id', 0], ['run_id', 1], ['tool_name', 1], ['calls', 1], ['result_chars', 1], ['est_tokens', 1]],
+    );
+    const run = Number(db.run(`INSERT INTO agent_runs (agent_type) VALUES ('swe')`).lastInsertRowid);
+    db.run('INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens) VALUES (?, ?, 1, 8, 2)', [run, 'Read']);
+    assert.throws(
+      () => db.run('INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens) VALUES (?, ?, 1, 8, 2)', [run, 'Read']),
+      /UNIQUE/,
+    );
+    db.run('DELETE FROM agent_runs WHERE id = ?', [run]);
+    assert.equal(db.get<{ n: number }>('SELECT count(*) AS n FROM agent_run_tool_output')?.n, 0);
+    db.close();
+  });
+
+  it('fresh DB has schema_version = 55 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 52);
+    assert.equal(meta.schema_version, 55);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

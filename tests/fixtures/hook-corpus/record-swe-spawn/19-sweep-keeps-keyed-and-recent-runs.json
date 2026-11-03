@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_r19","tool_input":{"subagent_type":"swe","prompt":"task_id=23"},"corpus_expect":"\"spawn_id\":\"tool_use:toolu_future\",\"plugin_version\":null,\"exit_reason\":null"}

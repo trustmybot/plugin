@@ -118,6 +118,8 @@ run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-des
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
+run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE/l1-lint/dist-bundles.sh" --self-test
+run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
 run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
 run_step "L1 lint: labels.json triage rule + LABELS.md generated fresh"  node --test "$HERE/l1-lint/labels.test.mjs"
 run_step "L1 lint: bug.yml matches the bug-report FORM_FIELDS"  node --test "$HERE/l1-lint/bug-form.test.mjs"
@@ -235,6 +237,9 @@ run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash 
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"
+run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"
+run_step "L3 integration: dev-build-version"                          node --test "$HERE/l3-integration/dev-build-version.test.mjs"
+run_step "L3 integration: tmb-regen merge driver"                     node --test "$HERE/l3-integration/merge-driver.test.mjs"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 # The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan

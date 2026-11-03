@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "s1",
+  "source": "startup",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/remote/.claude/tmb/trajectory.db"
+  },
+  "corpus_expect": "empty"
+}

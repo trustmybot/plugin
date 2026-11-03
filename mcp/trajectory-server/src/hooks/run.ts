@@ -1,6 +1,6 @@
 /**
- * One hook gate run: the payload read, the gate awaited, its stdout written
- * and its exit code returned. An unknown gate or a gate that throws or
+ * One hook gate run: the payload read, the gate awaited, its stdout and any
+ * stderr written and its exit code returned. An unknown gate or a gate that throws or
  * rejects writes one stderr line and returns 1, so dispatch.sh fails a
  * fail-closed gate closed; it never allows on error.
  */
@@ -30,6 +30,7 @@ export async function runHook(
     }
     const result = await gate(io.readStdin(), env);
     io.writeStdout(result.stdout);
+    if (result.stderr) io.writeStderr(result.stderr);
     return result.code;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

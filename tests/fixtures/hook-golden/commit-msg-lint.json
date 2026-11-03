@@ -1,0 +1,312 @@
+{
+  "allow-amend.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-bypass-env.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-emoji-type-scope.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-file-message.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-heredoc-message.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-missing-fields.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-ascii-description.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-not-bash.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-shortcode-prefix.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-text-mention.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-amend.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-bypass-env.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-emoji-type-scope.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-file-message.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-heredoc-message.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-missing-fields.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-non-ascii-description.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-not-bash.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-shortcode-prefix.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-text-mention.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/locale-length-emoji.json": {
+    "C": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 74 chars (>72). Subject seen: \\\"✨ feat(hooks): yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/locale-nbsp-after-colon.json": {
+    "C,UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"✨ feat: keep it\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/warn-ansi-c-quoted-subject.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"x01 feat: odd\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-cluster-am.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"update stuff\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-message-equals.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"✨ feat:no space\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-nested-bash-c.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"wip\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-no-emoji.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"feat: add the thing\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-raw-control-char-subject.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"  feat: odd\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-too-long.json": {
+    "C": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 94 chars (>72). Subject seen: \\\"♻️ refactor(hooks): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 90 chars (>72). Subject seen: \\\"♻️ refactor(hooks): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "generic/warn-unknown-type.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"✨ feature(x): add the thing\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "locale-length-emoji.json": {
+    "C": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 74 chars (>72). Subject seen: \\\"â¨ feat(hooks): yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "locale-nbsp-after-colon.json": {
+    "C,UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"â¨ feat:Â keep it\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "warn-ansi-c-quoted-subject.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"x01 feat: odd\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-cluster-am.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"update stuff\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-message-equals.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"â¨ feat:no space\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-nested-bash-c.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"wip\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-no-emoji.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"feat: add the thing\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-raw-control-char-subject.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"  feat: odd\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-too-long.json": {
+    "C": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 94 chars (>72). Subject seen: \\\"â»ï¸ refactor(hooks): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    },
+    "UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject is 90 chars (>72). Subject seen: \\\"â»ï¸ refactor(hooks): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  },
+  "warn-unknown-type.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "calls": "",
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"commit-msg-lint: commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert). Subject seen: \\\"â¨ feature(x): add the thing\\\". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.\"}}\n"
+    }
+  }
+}

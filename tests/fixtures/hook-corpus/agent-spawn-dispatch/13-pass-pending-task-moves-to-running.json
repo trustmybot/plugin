@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_d13","tool_input":{"subagent_type":"swe","prompt":"task_id=11","effort":"medium"},"corpus_expect":"{\"id\":11,\"status\":\"running\",\"updated_at\":\"<now>\",\"completed_at\":null}"}

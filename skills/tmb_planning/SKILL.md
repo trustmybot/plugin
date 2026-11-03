@@ -41,6 +41,8 @@ Get a name from `branch_id_propose` (pass the Human's verbatim intent and a shor
 
 When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
+The plan for a multi-task issue goes in the issue description and the spec in `task_provision`, never in a file; scratch holds throwaway scripts, logs and data dumps only.
+
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
 | Dimension | Principle |
@@ -114,7 +116,7 @@ The Agent PreToolUse gates enforce a spawn contract:
 
 Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
-After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`) and judge it against the spec on four counts:
+After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`). A diff too large to judge directly goes to a subagent that reports against the `SC<n>` ids. Judge the work against the spec on four counts:
 
 1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
 2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
@@ -138,7 +140,7 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
 - **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, spawn_note?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`. After a FAIL, the `spawn_note` names the finding ids to fix (`F<task>-<n>`); the swe reads them, with their probes, from `task_brief.open_findings`.
-- **Two FAILs since the last pass:** a third rework of the same approach is unlikely to land. Choose one: `task_retry` with a redesigned spec, split the task into smaller ones, or escalate to the Human. A third swe spawn on the task needs a new `kind='decision'` row naming the change of approach; the spawn gate denies it until one exists, or until the Human comments on the issue.
+- **Rework limits:** the spawn gate denies a further swe spawn or resume of a task at two review FAILs on it since its last pass, at six swe runs of it (budget handbacks aside), or at four FAILs across its issue's tasks, which also stops a `task_retry` or split task. Each counts since the Human's latest waiver, and only the Human lifts one, by typing `waive task <N>`; no row you write does. When one trips, stop and report the task, its findings and your proposed redesign or split to the Human.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
 

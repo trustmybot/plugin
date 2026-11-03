@@ -1,0 +1,5 @@
+{
+  "subagent_type": "pm",
+  "stop_hook_active": "true",
+  "corpus_expect": "empty"
+}

@@ -1,6 +1,6 @@
 /**
  * Byte-for-byte parity of the TypeScript git-guards with
- * scripts/hooks/git-guards.sh (GH 1692) over
+ * the bash git-guards.sh (GH 1692) over
  * tests/fixtures/hook-corpus/git-guards/, in a sandbox of real git repos and a
  * trajectory DB: github-flow and gitflow repos, a registered repo with no
  * policy, an unregistered sibling, a checkout with linked worktrees, a repo
@@ -21,11 +21,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { goldenBash, goldenRoots } from './golden.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus/git-guards');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/git-guards.sh');
+const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks', 'git-guards.sh');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const LOCALES = ['C', 'en_US.UTF-8'];
@@ -81,7 +82,7 @@ function gitflow(sandbox: string, name: string, on: string): string {
   return dir;
 }
 
-function buildSandbox(sandbox: string): void {
+export function buildSandbox(sandbox: string): void {
   mkdirSync(join(sandbox, 'project'));
   mkdirSync(join(sandbox, 'db'));
 
@@ -156,7 +157,7 @@ interface Materialized {
   expect: string;
 }
 
-function materialize(file: string, sandbox: string): Materialized {
+export function materialize(file: string, sandbox: string): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
   const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text) as {
     corpus_env?: NodeJS.ProcessEnv;
@@ -208,7 +209,7 @@ export function gitGuardsParityShard(k: number, n: number): void {
         };
         delete env.TMB_HOOKS_SQLITE;
         const cwd = join(sandbox, 'project');
-        const bash = run('bash', [HOOK_SH], input, env, cwd);
+        const bash = goldenBash('git-guards', f, locale, goldenRoots({ '@SANDBOX@': sandbox }), () => run('bash', [HOOK_SH], input, env, cwd));
         const node = run(process.execPath, [HOOKS_BUNDLE, 'git-guards'], input, env, cwd);
         assert.equal(node.code, bash.code, 'exit code');
         assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');

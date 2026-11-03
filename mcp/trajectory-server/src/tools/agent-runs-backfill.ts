@@ -6,7 +6,7 @@ import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { projectRootFromDbPath } from './containment.js';
-import { resolveRepoPath, taskWorktreePath } from './composites.js';
+import { resolveRepoPath, taskWorktreeDir } from './composites.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 type Rec = Record<string, unknown>;
@@ -339,8 +339,8 @@ export function agentRunsBackfill(db: TrajectoryDB, opts: BackfillOptions): Back
       unbound(path, 'no task_id=<N> in the spawn prompt');
       continue;
     }
-    const task = db.get<{ id: number; issue_id: number; branch_id: string; status: string; repo: string | null }>(
-      'SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?',
+    const task = db.get<{ id: number; issue_id: number; branch_id: string; status: string; repo: string | null; worktree_path: string | null }>(
+      'SELECT id, issue_id, branch_id, status, repo, worktree_path FROM tasks WHERE id = ?',
       [taskId],
     );
     if (!task) {
@@ -375,7 +375,7 @@ export function agentRunsBackfill(db: TrajectoryDB, opts: BackfillOptions): Back
     const tokens = usageTotal(stats);
     report.tokens_total_added += tokens;
     const repoPath = resolveRepoPath(db, task.repo);
-    const rootDir = repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null;
+    const rootDir = repoPath?.startsWith('/') ? taskWorktreeDir(repoPath, task) : null;
     if (target) {
       claimedRunIds.add(target.id);
       report.rows_updated++;

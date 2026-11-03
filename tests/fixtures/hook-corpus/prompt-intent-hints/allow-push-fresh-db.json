@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"ok, push it","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/fresh/.claude/tmb/trajectory.db"},"corpus_expect":"empty"}

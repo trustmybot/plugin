@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","agent_type":"swe","tool_name":"Edit","tool_input":{"file_path":"@SANDBOX@/project/checkout/.claude/worktrees/sf-task/lib/x.ts"},"corpus_expect":"empty"}

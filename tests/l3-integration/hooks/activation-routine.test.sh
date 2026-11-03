@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/activation-routine.sh.
+# Tests for the TypeScript activation-routine gate.
 # Hook contract: on UserPromptSubmit, when bro mode is active, read
 # onboarded marker + pending issue from trajectory.db and emit additionalContext
 # JSON. Silent no-op otherwise.
@@ -8,9 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/activation-routine.sh"
-HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
-[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/activation-routine.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/activation-routine.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-activation-routine.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

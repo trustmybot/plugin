@@ -289,10 +289,10 @@ if (!seedOnly) describe('concepts view markup', () => {
     assert.doesNotMatch(other, /Cold start/);
   });
 
-  test('a DB without concepts keeps the No concepts yet Blankslate', () => {
+  test('a DB without concepts keeps the No Concepts Yet Blankslate', () => {
     const seed = { 'concepts?q=&repo=plugin': { available: false, repos: [], repo: null, concepts: [], derived: null } };
     const out = ui.withData(seed, ui.h(ui.ConceptSearch, { term: '', repo: 'plugin', id: undefined, onSelect: () => {} }));
-    assert.match(out, /<h2[^>]*>No concepts yet<\/h2>/);
+    assert.match(out, /<h2[^>]*>No Concepts Yet<\/h2>/);
     assert.ok(out.includes(ui.CONCEPT_COPY.unavailable));
   });
 });

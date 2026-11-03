@@ -1,0 +1,11 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh auth login"
+  },
+  "corpus_cwd": "stale",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad.db"
+  },
+  "corpus_expect": "empty"
+}

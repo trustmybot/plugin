@@ -1,27 +1,31 @@
 // Headless enforcement shim — opt-in at /onboard (`headless_enforcement: yes`).
 //
 // Marketplace plugin hooks do not fire in non-interactive `claude -p` runs;
-// project settings hooks do. On opt-in, /onboard copies the plugin's
-// deny-capable PreToolUse gates into <project>/.claude/settings.local.json and
-// materializes the resolver at <project>/.claude/<plugin>/resolve-hook.sh.
-// Nothing is written outside the project. Each entry is:
+// project settings hooks do. On opt-in, /onboard mirrors each PreToolUse
+// router entry of the plugin's hooks.json (`node .../dist/hooks.js PreToolUse
+// [part]`) into <project>/.claude/settings.local.json and materializes the
+// resolver at <project>/.claude/<plugin>/resolve-hook.sh. Nothing is written
+// outside the project. Each entry keeps its group's matcher, timeout and
+// onFailure, and is:
 //
-//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <gate> --shim --project <root>
+//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <Event> [--part <part>] --shim --project <root>
 //
-// stamped `_tmb_managed: true` and `_tmb_project: <root>`, where <gate> is the
-// argument of the hooks.json command `dispatch.sh <gate>`. The resolver
-// discovers the active plugin version at fire time and execs its
-// `scripts/hooks/dispatch.sh <gate> --shim`, which runs the gate once per
-// event — and exits 0 without running it when the session belongs to another
-// project (CLAUDE_PROJECT_DIR != --project) or when the plugin's own hooks are
-// active in this session (the plugin's SessionStart hook left
+// stamped `_tmb_managed: true` and `_tmb_project: <root>`. The resolver
+// discovers the active plugin version at fire time and execs its router,
+// `node mcp/trajectory-server/dist/hooks.js <Event> [part] --shim`, which runs
+// the group's gates as the plugin's own entry does — and exits 0 without
+// running any when the session belongs to another project
+// (CLAUDE_PROJECT_DIR != --project) or when the plugin's own hooks are active
+// in this session (the plugin's SessionStart hook left
 // <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks).
 // Interactive sessions therefore run each gate once, from the plugin; headless
 // runs get the shim.
 //
-// Answering `no` (or re-onboarding to `no`) purges the managed entries and the
-// project resolver. Only PreToolUse gates are copied; the other events are
-// side-effecting and must run once, from the plugin.
+// Every earlier managed entry, the per-gate `--hook <gate>` form included, is
+// replaced on the next write. Answering `no` (or re-onboarding to `no`) purges
+// the managed entries and the project resolver. Only PreToolUse entries are
+// copied; the other events are side-effecting and must run once, from the
+// plugin.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { serverLog } from '../logger.js';
@@ -33,36 +37,6 @@ const SETTINGS_REL = ['.claude', 'settings.local.json'];
 // Every TMB-managed hook entry is stamped with `_tmb_managed: true`; the purge
 // keys on that field (plus the resolver-invocation signature), never on a broad
 // path substring. CC ignores unknown hook-object keys.
-// As a settings-hook chain, the FIRST hook in a matcher group that returns a
-// decision short-circuits the rest. hooks.json lists advisory / allow-returning
-// hooks ahead of the deny-capable gates (e.g. swe-brief-gate before
-// no-source-edit-from-main in the Edit|Write group), so copied verbatim they
-// would swallow the deny. We exclude these advisory hooks by gate name so
-// the deny-capable enforcement gates run first (no-source-edit-from-main becomes
-// first in its group). Keep all genuine deny gates: no-source-edit-from-main,
-// swe-boundary, git-guards, git-push-guard,
-// no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
-// agent-spawn-dispatch, swe-verification-gate, roundtable-auq-shape.
-const ADVISORY_HOOK_DENYLIST = new Set([
-    'swe-brief-gate',
-    'naming-lint',
-    'code-quality-lint',
-    'commit-msg-lint',
-    'askuserquestion-length-lint',
-    'branch-up-to-date-with-remote',
-    'debug-trajectory',
-]);
-// The gate a hooks.json command runs — the value passed to the resolver's
-// --hook arg. hooks.json registers `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>`
-// (the unquoted form maps alike); a direct `.../scripts/hooks/<gate>.sh`
-// command maps to the same gate.
-function gateName(command) {
-    const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
-    if (dispatched?.[1])
-        return dispatched[1];
-    const parts = command.trim().split('/');
-    return (parts[parts.length - 1] ?? command).replace(/\.sh$/, '');
-}
 // Single-quote a word for the hook command line unless it is already shell-safe.
 function shellWord(value) {
     if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value))
@@ -88,59 +62,75 @@ function pluginNameOf(pluginRoot) {
     }
     return 'tmb';
 }
+const NO_PRE_TOOL_USE = 'hooks/hooks.json missing or has no PreToolUse';
+const NO_ROUTER_ENTRY = 'hooks/hooks.json has no PreToolUse router entry';
+// The router entry hooks.json registers, the placeholder quoted or not:
+// `node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event> [part]`.
+const ROUTER_COMMAND = /^node ("?)\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js\1 ([A-Za-z]+)(?: ([a-z-]+))?$/;
+// The PreToolUse router entries of hooks.json, by group in hooks.json order;
+// any other command makes no shim entry. A reason when there is none, so no
+// shim is written that enforces nothing.
 function readPreToolUseFromHooksJson(pluginRoot) {
     const hooksJsonPath = join(pluginRoot, 'hooks', 'hooks.json');
     if (!existsSync(hooksJsonPath))
-        return null;
+        return { reason: NO_PRE_TOOL_USE };
     let parsed;
     try {
         parsed = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
     }
     catch {
-        return null;
+        return { reason: NO_PRE_TOOL_USE };
     }
     const pre = parsed.hooks?.PreToolUse;
     if (!Array.isArray(pre))
-        return null;
-    return pre;
-}
-function keptHooks(group) {
-    return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
-}
-// Build fresh TMB-managed PreToolUse groups: drop advisory/allow-returning hooks
-// (so deny gates run first), rewrite each kept command to a project-tagged shim
-// resolver invocation, stamp every entry, and drop any matcher group left
-// empty. hooks.json order is preserved within each matcher.
-function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
+        return { reason: NO_PRE_TOOL_USE };
     const groups = [];
     for (const group of pre) {
-        const hooks = keptHooks(group).map((h) => ({
-            type: h.type,
-            command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
-            ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+        const entries = [];
+        for (const h of group.hooks ?? []) {
+            const routed = ROUTER_COMMAND.exec(h.command ?? '');
+            if (routed === null || routed[2] !== 'PreToolUse')
+                continue;
+            entries.push({
+                event: routed[2],
+                ...(routed[3] !== undefined ? { part: routed[3] } : {}),
+                ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+                ...(h.onFailure !== undefined ? { onFailure: h.onFailure } : {}),
+            });
+        }
+        if (entries.length > 0)
+            groups.push({ ...(group.matcher !== undefined ? { matcher: group.matcher } : {}), entries });
+    }
+    return groups.length > 0 ? groups : { reason: NO_ROUTER_ENTRY };
+}
+// Build fresh TMB-managed PreToolUse groups: one project-tagged resolver
+// invocation per router entry, with its group's matcher, its timeout and
+// onFailure, stamped, in hooks.json order.
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
+    return pre.map((group) => ({
+        ...(group.matcher !== undefined ? { matcher: group.matcher } : {}),
+        hooks: group.entries.map((e) => ({
+            type: 'command',
+            command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== undefined ? ` --part ${e.part}` : ''} --shim --project ${shellWord(projectRoot)}`,
+            ...(e.timeout !== undefined ? { timeout: e.timeout } : {}),
+            ...(e.onFailure !== undefined ? { onFailure: e.onFailure } : {}),
             _tmb_managed: true,
             _tmb_project: projectRoot,
-        }));
-        if (hooks.length === 0)
-            continue;
-        groups.push({
-            ...(group.matcher !== undefined ? { matcher: group.matcher } : {}),
-            hooks,
-        });
-    }
-    return groups;
+        })),
+    }));
 }
 /**
  * How many PreToolUse entries the shim would write for this plugin root — the
- * N quoted in the onboard question. 0 when hooks.json is unreadable.
+ * N quoted in the onboard question. 0 when hooks.json is unreadable or has no
+ * PreToolUse router entry.
  */
 export function countShimEntries(pluginRoot) {
     if (!pluginRoot)
         return 0;
     const pre = readPreToolUseFromHooksJson(pluginRoot);
-    if (!pre)
+    if ('reason' in pre)
         return 0;
-    return pre.reduce((n, g) => n + keptHooks(g).length, 0);
+    return pre.reduce((n, g) => n + g.entries.length, 0);
 }
 function resolverPathFor(projectRoot, pluginName) {
     return join(projectRoot, '.claude', pluginName, RESOLVER_NAME);
@@ -157,8 +147,9 @@ function materializeResolver(pluginRoot, resolverPath) {
     chmodSync(resolverPath, 0o755);
     return resolverPath;
 }
-// Recognize a TMB-managed PreToolUse entry: the `_tmb_managed` sentinel, or a
-// resolver invocation written without it.
+// Recognize a TMB-managed PreToolUse entry, in any form an earlier /onboard
+// wrote (the per-gate `--hook <gate>` one included): the `_tmb_managed`
+// sentinel, or a resolver invocation written without it.
 function isTmbEntry(h) {
     if (h._tmb_managed === true)
         return true;
@@ -187,8 +178,8 @@ function installedPluginGuard(pluginRoot) {
     if (!marketplace)
         return { reason: 'plugin-root-not-installed' };
     const pre = readPreToolUseFromHooksJson(pluginRoot);
-    if (!pre)
-        return { reason: 'hooks/hooks.json missing or has no PreToolUse' };
+    if ('reason' in pre)
+        return { reason: pre.reason };
     return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-spawn-effort.sh
+# Tests for the TypeScript require-spawn-effort gate
 #   1. swe — the Agent call's effort must equal tasks.effort of the task named
 #      by task_id=<N>; a mismatched or missing effort is denied naming the
 #      expected value and the fix.
@@ -7,15 +7,18 @@
 #      when unset).
 #   3. any other agent passes without an effort.
 #   4. fail-closed: no jq, or a DB read error, denies.
-#   5. agent-spawn-dispatch.sh runs it after require-task-spec.sh.
+#   5. the agent-spawn-dispatch gate runs it after require-task-spec.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 . "$HERE/fixtures/no-jq-path.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/require-spawn-effort.sh"
-DISPATCHER="$PLUGIN_ROOT/scripts/hooks/agent-spawn-dispatch.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-spawn-effort.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
+DISPATCHER="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-spawn-dispatch.sh"
+DISPATCH_CHAIN="$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks/agent-spawn-dispatch.js"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-require-spawn-effort.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -91,11 +94,11 @@ assert_eq "" "$(run_hook "$(payload security-consultant "review the auth flow")"
 assert_eq "" "$(run_hook "$(payload general-purpose "task_id=2 look around")")" "general-purpose"
 assert_eq "" "$(run_hook "$(payload swe-helper "task_id=2")")" "a name that only starts with swe"
 
-test_case "missing jq fails closed"
 NOJQ=$(no_jq_path "$TMPDIR/nojq")
-out=$(printf '%s' "$(payload swe "task_id=1" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)
-assert_contains "$out" '"permissionDecision":"deny"' "deny"
-assert_contains "$out" "jq not found" "names jq"
+test_case "missing jq: the TS gate needs no jq and still decides"
+assert_eq "" "$(printf '%s' "$(payload swe "task_id=1" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)" "matching effort passes"
+out=$(printf '%s' "$(payload swe "task_id=2" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)
+assert_contains "$out" 'task_id=2 (tasks.effort) runs at effort \"high\"' "a mismatch is still denied"
 
 test_case "a DB read error fails closed"
 BAD="$TMPDIR/bad.db"
@@ -124,9 +127,9 @@ test_case "no trajectory DB (project not onboarded): pass"
 out=$(printf '%s' "$(payload swe "task_id=1")" | TRAJECTORY_DB_PATH="$TMPDIR/absent.db" bash "$HOOK" 2>/dev/null || true)
 assert_eq "" "$out" "unresolved DB allows"
 
-test_case "agent-spawn-dispatch.sh runs the gate after require-task-spec.sh"
-order=$(grep -oE 'require-(task-spec|spawn-effort)\.sh"' "$DISPATCHER" | tr -d '"' | paste -sd, -)
-assert_eq "require-task-spec.sh,require-spawn-effort.sh" "$order" "HOOKS order"
+test_case "agent-spawn-dispatch runs the gate after require-task-spec"
+order=$(grep -oE "'require-(task-spec|spawn-effort)'" "$DISPATCH_CHAIN" | tr -d "'" | paste -sd, -)
+assert_eq "require-task-spec,require-spawn-effort" "$order" "CHAIN order"
 out=$(printf '%s' "$(payload swe "task_id=2 You are swe." low)" | bash "$DISPATCHER" 2>/dev/null || true)
 assert_contains "$out" 'Pass effort=\"high\" on the Agent call' "the dispatcher returns the effort deny"
 

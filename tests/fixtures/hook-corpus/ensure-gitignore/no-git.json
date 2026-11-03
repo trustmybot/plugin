@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g6",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:git@"
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "empty"
+}

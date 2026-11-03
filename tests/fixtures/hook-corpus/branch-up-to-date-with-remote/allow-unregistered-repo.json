@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add ../wt feat/u"
+  },
+  "corpus_cwd": "unreg",
+  "corpus_expect": "empty"
+}

@@ -171,10 +171,11 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function useApi<T>(path: string, opts: { keepPrevious?: boolean } = {}) {
+export function useApi<T>(path: string, opts: { keepPrevious?: boolean; enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [path],
     queryFn: () => getJson<T>(path),
+    enabled: opts.enabled ?? true,
     ...(opts.keepPrevious ? { placeholderData: keepPreviousData } : {}),
   });
 }

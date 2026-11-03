@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/clean-merged-branch.sh.
+# Tests for the TypeScript clean-merged-branch gate.
 # Hook contract: PostToolUse on Bash. After a successful `gh pr merge` /
 # `glab mr merge`, derive the merged branch and — if it is NOT protected
 # (main/dev), its work is in its base (ancestor, squash or rebase merge), and its
@@ -15,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/clean-merged-branch.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/clean-merged-branch.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-clean-merged-branch.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

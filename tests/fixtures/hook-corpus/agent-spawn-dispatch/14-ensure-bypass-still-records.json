@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_d14","tool_input":{"subagent_type":"swe","prompt":"task_id=10","effort":"high"},"corpus_env":{"TMB_DISABLE_ENSURE_SWE_WORKTREE":"1"},"corpus_expect":"\"spawn_id\":\"tool_use:toolu_d14\""}

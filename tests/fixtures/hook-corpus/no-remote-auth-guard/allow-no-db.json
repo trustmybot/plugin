@@ -1,0 +1,12 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh auth login"
+  },
+  "corpus_cwd": "stale",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": null,
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/nodb"
+  },
+  "corpus_expect": "empty"
+}

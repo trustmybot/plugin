@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"walk me through the architecture of the scanner","corpus_expect":"the user's prompt contains 'architecture'"}

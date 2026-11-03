@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "../escape",
+  "source": "startup",
+  "corpus_env": {
+    "TMB_INSTALLED_JSON": "@SANDBOX@/installs/user-only.json"
+  },
+  "corpus_expect": "`--scope project` is recommended",
+  "corpus_expect_tree": [
+    "!escape.install-notice",
+    "old-session.install-notice"
+  ]
+}

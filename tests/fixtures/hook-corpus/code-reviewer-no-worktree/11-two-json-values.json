@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"code-reviewer\",\"isolation\":\"worktree\"}}\n{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"code-reviewer\",\"isolation\":\"worktree\"}}\n",
+  "corpus_expect": "empty"
+}

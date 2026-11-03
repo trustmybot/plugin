@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"tmb:code-reviewer","prompt":"task_id=1 commit_sha=abc1234 branch_id=feat/linked attempt_n=1","effort":"medium"},"corpus_expect":"code-reviewer (plugin_config.reviewer_effort, high when unset) runs at effort \\\"high\\\""}

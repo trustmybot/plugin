@@ -1,0 +1,38 @@
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "one two three four five six seven eight",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      },
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      }
+    ]
+  },
+  "corpus_expect": "Q1 must have multiSelect:true (agreements checkbox) during ratification"
+}

@@ -1,0 +1,20 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-readme",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__bro_atomic_close",
+  "tool_input": {
+    "agent": "bro",
+    "task_id": 2
+  },
+  "tool_response": {
+    "is_error": false
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "without the sqlite3 CLI the .sh exits 0 silently; the gate reads and writes the DB through node:sqlite and still nudges",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "src/lib (README.md older than the commit)"
+  }
+}

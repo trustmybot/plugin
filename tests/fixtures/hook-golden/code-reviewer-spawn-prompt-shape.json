@@ -1,0 +1,458 @@
+{
+  "01-all-anchors.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "02-no-anchors.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "03-no-prompt.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "04-repo-missing-repo-path-present.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: repo.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "05-anchor-glued-to-a-word.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "06-anchors-one-per-line.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "07-trust-the-prior-verdict-any-case.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"trust the prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "08-rubber-stamp.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "09-prior-verdict.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "10-fast-track.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"fast-track if\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "11-missing-anchors-before-phrases.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "12-non-ascii-letter-before-anchor.json": {
+    "C": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    },
+    "en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "13-em-dash-in-rubber-stamp.json": {
+    "C": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    },
+    "en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "14-kelvin-sign-not-folded.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "15-swe-spawn.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "16-namespaced-subagent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "17-bypass.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  },
+  "18-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "[]",
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "[{\"id\":11,\"status\":\"closed\"},{\"id\":12,\"status\":\"completed\"},{\"id\":13,\"status\":\"running\"},{\"id\":14,\"status\":\"needs_validation\"}]"
+      }
+    }
+  }
+}

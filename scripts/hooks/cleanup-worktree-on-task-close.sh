@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
 
-# Byte-identical copy of lifecycle.ts HAS_PASS_SQL (lifecycle.test.ts pins
+# Byte-identical copy of review-sql.ts HAS_PASS_SQL (lifecycle.test.ts pins
 # them equal): a pass verdict counts only at or after the earliest
 # bro_verification_pass naming the task and its current commit. `t` is the
 # task alias.

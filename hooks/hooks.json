@@ -6,48 +6,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-gitignore",
-            "timeout": 6
+            "command": "command -v node >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart",
+            "timeout": 32
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" mcp-health-check",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart persona",
+            "timeout": 12
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" deferred-tools-drift-warn",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" plugin-hooks-marker",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-start-persona",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-start-prescan",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-mcp-deps-installed",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" substrate-preflight",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" orphan-scan",
-            "timeout": 7
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SessionStart prescan",
+            "timeout": 15
           }
         ]
       }
@@ -58,45 +28,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" user-prompt-persona",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" UserPromptSubmit",
+            "timeout": 9
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" activation-routine",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" UserPromptSubmit persona",
+            "timeout": 9
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-log-capture",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" prompt-intent-hints",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-slash-detect",
-            "timeout": 21
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" task-overrun-alert",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" UserPromptSubmit roundtable",
+            "timeout": 24
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" containment-guard",
-            "timeout": 5,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 12,
             "onFailure": "block"
           }
         ]
@@ -106,55 +61,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-guards",
-            "timeout": 11,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-push-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-worktree-branch-create",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" stay-on-base-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" branch-up-to-date-with-remote",
-            "timeout": 16,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" commit-msg-lint",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-remote-auth-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" remote-id-guard",
-            "timeout": 6,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 19,
             "onFailure": "block"
           }
         ]
@@ -164,8 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" agent-spawn-dispatch",
-            "timeout": 16,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 19,
             "onFailure": "block"
           }
         ]
@@ -175,8 +83,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-resume-gate",
-            "timeout": 6,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 9,
             "onFailure": "block"
           }
         ]
@@ -186,8 +94,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" trajectory-gates",
-            "timeout": 1842,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 1833,
             "onFailure": "block"
           }
         ]
@@ -197,128 +105,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" askuserquestion-length-lint",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-auq-shape",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 9
           }
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Read|Skill",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-brief-gate",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-source-edit-from-main",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-scope-fence",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" naming-lint",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" code-quality-lint",
-            "timeout": 4
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Read|Write|Edit|MultiEdit|Agent|Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" debug-trajectory",
-            "timeout": 4
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 11
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__.*trajectory-server__task_update_status",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" cleanup-worktree-on-task-close",
-            "timeout": 11
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__validation_record",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" cleanup-worktree-on-task-close",
-            "timeout": 11
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__roundtable_close",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-cleanup-postcheck",
-            "timeout": 6
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-task-close-rescan",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-atomic-close-readme",
-            "timeout": 6
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__task_create_batch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-task-create-spawn-hint",
-            "timeout": 4
-          }
-        ]
-      },
-      {
         "matcher": "mcp__.*trajectory-server__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" task-overrun-alert",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PostToolUse",
+            "timeout": 19
           }
         ]
       },
@@ -327,18 +137,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" attribution-footer",
-            "timeout": 16
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" clean-merged-branch",
-            "timeout": 11
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" close-issue-on-merge",
-            "timeout": 16
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PostToolUse",
+            "timeout": 27
           }
         ]
       },
@@ -347,8 +147,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-spawn-bind",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PostToolUse",
+            "timeout": 9
           }
         ]
       }
@@ -359,8 +159,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-spawn-rollback",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PermissionDenied",
+            "timeout": 9
           }
         ]
       }
@@ -371,8 +171,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" bro-turn-usage",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" Stop",
+            "timeout": 9,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" Stop handoff",
+            "timeout": 9
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" liveness-sentinel",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }
@@ -383,13 +200,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-atomic-close",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" consultant-persistence-gate",
-            "timeout": 6,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SubagentStop",
+            "timeout": 15,
             "onFailure": "block"
           }
         ]
@@ -401,8 +213,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" worktree-create",
-            "timeout": 16
+            "command": "command -v node >/dev/null 2>&1 || { echo 'TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.' >&2; exit 2; }; node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" WorktreeCreate",
+            "timeout": 19
           }
         ]
       }

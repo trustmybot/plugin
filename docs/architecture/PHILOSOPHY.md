@@ -1,6 +1,6 @@
 # Design philosophy
 
-The principles behind how the TMB plugin is shaped — why the prompts are short, how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, and why a replaced design is removed cleanly.
+The principles behind how the TMB plugin is shaped — why the prompts are short, how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, why a replaced design is removed cleanly, and why memory is split into hot and cold.
 
 ## 1. Minimal prompts, cheatcode add-ons
 
@@ -47,3 +47,7 @@ Exhaustive quality hunting is the audit's job, run separately against live data.
 ## 6. Remove cleanly
 
 When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now: no `no longer`, `used to`, `deprecated` or `previously` notes, and no commented-out remnants. The reason for the removal lives in the commit message and PR description, where history belongs.
+
+## 7. Memory is hot and cold
+
+**The DB is the only source of truth. Context is a disposable cache of it, written through and never the only copy. Every agent loads the smallest page it needs, and ends at a task boundary.** The tiers, their costs and the design test live in [`MEMORY.md`](./MEMORY.md).

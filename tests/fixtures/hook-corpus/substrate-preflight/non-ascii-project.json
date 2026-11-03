@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "s7",
+  "source": "startup",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/projé"
+  },
+  "corpus_cwd": "projé",
+  "corpus_expect": "TMB: operating locally"
+}

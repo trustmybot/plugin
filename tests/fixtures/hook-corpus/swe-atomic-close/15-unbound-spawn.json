@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "SubagentStop",
+  "agent_type": "swe",
+  "agent_id": "agent-unbound",
+  "agent_transcript_path": "@SANDBOX@/transcripts/unbound.jsonl",
+  "session_id": "sess-1",
+  "corpus_expect": "no task_id=<N> in the spawn transcript"
+}

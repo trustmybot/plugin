@@ -136,11 +136,11 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Release
 
-`scripts/maintenance/bump-version.sh <version>` keeps the version in sync across the Claude manifest, Codex manifest, workspace package, MCP package, and lockfile.
+`node --experimental-strip-types scripts/maintenance/bump-version.ts <version>` keeps the version in sync across the Claude manifest, Codex manifest, workspace package, MCP package, and lockfile.
 
 **Phase A — candidate**
 1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies). A contributor's feature PR never sets a `-rc.N` or other prerelease suffix in a version bump; release identity is the maintainer's call.
-2. Bump PR on a branch off `dev`: `bump-version.sh X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
+2. Bump PR on a branch off `dev`: `bump-version.ts X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
 **Phase B — local pre-flight**
 3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Then fast-forward `rc` to that same `dev` commit, dispatch the gate from it (`gh workflow run release-gate.yml --ref rc`), and tag that commit only on green; the tag push inherits the green same-SHA verdict (within 48h) instead of re-running it.

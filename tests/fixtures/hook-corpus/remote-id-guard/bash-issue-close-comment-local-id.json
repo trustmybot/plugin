@@ -7,5 +7,6 @@
     "command": "gh issue close 1 --comment 'dup of #5'",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "#5 → #42 (GitHub)  local #5: \"Local five | pipe title\""
 }

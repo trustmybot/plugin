@@ -37,7 +37,7 @@ export interface EntityListProps {
   chips?: ListChip[];
   tab: string;
   path: string;
-  noun: readonly [singular: string, plural: string];
+  noun: readonly [singular: string, plural: string, heading: string];
   emptyIcon: Icon;
   searchPlaceholder: string;
   controls?: ReactNode;
@@ -121,7 +121,7 @@ export function EntityList({ rows, tabs, sorts, matches, renderRow, chips = [], 
         {shown.length === 0 ? (
           <Blankslate
             icon={emptyIcon}
-            heading={needle ? 'No results matched your search' : `No ${stateLabel} ${noun[1]}`}
+            heading={needle ? 'No Results Matched Your Search' : `No ${current.label} ${noun[2]}`}
             description={needle ? 'Try a different search.' : undefined}
           />
         ) : (

@@ -1,0 +1,1 @@
+{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/dbs/empty.db","TMB_SKIP_AUTO_PRESCAN":null},"corpus_expect":"World model:       cold (no scan yet; 0 source files)"}

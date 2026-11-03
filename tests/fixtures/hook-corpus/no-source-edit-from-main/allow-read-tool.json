@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","cwd":"@SANDBOX@/project/checkout","tool_name":"Read","tool_input":{"file_path":"src/x.ts"},"corpus_expect":"empty"}

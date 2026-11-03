@@ -66,8 +66,7 @@ done
 if [ -n "$CHANNEL_ARG" ]; then
   case "$CHANNEL_ARG" in
     stable) PLUGIN_ENTRY="tmb@trustmybot" ;;
-    rc) PLUGIN_ENTRY="tmb@trustmybot-rc" ;;
-    dev) PLUGIN_ENTRY="tmb@trustmybot-dev" ;;
+    rc|dev) PLUGIN_ENTRY="tmb@trustmybot-${CHANNEL_ARG}" ;;
     *)
       printf 'Unknown channel: %s\n' "$CHANNEL_ARG" >&2
       printf 'Pass --channel stable|rc|dev.\n' >&2

@@ -19,4 +19,6 @@ Read context first: `issue_get_with_discussions`. Verify actual state, not imagi
 
 The DB row is the deliverable: persist your analysis with `discussion_append`, and treat the text you return to bro as a summary of what you wrote.
 
+The analysis goes to `discussion_append`, and scratch and tmp folders hold throwaway scripts, logs and data dumps only.
+
 Project-specific behavior comes from skills attached to this agent's `skills:` list — not from the body.

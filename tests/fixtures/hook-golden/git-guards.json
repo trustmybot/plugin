@@ -1,0 +1,782 @@
+{
+  "allow-cd-into-unregistered-sibling.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-checkout-b-from-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-checkout-b-target-fallback.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-commit-detached-no-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-commit-feature-branch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-commit-in-clone-the-command-creates.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-commit-inline-landing-new-branch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-commit-unregistered-sibling.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-ff-sync-after-switch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-ff-sync-named-upstream.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-ff-sync-upstream.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-force-push-feature.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-force-push-unregistered.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-gh-pr-base-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-gh-pr-gitflow-dev.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-gh-pr-release-merge-head-from-dir.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-gh-pr-target-the-repo-lacks.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-gh-pr-unregistered.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-git-inside-words.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-glab-mr-release-merge.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-glab-mr-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-heredoc-body-names-git.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-heredoc-commit-message-on-feature.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-git-word.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-guarded-git.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-plain-push-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-switch-c-gitflow-from-dev.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-worktree-commit.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-worktree-merge.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "deny-ambiguous-force-push.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git push --force` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …\"}}\n"
+    }
+  },
+  "deny-ambiguous-linked-worktrees.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git commit -m x` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …\"}}\n"
+    }
+  },
+  "deny-checkout-b-behind-origin.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Local main is behind origin/main. Run: git pull origin main first.\"}}\n"
+    }
+  },
+  "deny-checkout-b-detached.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Detached HEAD detected. Run: git checkout -B main origin/main to reattach, then create your feature branch.\"}}\n"
+    }
+  },
+  "deny-checkout-b-gitflow-from-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: New branches must be created from dev. Currently on 'main'. Run: git checkout dev && git pull origin dev first.\"}}\n"
+    }
+  },
+  "deny-cherry-pick-no-remote.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. This repo has no remote — leave the branch unmerged and surface it to the Human for integration.\"}}\n"
+    }
+  },
+  "deny-commit-detached-task-slug-parent-branch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: feat/det is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-gitflow-dev.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: dev is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into dev: git push origin <branch> && gh pr create --base dev --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-in-bash-c.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-inline-landing-pr-target-column.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: release is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-main-cwd.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-main-git-c.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-main-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-commit-no-remote-recovery.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. This repo has no remote — leave the branch unmerged and surface it to the Human for integration.\"}}\n"
+    }
+  },
+  "deny-commit-registered-no-policy.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-ff-sync-extra-statement.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>. To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.\"}}\n"
+    }
+  },
+  "deny-ff-sync-other-upstream.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>. To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.\"}}\n"
+    }
+  },
+  "deny-ff-sync-switch-or.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>. To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.\"}}\n"
+    }
+  },
+  "deny-force-push-current-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible.\"}}\n"
+    }
+  },
+  "deny-force-push-gitflow-dev.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to dev is forbidden. This is destructive and irreversible.\"}}\n"
+    }
+  },
+  "deny-force-push-lease-origin-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: Force push to main is forbidden. This is destructive and irreversible.\"}}\n"
+    }
+  },
+  "deny-gh-pr-no-base.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. Use: gh pr create --base main --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)\"}}\n"
+    }
+  },
+  "deny-gh-pr-release-merge-feature-head.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to dev: gh pr create --base dev --head <branch>. Got --head=feat/y.\"}}\n"
+    }
+  },
+  "deny-gh-pr-wrong-base.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: PRs must target main branch. Use: gh pr create --base main --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)\"}}\n"
+    }
+  },
+  "deny-glab-mr-release-merge-feature.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to dev: glab mr create --target-branch dev --source-branch <branch>. Got --source-branch=feat/z.\"}}\n"
+    }
+  },
+  "deny-glab-mr-wrong-target.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: MRs must target main branch. Use: glab mr create --target-branch main --source-branch <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)\"}}\n"
+    }
+  },
+  "deny-heredoc-commit-message-on-main.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: main is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-malformed-protected-branches.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this repo's protected_branches is malformed JSON. Fix the repos row or re-run bro onboarding.\"}}\n"
+    }
+  },
+  "deny-merge-main-checkout.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>. To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.\"}}\n"
+    }
+  },
+  "deny-rebase-main-checkout.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. Push your feature branch and open a PR into main: git push origin <branch> && gh pr create --base main --head <branch>.\"}}\n"
+    }
+  },
+  "deny-unresolved-variable-dir.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git commit -m x` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path: git -C <path> or cd <path> && …\"}}\n"
+    }
+  },
+  "generic/allow-cd-into-unregistered-sibling.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-checkout-b-from-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-checkout-b-target-fallback.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-detached-no-task.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-feature-branch.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-in-clone-the-command-creates.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-inline-landing-new-branch.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-unregistered-sibling.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-ff-sync-after-switch.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-ff-sync-named-upstream.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-ff-sync-upstream.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-force-push-feature.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-force-push-unregistered.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-gh-pr-base-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-gh-pr-gitflow-dev.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-gh-pr-release-merge-head-from-dir.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-gh-pr-target-the-repo-lacks.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-gh-pr-unregistered.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-git-inside-words.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-glab-mr-release-merge.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-glab-mr-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-heredoc-body-names-git.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-heredoc-commit-message-on-feature.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-no-git-word.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-non-guarded-git.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-plain-push-main.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-switch-c-gitflow-from-dev.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-worktree-commit.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-worktree-merge.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-ambiguous-force-push.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-ambiguous-linked-worktrees.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-checkout-b-behind-origin.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-checkout-b-detached.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-checkout-b-gitflow-from-main.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-cherry-pick-no-remote.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-detached-task-slug-parent-branch.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-gitflow-dev.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-in-bash-c.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-inline-landing-pr-target-column.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-main-cwd.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-main-git-c.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-main-no-db.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-no-remote-recovery.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-commit-registered-no-policy.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-ff-sync-extra-statement.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-ff-sync-other-upstream.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-ff-sync-switch-or.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-force-push-current-main.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-force-push-gitflow-dev.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-force-push-lease-origin-main.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-gh-pr-no-base.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-gh-pr-release-merge-feature-head.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-gh-pr-wrong-base.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-glab-mr-release-merge-feature.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-glab-mr-wrong-target.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-heredoc-commit-message-on-main.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-malformed-protected-branches.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-merge-main-checkout.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-rebase-main-checkout.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/deny-unresolved-variable-dir.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  }
+}

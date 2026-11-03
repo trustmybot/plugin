@@ -1,0 +1,10 @@
+{
+  "tool_name": "cheatcode_install",
+  "tool_input": {
+    "candidate": {
+      "name": "other",
+      "source_url": "https://x.test/other"
+    }
+  },
+  "corpus_expect": "BLOCKED: no human-approval record for cheatcode 'other'"
+}

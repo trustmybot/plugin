@@ -1,0 +1,53 @@
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": true,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      },
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      },
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      }
+    ]
+  },
+  "corpus_expect": "empty"
+}

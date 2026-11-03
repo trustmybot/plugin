@@ -1,0 +1,1 @@
+{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TMB_INSTALLED_JSON":"@SANDBOX@/dup/installed_plugins.json"},"corpus_expect":"Plugin: duplicate tmb copies enabled"}

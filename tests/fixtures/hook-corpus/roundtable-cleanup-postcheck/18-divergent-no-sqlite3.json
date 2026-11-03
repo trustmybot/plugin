@@ -1,0 +1,14 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__roundtable_close",
+  "tool_input": {
+    "roundtable_id": 2
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "no sqlite3 CLI: the .sh exits, the TypeScript hook reads through node:sqlite and advises",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "roundtable_id=2 closed"
+  }
+}

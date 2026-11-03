@@ -7,6 +7,7 @@
  */
 import { bashParser, loadWanted } from './parser.js';
 import { writePathsWith } from './write-paths.js';
+export { ANALYSIS_WORK_CAP, CAP_REASON, isCapLine } from './write-paths.js';
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
 export { ghMutation, ghMutationFrom } from './forge.js';

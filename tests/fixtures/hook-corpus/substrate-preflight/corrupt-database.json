@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "s9",
+  "source": "startup",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/corrupt.db"
+  },
+  "corpus_expect": "empty"
+}

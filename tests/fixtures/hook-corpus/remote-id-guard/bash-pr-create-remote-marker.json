@@ -7,5 +7,6 @@
     "command": "gh pr create --title x --body 'Fixes GH-5, see remote:5 and trustmybot/plugin#5'",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "allow"
 }

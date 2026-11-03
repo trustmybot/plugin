@@ -13,7 +13,7 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
-// node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
 var tree_sitter_exports = {};
 __export(tree_sitter_exports, {
   CaptureQuantifier: () => CaptureQuantifier,
@@ -343,7 +343,7 @@ function checkModule() {
 }
 var __defProp2, __name, SIZE_OF_SHORT, SIZE_OF_INT, SIZE_OF_CURSOR, SIZE_OF_NODE, SIZE_OF_POINT, SIZE_OF_RANGE, ZERO_POINT, INTERNAL, C, LookaheadIterator, Tree, TreeCursor, Node, PREDICATE_STEP_TYPE_CAPTURE, PREDICATE_STEP_TYPE_STRING, QUERY_WORD_REGEX, CaptureQuantifier, isCaptureStep, isStringStep, QueryErrorKind, QueryError, Query, LANGUAGE_FUNCTION_REGEX, Language, Module2, tree_sitter_default, Module3, TRANSFER_BUFFER, LANGUAGE_VERSION, MIN_COMPATIBLE_VERSION, Parser;
 var init_tree_sitter = __esm({
-  "node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
     __defProp2 = Object.defineProperty;
     __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
     SIZE_OF_SHORT = 2;
@@ -2088,8 +2088,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve3, reject) => {
-          readyPromiseResolve = resolve3;
+        var readyPromise = new Promise((resolve4, reject) => {
+          readyPromiseResolve = resolve4;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -2172,13 +2172,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url) => {
               if (isFileURI(url)) {
-                return new Promise((resolve3, reject) => {
+                return new Promise((resolve4, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve3(xhr.response);
+                      resolve4(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -2402,10 +2402,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve3, reject) => {
+            return new Promise((resolve4, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve3(mod.exports);
+                resolve4(mod.exports);
               });
             });
           }
@@ -4294,14 +4294,17 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop, SubagentStop, SessionStart, UserPromptSubmit or WorktreeCreate): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, as Stop), `decision` (`allow`, `deny`, or `failed` on a WorktreeCreate that exited non-zero), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_denied", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`) or `dispatch.sh` (the headless shim) returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or its own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch` from both, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
   { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_closed_from_remote", writers: ["bro"], description: "`issue_reconcile_remote` (`reconcileRemoteCloses`, `sync/issue-reconcile.ts`) closed an open local issue because its linked GitHub/GitLab twin reports closed and the issue has no live task; one row per close, in the close's transaction, on the issue, from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_remote_closed_local_open", writers: ["bro"], description: "`issue_reconcile_remote` found an open local issue whose linked remote twin is closed but left it open because tasks of it are still live (`pending`/`running`/`needs_validation`/`completed`); one row per issue and blocking task set (a rerun with the same `blocking_task_ids` writes none), from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`, `blocking_task_ids`; the `issues_open_after_remote_close` contract reads it" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
@@ -4340,6 +4343,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
   { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
   { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
@@ -4352,7 +4356,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -4500,7 +4504,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 55;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -5060,6 +5064,15 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -6905,6 +6918,78 @@ function migrateV51toV52(db) {
     throw err3;
   }
 }
+function migrateV52toV53(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV53toV54(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "worktree_path")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db, "tasks", "worktree_adopted")) {
+        db.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV54toV55(db) {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -8201,7 +8286,7 @@ var WorldModelGraph2 = class extends WorldModelGraph {
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync6 } from "node:child_process";
 import { existsSync as existsSync6, readFileSync as readFileSync6, realpathSync as realpathSync2, writeFileSync, unlinkSync } from "node:fs";
-import { dirname as dirname5, join as join13 } from "node:path";
+import { dirname as dirname6, join as join14 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/middleware/agent-scope.ts
@@ -8463,6 +8548,16 @@ async function embedAndStore(db, table, rowid, text) {
   db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
 }
 
+// src/hooks/ensure-mcp-deps-installed.ts
+import { basename as basename3, delimiter, dirname as dirname3, isAbsolute as isAbsolute2, join as join6, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+
+// src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// src/hooks/ensure-mcp-deps-installed.ts
+var MCP_REL = join6("mcp", "trajectory-server");
+var STAGING_STALE_MS = 60 * 60 * 1e3;
+
 // src/embeddings/backfill.ts
 var MISSING_WHERE = {
   discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
@@ -8574,17 +8669,17 @@ function built(raw, source) {
   const purpose = capChars(raw.replace(/\s+/g, " ").trim(), PURPOSE_MAX_CHARS);
   return purpose ? { purpose, source } : null;
 }
-function fitList(label, items, budget, sep3 = ", ") {
+function fitList(label, items, budget, sep4 = ", ") {
   let out2 = `${label}: `;
   let n = 0;
   for (const item of items) {
     const rest = items.length - n - 1;
-    const more = rest > 0 ? `${sep3}+${rest} more` : "";
-    if (n > 0 && out2.length + sep3.length + item.length + more.length > budget) break;
-    out2 += (n > 0 ? sep3 : "") + item;
+    const more = rest > 0 ? `${sep4}+${rest} more` : "";
+    if (n > 0 && out2.length + sep4.length + item.length + more.length > budget) break;
+    out2 += (n > 0 ? sep4 : "") + item;
     n++;
   }
-  return n < items.length ? `${out2}${sep3}+${items.length - n} more` : out2;
+  return n < items.length ? `${out2}${sep4}+${items.length - n} more` : out2;
 }
 function firstParagraph(lines2) {
   const out2 = [];
@@ -9001,7 +9096,7 @@ function purposeFromSymbols(path, symbols, head = "") {
 
 // src/symbol-purpose.ts
 import { closeSync as closeSync2, openSync as openSync2, readSync } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 function readFileHead(absPath) {
   let fd = null;
   try {
@@ -9047,7 +9142,7 @@ function refreshSymbolPurposes(db, repo) {
   let updated = 0;
   db.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join6(repoPath, f.path)) : "";
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join7(repoPath, f.path)) : "";
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? "";
       const source = next ? "symbols" : "none";
@@ -9062,7 +9157,7 @@ function refreshSymbolPurposes(db, repo) {
 // src/readme-drift.ts
 import { spawnSync } from "node:child_process";
 import { existsSync as existsSync3 } from "node:fs";
-import { join as join7, posix } from "node:path";
+import { join as join8, posix } from "node:path";
 
 // src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
@@ -9078,7 +9173,7 @@ function git(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
     return null;
   }
 }
-function basename3(p) {
+function basename4(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -9098,10 +9193,10 @@ function readRepoHistory(root, trackedDirs) {
     else if (status?.startsWith("R")) renamedAway.add(path);
   }
   const trackedFiles = new Set(lines(tracked));
-  const trackedBasenames = new Set([...trackedFiles].map(basename3));
+  const trackedBasenames = new Set([...trackedFiles].map(basename4));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
-    const name2 = basename3(p);
+    const name2 = basename4(p);
     const list = deletedByBasename.get(name2);
     if (list) list.push(p);
     else deletedByBasename.set(name2, [p]);
@@ -9157,7 +9252,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync3(join7(history.root, fromDir)) || existsSync3(join7(history.root, ref2))) continue;
+    if (existsSync3(join8(history.root, fromDir)) || existsSync3(join8(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -9259,26 +9354,26 @@ ${UNTRUSTED_CLOSE}`;
 
 // src/symbol-index.ts
 import { readFileSync as readFileSync4 } from "node:fs";
-import { basename as basename5, join as join10, posix as posix2 } from "node:path";
+import { basename as basename6, join as join11, posix as posix2 } from "node:path";
 
 // src/utils/repo-paths.ts
-import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute4, resolve as resolve3 } from "node:path";
 
 // src/tools/containment.ts
-import { isAbsolute as isAbsolute2, join as join8, parse, relative as relative2, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join9, parse, relative as relative3, sep as sep3 } from "node:path";
 function projectRootFromDbPath(dbPath) {
   if (!dbPath || dbPath === ":memory:") return null;
-  const segments = dbPath.split(sep2);
+  const segments = dbPath.split(sep3);
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
+  return segments.slice(0, idx).join(sep3) || sep3;
 }
 
 // src/utils/repo-paths.ts
 function repoRowPath(db, path) {
-  if (isAbsolute3(path)) return path;
-  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
-  return resolve2(base, path);
+  if (isAbsolute4(path)) return path;
+  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname4(db.dbPath);
+  return resolve3(base, path);
 }
 function resolveRepoForSync(db, repoName) {
   if (repoName) {
@@ -9292,7 +9387,7 @@ function resolveRepoForSync(db, repoName) {
 
 // src/parsing/loader.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { dirname as dirname4, join as join9 } from "node:path";
+import { dirname as dirname5, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var RUNTIME_WASM = "tree-sitter.wasm";
 var GRAMMAR_WASM = {
@@ -9306,11 +9401,11 @@ var INDEXED = ["typescript", "tsx", "javascript", "bash"];
 var pending = null;
 var loads = 0;
 function wasmDir() {
-  const here = dirname4(fileURLToPath2(import.meta.url));
-  for (const dir of [join9(here, "parsing"), here]) {
-    if (existsSync4(join9(dir, RUNTIME_WASM))) return dir;
+  const here = dirname5(fileURLToPath2(import.meta.url));
+  for (const dir of [join10(here, "parsing"), here]) {
+    if (existsSync4(join10(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join9(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join10(here, "parsing")} or ${here}`);
 }
 var runtime = null;
 var grammars = /* @__PURE__ */ new Map();
@@ -9323,7 +9418,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file) => join9(dir, file) });
+      await mod.Parser.init({ locateFile: (file) => join10(dir, file) });
       return mod;
     })(),
     () => {
@@ -9339,7 +9434,7 @@ function loadParser(name2) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join9(wasmDir(), GRAMMAR_WASM[name2])));
+        p.setLanguage(await Language2.load(join10(wasmDir(), GRAMMAR_WASM[name2])));
         return p;
       })(),
       () => grammars.delete(name2)
@@ -9366,7 +9461,7 @@ function loadParsers() {
 
 // src/parsing/extract.ts
 import { createHash } from "node:crypto";
-import { basename as basename4 } from "node:path";
+import { basename as basename5 } from "node:path";
 var GENERATED_PATH = [
   /(^|\/)dist\//,
   /(^|\/)build\//,
@@ -9413,13 +9508,13 @@ function inSymbolScope(relPath) {
   return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 function languageOf(relPath, head) {
-  const name2 = basename4(relPath);
+  const name2 = basename5(relPath);
   const dot = name2.lastIndexOf(".");
   if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
   return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
 }
 function symbolTerms(kind, qualifiedName, relPath) {
-  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename4(relPath))}`;
+  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename5(relPath))}`;
 }
 function normalizedHash(node) {
   const base = node.startIndex;
@@ -9706,10 +9801,10 @@ function extractBash(root, out2, moduleSymbol) {
       const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
       const line = node.startPosition.row + 1;
       if (name2 === "source" || name2 === ".") {
-        if (args2[0]) out2.edge(scope, "sources", basename4(args2[0]), line);
-      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename4(name2), line);
+        if (args2[0]) out2.edge(scope, "sources", basename5(args2[0]), line);
+      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename5(name2), line);
       else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
-        out2.edge(scope, "runs", basename4(args2[0]), line);
+        out2.edge(scope, "runs", basename5(args2[0]), line);
       } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
     } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
       for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
@@ -9758,9 +9853,21 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column) {
+  return column === EMPTY_MATCHER_COLUMN ? "" : column;
+}
+function rowHoldsPart(fields, part) {
+  return fields[6] === part;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
+var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
+var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
+var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
 var EVENT_ORDER = [
   "SessionStart",
   "UserPromptSubmit",
@@ -9789,8 +9896,12 @@ function eventRanks(events) {
   const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown, ...EVENT_ORDER.slice(stop2 + 1)];
   return new Map(order.map((e, i2) => [e, i2 + 1]));
 }
-var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-function extractHooks(src, chains) {
+var gateModule = (gate) => `${GATE_MODULE_DIR}/${gate}.ts`;
+function routerGatesOf(table, event, matcher, part) {
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
+  return [...new Set(rows)];
+}
+function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -9811,11 +9922,14 @@ function extractHooks(src, chains) {
         const cmd = hook.command ?? "";
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
-        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
+        const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable2, event, matcher, routerCommand[2]) : [];
+        const isRouted = routed.length > 0;
+        const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = gate ? chains.get(gate) : void 0;
-        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -9824,15 +9938,15 @@ function extractHooks(src, chains) {
           doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
           start_line: line,
           end_line: line,
-          body_hash: md5(`${matcher}\0${cmd}`),
+          body_hash: md5(isRouted ? `${matcher}\0${cmd}\0${routed.join(" ")}` : `${matcher}\0${cmd}`),
           exported: 1,
           run_order: rank * 100 + pos
         });
         const at = out2.symbols.length - 1;
         if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
+          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
-          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
+          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
       }
     }
@@ -9841,7 +9955,7 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 2;
+var EXTRACTOR_VERSION = 4;
 var MAX_PARSE_BYTES = 1e6;
 var FAILED_SUFFIX = ":failed";
 var FAILED_PATHS_CAP = 20;
@@ -9859,10 +9973,10 @@ function shortName(kind, qualifiedName) {
   return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
 }
 function namesOf(kind, qualifiedName, path) {
-  return kind === "module" ? [basename5(path), path] : [shortName(kind, qualifiedName)];
+  return kind === "module" ? [basename6(path), path] : [shortName(kind, qualifiedName)];
 }
 function readSource(repoPath, relPath) {
-  return readFileSync4(join10(repoPath, relPath), "utf8");
+  return readFileSync4(join11(repoPath, relPath), "utf8");
 }
 function sourceLanguage(repoPath, relPath, sizeBytes) {
   if (sizeBytes > MAX_PARSE_BYTES) return null;
@@ -9961,7 +10075,7 @@ var Resolver = class {
       if (s.kind === "module") {
         this.modules.set(s.path, c.id);
         this.fileSet.add(s.path);
-        push(this.byBase, basename5(s.path), c);
+        push(this.byBase, basename6(s.path), c);
       } else {
         push(this.byName, shortName(s.kind, s.qualified_name), c);
       }
@@ -10033,6 +10147,13 @@ function registrationChains(repoPath) {
     return /* @__PURE__ */ new Map();
   }
 }
+function routerTable(repoPath) {
+  try {
+    return readSource(repoPath, ROUTER_TABLE_PATH);
+  } catch {
+    return "";
+  }
+}
 var toPending = (r) => ({
   from: r.path,
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
@@ -10072,7 +10193,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version, version, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -10091,7 +10212,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     }
     try {
       const src = readSource(repoPath, file.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file.path, lang, src);
       parsed.push({ file, extraction });
     } catch (e) {
       failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
@@ -10154,14 +10275,7 @@ function parseStoredReport(stored) {
   }
 }
 
-// src/tools/agent-runs.ts
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
-
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
@@ -10433,7 +10547,7 @@ function applyConceptProposals(db, repo, repoPath, now2 = /* @__PURE__ */ new Da
 // src/tools/milestones.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 
 // src/sync/backend.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
@@ -10504,7 +10618,7 @@ function resolveBackendFor(configValue, repoRemotes2, spawnFn) {
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -10518,7 +10632,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join11(logDir, "issue-sync.log"), line);
+    appendFileSync2(join12(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -10773,10 +10887,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join12(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join12(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join12(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join12(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join13(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join13(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join13(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join13(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -10848,21 +10962,21 @@ function wrap(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname5(fileURLToPath3(import.meta.url));
+  const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join13(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join13(here, "..", "..", "..", "scripts", "scan.sh")
+    join14(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join14(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync6(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join13(pluginRoot, "scripts", "scan.sh");
+    const c = join14(pluginRoot, "scripts", "scan.sh");
     if (existsSync6(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs, dbPath = "") {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const env = dbPath && dbPath !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
     const child = spawn("bash", [script, sessionDir], {
       cwd: sessionDir,
@@ -10915,7 +11029,7 @@ function runScanWithScript(script, sessionDir, timeoutMs, dbPath = "") {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
@@ -10957,7 +11071,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename6(p) {
+function basename7(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -10982,14 +11096,14 @@ function deriveDirectoryEntries(out2) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename6(f.path));
+      entry.file_names.push(basename7(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename6(dirPath);
-  const join14 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename7(dirPath);
+  const join15 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -11000,16 +11114,16 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join14(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join15(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join14(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join15(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join13(absDirPath, name2);
+    const readmePath = join14(absDirPath, name2);
     if (!existsSync6(readmePath)) continue;
     try {
       return { name: name2, text: readFileSync6(readmePath, "utf8") };
@@ -11044,7 +11158,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join13(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join14(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -11063,13 +11177,13 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename6(entry.path));
-    else subdirsByParent.set(key, [basename6(entry.path)]);
+    if (list) list.push(basename7(entry.path));
+    else subdirsByParent.set(key, [basename7(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join13(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join14(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -11123,7 +11237,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join13(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join14(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -11148,7 +11262,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join13(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join14(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -11162,7 +11276,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename6(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename7(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -11445,7 +11559,7 @@ function acquireLock(lockPath) {
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
-function releaseLock(lockPath) {
+function releaseLock2(lockPath) {
   try {
     unlinkSync(lockPath);
   } catch {
@@ -11501,7 +11615,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         if (!graph && graphOpenError) {
           return err2(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join13(dirname5(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join14(dirname6(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -11581,7 +11695,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             warnings
           });
         } finally {
-          if (lockPath) releaseLock(lockPath);
+          if (lockPath) releaseLock2(lockPath);
         }
       })
     ),

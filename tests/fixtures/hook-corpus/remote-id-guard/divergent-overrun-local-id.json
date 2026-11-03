@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title x --body 'Closes #5'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_env": {
+    "TMB_REMOTE_ID_GUARD_TEST_OVERRUN": "1"
+  },
+  "corpus_divergent": "test knob: TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1 makes the in-process deadline read as spent, so the port takes the GH 1821 overrun path (allow, one stderr line, one remote_id_guard_overrun row); the .sh has no knob and denies",
+  "corpus_expect": {
+    "bash": "#5 → #42 (GitHub)",
+    "ts": "allow"
+  }
+}

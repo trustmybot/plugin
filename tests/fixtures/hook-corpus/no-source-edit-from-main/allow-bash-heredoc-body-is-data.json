@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Bash","tool_input":{"command":"cat > /dev/null <<'EOF'\necho x > agents/swe.md\nEOF"},"corpus_expect":"empty"}

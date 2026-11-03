@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__bro_atomic_close",
+  "corpus_env": { "TMB_SKIP_AUTO_RESCAN": "true" },
+  "corpus_launch": true,
+  "corpus_expect": "empty"
+}

@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title x --body 'Closes #5'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_env": {
+    "TMB_REMOTE_ID_GUARD_DEADLINE_S": "abc"
+  },
+  "corpus_expect": "#5 → #42 (GitHub)"
+}

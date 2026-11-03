@@ -6,7 +6,13 @@ export const AGENT_COLOR: Record<AgentKey, string> = {
   bro: 'var(--data-blue-color-emphasis)',
 };
 
-export const THROUGHPUT_COLOR = 'var(--data-purple-color-emphasis)';
+export const SERIES_COLOR = 'var(--data-blue-color-emphasis)';
+
+export const AGENT_FILL: Record<AgentKey, string> = {
+  swe: 'bg-(--data-pink-color-emphasis)',
+  'code-reviewer': 'bg-(--data-orange-color-emphasis)',
+  bro: 'bg-(--data-blue-color-emphasis)',
+};
 
 const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const PLAIN = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });

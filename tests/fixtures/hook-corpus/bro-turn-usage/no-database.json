@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "sess-nodb",
+  "transcript_path": "@SANDBOX@/transcripts/main.jsonl",
+  "stop_hook_active": false,
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare"
+  },
+  "corpus_cwd": "bare",
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "!\"session_id\":\"sess-nodb\""
+  ]
+}

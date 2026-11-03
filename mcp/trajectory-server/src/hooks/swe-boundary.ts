@@ -20,18 +20,23 @@
  * wherever node:sqlite works, with no sqlite3 CLI on PATH. The analyzer's
  * never-judged targets (`$(parse)`, `$(computed)`, `$(unproven)`, which the
  * .sh's analyzer never prints) are containment-guard's to deny, not (g)'s.
+ * The analyzer's cap line (GH 2090) is denied here for every task, read first
+ * so a command past the cap never reaches the unbounded cmdStatements.
  */
 import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { NEVER_JUDGED, UNJUDGED_PHRASE } from './containment-guard.js';
 import {
+  CAP_REASON,
   cmdStatements,
   ghMutation,
   gitSubcommand,
+  isCapLine,
   isPromptSurfacePath,
   payloadCwd,
   writePaths,
   writeShapes,
+  type GitStatements,
 } from './cmd-analysis/index.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
@@ -125,6 +130,16 @@ class ArithmeticAbort {
   constructor(readonly message: string) {}
 }
 
+/** cmdStatements has no work cap, so the stack can run out in it on a shape the analyzer's own count let through. */
+async function statementsOrOverflow(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<GitStatements | 'overflow'> {
+  try {
+    return await cmdStatements(command, cwd, env);
+  } catch (e) {
+    if (e instanceof RangeError) return 'overflow';
+    throw e;
+  }
+}
+
 class Boundary {
   readonly toolName: string;
   readonly swe: boolean;
@@ -169,8 +184,8 @@ class Boundary {
     return dbPath(this.env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   }
 
-  taskFor(target: string, db: string): string {
-    return this.callerTask !== '' ? this.callerTask : resolveTaskIdForTarget(target, this.input, db, this.env);
+  async taskFor(target: string, db: string): Promise<string> {
+    return this.callerTask !== '' ? this.callerTask : await resolveTaskIdForTarget(target, this.input, db, this.env);
   }
 
   wtOf(path: string): string {
@@ -190,7 +205,11 @@ class Boundary {
   async bash(): Promise<GateResult> {
     const command = field(this.input, ['tool_input', 'command']);
     const cwd = payloadCwd(this.input, this.env);
-    const listed = await cmdStatements(command, cwd, this.env);
+    const root = this.worktree || capture(projectRoot(this.env));
+    const written = await writePaths(command, { cwd, root, env: this.env });
+    if (written.some(isCapLine)) return deny(CAP_REASON);
+    const listed = await statementsOrOverflow(command, cwd, this.env);
+    if (listed === 'overflow') return deny(CAP_REASON);
     if (!listed.ok) return deny(PARSE_REASON);
     let push = false;
     let mutating = false;
@@ -202,14 +221,12 @@ class Boundary {
     if (push) return deny(PUSH_REASON);
     if (mutating) return deny(GH_REASON);
 
-    const root = this.worktree || capture(projectRoot(this.env));
     let surface = '';
     let anchor = '';
     let rootClaudeMd = '';
     let unresolved = '';
     const fence: string[] = [];
-    const lines = (await writePaths(command, { cwd, root, env: this.env })).join('\n').split('\n');
-    for (const path of lines) {
+    for (const path of written.join('\n').split('\n')) {
       if (path === '') continue;
       if (path.startsWith('UNRESOLVED:')) {
         const rest = path.slice('UNRESOLVED:'.length);
@@ -226,7 +243,7 @@ class Boundary {
         rel = path;
       }
       if (wt !== '' && rel === 'CLAUDE.md') rootClaudeMd = path;
-      if (surface === '' && isPromptSurfacePath(rel, wt, this.env)) {
+      if (surface === '' && await isPromptSurfacePath(rel, wt, this.env)) {
         surface = path;
         anchor = wt === '' ? '' : path;
       }
@@ -240,7 +257,7 @@ class Boundary {
 
     let lifted = false;
     if (surface !== '' || unresolved !== '') {
-      const task = this.taskFor(anchor, db);
+      const task = await this.taskFor(anchor, db);
       if (task !== '' && db !== '' && haveSqlite(this.env)) {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
@@ -274,7 +291,7 @@ class Boundary {
       const wt = this.wtOf(path);
       if (wt !== fenceWt) {
         fenceWt = wt;
-        fenceTask = this.taskFor(path, db);
+        fenceTask = await this.taskFor(path, db);
         scope.load(db, fenceTask);
       }
       if (scope.state !== 'ok') continue;
@@ -310,7 +327,7 @@ class Boundary {
     return found.length === 1 ? found[0] : fallback;
   }
 
-  bypassCheck(): GateResult {
+  async bypassCheck(): Promise<GateResult> {
     const session = sessionOf(this.input);
     if (session === '') return ALLOW;
     const state = stateDir(this.env);
@@ -341,7 +358,7 @@ class Boundary {
     if (Math.floor(Date.now() / 1000) - at > windowMin * 60) return drop();
     const db = capture(dbPath(this.env) ?? '');
     if (db === '' || !haveSqlite(this.env)) return ALLOW;
-    const task = this.taskFor(this.target, db);
+    const task = await this.taskFor(this.target, db);
     let issue = '-1';
     if (task !== '') issue = sqlInt(capture(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${task};`, this.env))) || '-1';
     const rel = this.wtD === '' ? this.target : stripDir(this.target, this.wtD);
@@ -376,7 +393,7 @@ class Boundary {
     );
   }
 
-  edit(): GateResult {
+  async edit(): Promise<GateResult> {
     this.target = field(this.input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
     const target = this.target;
     if (target === '') return ALLOW;
@@ -406,16 +423,16 @@ class Boundary {
       subject = this.wtD === '' ? target : stripDir(target, this.wtD);
     }
     if (this.wtD !== '' && subject === 'CLAUDE.md') return deny(claudeMdReason(target));
-    if (!isPromptSurfacePath(subject, this.wtD, this.env)) return this.bypassCheck();
+    if (!await isPromptSurfacePath(subject, this.wtD, this.env)) return await this.bypassCheck();
 
     const db = this.dbPath();
     if (dbState(this.env) === 'error') return this.dbDenied();
     if (db !== '' && haveSqlite(this.env)) {
-      const task = this.taskFor(target, db);
+      const task = await this.taskFor(target, db);
       if (task !== '') {
         const pb = this.promptBearing(db, task);
         if (pb === GATE_READ_ERROR) return this.dbDenied();
-        if (pb === '1') return this.bypassCheck();
+        if (pb === '1') return await this.bypassCheck();
       }
     }
     return deny(
@@ -428,10 +445,10 @@ export const sweBoundary: Gate = async (payload, env) => {
   const b = new Boundary(payload, env);
   const early = b.resolve();
   if (early) return early;
-  if (b.toolName === 'Bash' && b.swe) return b.bash();
+  if (b.toolName === 'Bash' && b.swe) return await b.bash();
   if (!EDIT_TOOLS.has(b.toolName) || !b.swe) return ALLOW;
   try {
-    return b.edit();
+    return await b.edit();
   } catch (e) {
     if (!(e instanceof ArithmeticAbort)) throw e;
     process.stderr.write(`${e.message}\n`);

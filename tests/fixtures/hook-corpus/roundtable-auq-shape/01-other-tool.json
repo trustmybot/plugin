@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo hi"
+  },
+  "corpus_expect": "empty"
+}

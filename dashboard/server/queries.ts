@@ -587,19 +587,125 @@ const AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
 
+const DAY_MS = 86_400_000;
+
 const sinceOf = (range: InsightRange, now: Date): string | null => {
   const days = INSIGHT_RANGES[range];
-  return days === null ? null : new Date(now.getTime() - days * 86_400_000).toISOString();
+  return days === null ? null : new Date(now.getTime() - days * DAY_MS).toISOString();
 };
+
+export type SliceKind = 'range' | 'prev' | 'dates' | 'tasks';
+
+export interface Slice {
+  key: string;
+  kind: SliceKind;
+  since: string | null;
+  until: string | null;
+  from_task: number | null;
+  to_task: number | null;
+}
+
+export const VERSION_PERIODS_ERROR = 'version periods are not supported yet';
+const PREV_RANGES = { prev7d: 7, prev30d: 30, prev90d: 90 } as const;
+
+const utcDay = (s: string): Date | null => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? null : d;
+};
+
+const taskBound = (s: string): number | null => {
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+};
+
+// One Insights period: a preset range, the equal window before one, a UTC
+// inclusive day range or a task-id range. Either end of dates and tasks may be
+// empty; an empty task start means 1.
+export function parseSlice(s: string, now: Date): Slice | { error: string } {
+  const slice = (kind: SliceKind, since: string | null, until: string | null, from_task: number | null = null, to_task: number | null = null): Slice =>
+    ({ key: s, kind, since, until, from_task, to_task });
+  if (isRange(s)) return slice('range', sinceOf(s, now), now.toISOString());
+  if (Object.hasOwn(PREV_RANGES, s)) {
+    const days = PREV_RANGES[s as keyof typeof PREV_RANGES];
+    return slice('prev', new Date(now.getTime() - 2 * days * DAY_MS).toISOString(), new Date(now.getTime() - days * DAY_MS).toISOString());
+  }
+  if (s.startsWith('ver:')) return { error: VERSION_PERIODS_ERROR };
+  const dates = /^dates:([^.]*)\.\.([^.]*)$/.exec(s);
+  if (dates) {
+    const [, a = '', b = ''] = dates;
+    const from = a === '' ? null : utcDay(a);
+    const to = b === '' ? null : utcDay(b);
+    if ((a !== '' && from === null) || (b !== '' && to === null)) return { error: `${s}: dates must be real YYYY-MM-DD days` };
+    if (from && to && from.getTime() > to.getTime()) return { error: `${s}: the start date is after the end date` };
+    return slice('dates', from?.toISOString() ?? null, to ? new Date(to.getTime() + DAY_MS).toISOString() : null);
+  }
+  const tasks = /^tasks:([^-]*)-([^-]*)$/.exec(s);
+  if (tasks) {
+    const [, a = '', b = ''] = tasks;
+    const from = a === '' ? 1 : taskBound(a);
+    const to = b === '' ? null : taskBound(b);
+    if (from === null || (b !== '' && to === null)) return { error: `${s}: task ids must be integers of at least 1` };
+    if (to !== null && from > to) return { error: `${s}: the start task is after the end task` };
+    return slice('tasks', null, null, from, to);
+  }
+  return { error: `${s || 'an empty string'} is not a period` };
+}
+
+// The SQL bounds of a period: time >= since and < before, task_id BETWEEN
+// from_task and to_task, each end unbounded when null. A preset range keeps
+// /api/insights' open upper end, so a run stamped at or after `now` still counts.
+interface Period {
+  since: string | null;
+  before: string | null;
+  fromTask: number | null;
+  toTask: number | null;
+}
+
+const periodOf = (s: Slice): Period => ({
+  since: s.since,
+  before: s.kind === 'range' ? null : s.until,
+  fromTask: s.from_task,
+  toTask: s.to_task,
+});
+
+function periodWhere(p: Period, time: string, task: string): { sql: string; args: Array<string | number | null> } {
+  return {
+    sql: `(? IS NULL OR ${time} >= ?) AND (? IS NULL OR ${time} < ?) AND (? IS NULL OR ${task} >= ?) AND (? IS NULL OR ${task} <= ?)`,
+    args: [p.since, p.since, p.before, p.before, p.fromTask, p.fromTask, p.toTask, p.toTask],
+  };
+}
 
 const context = (r: RunRow) => r.tokens_in + r.cache_read + r.cache_creation;
 
-function agentStats(runs: RunRow[], agent: InsightAgent, edges: number[]): Row {
+const cacheHit = (r: RunRow) => (context(r) > 0 ? r.cache_read / context(r) : 0);
+
+const HISTOGRAM_METRICS = ['tokens_out', 'context', 'cache_hit', 'tool_uses'] as const;
+type HistogramMetric = (typeof HISTOGRAM_METRICS)[number];
+type Edges = Record<HistogramMetric, number[]>;
+
+const HISTOGRAM_VALUE: Record<HistogramMetric, (r: RunRow) => number> = {
+  tokens_out: (r) => r.tokens_out,
+  context,
+  cache_hit: cacheHit,
+  tool_uses: (r) => r.tool_uses,
+};
+
+// Cache-hit is a ratio, so every agent bins it on the same fixed 10% steps.
+export const CACHE_HIT_EDGES: readonly number[] = Array.from({ length: HISTOGRAM_BUCKETS + 1 }, (_, i) => i / HISTOGRAM_BUCKETS);
+
+function edgesOf(measured: RunRow[]): Edges {
+  const log = (m: HistogramMetric) => logEdges(measured.map(HISTOGRAM_VALUE[m]));
+  return { tokens_out: log('tokens_out'), context: log('context'), cache_hit: [...CACHE_HIT_EDGES], tool_uses: log('tool_uses') };
+}
+
+function agentStats(runs: RunRow[], agent: InsightAgent, edges: Edges): Row {
   const all = runs.filter((r) => r.agent === agent);
   const measured = all.filter((r) => r.measured === 1);
   const contextSum = measured.reduce((s, r) => s + context(r), 0);
   const cacheRead = measured.reduce((s, r) => s + r.cache_read, 0);
-  const hit = metric(measured.map((r) => (context(r) > 0 ? r.cache_read / context(r) : 0)));
+  const hit = metric(measured.map(cacheHit));
   return {
     agent,
     per: agent === 'bro' ? 'session' : 'run',
@@ -610,7 +716,7 @@ function agentStats(runs: RunRow[], agent: InsightAgent, edges: number[]): Row {
     cache_hit: { ...hit, avg: contextSum > 0 ? cacheRead / contextSum : null },
     duration_ms: metric(measured.map((r) => r.duration_ms)),
     tool_uses: metric(measured.map((r) => r.tool_uses)),
-    histogram: histogram(measured.map((r) => r.tokens_out), edges),
+    histograms: Object.fromEntries(HISTOGRAM_METRICS.map((m) => [m, histogram(measured.map(HISTOGRAM_VALUE[m]), edges[m])])),
   };
 }
 
@@ -709,16 +815,17 @@ export function bySlowest(a: SlowCommand, b: SlowCommand): number {
   return key(b) - key(a) || a.command.localeCompare(b.command);
 }
 
-function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Row {
+function qualityOf(db: DatabaseSync, f: InsightFilter, p: Period): Row {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
+  const attemptIn = periodWhere(p, 'v.created_at', 'v.task_id');
+  const runIn = periodWhere(p, 'r.started_at', 'r.task_id');
   const attempts = all(
     db,
     `SELECT v.task_id, v.attempt_n, v.verdict FROM validation_attempts v JOIN tasks t ON t.id = v.task_id
-      WHERE (? IS NULL OR v.created_at >= ?) AND ${taskWhere}
+      WHERE ${attemptIn.sql} AND ${taskWhere}
       ORDER BY v.task_id, v.attempt_n, v.id`,
-    since,
-    since,
+    ...attemptIn.args,
     ...taskArgs,
   );
   const verdicts = { pass: 0, fail: 0, escalate: 0 };
@@ -737,9 +844,8 @@ function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Ro
     db,
     `SELECT COUNT(*) AS total, COALESCE(SUM(r.exit_code = 0), 0) AS passed
        FROM verification_runs r JOIN tasks t ON t.id = r.task_id
-      WHERE r.exit_code IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE r.exit_code IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs,
   );
   const commands = new Map<string, number[]>();
@@ -747,9 +853,8 @@ function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Ro
     db,
     `SELECT c.command, c.elapsed_s FROM verification_run_commands c
        JOIN verification_runs r ON r.id = c.run_id JOIN tasks t ON t.id = r.task_id
-      WHERE c.elapsed_s IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE c.elapsed_s IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs,
   )) {
     const command = normalizeCommand(String(c['command']));
@@ -770,16 +875,16 @@ function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Ro
   };
 }
 
-function throughputOf(db: DatabaseSync, f: InsightFilter, since: string | null): Row[] {
+function throughputOf(db: DatabaseSync, f: InsightFilter, p: Period): Row[] {
+  const closedIn = periodWhere(p, 'COALESCE(t.completed_at, t.updated_at)', 't.id');
   return all(
     db,
     `SELECT substr(COALESCE(t.completed_at, t.updated_at), 1, 10) AS day, COUNT(*) AS closed
        FROM tasks t
-      WHERE t.status = 'closed' AND (? IS NULL OR COALESCE(t.completed_at, t.updated_at) >= ?)
+      WHERE t.status = 'closed' AND ${closedIn.sql}
         AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
       GROUP BY day ORDER BY day`,
-    since,
-    since,
+    ...closedIn.args,
     f.repo,
     f.repo,
     f.effort,
@@ -811,13 +916,9 @@ function outliersOf(runs: RunRow[]): Row {
   return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
 
-// GET /api/insights: per-agent token, time and cost stats, review and
-// verification quality, closed-task throughput and the top runs, over the
-// filter's range. Runs whose usage_source is NULL or 'unmeasured' count in
-// `total` but in no statistic.
-export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Row {
-  const since = sinceOf(f.range, now);
-  const rows = all(
+function insightRows(db: DatabaseSync, f: InsightFilter, p: Period): RunRow[] {
+  const runIn = periodWhere(p, 'COALESCE(r.started_at, r.completed_at)', 'r.task_id');
+  return all(
     db,
     `SELECT * FROM (
        SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model,
@@ -826,12 +927,11 @@ export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Dat
               COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
               r.duration_ms, r.tool_uses
          FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+        WHERE ${runIn.sql}
           AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
      ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
      ORDER BY id`,
-    since,
-    since,
+    ...runIn.args,
     f.repo,
     f.repo,
     f.model,
@@ -841,24 +941,123 @@ export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Dat
     f.agent,
     f.agent,
   ) as unknown as RunRow[];
-  const perRunTokens = rows.filter((r) => r.measured === 1 && r.agent !== 'bro').map((r) => r.tokens_out);
-  const broTokens = rows.filter((r) => r.measured === 1 && r.agent === 'bro').map((r) => r.tokens_out);
-  const sharedEdges = logEdges(perRunTokens);
-  const broEdges = logEdges(broTokens);
+}
+
+interface AgentEdges {
+  shared: Edges;
+  bro: Edges;
+}
+
+// swe and code-reviewer share each metric's edges; bro bins on its own.
+const agentEdgesOf = (rows: RunRow[]): AgentEdges => ({
+  shared: edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== 'bro')),
+  bro: edgesOf(rows.filter((r) => r.measured === 1 && r.agent === 'bro')),
+});
+
+function insightsBody(db: DatabaseSync, f: InsightFilter, p: Period, rows: RunRow[], edges: AgentEdges, range: Row): Row {
   const names = (sql: string) => all(db, sql).map((r) => String(r['v']));
+  const maxTask = one(db, `SELECT MAX(task_id) AS v FROM agent_runs WHERE (? IS NULL OR repo = ?)`, f.repo, f.repo)?.['v'];
   return {
-    range: { key: f.range, since, until: now.toISOString() },
+    range,
     filters: { repo: f.repo, agent: f.agent, model: f.model, effort: f.effort },
     options: {
       repos: names(`SELECT DISTINCT repo AS v FROM agent_runs WHERE repo IS NOT NULL ORDER BY repo`),
       models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`),
+      max_task_id: maxTask === null || maxTask === undefined ? null : Number(maxTask),
     },
-    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === 'bro' ? broEdges : sharedEdges)),
+    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === 'bro' ? edges.bro : edges.shared)),
     cost: costOf(db, rows),
-    quality: qualityOf(db, f, since),
-    throughput: throughputOf(db, f, since),
+    quality: qualityOf(db, f, p),
+    throughput: throughputOf(db, f, p),
     outliers: outliersOf(rows),
   };
+}
+
+// GET /api/insights: per-agent token, time and cost stats, review and
+// verification quality, closed-task throughput and the top runs, over the
+// filter's range. Runs whose usage_source is NULL or 'unmeasured' count in
+// `total` but in no statistic.
+export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Row {
+  const since = sinceOf(f.range, now);
+  const period: Period = { since, before: null, fromTask: null, toTask: null };
+  const rows = insightRows(db, f, period);
+  return insightsBody(db, f, period, rows, agentEdgesOf(rows), { key: f.range, since, until: now.toISOString() });
+}
+
+const usd4 = (usd: number) => Math.round(usd * 10_000) / 10_000;
+
+// Sums over the period's measured swe and code-reviewer runs that have a task,
+// each divided by the distinct tasks among them.
+function perTaskOf(prices: ReadonlyMap<string, ModelPrice>, rows: RunRow[]): Row {
+  const runs = rows.filter((r) => r.measured === 1 && r.agent !== 'bro' && r.task_id !== null);
+  const tasks = new Set(runs.map((r) => r.task_id)).size;
+  const sum = (v: (r: RunRow) => number) => runs.reduce((s, r) => s + v(r), 0);
+  const contextSum = sum(context);
+  let usd = 0;
+  let unpriced = 0;
+  for (const r of runs) {
+    const price = priceOf(prices, r);
+    if (price === null) unpriced += 1;
+    else usd += price;
+  }
+  const perTask = (total: number) => (tasks === 0 ? null : total / tasks);
+  return {
+    tasks,
+    runs: runs.length,
+    tokens_out: perTask(sum((r) => r.tokens_out)),
+    context: perTask(contextSum),
+    cache_hit: tasks === 0 || contextSum === 0 ? null : sum((r) => r.cache_read) / contextSum,
+    cost_usd: tasks === 0 || prices.size === 0 ? null : usd4(usd / tasks),
+    unpriced_runs: unpriced,
+  };
+}
+
+export const PERIOD_HINT = 'must be a period like 30d, prev30d, dates:2026-10-01..2026-10-15 or tasks:100-200';
+
+export interface CompareQuery {
+  filter: InsightFilter;
+  p1: Slice;
+  p2: Slice;
+}
+
+// The p1 and p2 slices plus the /api/insights filters, whose `range` is ignored.
+export function compareQuery(p: URLSearchParams, now: Date = new Date()): CompareQuery | { error: string } {
+  const slices: Slice[] = [];
+  for (const key of ['p1', 'p2'] as const) {
+    const raw = p.get(key);
+    const s = raw === null ? { error: '' } : parseSlice(raw, now);
+    if ('error' in s) return { error: s.error === VERSION_PERIODS_ERROR ? `${key}: ${VERSION_PERIODS_ERROR}` : `${key} ${PERIOD_HINT}` };
+    slices.push(s);
+  }
+  const rest = new URLSearchParams(p);
+  rest.delete('range');
+  const filter = insightFilter(rest);
+  return 'error' in filter ? filter : { filter, p1: slices[0]!, p2: slices[1]! };
+}
+
+// GET /api/insights/compare: two /api/insights bodies on histogram edges built
+// once over both periods' runs, each with its slice and per-task totals. A task
+// slice on either side drops bro from both, since bro runs carry no task.
+export function compare(db: DatabaseSync, f: InsightFilter, s1: Slice, s2: Slice): Row {
+  const broExcluded = s1.kind === 'tasks' || s2.kind === 'tasks';
+  const rowsOf = (s: Slice) => {
+    const rows = insightRows(db, f, periodOf(s));
+    return broExcluded ? rows.filter((r) => r.agent !== 'bro') : rows;
+  };
+  const r1 = rowsOf(s1);
+  const r2 = rowsOf(s2);
+  const union = new Map<number, RunRow>();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  const edges = agentEdgesOf([...union.values()]);
+  const ids1 = new Set(r1.map((r) => r.id));
+  const prices = modelPrices(db);
+  const body = (s: Slice, rows: RunRow[]): Row => ({
+    ...insightsBody(db, f, periodOf(s), rows, edges, { key: s.key, since: s.since, until: s.until }),
+    slice: s,
+    per_task: perTaskOf(prices, rows),
+  });
+  const p1 = body(s1, r1);
+  return { p1, p2: body(s2, r2), shared_runs: r2.filter((r) => ids1.has(r.id)).length, bro_excluded: broExcluded, options: p1['options'] };
 }
 
 export const EXPLORE_MEASURES = ['tokens_out', 'context', 'cache_hit', 'cost', 'duration_ms', 'tool_uses'] as const;

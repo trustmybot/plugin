@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/mcp-health-check.sh (SessionStart).
+# Tests for the TypeScript mcp-health-check gate (SessionStart).
 #   1. server present on the first sample        → silent, log mcp_alive=true
 #   2. server appears on the third sample        → silent
 #   3. server never appears                      → soft note, never "HALT"
@@ -21,7 +21,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/mcp-health-check.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-mcp-health-check.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT

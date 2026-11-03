@@ -40,9 +40,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -126,7 +126,7 @@ var require_code = __commonJS({
       else if (arg instanceof Name)
         code.push(arg);
       else
-        code.push(interpolate(arg));
+        code.push(interpolate2(arg));
     }
     exports.addCodeArg = addCodeArg;
     function optimize(expr) {
@@ -165,7 +165,7 @@ var require_code = __commonJS({
       return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str2`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
-    function interpolate(x) {
+    function interpolate2(x) {
       return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify(Array.isArray(x) ? x.join(",") : x);
     }
     function stringify(x) {
@@ -194,9 +194,9 @@ var require_code = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -339,9 +339,9 @@ var require_scope = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -417,11 +417,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants4) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants2);
+          this.rhs = optimizeExpr(this.rhs, names, constants4);
         return this;
       }
       get names() {
@@ -438,10 +438,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants4) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants2);
+        this.rhs = optimizeExpr(this.rhs, names, constants4);
         return this;
       }
       get names() {
@@ -502,8 +502,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants2) {
-        this.code = optimizeExpr(this.code, names, constants2);
+      optimizeNames(names, constants4) {
+        this.code = optimizeExpr(this.code, names, constants4);
         return this;
       }
       get names() {
@@ -532,12 +532,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants4) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants2))
+          if (n.optimizeNames(names, constants4))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i2, 1);
@@ -590,12 +590,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants4) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
-        if (!(super.optimizeNames(names, constants2) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants4);
+        if (!(super.optimizeNames(names, constants4) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants2);
+        this.condition = optimizeExpr(this.condition, names, constants4);
         return this;
       }
       get names() {
@@ -618,10 +618,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants4) {
+        if (!super.optimizeNames(names, constants4))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants2);
+        this.iteration = optimizeExpr(this.iteration, names, constants4);
         return this;
       }
       get names() {
@@ -657,10 +657,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants4) {
+        if (!super.optimizeNames(names, constants4))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants2);
+        this.iterable = optimizeExpr(this.iterable, names, constants4);
         return this;
       }
       get names() {
@@ -702,11 +702,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants4) {
         var _a2, _b;
-        super.optimizeNames(names, constants2);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
+        super.optimizeNames(names, constants4);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants4);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants4);
         return this;
       }
       get names() {
@@ -1007,7 +1007,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants2) {
+    function optimizeExpr(expr, names, constants4) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1022,14 +1022,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants2[n.str];
+        const c = constants4[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants4[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -1059,9 +1059,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -1226,9 +1226,9 @@ var require_util = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -1265,9 +1265,9 @@ var require_names = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -1387,9 +1387,9 @@ var require_errors = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -1438,9 +1438,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -1469,9 +1469,9 @@ var require_rules = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -1492,9 +1492,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -1676,9 +1676,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -1713,9 +1713,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -1846,9 +1846,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -1964,9 +1964,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -2047,9 +2047,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module2) {
     "use strict";
     module2.exports = function equal(a, b) {
       if (a === b) return true;
@@ -2082,9 +2082,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module2) {
     "use strict";
     var traverse = module2.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -2170,9 +2170,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -2326,9 +2326,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -2834,9 +2834,9 @@ var require_validate = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -2850,9 +2850,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -2867,9 +2867,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve4.call(this, root, ref2);
+      let _sch = resolve7.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve4(root, ref2) {
+    function resolve7(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3091,9 +3091,9 @@ var require_compile = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module2) {
     module2.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -3110,9 +3110,9 @@ var require_data = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module2) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -3367,9 +3367,9 @@ var require_utils = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module2) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3577,9 +3577,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module2) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3593,55 +3593,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve4(baseURI, relativeURI, options) {
+    function resolve7(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative4, options, skipNormalization) {
+    function resolveComponent(base, relative5, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative4 = parse4(serialize(relative4, options), options);
+        relative5 = parse4(serialize(relative5, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative4.scheme) {
-        target.scheme = relative4.scheme;
-        target.userinfo = relative4.userinfo;
-        target.host = relative4.host;
-        target.port = relative4.port;
-        target.path = removeDotSegments(relative4.path || "");
-        target.query = relative4.query;
+      if (!options.tolerant && relative5.scheme) {
+        target.scheme = relative5.scheme;
+        target.userinfo = relative5.userinfo;
+        target.host = relative5.host;
+        target.port = relative5.port;
+        target.path = removeDotSegments(relative5.path || "");
+        target.query = relative5.query;
       } else {
-        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
-          target.userinfo = relative4.userinfo;
-          target.host = relative4.host;
-          target.port = relative4.port;
-          target.path = removeDotSegments(relative4.path || "");
-          target.query = relative4.query;
+        if (relative5.userinfo !== void 0 || relative5.host !== void 0 || relative5.port !== void 0) {
+          target.userinfo = relative5.userinfo;
+          target.host = relative5.host;
+          target.port = relative5.port;
+          target.path = removeDotSegments(relative5.path || "");
+          target.query = relative5.query;
         } else {
-          if (!relative4.path) {
+          if (!relative5.path) {
             target.path = base.path;
-            if (relative4.query !== void 0) {
-              target.query = relative4.query;
+            if (relative5.query !== void 0) {
+              target.query = relative5.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative4.path[0] === "/") {
-              target.path = removeDotSegments(relative4.path);
+            if (relative5.path[0] === "/") {
+              target.path = removeDotSegments(relative5.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative4.path;
+                target.path = "/" + relative5.path;
               } else if (!base.path) {
-                target.path = relative4.path;
+                target.path = relative5.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative5.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative4.query;
+            target.query = relative5.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3649,7 +3649,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative4.fragment;
+      target.fragment = relative5.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve4,
+      resolve: resolve7,
       resolveComponent,
       equal,
       serialize,
@@ -3832,9 +3832,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -3843,9 +3843,9 @@ var require_uri = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -4454,9 +4454,9 @@ var require_core = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -4469,9 +4469,9 @@ var require_id = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -4591,9 +4591,9 @@ var require_ref = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -4612,9 +4612,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4644,9 +4644,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4672,9 +4672,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str2) {
@@ -4698,9 +4698,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4730,9 +4730,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4767,9 +4767,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4796,9 +4796,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4878,9 +4878,9 @@ var require_required = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4907,9 +4907,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -4918,9 +4918,9 @@ var require_equal = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -4985,9 +4985,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5014,9 +5014,9 @@ var require_const = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5063,9 +5063,9 @@ var require_enum = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -5101,9 +5101,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -5154,9 +5154,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -5211,9 +5211,9 @@ var require_items = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -5228,9 +5228,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5263,9 +5263,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5357,9 +5357,9 @@ var require_contains = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -5451,9 +5451,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5494,9 +5494,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5600,9 +5600,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -5658,9 +5658,9 @@ var require_properties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5732,9 +5732,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5763,9 +5763,9 @@ var require_not = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5780,9 +5780,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5838,9 +5838,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5865,9 +5865,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5934,9 +5934,9 @@ var require_if = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5952,9 +5952,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -6000,9 +6000,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6090,9 +6090,9 @@ var require_format = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -6101,9 +6101,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -6124,9 +6124,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -6146,9 +6146,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -6160,9 +6160,9 @@ var require_types = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6265,9 +6265,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module2) {
     module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -6422,9 +6422,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6492,9 +6492,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -6695,9 +6695,9 @@ var require_formats = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -6767,9 +6767,9 @@ var require_limit = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6809,7 +6809,7 @@ var require_dist = __commonJS({
   }
 });
 
-// node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
 var tree_sitter_exports = {};
 __export(tree_sitter_exports, {
   CaptureQuantifier: () => CaptureQuantifier,
@@ -7139,7 +7139,7 @@ function checkModule() {
 }
 var __defProp2, __name, SIZE_OF_SHORT, SIZE_OF_INT, SIZE_OF_CURSOR, SIZE_OF_NODE, SIZE_OF_POINT, SIZE_OF_RANGE, ZERO_POINT, INTERNAL, C, LookaheadIterator, Tree, TreeCursor, Node, PREDICATE_STEP_TYPE_CAPTURE, PREDICATE_STEP_TYPE_STRING, QUERY_WORD_REGEX, CaptureQuantifier, isCaptureStep, isStringStep, QueryErrorKind, QueryError, Query, LANGUAGE_FUNCTION_REGEX, Language, Module2, tree_sitter_default, Module3, TRANSFER_BUFFER, LANGUAGE_VERSION, MIN_COMPATIBLE_VERSION, Parser;
 var init_tree_sitter = __esm({
-  "node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
     __defProp2 = Object.defineProperty;
     __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
     SIZE_OF_SHORT = 2;
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve4, reject) => {
-          readyPromiseResolve = resolve4;
+        var readyPromise = new Promise((resolve7, reject) => {
+          readyPromiseResolve = resolve7;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve4, reject) => {
+                return new Promise((resolve7, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve4(xhr.response);
+                      resolve7(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve4, reject) => {
+            return new Promise((resolve7, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve4(mod.exports);
+                resolve7(mod.exports);
               });
             });
           }
@@ -10772,10 +10772,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync14 } from "node:fs";
+import { mkdirSync as mkdirSync10, readFileSync as readFileSync16 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -10909,7 +10909,7 @@ var getParsedType = (data) => {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -11023,7 +11023,7 @@ ZodError.create = (issues) => {
   return error2;
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
   let message2;
   switch (issue2.code) {
@@ -11126,13 +11126,13 @@ var errorMap = (issue2, _ctx) => {
 };
 var en_default = errorMap;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function getErrorMap() {
   return overrideErrorMap;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path: path2, errorMaps, issueData } = params;
   const fullPath = [...path2, ...issueData.path || []];
@@ -11241,14 +11241,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message2) => typeof message2 === "string" ? { message: message2 } : message2 || {};
   errorUtil2.toString = (message2) => typeof message2 === "string" ? message2 : message2?.message;
 })(errorUtil || (errorUtil = {}));
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path2, key) {
     this._cachedPath = [];
@@ -14651,7 +14651,7 @@ var nullableType = ZodNullable.create;
 var preprocessType = ZodEffects.createWithPreprocess;
 var pipelineType = ZodPipeline.create;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
 var NEVER = Object.freeze({
   status: "aborted"
 });
@@ -14725,7 +14725,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -15404,7 +15404,7 @@ var Class = class {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -15470,7 +15470,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
   return fieldErrors;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
   const result2 = schema._zod.run({ value, issues: [] }, ctx);
@@ -15550,7 +15550,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -15641,8 +15641,8 @@ function emoji() {
 }
 var ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
 var ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
-var mac = (delimiter) => {
-  const escapedDelim = escapeRegex(delimiter ?? ":");
+var mac = (delimiter2) => {
+  const escapedDelim = escapeRegex(delimiter2 ?? ":");
   return new RegExp(`^(?:[0-9A-F]{2}${escapedDelim}){5}[0-9A-F]{2}$|^(?:[0-9a-f]{2}${escapedDelim}){5}[0-9a-f]{2}$`);
 };
 var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
@@ -15707,7 +15707,7 @@ var sha512_hex = /^[0-9a-fA-F]{128}$/;
 var sha512_base64 = /* @__PURE__ */ fixedBase64(86, "==");
 var sha512_base64url = /* @__PURE__ */ fixedBase64url(86);
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a2;
   inst._zod ?? (inst._zod = {});
@@ -16255,7 +16255,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args2 = []) {
     this.content = [];
@@ -16291,14 +16291,14 @@ var Doc = class {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 3,
   patch: 6
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a2;
   inst ?? (inst = {});
@@ -17034,13 +17034,13 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     }
     return propValues;
   });
-  const isObject5 = isObject;
+  const isObject6 = isObject;
   const catchall = def.catchall;
   let value;
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject5(input)) {
+    if (!isObject6(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -17138,7 +17138,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject5 = isObject;
+  const isObject6 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -17147,7 +17147,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject5(input)) {
+    if (!isObject6(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -18269,7 +18269,7 @@ function handleRefineResult(result2, payload, input, inst) {
   }
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
 var error = () => {
   const Sizable = {
     string: { unit: "characters", verb: "to have" },
@@ -18378,7 +18378,7 @@ function en_default2() {
   };
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
 var _a;
 var $ZodRegistry = class {
   constructor() {
@@ -18426,7 +18426,7 @@ function registry() {
 (_a = globalThis).__zod_globalRegistry ?? (_a.__zod_globalRegistry = registry());
 var globalRegistry = globalThis.__zod_globalRegistry;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -19230,7 +19230,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
   return inst;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -19582,7 +19582,7 @@ var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) =
   return finalize(ctx, schema);
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
 var formatMap = {
   guid: "uuid",
   url: "uri",
@@ -20058,7 +20058,7 @@ var lazyProcessor = (schema, ctx, _json, params) => {
   seen.ref = innerType;
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -20121,7 +20121,7 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var schemas_exports3 = {};
 __export(schemas_exports3, {
   ZodAny: () => ZodAny2,
@@ -20290,7 +20290,7 @@ __export(schemas_exports3, {
   xor: () => xor
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -20324,7 +20324,7 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
 var iso_exports2 = {};
 __export(iso_exports2, {
   ZodISODate: () => ZodISODate,
@@ -20365,7 +20365,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -20405,7 +20405,7 @@ var ZodRealError = $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
 var parse2 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -20419,7 +20419,7 @@ var safeDecode2 = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync2 = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync2 = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   $ZodType.init(inst, def);
   Object.assign(inst["~standard"], {
@@ -21498,22 +21498,22 @@ function preprocess(fn, schema) {
   return pipe(transform(fn), schema);
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
 var ZodFirstPartyTypeKind2;
 /* @__PURE__ */ (function(ZodFirstPartyTypeKind3) {
 })(ZodFirstPartyTypeKind2 || (ZodFirstPartyTypeKind2 = {}));
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
 var z = {
   ...schemas_exports3,
   ...checks_exports2,
   iso: iso_exports2
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
 config(en_default2());
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -23032,15 +23032,15 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function getMethodLiteral(schema) {
   const shape = getObjectShape(schema);
   const methodSchema = shape?.method;
@@ -23061,7 +23061,7 @@ function parseWithCompat(schema, data) {
   return result2.data;
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -23561,7 +23561,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+        await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23578,7 +23578,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve7, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23656,7 +23656,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve4(parseResult.data);
+            resolve7(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23917,12 +23917,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve7, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve4, interval);
+      const timeoutId = setTimeout(resolve7, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24015,7 +24015,7 @@ function mergeCapabilities(base, additional) {
   return result2;
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -24083,7 +24083,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -24296,7 +24296,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -24331,7 +24331,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -24711,10 +24711,10 @@ var Server = class extends Protocol {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process3 from "node:process";
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
   append(chunk) {
     this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
@@ -24742,7 +24742,7 @@ function serializeMessage(message2) {
   return JSON.stringify(message2) + "\n";
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = process3.stdin, _stdout = process3.stdout) {
     this._stdin = _stdin;
@@ -24792,12 +24792,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve4) => {
+    return new Promise((resolve7) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve4();
+        resolve7();
       } else {
-        this._stdout.once("drain", resolve4);
+        this._stdout.once("drain", resolve7);
       }
     });
   }
@@ -25223,14 +25223,17 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop, SubagentStop, SessionStart, UserPromptSubmit or WorktreeCreate): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, as Stop), `decision` (`allow`, `deny`, or `failed` on a WorktreeCreate that exited non-zero), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_denied", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`) or `dispatch.sh` (the headless shim) returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or its own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch` from both, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
   { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_closed_from_remote", writers: ["bro"], description: "`issue_reconcile_remote` (`reconcileRemoteCloses`, `sync/issue-reconcile.ts`) closed an open local issue because its linked GitHub/GitLab twin reports closed and the issue has no live task; one row per close, in the close's transaction, on the issue, from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_remote_closed_local_open", writers: ["bro"], description: "`issue_reconcile_remote` found an open local issue whose linked remote twin is closed but left it open because tasks of it are still live (`pending`/`running`/`needs_validation`/`completed`); one row per issue and blocking task set (a rerun with the same `blocking_task_ids` writes none), from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`, `blocking_task_ids`; the `issues_open_after_remote_close` contract reads it" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
@@ -25269,6 +25272,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
   { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
   { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
@@ -25281,7 +25285,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -25447,7 +25451,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 55;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26010,6 +26014,15 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db2);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db2);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db2);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27855,6 +27868,78 @@ function migrateV51toV52(db2) {
     throw err22;
   }
 }
+function migrateV52toV53(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "agent_runs")) {
+      db2.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
+    }
+    commitTransaction(db2);
+  } catch (err22) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err22;
+  }
+}
+function migrateV53toV54(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "tasks")) {
+      if (!hasColumn(db2, "tasks", "worktree_path")) {
+        db2.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db2, "tasks", "worktree_adopted")) {
+        db2.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
+    }
+    commitTransaction(db2);
+  } catch (err22) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err22;
+  }
+}
+function migrateV54toV55(db2) {
+  beginImmediate(db2);
+  try {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
+    commitTransaction(db2);
+  } catch (err22) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err22;
+  }
+}
 function migrateV22toV23(db2) {
   const soleRepo = () => {
     if (!tableExists(db2, "repos")) return null;
@@ -29044,6 +29129,109 @@ async function topKByCosine(db2, table, query, k, filterParams = []) {
 }
 
 // src/embeddings/backfill.ts
+import { utimesSync } from "node:fs";
+
+// src/hooks/ensure-mcp-deps-installed.ts
+import { randomUUID } from "node:crypto";
+import {
+  accessSync,
+  closeSync as closeSync2,
+  constants as constants2,
+  copyFileSync,
+  cpSync,
+  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync2,
+  openSync as openSync2,
+  readdirSync as readdirSync3,
+  readFileSync as readFileSync4,
+  readlinkSync,
+  realpathSync as realpathSync2,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync as statSync2,
+  symlinkSync,
+  writeFileSync,
+  writeSync
+} from "node:fs";
+import { basename as basename3, delimiter, dirname as dirname3, isAbsolute as isAbsolute2, join as join6, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+
+// src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// src/hooks/ensure-mcp-deps-installed.ts
+var MCP_REL = join6("mcp", "trajectory-server");
+var RECLAIM_MUTEX_STALE_MS = 3e4;
+var LOCK_OWNER = "owner";
+var STAGING_STALE_MS = 60 * 60 * 1e3;
+function ageMs(path2) {
+  try {
+    return Date.now() - statSync2(path2).mtimeMs;
+  } catch {
+    return void 0;
+  }
+}
+function isStaleLock(lock, staleMin) {
+  const age = ageMs(lock);
+  return age === void 0 || age > staleMin * 6e4;
+}
+function claimLock(lock) {
+  try {
+    mkdirSync2(lock);
+  } catch {
+    return void 0;
+  }
+  const token = randomUUID();
+  try {
+    writeFileSync(join6(lock, LOCK_OWNER), token);
+  } catch {
+    rmSync(lock, { recursive: true, force: true });
+    return void 0;
+  }
+  return token;
+}
+function reclaimLock(lock, staleMin) {
+  const mutex = `${lock}.reclaim`;
+  try {
+    mkdirSync2(mutex);
+  } catch {
+    const age = ageMs(mutex);
+    if (age !== void 0 && age > RECLAIM_MUTEX_STALE_MS) rmSync(mutex, { recursive: true, force: true });
+    return void 0;
+  }
+  try {
+    if (!isStaleLock(lock, staleMin)) return void 0;
+    rmSync(lock, { recursive: true, force: true });
+    return claimLock(lock);
+  } finally {
+    try {
+      rmdirSync(mutex);
+    } catch {
+    }
+  }
+}
+function takeLock(lock, staleMin) {
+  try {
+    mkdirSync2(dirname3(lock), { recursive: true });
+  } catch {
+    return void 0;
+  }
+  return claimLock(lock) ?? (isStaleLock(lock, staleMin) ? reclaimLock(lock, staleMin) : void 0);
+}
+function releaseLock(lock, token) {
+  if (!token) return false;
+  let owner;
+  try {
+    owner = readFileSync4(join6(lock, LOCK_OWNER), "utf8");
+  } catch {
+    return false;
+  }
+  if (owner !== token) return false;
+  rmSync(lock, { recursive: true, force: true });
+  return true;
+}
+
+// src/embeddings/backfill.ts
 var MISSING_WHERE = {
   discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
   audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
@@ -29056,6 +29244,9 @@ var MISSING_SQL = {
   wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
   wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
 };
+var RECHECK_BATCH = 50;
+var BACKFILL_LEASE_STALE_MIN = 5;
+var BACKFILL_HEARTBEAT_MS = 6e4;
 var BACKFILL_ORDER = ["discussions", "audit", "wm_directories", "wm_files"];
 var WORLD_MODEL_TABLES = ["wm_directories", "wm_files"];
 function embedText(table, r) {
@@ -29068,13 +29259,27 @@ function countMissing(db2, table) {
 }
 async function backfillMissing(db2, table, limit = 50, onRow) {
   const rows = db2.all(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db2, table, r.id, embedText(table, r)).catch(
-      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+  let attempted = 0;
+  for (let i2 = 0; i2 < rows.length; i2 += RECHECK_BATCH) {
+    if (!db2.isOpen) break;
+    const batch = rows.slice(i2, i2 + RECHECK_BATCH);
+    const ids = batch.map((r) => r.id);
+    const stillMissing = new Set(
+      db2.all(
+        `SELECT id FROM ${table} WHERE ${MISSING_WHERE[table]} AND id IN (${ids.map(() => "?").join(", ")})`,
+        [MODEL_ID, ...ids]
+      ).map((r) => r.id)
     );
-    onRow?.();
+    for (const r of batch) {
+      if (!stillMissing.has(r.id)) continue;
+      attempted++;
+      await embedAndStore(db2, table, r.id, embedText(table, r)).catch(
+        (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+      );
+      onRow?.();
+    }
   }
-  return rows.length;
+  return attempted;
 }
 var worldModelBackfill = null;
 function startWorldModelBackfill(db2) {
@@ -29088,12 +29293,31 @@ function startWorldModelBackfill(db2) {
     worldModelBackfill = null;
   });
 }
-async function startBackfill(db2) {
+function heartbeat(lock) {
+  try {
+    const now2 = /* @__PURE__ */ new Date();
+    utimesSync(lock, now2, now2);
+  } catch (e) {
+    console.error("[embeddings] backfill lease heartbeat failed:", e);
+  }
+}
+async function startBackfill(db2, dbPath2, opts = {}) {
   const missing = BACKFILL_ORDER.map((table) => ({ table, n: countMissing(db2, table) }));
   const total = missing.reduce((sum, m) => sum + m.n, 0);
+  if (total === 0) {
+    serverLog({ event: "embeddings_backfill_start", total });
+    return;
+  }
+  const lock = dbPath2 && dbPath2 !== ":memory:" ? `${dbPath2}.backfill.lock` : void 0;
+  const token = lock ? takeLock(lock, BACKFILL_LEASE_STALE_MIN) : void 0;
+  if (lock && !token) {
+    serverLog({ event: "embeddings_backfill_skipped", reason: "lease_held", total });
+    return;
+  }
   serverLog({ event: "embeddings_backfill_start", total });
-  if (total === 0) return;
-  (async () => {
+  const timer = lock ? setInterval(() => heartbeat(lock), opts.heartbeatMs ?? BACKFILL_HEARTBEAT_MS) : void 0;
+  timer?.unref();
+  try {
     let done = 0;
     const progress = () => {
       done++;
@@ -29101,7 +29325,12 @@ async function startBackfill(db2) {
     };
     for (const { table } of missing) await backfillMissing(db2, table, -1, progress);
     serverLog({ event: "embeddings_backfill_complete", done });
-  })().catch((e) => console.error("[embeddings] backfill error:", e));
+  } catch (e) {
+    console.error("[embeddings] backfill error:", e);
+  } finally {
+    clearInterval(timer);
+    if (lock) releaseLock(lock, token);
+  }
 }
 
 // src/fts-query.ts
@@ -29165,15 +29394,15 @@ function quoted(token) {
   return `"${token.replace(/"/g, '""')}"`;
 }
 function toFtsQuery(raw) {
-  const tokens = queryTokens(raw).map(quoted);
-  return tokens.length > 0 ? tokens.join(" ") : '""';
+  const tokens2 = queryTokens(raw).map(quoted);
+  return tokens2.length > 0 ? tokens2.join(" ") : '""';
 }
 function toFtsOrQuery(raw) {
-  const tokens = queryTokens(raw).filter((token) => {
+  const tokens2 = queryTokens(raw).filter((token) => {
     const word = token.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
     return word.length > 0 && !STOPWORDS.has(word);
   });
-  return tokens.length > 0 ? tokens.map(quoted).join(" OR ") : null;
+  return tokens2.length > 0 ? tokens2.map(quoted).join(" OR ") : null;
 }
 function withFtsGuard(run2) {
   try {
@@ -29571,6 +29800,8 @@ function auditTools(db2) {
 // src/tools/discussions.ts
 var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
 var MAX_BODY_BYTES = 65536;
+var HUMAN_AUTHOR = "human";
+var HUMAN_AUTHOR_REFUSED = "author_forbidden: discussion_append never writes author='human'. Human rows come only from the rework-waiver-capture hook, which records the Human's own prompt. Write the row under your own name and quote the Human verbatim.";
 function ok2(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -29678,7 +29909,7 @@ function discussionTools(db2) {
         properties: {
           agent: { type: "string", description: "Caller agent name" },
           issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
-          author: { type: "string", description: "Author of this entry (agent name or human)" },
+          author: { type: "string", description: "Author of this entry: an agent name. 'human' is refused; quote the Human verbatim under your own name." },
           kind: {
             type: "string",
             enum: ["intent", "question", "answer", "decision", "note", "analysis"],
@@ -29692,10 +29923,6 @@ function discussionTools(db2) {
           supersedes: {
             type: "string",
             description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
-          },
-          verified_human: {
-            type: "boolean",
-            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
           }
         },
         required: ["agent", "author", "body"]
@@ -29879,8 +30106,8 @@ function discussionTools(db2) {
         }
       });
       const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => {
-        const ageDays = row.age_days;
-        const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+        const ageDays2 = row.age_days;
+        const decayed = rrf * (Math.exp(-ageDays2 / 30) * alpha + (1 - alpha));
         return { row, score: decayed };
       });
       combined.sort((a, b) => b.score - a.score);
@@ -29906,6 +30133,7 @@ function discussionTools(db2) {
         const rawIssueId = args2["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db2));
         const author = requireArg2(args2, "author");
+        if (String(author).trim().toLowerCase() === HUMAN_AUTHOR) return err3(HUMAN_AUTHOR_REFUSED);
         const body2 = requireArg2(args2, "body");
         const kind = args2["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body2, "utf8");
@@ -29919,12 +30147,6 @@ function discussionTools(db2) {
         }
         if (!author.trim()) {
           throw new Error("author must be a non-empty string");
-        }
-        const verifiedHuman = Boolean(args2["verified_human"]);
-        if (author === "human" && !verifiedHuman) {
-          throw new Error(
-            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
-          );
         }
         const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
         if (!issue2) {
@@ -30079,28 +30301,28 @@ function discussionTools(db2) {
 }
 
 // src/utils/repo-paths.ts
-import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute4, resolve as resolve3 } from "node:path";
 
 // src/tools/containment.ts
-import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join6, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
+import { lstatSync as lstatSync4, readlinkSync as readlinkSync2, realpathSync as realpathSync3 } from "node:fs";
+import { isAbsolute as isAbsolute3, join as join7, parse as parse3, relative as relative3, sep as sep3 } from "node:path";
 function projectRootFromDbPath(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep2);
+  const segments = dbPath2.split(sep3);
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
+  return segments.slice(0, idx).join(sep3) || sep3;
 }
 function projectSpawnOptions(projectRoot2) {
   return { cwd: projectRoot2, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot2 } };
 }
 function canonicalPath(path2, projectRoot2) {
-  if (!isAbsolute2(path2) && (projectRoot2 === void 0 || !isAbsolute2(projectRoot2))) {
+  if (!isAbsolute3(path2) && (projectRoot2 === void 0 || !isAbsolute3(projectRoot2))) {
     throw new Error(`canonicalPath: relative path '${path2}' needs an absolute project root`);
   }
-  const absolute = isAbsolute2(path2) ? path2 : join6(projectRoot2, path2);
+  const absolute = isAbsolute3(path2) ? path2 : join7(projectRoot2, path2);
   const root = parse3(absolute).root;
-  const pending2 = absolute.slice(root.length).split(sep2);
+  const pending2 = absolute.slice(root.length).split(sep3);
   const real = [];
   const tail = [];
   let hops = 0;
@@ -30116,34 +30338,34 @@ function canonicalPath(path2, projectRoot2) {
       real.pop();
       continue;
     }
-    const candidate = join6(root, ...real, part);
+    const candidate = join7(root, ...real, part);
     let stat;
     try {
-      stat = lstatSync3(candidate);
+      stat = lstatSync4(candidate);
     } catch {
       tail.push(part);
       continue;
     }
     if (stat.isSymbolicLink() && hops < 40) {
       hops += 1;
-      const target = readlinkSync(candidate);
-      if (isAbsolute2(target)) real.length = 0;
-      pending2.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
+      const target = readlinkSync2(candidate);
+      if (isAbsolute3(target)) real.length = 0;
+      pending2.unshift(...target.slice(isAbsolute3(target) ? parse3(target).root.length : 0).split(sep3));
       continue;
     }
     real.push(part);
   }
-  let head = join6(root, ...real);
+  let head = join7(root, ...real);
   try {
-    head = realpathSync2(head);
+    head = realpathSync3(head);
   } catch {
   }
-  return tail.length > 0 ? join6(head, ...tail) : head;
+  return tail.length > 0 ? join7(head, ...tail) : head;
 }
 function isWithinRoot(root, path2) {
-  if (!isAbsolute2(root)) return false;
-  const rel = relative2(canonicalPath(root), canonicalPath(path2, root));
-  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
+  if (!isAbsolute3(root)) return false;
+  const rel = relative3(canonicalPath(root), canonicalPath(path2, root));
+  return rel === "" || !rel.startsWith(`..${sep3}`) && rel !== ".." && !isAbsolute3(rel);
 }
 function outsideProject(tool, projectRoot2, path2) {
   if (projectRoot2 === null || isWithinRoot(projectRoot2, path2)) return null;
@@ -30157,9 +30379,9 @@ function outsideProject(tool, projectRoot2, path2) {
 
 // src/utils/repo-paths.ts
 function repoRowPath(db2, path2) {
-  if (isAbsolute3(path2)) return path2;
-  const base = db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname3(db2.dbPath);
-  return resolve2(base, path2);
+  if (isAbsolute4(path2)) return path2;
+  const base = db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname4(db2.dbPath);
+  return resolve3(base, path2);
 }
 function resolveSoleRepoPath(db2) {
   return resolveSoleRepo(db2)?.path;
@@ -30295,8 +30517,8 @@ function remoteSyncGate(db2, opts = {}) {
 
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join7 } from "node:path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync3 } from "node:fs";
+import { join as join8 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -30306,11 +30528,11 @@ function syncLog(entry) {
   try {
     const logDir = resolveLogDir();
     if (!readyLogDirs.has(logDir)) {
-      mkdirSync2(logDir, { recursive: true });
+      mkdirSync3(logDir, { recursive: true });
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join7(logDir, "issue-sync.log"), line);
+    appendFileSync2(join8(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -30358,16 +30580,16 @@ function extractRemoteHostAndRepo(remoteUrl) {
   if (sshMatch) return { host: sshMatch[1], repoPath: sshMatch[2] };
   return null;
 }
-async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
+async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug2) {
   try {
     let result2;
     if (backend === "gh") {
       const args2 = ["issue", "view", String(iid), "--json", "number,url"];
-      if (repoSlug) args2.push("--repo", repoSlug);
+      if (repoSlug2) args2.push("--repo", repoSlug2);
       result2 = spawnFn("gh", args2, spawnOpts);
     } else {
       const args2 = ["issue", "view", String(iid)];
-      if (repoSlug) args2.push("-R", repoSlug);
+      if (repoSlug2) args2.push("-R", repoSlug2);
       result2 = spawnFn("glab", args2, spawnOpts);
     }
     if (result2.status !== 0) {
@@ -30406,16 +30628,16 @@ function withMarker(body2, marker) {
 
 ${marker}`;
 }
-async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
+async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug2) {
   try {
     let result2;
     if (backend === "gh") {
       const args2 = ["label", "list", "--json", "name"];
-      if (repoSlug) args2.push("--repo", repoSlug);
+      if (repoSlug2) args2.push("--repo", repoSlug2);
       result2 = spawnFn("gh", args2, spawnOpts);
     } else {
       const args2 = ["label", "list", "-F", "json"];
-      if (repoSlug) args2.push("-R", repoSlug);
+      if (repoSlug2) args2.push("-R", repoSlug2);
       result2 = spawnFn("glab", args2, spawnOpts);
     }
     if (result2.status !== 0) return null;
@@ -30706,16 +30928,16 @@ function markerToken(marker) {
   if (!marker.startsWith(MARKER_OPEN) || !marker.endsWith(MARKER_CLOSE)) return marker;
   return marker.slice(MARKER_OPEN.length, marker.length - MARKER_CLOSE.length);
 }
-function markerListArgs(backend, repoSlug, search) {
+function markerListArgs(backend, repoSlug2, search) {
   if (backend === "gh") {
     const args3 = ["issue", "list", "--state", "all", "--limit", String(MARKER_LOOKUP_LIMIT), "--json", "number,body"];
     if (search !== null) args3.push("--search", `"${search}" in:body`);
-    if (repoSlug) args3.push("--repo", repoSlug);
+    if (repoSlug2) args3.push("--repo", repoSlug2);
     return args3;
   }
   const args2 = ["issue", "list", "--all", "--per-page", String(MARKER_LOOKUP_LIMIT), "--output", "json"];
   if (search !== null) args2.push("--search", search, "--in", "description");
-  if (repoSlug) args2.push("-R", repoSlug);
+  if (repoSlug2) args2.push("-R", repoSlug2);
   return args2;
 }
 function matchMarker(backend, stdout, marker) {
@@ -30976,10 +31198,7 @@ function openSweRun(db2, task, now2, ctx, rootDir) {
   return true;
 }
 
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
@@ -30993,6 +31212,11 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
 function liveTasksOfIssue(db2, issueId) {
   return db2.all(
     `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
@@ -31103,6 +31327,225 @@ function sweepStaleTasks(db2, now2) {
     [pendingCutoff]
   );
   return { tasks_swept: stale.map((t) => t.id), runs_swept: runsSwept, reported };
+}
+
+// src/sync/issue-reconcile.ts
+var GH_RECONCILE_BATCH = 50;
+function resolveRepoCtx(db2, repo) {
+  const resolved = resolveRepoForSync(db2, repo);
+  if (!resolved) return null;
+  const remotes = syncRemotes(db2, resolved.name);
+  return {
+    cwd: resolved.path,
+    slugFor(kind) {
+      const entry = remotes.find((r) => r.provider === kind);
+      return entry ? { slug: repoSlugFromRemoteUrl(entry.url) } : null;
+    }
+  };
+}
+function spawnOptsFor(cwd) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (cwd) opts.cwd = cwd;
+  return opts;
+}
+function splitGhSlug(slug) {
+  const parts2 = slug.split("/");
+  if (parts2.length < 3 || parts2.some((p) => p === "")) return null;
+  return { host: parts2[0], owner: parts2[1], name: parts2.slice(2).join("/") };
+}
+function gqlString(value) {
+  return JSON.stringify(value);
+}
+function readGithubBatch(slug, iids, cwd, spawnFn) {
+  const out2 = /* @__PURE__ */ new Map();
+  const failAll = (error2, message2) => {
+    for (const iid of iids) out2.set(iid, { error: error2, ...message2 ? { message: message2 } : {} });
+    return out2;
+  };
+  const repo = splitGhSlug(slug);
+  if (!repo) return failAll("slug_unresolved", `cannot split repo slug "${slug}"`);
+  const fields = iids.map((n) => `i${n}: issue(number: ${n}) { state }`).join(" ");
+  const query = `query { repository(owner: ${gqlString(repo.owner)}, name: ${gqlString(repo.name)}) { ${fields} } }`;
+  let result2;
+  try {
+    result2 = spawnFn("gh", ["api", "graphql", "--hostname", repo.host, "-f", `query=${query}`], spawnOptsFor(cwd));
+  } catch (e) {
+    return failAll("read_failed", e instanceof Error ? e.message : String(e));
+  }
+  let data = null;
+  try {
+    const parsed = JSON.parse(result2.stdout);
+    data = parsed?.data?.repository ?? null;
+  } catch {
+    data = null;
+  }
+  if (data === null) {
+    if (result2.status !== 0) return failAll("read_failed", (result2.stderr || `gh exited ${String(result2.status)}`).slice(0, 500));
+    return failAll("parse_failed", "gh api graphql returned no repository data");
+  }
+  for (const iid of iids) {
+    const node = data[`i${iid}`];
+    const state = node && typeof node.state === "string" ? node.state.toUpperCase() : null;
+    if (state === "CLOSED") out2.set(iid, { state: "closed" });
+    else if (state === "OPEN") out2.set(iid, { state: "open" });
+    else out2.set(iid, { error: "not_found", message: `github #${iid} returned no issue state` });
+  }
+  return out2;
+}
+function readGitlabIssue(slug, iid, cwd, spawnFn) {
+  let result2;
+  try {
+    result2 = spawnFn("glab", ["issue", "view", String(iid), "-R", slug, "--output", "json"], spawnOptsFor(cwd));
+  } catch (e) {
+    return { error: "read_failed", message: e instanceof Error ? e.message : String(e) };
+  }
+  if (result2.status !== 0) {
+    return { error: "read_failed", message: (result2.stderr || `glab exited ${String(result2.status)}`).slice(0, 500) };
+  }
+  let state;
+  try {
+    state = JSON.parse(result2.stdout)?.state;
+  } catch {
+    return { error: "parse_failed", message: "glab issue view returned no JSON" };
+  }
+  if (state === "closed") return { state: "closed" };
+  if (state === "opened" || state === "reopened") return { state: "open" };
+  return { error: "parse_failed", message: `gitlab #${iid} returned state ${JSON.stringify(state)}` };
+}
+function sameIds(a, b) {
+  if (!Array.isArray(b) || a.length !== b.length) return false;
+  const sorted = [...b].map(Number).sort((x, y) => x - y);
+  return a.every((v, i2) => v === sorted[i2]);
+}
+function lastDeferralIds(db2, issueId) {
+  const row = db2.get(
+    `SELECT content_json FROM audit WHERE issue_id = ? AND event_type = 'issue_remote_closed_local_open' ORDER BY id DESC LIMIT 1`,
+    [issueId]
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.content_json).blocking_task_ids ?? null;
+  } catch {
+    return null;
+  }
+}
+function reconcileRemoteCloses(db2, opts = {}) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const probe = opts._spawnFn ? (cmd, args2) => opts._spawnFn(cmd, args2, { encoding: "utf8" }) : void 0;
+  const result2 = { checked: 0, closed: [], deferred: [], errors: [], ...opts.dryRun ? { dry_run: true } : {} };
+  const candidates = db2.all(
+    `SELECT id, repo, gh_iid, gl_iid FROM issues
+      WHERE status = 'open' AND id > 0 AND (gh_iid IS NOT NULL OR gl_iid IS NOT NULL)
+      ORDER BY id`
+  );
+  const ctxByRepo = /* @__PURE__ */ new Map();
+  const ctxOf = (repo) => {
+    const key = repo ?? "\0";
+    if (!ctxByRepo.has(key)) ctxByRepo.set(key, resolveRepoCtx(db2, repo));
+    return ctxByRepo.get(key);
+  };
+  for (const c of candidates) ctxOf(c.repo);
+  if (candidates.length === 0) ctxOf(null);
+  const contexts = [...ctxByRepo.values()].filter((c) => c !== null);
+  const gate = remoteSyncGate(db2, {
+    repoRemotes: contexts.length > 0 ? { github: contexts.some((c) => c.slugFor("github") !== null), gitlab: contexts.some((c) => c.slugFor("gitlab") !== null) } : null,
+    spawnFn: probe
+  });
+  if (!gate.enabled) {
+    return { ...result2, skipped: gate.reason ?? "no_backend" };
+  }
+  result2.checked = candidates.length;
+  const targetsByIssue = /* @__PURE__ */ new Map();
+  const states = /* @__PURE__ */ new Map();
+  const ghBySlug = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    const ctx = ctxOf(c.repo);
+    const targets = [];
+    if (c.gh_iid != null) targets.push({ issueId: c.id, kind: "github", iid: c.gh_iid, slug: null, cwd: ctx?.cwd ?? null });
+    if (c.gl_iid != null) targets.push({ issueId: c.id, kind: "gitlab", iid: c.gl_iid, slug: null, cwd: ctx?.cwd ?? null });
+    targetsByIssue.set(c.id, targets);
+    for (const t of targets) {
+      if (ctx === null) {
+        states.set(t, { error: "repo_unresolved", message: `issue repo ${JSON.stringify(c.repo)} resolves to no repos row` });
+        continue;
+      }
+      const remote = ctx.slugFor(t.kind);
+      if (remote === null) {
+        states.set(t, { error: "not_synced", message: `the repo has no synced ${t.kind} remote` });
+        continue;
+      }
+      if (remote.slug === null) {
+        states.set(t, { error: "slug_unresolved", message: `cannot derive a repo slug from the ${t.kind} remote url` });
+        continue;
+      }
+      t.slug = remote.slug;
+      if (t.kind === "github") {
+        const list = ghBySlug.get(remote.slug) ?? [];
+        list.push(t);
+        ghBySlug.set(remote.slug, list);
+      } else {
+        states.set(t, readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
+      }
+    }
+  }
+  for (const [slug, targets] of ghBySlug) {
+    for (let i2 = 0; i2 < targets.length; i2 += GH_RECONCILE_BATCH) {
+      const batch = targets.slice(i2, i2 + GH_RECONCILE_BATCH);
+      const iids = [...new Set(batch.map((t) => t.iid))];
+      const read = readGithubBatch(slug, iids, batch[0].cwd, spawnFn);
+      for (const t of batch) states.set(t, read.get(t.iid));
+    }
+  }
+  const now2 = nowISO();
+  for (const [issueId, targets] of targetsByIssue) {
+    const read = targets.map((t) => ({ t, s: states.get(t) }));
+    const failed = read.filter((r) => "error" in r.s);
+    if (failed.length > 0) {
+      for (const { t, s } of failed) {
+        const e = s;
+        result2.errors.push({ issue_id: issueId, remote_kind: t.kind, remote_iid: t.iid, reason: e.error, ...e.message ? { message: e.message } : {} });
+      }
+      continue;
+    }
+    if (read.some((r) => "state" in r.s && r.s.state === "open")) continue;
+    const first = targets[0];
+    const blocking = liveTasksOfIssue(db2, issueId).map((t) => t.id);
+    if (blocking.length > 0) {
+      result2.deferred.push({ issue_id: issueId, blocking_task_ids: blocking });
+      if (!opts.dryRun && !sameIds(blocking, lastDeferralIds(db2, issueId))) {
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_remote_closed_local_open",
+          summary: `issue ${issueId}: ${first.kind} #${first.iid} is closed; left open for live tasks ${blocking.join(", ")}`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid, blocking_task_ids: blocking }),
+          created_at: now2
+        });
+      }
+      continue;
+    }
+    if (!opts.dryRun) {
+      const closedNow = db2.transaction(() => {
+        const still = db2.get(`SELECT status FROM issues WHERE id = ?`, [issueId]);
+        if (still?.status !== "open" || liveTasksOfIssue(db2, issueId).length > 0) return false;
+        markIssueClosed(db2, issueId, now2);
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_closed_from_remote",
+          summary: `issue ${issueId} closed: its ${first.kind} twin #${first.iid} is closed`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid }),
+          created_at: now2
+        });
+        return true;
+      });
+      if (!closedNow) continue;
+    }
+    result2.closed.push({ issue_id: issueId, remote_kind: first.kind, remote_iid: first.iid });
+  }
+  return result2;
 }
 
 // src/tools/issues.ts
@@ -31616,6 +32059,18 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
+      name: "issue_reconcile_remote",
+      description: "Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          dry_run: { type: "boolean", description: "Report what would close or defer and write nothing (default false)." }
+        },
+        required: ["agent"]
       }
     },
     {
@@ -32644,6 +33099,14 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+    })),
+    issue_reconcile_remote: requireRoles("issue_reconcile_remote", ["bro"], wrapHandler3(async (args2) => {
+      const dryRun = args2["dry_run"];
+      if (dryRun !== void 0 && typeof dryRun !== "boolean") {
+        return err4("invalid_dry_run: dry_run must be a boolean");
+      }
+      const spawnFn = args2["_spawnFn"] ?? void 0;
+      return ok3(reconcileRemoteCloses(db2, { dryRun: dryRun === true, _spawnFn: spawnFn }));
     }))
   };
   return { definitions, handlers };
@@ -32651,8 +33114,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
 
 // src/tools/milestones.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { join as join9 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -32875,7 +33338,7 @@ function nextPatchMilestone(version2) {
 function readJsonVersion(path2) {
   if (!existsSync3(path2)) return null;
   try {
-    const parsed = JSON.parse(readFileSync4(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync5(path2, "utf8"));
     return typeof parsed.version === "string" && parseSemver(parsed.version) ? parsed.version : null;
   } catch {
     return null;
@@ -32885,7 +33348,7 @@ function readTomlVersion(path2, table) {
   if (!existsSync3(path2)) return null;
   let text;
   try {
-    text = readFileSync4(path2, "utf8");
+    text = readFileSync5(path2, "utf8");
   } catch {
     return null;
   }
@@ -32921,10 +33384,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join8(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join8(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join8(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join8(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join9(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join9(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join9(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join9(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -33630,17 +34093,42 @@ function hookBlockWindow(db2, since, now2) {
     by_reason: stats.by_reason
   };
 }
+var TOOL_OUTPUT_TOP = 10;
+function toolOutputStats(db2, runsWhere, params) {
+  const rows = db2.all(
+    `SELECT r.agent_type AS agent_type, o.tool_name AS tool_name,
+            SUM(o.calls) AS calls, SUM(o.est_tokens) AS est_tokens
+       FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id
+      WHERE ${runsWhere}
+      GROUP BY r.agent_type, o.tool_name
+      ORDER BY r.agent_type, est_tokens DESC, o.tool_name`,
+    params
+  );
+  const out2 = {};
+  for (const row of rows) {
+    const group = out2[row.agent_type] ??= { total_est_tokens: 0, tools: [] };
+    group.total_est_tokens += row.est_tokens;
+    group.tools.push({ tool_name: row.tool_name, calls: row.calls, est_tokens: row.est_tokens, share: 0 });
+  }
+  for (const group of Object.values(out2)) {
+    group.tools = group.tools.slice(0, TOOL_OUTPUT_TOP).map((t) => ({
+      ...t,
+      share: group.total_est_tokens === 0 ? 0 : Math.round(t.est_tokens / group.total_est_tokens * 1e3) / 1e3
+    }));
+  }
+  return out2;
+}
 function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and code-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.",
+      description: "Token/duration aggregate + per-spawn breakdown of one task's swe and code-reviewer runs. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are unpriced_tokens; cost_groups splits both by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs: { denials, gate_failures (timed-out or crashed gates), by_reason (per reason, highest first) }, and each spawn its own hook_blocks count. tool_output: per agent_type, { total_est_tokens, tools: top 10 by est_tokens (result chars / 4) with calls and share }. Two modes: pass task_id for one task, or pass since (ISO date) without task_id: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } (swe runs started since then), tool_output (all runs) }.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string", description: "Calling agent identity" },
           task_id: { type: "integer", description: "Task ID to query stats for (task mode)" },
-          since: { type: "string", description: "ISO date; without task_id, returns hook-block stats over swe runs started at or after it (window mode)" }
+          since: { type: "string", description: "ISO date; without task_id, returns hook-block stats over swe runs and tool_output over all runs started at or after it (window mode)" }
         },
         required: ["agent"]
       }
@@ -33658,7 +34146,14 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
             throw new Error("task_stats needs task_id (one task) or since (window across runs)");
           }
           const since = args2["since"];
-          return ok6({ since, window: hookBlockWindow(db2, parseSince(since), clock()) });
+          const sinceDate = parseSince(since);
+          return ok6({
+            since,
+            window: hookBlockWindow(db2, sinceDate, clock()),
+            tool_output: toolOutputStats(db2, "r.started_at IS NOT NULL AND julianday(r.started_at) >= julianday(?)", [
+              sinceDate.toISOString()
+            ])
+          });
         }
         const taskId = Number(rawTaskId);
         if (!Number.isInteger(taskId) || taskId <= 0) {
@@ -33702,6 +34197,7 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
           cost_groups: cost.groups,
           ...reworkStats(db2, taskId, clock()),
           hook_blocks: hookBlocks,
+          tool_output: toolOutputStats(db2, `r.task_id = ? AND r.${TASK_COST_AGENTS_SQL}`, [taskId]),
           spawns: spawns.map((s) => ({ ...s, hook_blocks: blocks.per_run.get(s.id) ?? 0 }))
         });
       })
@@ -33745,12 +34241,12 @@ function enrollEffortAb(db2, computed, task) {
 
 // src/symbol-index.ts
 import { createHash as createHash2 } from "node:crypto";
-import { readFileSync as readFileSync5 } from "node:fs";
-import { basename as basename4, join as join10, posix } from "node:path";
+import { readFileSync as readFileSync6 } from "node:fs";
+import { basename as basename5, join as join11, posix } from "node:path";
 
 // src/parsing/loader.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { dirname as dirname4, join as join9 } from "node:path";
+import { dirname as dirname5, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var RUNTIME_WASM = "tree-sitter.wasm";
 var GRAMMAR_WASM = {
@@ -33764,11 +34260,11 @@ var INDEXED = ["typescript", "tsx", "javascript", "bash"];
 var pending = null;
 var loads = 0;
 function wasmDir() {
-  const here = dirname4(fileURLToPath2(import.meta.url));
-  for (const dir of [join9(here, "parsing"), here]) {
-    if (existsSync4(join9(dir, RUNTIME_WASM))) return dir;
+  const here = dirname5(fileURLToPath2(import.meta.url));
+  for (const dir of [join10(here, "parsing"), here]) {
+    if (existsSync4(join10(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join9(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join10(here, "parsing")} or ${here}`);
 }
 var runtime = null;
 var grammars = /* @__PURE__ */ new Map();
@@ -33781,7 +34277,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file2) => join9(dir, file2) });
+      await mod.Parser.init({ locateFile: (file2) => join10(dir, file2) });
       return mod;
     })(),
     () => {
@@ -33797,7 +34293,7 @@ function loadParser(name2) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join9(wasmDir(), GRAMMAR_WASM[name2])));
+        p.setLanguage(await Language2.load(join10(wasmDir(), GRAMMAR_WASM[name2])));
         return p;
       })(),
       () => grammars.delete(name2)
@@ -33824,7 +34320,7 @@ function loadParsers() {
 
 // src/parsing/extract.ts
 import { createHash } from "node:crypto";
-import { basename as basename3 } from "node:path";
+import { basename as basename4 } from "node:path";
 var GENERATED_PATH = [
   /(^|\/)dist\//,
   /(^|\/)build\//,
@@ -33871,13 +34367,13 @@ function inSymbolScope(relPath) {
   return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 function languageOf(relPath, head) {
-  const name2 = basename3(relPath);
+  const name2 = basename4(relPath);
   const dot = name2.lastIndexOf(".");
   if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
   return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
 }
 function symbolTerms(kind, qualifiedName, relPath) {
-  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename3(relPath))}`;
+  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename4(relPath))}`;
 }
 function normalizedHash(node) {
   const base = node.startIndex;
@@ -34164,10 +34660,10 @@ function extractBash(root, out2, moduleSymbol) {
       const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
       const line = node.startPosition.row + 1;
       if (name2 === "source" || name2 === ".") {
-        if (args2[0]) out2.edge(scope, "sources", basename3(args2[0]), line);
-      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename3(name2), line);
+        if (args2[0]) out2.edge(scope, "sources", basename4(args2[0]), line);
+      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename4(name2), line);
       else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
-        out2.edge(scope, "runs", basename3(args2[0]), line);
+        out2.edge(scope, "runs", basename4(args2[0]), line);
       } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
     } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
       for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
@@ -34216,9 +34712,21 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column2) {
+  return column2 === EMPTY_MATCHER_COLUMN ? "" : column2;
+}
+function rowHoldsPart(fields, part) {
+  return fields[6] === part;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
+var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
+var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
+var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
 var EVENT_ORDER = [
   "SessionStart",
   "UserPromptSubmit",
@@ -34247,8 +34755,12 @@ function eventRanks(events) {
   const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown2, ...EVENT_ORDER.slice(stop2 + 1)];
   return new Map(order.map((e, i2) => [e, i2 + 1]));
 }
-var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-function extractHooks(src, chains) {
+var gateModule = (gate) => `${GATE_MODULE_DIR}/${gate}.ts`;
+function routerGatesOf(table, event, matcher, part) {
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
+  return [...new Set(rows)];
+}
+function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -34269,11 +34781,14 @@ function extractHooks(src, chains) {
         const cmd = hook.command ?? "";
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
-        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
+        const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable2, event, matcher, routerCommand[2]) : [];
+        const isRouted = routed.length > 0;
+        const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = gate ? chains.get(gate) : void 0;
-        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -34282,15 +34797,15 @@ function extractHooks(src, chains) {
           doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
           start_line: line,
           end_line: line,
-          body_hash: md5(`${matcher}\0${cmd}`),
+          body_hash: md5(isRouted ? `${matcher}\0${cmd}\0${routed.join(" ")}` : `${matcher}\0${cmd}`),
           exported: 1,
           run_order: rank * 100 + pos
         });
         const at = out2.symbols.length - 1;
         if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
+          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
-          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
+          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
       }
     }
@@ -34299,7 +34814,7 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 2;
+var EXTRACTOR_VERSION = 4;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
@@ -34322,10 +34837,10 @@ function shortName(kind, qualifiedName) {
   return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
 }
 function namesOf(kind, qualifiedName, path2) {
-  return kind === "module" ? [basename4(path2), path2] : [shortName(kind, qualifiedName)];
+  return kind === "module" ? [basename5(path2), path2] : [shortName(kind, qualifiedName)];
 }
 function readSource(repoPath, relPath) {
-  return readFileSync5(join10(repoPath, relPath), "utf8");
+  return readFileSync6(join11(repoPath, relPath), "utf8");
 }
 function sourceLanguage(repoPath, relPath, sizeBytes) {
   if (sizeBytes > MAX_PARSE_BYTES) return null;
@@ -34424,7 +34939,7 @@ var Resolver = class {
       if (s.kind === "module") {
         this.modules.set(s.path, c.id);
         this.fileSet.add(s.path);
-        push(this.byBase, basename4(s.path), c);
+        push(this.byBase, basename5(s.path), c);
       } else {
         push(this.byName, shortName(s.kind, s.qualified_name), c);
       }
@@ -34496,6 +35011,13 @@ function registrationChains(repoPath) {
     return /* @__PURE__ */ new Map();
   }
 }
+function routerTable(repoPath) {
+  try {
+    return readSource(repoPath, ROUTER_TABLE_PATH);
+  } catch {
+    return "";
+  }
+}
 var toPending = (r) => ({
   from: r.path,
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
@@ -34535,7 +35057,7 @@ async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTO
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db2.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -34554,7 +35076,7 @@ async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTO
     }
     try {
       const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
       parsed.push({ file: file2, extraction });
     } catch (e) {
       failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
@@ -34749,7 +35271,7 @@ function fileRefKey(f) {
 }
 function fileMd5(absPath) {
   try {
-    return createHash2("md5").update(readFileSync5(absPath)).digest("hex");
+    return createHash2("md5").update(readFileSync6(absPath)).digest("hex");
   } catch {
     return null;
   }
@@ -34770,7 +35292,7 @@ function staleFiles(db2, files) {
       `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
       [f.repo, f.path]
     );
-    const disk = fileMd5(join10(root, f.path));
+    const disk = fileMd5(join11(root, f.path));
     checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
   }
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
@@ -37034,7 +37556,7 @@ function skillTools(db2) {
 
 // src/tools/agents.ts
 import { existsSync as existsSync5 } from "node:fs";
-import { dirname as dirname5, join as join11 } from "node:path";
+import { dirname as dirname6, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -37066,15 +37588,15 @@ var RESERVED_NAME = "bro";
 var BACKBONE_PLUGIN_ONLY = /* @__PURE__ */ new Set(["swe", "code-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync5(join11(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname5(fileURLToPath3(import.meta.url));
+  if (env && existsSync5(join12(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname6(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync5(join11(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname5(dir);
+    if (existsSync5(join12(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname6(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return env ?? dirname5(fileURLToPath3(import.meta.url));
+  return env ?? dirname6(fileURLToPath3(import.meta.url));
 }
 var PLUGIN_ROOT = resolvePluginRoot();
 function resolveWorkspaceRoot(dbPath2) {
@@ -37092,8 +37614,8 @@ function parseMarkedPath(filePath) {
 }
 function resolveMarkedPath(filePath, workspaceRoot) {
   const { root, rel } = parseMarkedPath(filePath);
-  if (root === "plugin") return join11(PLUGIN_ROOT, rel);
-  return workspaceRoot ? join11(workspaceRoot, rel) : null;
+  if (root === "plugin") return join12(PLUGIN_ROOT, rel);
+  return workspaceRoot ? join12(workspaceRoot, rel) : null;
 }
 function backboneShadowError(tool, name2) {
   return new Error(
@@ -37238,11 +37760,11 @@ function agentTools(db2, dbPath2 = "") {
         if (resolvedPath && existsSync5(resolvedPath)) {
           return ok10({ mode: "collision", ...target });
         }
-        const templatePath = join11(PLUGIN_ROOT, "templates", "agents", `${name2}.md`);
+        const templatePath = join12(PLUGIN_ROOT, "templates", "agents", `${name2}.md`);
         if (existsSync5(templatePath)) {
           return ok10({ mode: "template-copy", source_path: templatePath, ...target });
         }
-        const scaffoldPath = join11(PLUGIN_ROOT, "templates", "agents", "template.md");
+        const scaffoldPath = join12(PLUGIN_ROOT, "templates", "agents", "template.md");
         return ok10({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
       })
     )
@@ -37251,8 +37773,8 @@ function agentTools(db2, dbPath2 = "") {
 }
 
 // src/tools/reports.ts
-import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
-import { dirname as dirname6, resolve as resolve3, sep as sep3 } from "node:path";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname7, resolve as resolve4, sep as sep4 } from "node:path";
 function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -37440,8 +37962,8 @@ function reportTools(db2) {
       if (projectRoot2 === null) {
         throw new Error("issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory");
       }
-      const allowedBase = resolve3(projectRoot2, "docs/trustmybot") + sep3;
-      const absPath = resolve3(projectRoot2, relOutputPath);
+      const allowedBase = resolve4(projectRoot2, "docs/trustmybot") + sep4;
+      const absPath = resolve4(projectRoot2, relOutputPath);
       if (!absPath.startsWith(allowedBase)) {
         throw new Error(
           `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`
@@ -37516,8 +38038,8 @@ function reportTools(db2) {
         }
       }
       const markdown = lines2.join("\n");
-      mkdirSync3(dirname6(absPath), { recursive: true });
-      writeFileSync(absPath, markdown, "utf8");
+      mkdirSync4(dirname7(absPath), { recursive: true });
+      writeFileSync2(absPath, markdown, "utf8");
       return ok11({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
   };
@@ -38376,9 +38898,9 @@ function repoNameForSlug(db2, slug) {
   }
   return null;
 }
-function resolveMonitorTaskId(db2, branch, repoSlug) {
+function resolveMonitorTaskId(db2, branch, repoSlug2) {
   if (!branch) return null;
-  const repoName = repoNameForSlug(db2, repoSlug);
+  const repoName = repoNameForSlug(db2, repoSlug2);
   const rows = repoName ? db2.all(
     `SELECT id FROM tasks WHERE branch_id = ? AND (repo = ? OR repo IS NULL)`,
     [branch, repoName]
@@ -38715,23 +39237,24 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync6, realpathSync as realpathSync5 } from "node:fs";
+import { existsSync as existsSync6, realpathSync as realpathSync6 } from "node:fs";
+import { resolve as resolve5 } from "node:path";
 
 // src/utils/worktree-deps.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { lstatSync as lstatSync4, realpathSync as realpathSync3, statSync as statSync2, symlinkSync } from "node:fs";
-import { basename as basename5, dirname as dirname7, join as join12 } from "node:path";
+import { lstatSync as lstatSync5, realpathSync as realpathSync4, statSync as statSync3, symlinkSync as symlinkSync2 } from "node:fs";
+import { basename as basename6, dirname as dirname8, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function isDirectory(path2) {
   try {
-    return statSync2(path2).isDirectory();
+    return statSync3(path2).isDirectory();
   } catch {
     return false;
   }
 }
 function pathPresent(path2) {
   try {
-    lstatSync4(path2);
+    lstatSync5(path2);
     return true;
   } catch {
     return false;
@@ -38742,7 +39265,7 @@ function trackedPackageDirs(worktreePath) {
     stdio: ["ignore", "pipe", "pipe"],
     timeout: SUBPROCESS_TIMEOUT_MS
   }).toString();
-  return [...new Set(out2.split("\0").filter(Boolean).map((p) => dirname7(p)))];
+  return [...new Set(out2.split("\0").filter(Boolean).map((p) => dirname8(p)))];
 }
 function linkWorktreeNodeModules(repoRoot, worktreePath) {
   const result2 = { linked: [], skipped: [] };
@@ -38754,8 +39277,8 @@ function linkWorktreeNodeModules(repoRoot, worktreePath) {
     return result2;
   }
   for (const dir of dirs) {
-    const src = join12(repoRoot, dir, "node_modules");
-    const dest = join12(worktreePath, dir, "node_modules");
+    const src = join13(repoRoot, dir, "node_modules");
+    const dest = join13(worktreePath, dir, "node_modules");
     if (!isDirectory(src)) {
       result2.skipped.push({ dir, reason: `no install at ${src}` });
       continue;
@@ -38765,7 +39288,7 @@ function linkWorktreeNodeModules(repoRoot, worktreePath) {
       continue;
     }
     try {
-      symlinkSync(src, dest);
+      symlinkSync2(src, dest);
       result2.linked.push(dir);
     } catch (error2) {
       result2.skipped.push({ dir, reason: `could not link ${src}: ${error2.message}` });
@@ -38776,9 +39299,9 @@ function linkWorktreeNodeModules(repoRoot, worktreePath) {
 function isMainModule() {
   const entry = process.argv[1];
   const self2 = fileURLToPath4(import.meta.url);
-  if (entry === void 0 || basename5(self2) !== "worktree-deps.js") return false;
+  if (entry === void 0 || basename6(self2) !== "worktree-deps.js") return false;
   try {
-    return realpathSync3(entry) === realpathSync3(self2);
+    return realpathSync4(entry) === realpathSync4(self2);
   } catch {
     return false;
   }
@@ -39146,8 +39669,8 @@ var GraphHolder = class _GraphHolder {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { readFileSync as readFileSync6, realpathSync as realpathSync4 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join13, relative as relative3, sep as sep4 } from "node:path";
+import { readFileSync as readFileSync7, realpathSync as realpathSync5 } from "node:fs";
+import { isAbsolute as isAbsolute5, join as join14, relative as relative4, sep as sep5 } from "node:path";
 
 // src/world-model/concepts.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
@@ -39813,16 +40336,16 @@ function symbolSource(db2, symbol2) {
   let root;
   let file2;
   try {
-    root = realpathSync4(rootArg);
-    file2 = realpathSync4(join13(root, symbol2.path));
+    root = realpathSync5(rootArg);
+    file2 = realpathSync5(join14(root, symbol2.path));
   } catch {
     return { source: null, source_reason: "file-missing" };
   }
-  const rel = relative3(root, file2);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute4(rel)) return { source: null, source_reason: "outside-repo-root" };
+  const rel = relative4(root, file2);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep5}`) || isAbsolute5(rel)) return { source: null, source_reason: "outside-repo-root" };
   let lines2;
   try {
-    lines2 = readFileSync6(file2, "utf8").split("\n");
+    lines2 = readFileSync7(file2, "utf8").split("\n");
   } catch {
     return { source: null, source_reason: "file-unreadable" };
   }
@@ -39982,6 +40505,7 @@ function wrap3(fn) {
   };
 }
 var LOGGED_ARGS = ["query", "path", "id", "qualified_name", "name", "mode", "depth", "repo", "k"];
+var TOOL_LOGGED_ARGS = { world_model_symbol: ["impact", "source"] };
 function treeNodeCount(node) {
   const children = Array.isArray(node["children"]) ? node["children"] : [];
   const files = Array.isArray(node["files"]) ? node["files"].length : 0;
@@ -40026,7 +40550,9 @@ function recordToolCall(db2, tool, args2, result2, latencyMs) {
       tool,
       agent,
       task_id: task?.task_id ?? null,
-      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])),
+      args: Object.fromEntries(
+        [...LOGGED_ARGS, ...TOOL_LOGGED_ARGS[tool] ?? []].filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])
+      ),
       result_count: resultCount,
       empty: error2 || resultCount === 0,
       error: error2,
@@ -40154,7 +40680,7 @@ function worldModelTools(db2, graphHolder2) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -40600,8 +41126,11 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
 }
 var BRIEF_SECTIONS = ["core", "verification", "scope", "history", "all"];
 var isBriefSection = (v) => BRIEF_SECTIONS.includes(v);
+var BRIEF_RESPONSE_FORMATS = ["concise", "detailed"];
+var isBriefResponseFormat = (v) => BRIEF_RESPONSE_FORMATS.includes(v);
+var BRIEF_RESPONSE_FORMAT_HINT = "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
 var BRIEF_SECTION_HINTS = {
-  core: "locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model: read by range from it",
+  core: "locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it",
   verification: "verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure",
   scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: "task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open"
@@ -40662,6 +41191,9 @@ function outsideProjectResult(refusal2) {
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
+function taskWorktreeDir(repoPath, task) {
+  return task.worktree_path ? task.worktree_path : taskWorktreePath(repoPath, task.branch_id);
+}
 function git2(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
   return execFileSync3("git", ["-C", repoPath, ...args2], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -40706,11 +41238,10 @@ function worktreeOfBranch(repoPath, branchId) {
   }
   return null;
 }
-function ensureTaskWorktree(repoPath, branchId) {
-  const worktreePath = taskWorktreePath(repoPath, branchId);
+function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(repoPath, branchId)) {
   let reused = false;
   if (existsSync6(worktreePath)) {
-    const canonicalWt = realpathSync5(worktreePath);
+    const canonicalWt = realpathSync6(worktreePath);
     try {
       reused = git2(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
     } catch {
@@ -40726,6 +41257,150 @@ function ensureTaskWorktree(repoPath, branchId) {
   }
   return { worktreePath, reused };
 }
+var ADOPT_HOLDING_STATUSES = ["pending", "running", "needs_validation"];
+function absoluteGitPath(dir, flag) {
+  try {
+    return realpathSync6(git2(dir, ["rev-parse", "--path-format=absolute", flag]));
+  } catch {
+    return null;
+  }
+}
+function isRegisteredWorktree(repoPath, worktreePath) {
+  try {
+    return git2(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === worktreePath);
+  } catch {
+    return false;
+  }
+}
+function canonicalPath2(path2) {
+  try {
+    return realpathSync6(path2);
+  } catch {
+    return resolve5(path2);
+  }
+}
+function worktreeHolder(db2, taskId, repoPath, realWorktree) {
+  const live = db2.all(
+    "SELECT id, status, branch_id, worktree_path, repo FROM tasks WHERE id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id",
+    [taskId, JSON.stringify(ADOPT_HOLDING_STATUSES)]
+  );
+  for (const t of live) {
+    const ownRepo = resolveRepoPath(db2, t.repo);
+    const dir = taskWorktreeDir(ownRepo?.startsWith("/") ? ownRepo : repoPath, t);
+    if (canonicalPath2(dir) === realWorktree) return { id: t.id, status: t.status };
+  }
+  return null;
+}
+function adoptWorktreeCheck(db2, input) {
+  const { taskId, repoPath, worktreePath } = input;
+  let realWorktree;
+  try {
+    realWorktree = realpathSync6(worktreePath);
+  } catch {
+    realWorktree = null;
+  }
+  const repoCommonDir = repoPath ? absoluteGitPath(repoPath, "--git-common-dir") : null;
+  const wtCommonDir = realWorktree ? absoluteGitPath(realWorktree, "--git-common-dir") : null;
+  if (!realWorktree || !repoCommonDir || wtCommonDir !== repoCommonDir) {
+    return {
+      ok: false,
+      error: "adopt_worktree_repo_mismatch",
+      message: `'${worktreePath}' is not a worktree of the repo at '${repoPath}' (a different --git-common-dir, or not a git worktree at all). Run the session from a linked worktree of that repo, or provision the task with task_provision.`
+    };
+  }
+  if (absoluteGitPath(realWorktree, "--git-dir") === repoCommonDir) {
+    return {
+      ok: false,
+      error: "adopt_worktree_main_checkout",
+      message: `'${realWorktree}' is the repo's main checkout, not a linked worktree. A main-checkout session provisions the task with task_provision, which creates <repo>/.claude/worktrees/<slug>.`
+    };
+  }
+  if (!isRegisteredWorktree(repoPath, realWorktree)) {
+    return {
+      ok: false,
+      error: "adopt_worktree_repo_mismatch",
+      message: `'${realWorktree}' is not the top of a registered linked worktree of '${repoPath}' (git worktree list). Pass the worktree's root directory.`
+    };
+  }
+  let dirty;
+  try {
+    dirty = git2(realWorktree, ["status", "--porcelain", "--untracked-files=no"]);
+  } catch (e) {
+    dirty = e.message;
+  }
+  if (dirty !== "") {
+    return {
+      ok: false,
+      error: "adopt_worktree_dirty",
+      message: `'${realWorktree}' has uncommitted changes to tracked files; commit or stash them, then adopt it again.`
+    };
+  }
+  const holder = worktreeHolder(db2, taskId ?? -1, repoPath, realWorktree);
+  if (holder) return worktreeInUse(realWorktree, holder);
+  return { ok: true, realWorktree };
+}
+function worktreeInUse(realWorktree, holder) {
+  return {
+    ok: false,
+    error: "worktree_in_use",
+    task_id: holder.id,
+    message: `'${realWorktree}' is already task ${holder.id}'s worktree (status '${holder.status}'). Finish or close task ${holder.id} first, or run this task from another worktree.`
+  };
+}
+function recordAdoptedWorktree(db2, taskId, repoPath, realWorktree) {
+  const holder = worktreeHolder(db2, taskId, repoPath, realWorktree);
+  if (holder) return worktreeInUse(realWorktree, holder);
+  db2.run("UPDATE tasks SET worktree_path = ?, worktree_adopted = 1, updated_at = ? WHERE id = ?", [
+    realWorktree,
+    nowISO(),
+    taskId
+  ]);
+  return null;
+}
+function switchAdoptedWorktree(realWorktree, branchId) {
+  try {
+    git2(realWorktree, ["switch", branchId], WORKTREE_TIMEOUT_MS);
+    return void 0;
+  } catch (e) {
+    return e.message;
+  }
+}
+var AdoptRefusedError = class extends Error {
+  constructor(refusal2) {
+    super(refusal2.message);
+    this.refusal = refusal2;
+  }
+  refusal;
+};
+function adoptingTransaction(db2, fn) {
+  try {
+    return db2.transaction(fn);
+  } catch (e) {
+    if (e instanceof AdoptRefusedError) return e.refusal;
+    throw e;
+  }
+}
+function isAdoptRefusal(value) {
+  return typeof value === "object" && value !== null && value.ok === false;
+}
+function adoptRefusalResult(refusal2) {
+  const { error: error2, message: message2, task_id } = refusal2;
+  return {
+    isError: true,
+    content: [{ type: "text", text: JSON.stringify({ error: error2, message: message2, ...task_id !== void 0 ? { task_id } : {} }) }]
+  };
+}
+function parseAdoptWorktree(value, tool) {
+  if (value === void 0 || value === null) return void 0;
+  if (typeof value !== "string" || !value.startsWith("/")) {
+    throw new Error(`${tool}: adopt_worktree must be an absolute path to the session's linked worktree.`);
+  }
+  return value;
+}
+var ADOPT_WORKTREE_SCHEMA = {
+  type: "string",
+  description: "Absolute path of the session's linked git worktree, its top level, to adopt as the task's worktree: the task branch is checked out there and recorded as the task worktree instead of <repo>/.claude/worktrees/<slug>. Refused, writing nothing, for another repo, the main checkout, tracked changes, or a worktree another live task holds."
+};
 function ensureTaskBranch(repoPath, branchId, base, reuseExisting = false) {
   const localRef = `refs/heads/${branchId}`;
   const originRef = `refs/remotes/origin/${branchId}`;
@@ -40788,6 +41463,31 @@ function branchDivergedResult(tool, branchId, ref2, baseRef, distance, openPrs, 
           behind: distance?.behind ?? null,
           open_prs: openPrs,
           message: `${tool}: branch '${branchId}' already exists and '${ref2}' has diverged from '${baseRef}' (${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : "distance unknown"}).${prNote} ${remedy} No task row was created.`
+        })
+      }
+    ]
+  };
+}
+function branchIdUsedOnIssueResult(db2, tool, issueId, branchId) {
+  const existing = db2.get(
+    `SELECT id, status, commit_sha FROM tasks WHERE issue_id = ? AND branch_id = ? LIMIT 1`,
+    [issueId, branchId]
+  );
+  if (!existing) return null;
+  const nextStep = tool === "task_provision" ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or, for a separately gated task, pick a new name with branch_id_propose, or call task_provision with base='${branchId}' to stack on it.` : `Pick a fresh new_branch_id from branch_id_propose.`;
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "branch_id_used_on_issue",
+          issue_id: issueId,
+          branch_id: branchId,
+          task_id: existing.id,
+          status: existing.status,
+          commit_sha: existing.commit_sha ?? null,
+          message: `${tool}: issue ${issueId} already has task ${existing.id} (status '${existing.status}') on branch '${branchId}'. ${nextStep} No task row or branch was changed.`
         })
       }
     ]
@@ -40888,7 +41588,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_retry",
-      description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, diagnostic?}.",
+      description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. With adopt_worktree, checks the new branch out in that session worktree and records it instead of creating a slug worktree; an adoption refusal writes nothing. Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.",
       inputSchema: {
         type: "object",
         properties: {
@@ -40914,6 +41614,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             enum: [...EFFORT_LEVELS],
             description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework)."
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           session_id: RUN_SESSION_ID_SCHEMA
         },
         required: [
@@ -41061,7 +41762,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base \u2014 local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base \u2014 local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). With adopt_worktree, the session's linked worktree is checked before the branch is cut (a refusal writes nothing), recorded on the task and switched to the branch instead of creating <repo>/.claude/worktrees/<slug>. Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41080,6 +41781,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "boolean",
             description: "Keep an existing branch_id that has diverged from base as-is instead of refusing with branch_exists_diverged."
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
             type: "boolean",
@@ -41139,7 +41841,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, branch_created, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. With adopt_worktree, adopts that session worktree instead (checked before any write; a refusal leaves the task unchanged) and checks the branch out there. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41165,6 +41867,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             description: `Optional context for the rework swe beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it as spawn_note.`
           },
+          adopt_worktree: ADOPT_WORKTREE_SCHEMA,
           wontfix: {
             type: "array",
             description: `Open findings of this task the Human accepts: each set to wontfix (no longer probed), with a review_finding_wontfix audit row. Reason \u2265${WONTFIX_REASON_MIN_CHARS} chars; any bad entry refuses the call.`,
@@ -41201,7 +41904,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41211,6 +41914,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             enum: [...BRIEF_SECTIONS],
             description: "Part of the brief to return. Default 'core' for swe, 'all' for every other caller."
+          },
+          response_format: {
+            type: "string",
+            enum: [...BRIEF_RESPONSE_FORMATS],
+            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full."
           }
         },
         required: ["agent", "task_id"]
@@ -41228,6 +41936,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const decisionBody = args2["decision_body"];
         const task = args2["task"];
         parseRunSessionId(args2["session_id"]);
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_provision");
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
           return err17("issue_id must be a number");
         }
@@ -41326,6 +42035,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             };
           }
         }
+        const usedOnIssue = branchIdUsedOnIssueResult(db2, "task_provision", issueId, branchId);
+        if (usedOnIssue) return usedOnIssue;
         let repoPath = null;
         if (repoValue) {
           const reposRow = db2.get(
@@ -41345,9 +42056,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
-        for (const path2 of [repoPath, taskWorktreePath(repoPath, branchId)]) {
+        for (const path2 of [repoPath, adoptPath ?? taskWorktreePath(repoPath, branchId)]) {
           const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
           if (refusal2) return outsideProjectResult(refusal2);
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: null, repoPath, worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
         }
         const base = normalizeBase(
           repoPath,
@@ -41379,7 +42096,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const { cutBase } = branch;
         const resolvedBaseRef = cutBase?.ref ?? null;
         const now2 = nowISO();
-        const result2 = db2.transaction(() => {
+        const gitRepoPath = repoPath;
+        const result2 = adoptingTransaction(db2, () => {
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -41405,6 +42123,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
+          if (adoptedWorktree !== null) {
+            const refused = recordAdoptedWorktree(db2, row.id, gitRepoPath, adoptedWorktree);
+            if (refused) throw new AdoptRefusedError(refused);
+          }
           const assigned = enrollEffortAb(db2, computedEffort, {
             id: row.id,
             issue_id: issueId,
@@ -41446,15 +42168,21 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           }
           return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason, effort_inputs: effortInputs2 };
         });
+        if (isAdoptRefusal(result2)) return adoptRefusalResult(result2);
         let gitSetup = branch.created ? "created" : "reused";
         let worktreeReused = false;
         let diagnostic;
-        const worktreePath = taskWorktreePath(repoPath, branchId);
-        try {
-          worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
-        } catch (e) {
-          gitSetup = "error";
-          diagnostic = e.message;
+        const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
+        if (adoptedWorktree !== null) {
+          diagnostic = switchAdoptedWorktree(adoptedWorktree, branchId);
+          if (diagnostic !== void 0) gitSetup = "error";
+        } else {
+          try {
+            worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
+          } catch (e) {
+            gitSetup = "error";
+            diagnostic = e.message;
+          }
         }
         return ok16({
           task_id: result2.task_id,
@@ -41467,6 +42195,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           ...resolvedBaseRef ? { base_ref: resolvedBaseRef } : {},
           ...cutBase?.diverged ? {
             base_diverged: {
@@ -41497,9 +42226,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         const spawnNote = parseSpawnNote(args2["spawn_note"], "task_reopen");
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_reopen");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  i.status AS issue_status
+                  t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId]
         );
@@ -41515,10 +42245,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const wontfix = parseWontfix(db2, taskId, args2["wontfix"]);
         const repoPath = resolveRepoPath(db2, task.repo);
         if (repoPath) {
-          for (const path2 of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+          for (const path2 of [repoPath, adoptPath ?? taskWorktreeDir(repoPath, task)]) {
             const refusal2 = outsideProject("task_reopen", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: task.id, repoPath: repoPath ?? "", worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
         }
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
@@ -41530,7 +42266,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           current: task.effort
         });
         const now2 = nowISO();
-        db2.transaction(() => {
+        const refused = adoptingTransaction(db2, () => {
+          if (adoptedWorktree !== null && repoPath) {
+            const late2 = recordAdoptedWorktree(db2, task.id, repoPath, adoptedWorktree);
+            if (late2) throw new AdoptRefusedError(late2);
+          }
           db2.run(
             `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
                     completion_report = NULL, spawn_note = ?, updated_at = ? WHERE id = ?`,
@@ -41583,6 +42323,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             });
           }
         });
+        if (isAdoptRefusal(refused)) return adoptRefusalResult(refused);
         let worktreePath = null;
         let worktreeRecreated = false;
         let branchCreated = false;
@@ -41602,11 +42343,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
                 branchCreated = branch.kind === "ready" && branch.created;
               }
             }
-            const wt = ensureTaskWorktree(repoPath, task.branch_id);
-            worktreePath = wt.worktreePath;
-            worktreeRecreated = !wt.reused;
+            if (adoptedWorktree !== null) {
+              worktreePath = adoptedWorktree;
+              diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
+            } else {
+              const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
+              worktreePath = wt.worktreePath;
+              worktreeRecreated = !wt.reused;
+            }
           } catch (e) {
-            worktreePath = taskWorktreePath(repoPath, task.branch_id);
+            worktreePath = adoptedWorktree ?? taskWorktreeDir(repoPath, task);
             diagnostic = e.message;
           }
         } else {
@@ -41622,6 +42368,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           branch_created: branchCreated,
           ...diagnostic ? { diagnostic } : {}
         });
@@ -41724,18 +42471,27 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (!isBriefSection(section)) {
           return err17(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(", ")}`);
         }
+        const responseFormat = args2["response_format"] ?? "concise";
+        if (!isBriefResponseFormat(responseFormat)) {
+          return err17(
+            `unknown response_format ${JSON.stringify(responseFormat)}; valid values: ${BRIEF_RESPONSE_FORMATS.join(", ")}`
+          );
+        }
+        const concise = responseFormat === "concise";
+        let trimmed = false;
         const want = (s) => section === "all" || section === s;
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, t.worktree_path, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
         if (!task) return err17(`No task with id=${taskId}`);
+        const repoPath = resolveRepoPath(db2, task.repo);
+        const worktreePath = repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null;
         if (isSwe) {
-          const repoPath = resolveRepoPath(db2, task.repo);
-          openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
+          openSweRun(db2, task, nowISO(), runContext, worktreePath);
           const sentinel = db2.get(
             `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
             [task.id]
@@ -41780,6 +42536,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             status: task.status,
             commit_sha: task.commit_sha,
             repo,
+            worktree_path: worktreePath,
             effort: task.effort,
             spec_body: task.spec_body,
             files: parseTaskFiles(task.files),
@@ -41834,9 +42591,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
             base_moved: closeScope ? closeScope.base_moved === true : null
           };
+          if (concise) {
+            trimmed ||= scope_world_model.some(
+              (d) => d.summary !== null || d.children.some((c) => c.summary !== null)
+            );
+          }
           return {
             scope,
-            scope_world_model,
+            scope_world_model: concise ? scope_world_model.map((d) => ({ dir: d.dir, children: d.children.map((c) => ({ path: c.path })) })) : scope_world_model,
             ...checkoutLag(db2, repo),
             ...world_model_warning ? { world_model_warning } : {}
           };
@@ -41889,15 +42651,23 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const issueRowCount = db2.get("SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?", [task.issue_id])?.n ?? 0;
           const omittedCount = issueRowCount - task_discussions.length;
           const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
-          return { task_discussions, ...task_discussions_omitted ? { task_discussions_omitted } : {} };
+          const keptInConcise = new Set([...taskRows, issueDecision, issueIntent].map((d) => d?.id));
+          trimmed ||= concise && task_discussions.some((d) => !keptInConcise.has(d.id));
+          return {
+            task_discussions: concise ? task_discussions.map(
+              (d) => keptInConcise.has(d.id) ? d : { id: d.id, kind: d.kind, author: d.author }
+            ) : task_discussions,
+            ...task_discussions_omitted ? { task_discussions_omitted } : {}
+          };
         };
-        return ok16({
+        const brief = {
           ...want("core") ? coreSection() : {},
           ...section === "core" ? { sections: BRIEF_SECTION_HINTS } : {},
           ...want("verification") ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db2, task.id) } : {},
           ...want("scope") ? scopeSection() : {},
           ...want("history") ? historySection() : {}
-        });
+        };
+        return ok16(trimmed ? { ...brief, response_format_hint: BRIEF_RESPONSE_FORMAT_HINT } : brief);
       })
     ),
     branch_id_propose: requireRoles(
@@ -41933,6 +42703,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const title = args2["title"] ?? "";
         const repoOverride = args2["repo"] ?? null;
         parseRunSessionId(args2["session_id"]);
+        const adoptPath = parseAdoptWorktree(args2["adopt_worktree"], "task_retry");
         const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
           return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
@@ -41969,6 +42740,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (failed.branch_id === newBranchId) {
           return err17("new_branch_id must differ from the failed task's branch_id.");
         }
+        const usedOnIssue = branchIdUsedOnIssueResult(db2, "task_retry", failed.issue_id, newBranchId);
+        if (usedOnIssue) return usedOnIssue;
         {
           const RETRY_CAP = 3;
           let depth = 0;
@@ -42004,10 +42777,18 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const repoPath = resolvedPath && isGitRepo(resolvedPath) ? resolvedPath : null;
         let branchSetup = null;
         if (repoPath) {
-          for (const path2 of [repoPath, taskWorktreePath(repoPath, newBranchId)]) {
+          for (const path2 of [repoPath, adoptPath ?? taskWorktreePath(repoPath, newBranchId)]) {
             const refusal2 = outsideProject("task_retry", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
+        }
+        let adoptedWorktree = null;
+        if (adoptPath !== void 0) {
+          const check2 = adoptWorktreeCheck(db2, { taskId: null, repoPath: repoPath ?? "", worktreePath: adoptPath });
+          if (!check2.ok) return adoptRefusalResult(check2);
+          adoptedWorktree = check2.realWorktree;
+        }
+        if (repoPath) {
           const base = normalizeBase(repoPath, reworkBase(db2, repoPath, repoValue, failed.parent_branch_id));
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === "base_unresolved") {
@@ -42034,7 +42815,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           branchSetup = { gitSetup: branch.created ? "created" : "reused", baseRef: branch.cutBase.ref };
         }
         const now2 = nowISO();
-        const result2 = db2.transaction(() => {
+        const result2 = adoptingTransaction(db2, () => {
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -42096,8 +42877,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               created_at: now2
             });
           }
+          if (adoptedWorktree !== null && repoPath) {
+            const refused = recordAdoptedWorktree(db2, newTask.id, repoPath, adoptedWorktree);
+            if (refused) throw new AdoptRefusedError(refused);
+          }
           return { ...newTask, carried };
         });
+        if (isAdoptRefusal(result2)) return adoptRefusalResult(result2);
         if (!repoPath || !branchSetup) {
           return ok16({
             task_id: result2.id,
@@ -42108,12 +42894,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ""}'; no branch or worktree was created`
           });
         }
-        const worktreePath = taskWorktreePath(repoPath, newBranchId);
+        const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
         let diagnostic;
-        try {
-          ensureTaskWorktree(repoPath, newBranchId);
-        } catch (e) {
-          diagnostic = e.message;
+        if (adoptedWorktree !== null) {
+          diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
+        } else {
+          try {
+            ensureTaskWorktree(repoPath, newBranchId);
+          } catch (e) {
+            diagnostic = e.message;
+          }
         }
         return ok16({
           task_id: result2.id,
@@ -42123,6 +42913,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
+          ...adoptedWorktree !== null ? { worktree_adopted: true } : {},
           ...diagnostic ? { diagnostic } : {}
         });
       })
@@ -42336,7 +43127,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const results = [];
         for (const tid of taskIds) {
           const task = db2.get(
-            "SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1",
+            "SELECT id, branch_id, commit_sha, worktree_path FROM tasks WHERE id = ? LIMIT 1",
             [tid]
           );
           if (!task) {
@@ -42358,7 +43149,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             } catch {
             }
           }
-          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
+          const wtPath = taskWorktreeDir(repoPath, task);
           try {
             let targetSha = task.commit_sha ?? "";
             if (!targetSha) {
@@ -42603,20 +43394,20 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync10, lstatSync as lstatSync5, mkdirSync as mkdirSync6, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename7, dirname as dirname10, isAbsolute as isAbsolute5, join as join17 } from "node:path";
+import { existsSync as existsSync10, lstatSync as lstatSync6, mkdirSync as mkdirSync7, realpathSync as realpathSync7, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { basename as basename8, dirname as dirname11, isAbsolute as isAbsolute6, join as join18 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync8, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync8, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname9, join as join15 } from "node:path";
+import { readFileSync as readFileSync9, writeFileSync as writeFileSync4, mkdirSync as mkdirSync6, existsSync as existsSync8, chmodSync, rmSync as rmSync2 } from "node:fs";
+import { dirname as dirname10, join as join16 } from "node:path";
 
 // src/tools/onboard-sandbox.ts
 import { spawnSync as spawnSync9 } from "node:child_process";
-import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync7, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname8, join as join14 } from "node:path";
+import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync8, statSync as statSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname9, join as join15 } from "node:path";
 function settingsPath(projectRoot2) {
-  return join14(projectRoot2, ".claude", "settings.local.json");
+  return join15(projectRoot2, ".claude", "settings.local.json");
 }
 function isObject4(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -42624,7 +43415,7 @@ function isObject4(v) {
 function readSettings(path2) {
   if (!existsSync7(path2)) return { settings: {} };
   try {
-    const raw = readFileSync7(path2, "utf8").trim();
+    const raw = readFileSync8(path2, "utf8").trim();
     const parsed = raw.length > 0 ? JSON.parse(raw) : {};
     return isObject4(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
   } catch {
@@ -42638,9 +43429,9 @@ function ensureLocalSettingsIgnored(projectRoot2) {
   if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
   const ignored = spawnSync9("git", ["-C", projectRoot2, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
   if (ignored.status !== 1) return { appended: false };
-  const gitignore = join14(projectRoot2, ".gitignore");
+  const gitignore = join15(projectRoot2, ".gitignore");
   try {
-    const current = existsSync7(gitignore) ? readFileSync7(gitignore, "utf8") : "";
+    const current = existsSync7(gitignore) ? readFileSync8(gitignore, "utf8") : "";
     const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
     appendFileSync3(gitignore, `${lead}${LOCAL_SETTINGS_REL}
 `);
@@ -42654,17 +43445,17 @@ function ensureLocalSettingsIgnored(projectRoot2) {
 function writeSettings(path2, settings) {
   const created = !existsSync7(path2);
   try {
-    mkdirSync4(dirname8(path2), { recursive: true });
-    writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
+    mkdirSync5(dirname9(path2), { recursive: true });
+    writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
   } catch (e) {
     return { failure: `settings.local.json write failed: ${e.message}` };
   }
-  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname8(dirname8(path2))).appended };
+  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname9(dirname9(path2))).appended };
 }
 function projectUsable(projectRoot2) {
   if (!projectRoot2) return false;
   try {
-    return statSync3(projectRoot2).isDirectory();
+    return statSync4(projectRoot2).isDirectory();
   } catch {
     return false;
   }
@@ -42704,10 +43495,10 @@ function sandboxRecommended(remoteUrls, platform = process.platform, probes = SA
   return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 function sandboxToolCacheDir(projectRoot2) {
-  return join14(projectRoot2, ".claude", resolveClaudePluginName(), "cache");
+  return join15(projectRoot2, ".claude", resolveClaudePluginName(), "cache");
 }
 function sandboxToolEnv(toolCacheDir) {
-  return { npm_config_cache: join14(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join14(toolCacheDir, "bun") };
+  return { npm_config_cache: join15(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join15(toolCacheDir, "bun") };
 }
 function stringList(v) {
   return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
@@ -42843,21 +43634,6 @@ function removeProjectSandbox(opts) {
 var RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
 var SETTINGS_REL = [".claude", "settings.local.json"];
-var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate",
-  "naming-lint",
-  "code-quality-lint",
-  "commit-msg-lint",
-  "askuserquestion-length-lint",
-  "branch-up-to-date-with-remote",
-  "debug-trajectory"
-]);
-function gateName(command) {
-  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
-  if (dispatched?.[1]) return dispatched[1];
-  const parts2 = command.trim().split("/");
-  return (parts2[parts2.length - 1] ?? command).replace(/\.sh$/, "");
-}
 function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -42868,54 +43644,64 @@ function installedMarketplace(pluginRoot) {
 }
 function pluginNameOf(pluginRoot) {
   try {
-    const parsed = JSON.parse(readFileSync8(join15(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync9(join16(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
     if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
   } catch {
   }
   return "tmb";
 }
+var NO_PRE_TOOL_USE = "hooks/hooks.json missing or has no PreToolUse";
+var NO_ROUTER_ENTRY = "hooks/hooks.json has no PreToolUse router entry";
+var ROUTER_COMMAND = /^node ("?)\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js\1 ([A-Za-z]+)(?: ([a-z-]+))?$/;
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join15(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync8(hooksJsonPath)) return null;
+  const hooksJsonPath = join16(pluginRoot, "hooks", "hooks.json");
+  if (!existsSync8(hooksJsonPath)) return { reason: NO_PRE_TOOL_USE };
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync8(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync9(hooksJsonPath, "utf8"));
   } catch {
-    return null;
+    return { reason: NO_PRE_TOOL_USE };
   }
   const pre = parsed.hooks?.PreToolUse;
-  if (!Array.isArray(pre)) return null;
-  return pre;
-}
-function keptHooks(group) {
-  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
-}
-function buildTmbGroups(pre, resolverPath, marketplace, projectRoot2) {
+  if (!Array.isArray(pre)) return { reason: NO_PRE_TOOL_USE };
   const groups = [];
   for (const group of pre) {
-    const hooks = keptHooks(group).map((h) => ({
-      type: h.type,
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot2)}`,
-      ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
+    const entries = [];
+    for (const h of group.hooks ?? []) {
+      const routed = ROUTER_COMMAND.exec(h.command ?? "");
+      if (routed === null || routed[2] !== "PreToolUse") continue;
+      entries.push({
+        event: routed[2],
+        ...routed[3] !== void 0 ? { part: routed[3] } : {},
+        ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
+        ...h.onFailure !== void 0 ? { onFailure: h.onFailure } : {}
+      });
+    }
+    if (entries.length > 0) groups.push({ ...group.matcher !== void 0 ? { matcher: group.matcher } : {}, entries });
+  }
+  return groups.length > 0 ? groups : { reason: NO_ROUTER_ENTRY };
+}
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot2) {
+  return pre.map((group) => ({
+    ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
+    hooks: group.entries.map((e) => ({
+      type: "command",
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== void 0 ? ` --part ${e.part}` : ""} --shim --project ${shellWord(projectRoot2)}`,
+      ...e.timeout !== void 0 ? { timeout: e.timeout } : {},
+      ...e.onFailure !== void 0 ? { onFailure: e.onFailure } : {},
       _tmb_managed: true,
       _tmb_project: projectRoot2
-    }));
-    if (hooks.length === 0) continue;
-    groups.push({
-      ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
-      hooks
-    });
-  }
-  return groups;
+    }))
+  }));
 }
 function resolverPathFor(projectRoot2, pluginName2) {
-  return join15(projectRoot2, ".claude", pluginName2, RESOLVER_NAME);
+  return join16(projectRoot2, ".claude", pluginName2, RESOLVER_NAME);
 }
 function materializeResolver(pluginRoot, resolverPath) {
-  const canonical = join15(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  const canonical = join16(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync8(canonical)) return null;
-  mkdirSync5(dirname9(resolverPath), { recursive: true });
-  writeFileSync3(resolverPath, readFileSync8(canonical, "utf8"));
+  mkdirSync6(dirname10(resolverPath), { recursive: true });
+  writeFileSync4(resolverPath, readFileSync9(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -42940,16 +43726,16 @@ function installedPluginGuard(pluginRoot) {
   const marketplace = installedMarketplace(pluginRoot);
   if (!marketplace) return { reason: "plugin-root-not-installed" };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
+  if ("reason" in pre) return { reason: pre.reason };
   return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot2) {
-  return join15(projectRoot2, ...SETTINGS_REL);
+  return join16(projectRoot2, ...SETTINGS_REL);
 }
 function readSettings2(path2) {
   if (!existsSync8(path2)) return { settings: {}, exists: false };
   try {
-    const raw = readFileSync8(path2, "utf8").trim();
+    const raw = readFileSync9(path2, "utf8").trim();
     return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
   } catch {
     return { reason: "existing settings.local.json is not valid JSON" };
@@ -42963,12 +43749,12 @@ function preToolUseOf(settings) {
 function writeSettings2(path2, settings) {
   const created = !existsSync8(path2);
   try {
-    mkdirSync5(dirname9(path2), { recursive: true });
-    writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
+    mkdirSync6(dirname10(path2), { recursive: true });
+    writeFileSync4(path2, JSON.stringify(settings, null, 2) + "\n");
   } catch (e) {
     return `settings.local.json write failed: ${e.message}`;
   }
-  if (created) ensureLocalSettingsIgnored(dirname9(dirname9(path2)));
+  if (created) ensureLocalSettingsIgnored(dirname10(dirname10(path2)));
   return null;
 }
 function skip(event, reason, result2) {
@@ -43031,7 +43817,7 @@ function removeProjectEnforcementShim(opts) {
   const resolverPath = resolverPathFor(projectRoot2, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
   let resolver_removed = false;
   if (existsSync8(resolverPath)) {
-    rmSync(resolverPath, { force: true });
+    rmSync2(resolverPath, { force: true });
     resolver_removed = true;
   }
   if (removed > 0 || resolver_removed) {
@@ -43042,8 +43828,8 @@ function removeProjectEnforcementShim(opts) {
 
 // src/tools/onboard-scan.ts
 import { spawnSync as spawnSync10 } from "node:child_process";
-import { existsSync as existsSync9, readdirSync as readdirSync3, statSync as statSync4 } from "node:fs";
-import { basename as basename6, join as join16 } from "node:path";
+import { existsSync as existsSync9, readdirSync as readdirSync4, statSync as statSync5 } from "node:fs";
+import { basename as basename7, join as join17 } from "node:path";
 var GIT_TIMEOUT_MS = 3e3;
 var MAX_GIT_CALLS = 6;
 var MERGE_WINDOW = 50;
@@ -43068,14 +43854,14 @@ function gitRunner(cwd) {
 }
 function isDirectory2(path2) {
   try {
-    return statSync4(path2).isDirectory();
+    return statSync5(path2).isDirectory();
   } catch {
     return false;
   }
 }
 function hasWorkflows(repoPath) {
   try {
-    return readdirSync3(join16(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
+    return readdirSync4(join17(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
   } catch {
     return false;
   }
@@ -43083,7 +43869,7 @@ function hasWorkflows(repoPath) {
 function ciFiles(repoPath) {
   const found = [];
   if (hasWorkflows(repoPath)) found.push(".github/workflows");
-  if (existsSync9(join16(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
+  if (existsSync9(join17(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
   return found;
 }
 function parseRemotes(stdout) {
@@ -43102,7 +43888,7 @@ function pick2(types, longLived, originHead) {
 function scanRepoEvidence(repoPath, opts = {}) {
   const started = Date.now();
   const evidence = {
-    name: opts.name ?? basename6(repoPath),
+    name: opts.name ?? basename7(repoPath),
     path: repoPath,
     in_git: false,
     branches: [],
@@ -43161,7 +43947,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
     evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
   }
   evidence.ci_files = ciFiles(repoPath);
-  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync9(join16(repoPath, p)));
+  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync9(join17(repoPath, p)));
   return done();
 }
 function contextLines(e) {
@@ -43262,11 +44048,11 @@ function scanWorkspace(db2) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync10(join17(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname10(fileURLToPath5(import.meta.url));
+  if (env && existsSync10(join18(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname11(fileURLToPath5(import.meta.url));
   for (; ; ) {
-    if (existsSync10(join17(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname10(dir);
+    if (existsSync10(join18(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname11(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -43870,14 +44656,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         `standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`
       );
     }
-    const stateDir = claudeStateDir(where.session_dir, basename7(dirname10(dbPath2)));
-    const newDb = join17(stateDir, "trajectory.db");
-    mkdirSync6(stateDir, { recursive: true });
+    const stateDir = claudeStateDir(where.session_dir, basename8(dirname11(dbPath2)));
+    const newDb = join18(stateDir, "trajectory.db");
+    mkdirSync7(stateDir, { recursive: true });
     new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
     }, sqlLog: () => {
     } }).close();
-    const marker = join17(stateDir, CLAUDE_STANDALONE_MARKER);
-    writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
+    const marker = join18(stateDir, CLAUDE_STANDALONE_MARKER);
+    writeFileSync5(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
     insertAudit(db2, {
       issue_id: -1,
       from_node: "bro",
@@ -43896,28 +44682,28 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
     const project = canonicalExisting(root);
     const self2 = canonicalExisting(dbPath2);
-    const pluginName2 = basename7(dirname10(dbPath2));
+    const pluginName2 = basename8(dirname11(dbPath2));
     const removed = [];
     const refused = [];
     const outside = `not below the project root ${root}`;
     const linkOrOutside = (path2) => {
-      for (let p = path2; dirname10(p) !== p; p = dirname10(p)) {
+      for (let p = path2; dirname11(p) !== p; p = dirname11(p)) {
         if (canonicalExisting(p) === project) return null;
-        if (lstatSync5(p).isSymbolicLink()) return `${p} is a symlink`;
+        if (lstatSync6(p).isSymbolicLink()) return `${p} is a symlink`;
       }
       return outside;
     };
     const check2 = (path2) => {
-      if (!isAbsolute5(path2)) return { reason: "not an absolute path" };
+      if (!isAbsolute6(path2)) return { reason: "not an absolute path" };
       if (!existsSync10(path2)) return { reason: "no such file" };
-      if (claudeProjectRootOfDb(path2) === null || basename7(path2) !== "trajectory.db" || basename7(dirname10(path2)) !== pluginName2) {
+      if (claudeProjectRootOfDb(path2) === null || basename8(path2) !== "trajectory.db" || basename8(dirname11(path2)) !== pluginName2) {
         return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
       }
       if (canonicalExisting(path2) === self2) return { reason: "the current trajectory DB" };
       const link = linkOrOutside(path2);
       if (link !== null) return { reason: link };
-      const stateDir = realpathSync6(dirname10(path2));
-      const strayProject = dirname10(dirname10(stateDir));
+      const stateDir = realpathSync7(dirname11(path2));
+      const strayProject = dirname11(dirname11(stateDir));
       if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
       if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
       const { issues, tasks } = claudeDbCounts(path2);
@@ -43931,9 +44717,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         continue;
       }
       const { stateDir } = verdict;
-      const file2 = join17(stateDir, basename7(path2));
-      for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
-      rmSync2(stateDir, { recursive: true, force: true });
+      const file2 = join18(stateDir, basename8(path2));
+      for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync3(f, { force: true });
+      rmSync3(stateDir, { recursive: true, force: true });
       insertAudit(db2, {
         issue_id: -1,
         from_node: "bro",
@@ -44297,7 +45083,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(managedRemotes.map((r) => r.url)),
-              toolCacheDir: join17(dirname10(dbPath2), "cache"),
+              toolCacheDir: join18(dirname11(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2
             });
@@ -44349,8 +45135,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync12, readFileSync as readFileSync9, realpathSync as realpathSync7, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname11, join as join20 } from "node:path";
+import { existsSync as existsSync12, readFileSync as readFileSync10, realpathSync as realpathSync8, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
+import { dirname as dirname12, join as join21 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // src/file-purpose.ts
@@ -44406,17 +45192,17 @@ function built(raw, source) {
   const purpose = capChars(raw.replace(/\s+/g, " ").trim(), PURPOSE_MAX_CHARS);
   return purpose ? { purpose, source } : null;
 }
-function fitList(label, items, budget, sep5 = ", ") {
+function fitList(label, items, budget, sep6 = ", ") {
   let out2 = `${label}: `;
   let n = 0;
   for (const item of items) {
     const rest = items.length - n - 1;
-    const more = rest > 0 ? `${sep5}+${rest} more` : "";
-    if (n > 0 && out2.length + sep5.length + item.length + more.length > budget) break;
-    out2 += (n > 0 ? sep5 : "") + item;
+    const more = rest > 0 ? `${sep6}+${rest} more` : "";
+    if (n > 0 && out2.length + sep6.length + item.length + more.length > budget) break;
+    out2 += (n > 0 ? sep6 : "") + item;
     n++;
   }
-  return n < items.length ? `${out2}${sep5}+${items.length - n} more` : out2;
+  return n < items.length ? `${out2}${sep6}+${items.length - n} more` : out2;
 }
 function firstParagraph(lines2) {
   const out2 = [];
@@ -44832,19 +45618,19 @@ function purposeFromSymbols(path2, symbols, head = "") {
 }
 
 // src/symbol-purpose.ts
-import { closeSync as closeSync2, openSync as openSync2, readSync } from "node:fs";
-import { join as join18 } from "node:path";
+import { closeSync as closeSync3, openSync as openSync3, readSync } from "node:fs";
+import { join as join19 } from "node:path";
 function readFileHead(absPath) {
   let fd = null;
   try {
-    fd = openSync2(absPath, "r");
+    fd = openSync3(absPath, "r");
     const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
     const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
     return buf.subarray(0, n).toString("utf8");
   } catch {
     return "";
   } finally {
-    if (fd !== null) closeSync2(fd);
+    if (fd !== null) closeSync3(fd);
   }
 }
 function refreshSymbolPurposes(db2, repo) {
@@ -44879,7 +45665,7 @@ function refreshSymbolPurposes(db2, repo) {
   let updated = 0;
   db2.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join18(repoPath, f.path)) : "";
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join19(repoPath, f.path)) : "";
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? "";
       const source = next ? "symbols" : "none";
@@ -44894,7 +45680,7 @@ function refreshSymbolPurposes(db2, repo) {
 // src/readme-drift.ts
 import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync11 } from "node:fs";
-import { join as join19, posix as posix2 } from "node:path";
+import { join as join20, posix as posix2 } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
 function git3(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
@@ -44905,7 +45691,7 @@ function git3(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
     return null;
   }
 }
-function basename8(p) {
+function basename9(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -44925,10 +45711,10 @@ function readRepoHistory(root, trackedDirs) {
     else if (status?.startsWith("R")) renamedAway.add(path2);
   }
   const trackedFiles = new Set(lines(tracked));
-  const trackedBasenames = new Set([...trackedFiles].map(basename8));
+  const trackedBasenames = new Set([...trackedFiles].map(basename9));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
-    const name2 = basename8(p);
+    const name2 = basename9(p);
     const list = deletedByBasename.get(name2);
     if (list) list.push(p);
     else deletedByBasename.set(name2, [p]);
@@ -44984,7 +45770,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync11(join19(history.root, fromDir)) || existsSync11(join19(history.root, ref2))) continue;
+    if (existsSync11(join20(history.root, fromDir)) || existsSync11(join20(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -45095,21 +45881,21 @@ function wrap5(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname11(fileURLToPath6(import.meta.url));
+  const here = dirname12(fileURLToPath6(import.meta.url));
   const candidates = [
-    join20(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join20(here, "..", "..", "..", "scripts", "scan.sh")
+    join21(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join21(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync12(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join20(pluginRoot, "scripts", "scan.sh");
+    const c = join21(pluginRoot, "scripts", "scan.sh");
     if (existsSync12(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve7, reject) => {
     const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
     const child = spawn("bash", [script, sessionDir], {
       cwd: sessionDir,
@@ -45162,7 +45948,7 @@ function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve4(parsed);
+      resolve7(parsed);
     });
   });
 }
@@ -45204,7 +45990,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename9(p) {
+function basename10(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -45229,14 +46015,14 @@ function deriveDirectoryEntries(out2) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename9(f.path));
+      entry.file_names.push(basename10(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename9(dirPath);
-  const join25 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename10(dirPath);
+  const join28 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -45247,19 +46033,19 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join25(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join28(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join25(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join28(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join20(absDirPath, name2);
+    const readmePath = join21(absDirPath, name2);
     if (!existsSync12(readmePath)) continue;
     try {
-      return { name: name2, text: readFileSync9(readmePath, "utf8") };
+      return { name: name2, text: readFileSync10(readmePath, "utf8") };
     } catch {
     }
   }
@@ -45291,7 +46077,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join20(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join21(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -45310,13 +46096,13 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename9(entry.path));
-    else subdirsByParent.set(key, [basename9(entry.path)]);
+    if (list) list.push(basename10(entry.path));
+    else subdirsByParent.set(key, [basename10(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join20(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join21(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -45370,7 +46156,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join20(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join21(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -45395,7 +46181,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join20(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join21(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -45409,7 +46195,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename9(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename10(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -45448,9 +46234,9 @@ function readRepoRemotes(path2) {
     return [];
   }
 }
-function canonicalPath2(p) {
+function canonicalPath3(p) {
   try {
-    return realpathSync7(p);
+    return realpathSync8(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -45470,12 +46256,12 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   const candidates = [];
   for (const r of discovered) {
     if (existingNames.has(r.name)) continue;
-    const path2 = canonicalPath2(r.path);
+    const path2 = canonicalPath3(r.path);
     const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
     let match = null;
     for (const row of orphaned) {
       if (claimed.has(row.name)) continue;
-      if (canonicalPath2(row.path) === path2) {
+      if (canonicalPath3(row.path) === path2) {
         match = { name: row.name, by: "path" };
         break;
       }
@@ -45670,7 +46456,7 @@ async function persistScan(db2, graph, out2, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync9(lockPath, "utf8"));
+    return JSON.parse(readFileSync10(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -45689,10 +46475,10 @@ function acquireLock(lockPath) {
     if (pidAlive(existing.pid)) return false;
     unlinkSync(lockPath);
   }
-  writeFileSync5(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
+  writeFileSync6(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
-function releaseLock(lockPath) {
+function releaseLock2(lockPath) {
   try {
     unlinkSync(lockPath);
   } catch {
@@ -45748,7 +46534,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         if (!graph && graphOpenError) {
           return err18(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join20(dirname11(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join21(dirname12(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -45828,7 +46614,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             warnings
           });
         } finally {
-          if (lockPath) releaseLock(lockPath);
+          if (lockPath) releaseLock2(lockPath);
         }
       })
     ),
@@ -45860,7 +46646,7 @@ function pathHasSegment(path2, segment) {
 }
 function blockingTasks(db2, old, oldPath) {
   const tasks = db2.all(
-    `SELECT t.id, t.status, t.branch_id, r.path AS repo_path
+    `SELECT t.id, t.status, t.branch_id, t.worktree_path, r.path AS repo_path
        FROM tasks t LEFT JOIN repos r ON r.name = t.repo
       WHERE t.status IN (SELECT value FROM json_each(?))`,
     [JSON.stringify(LIVE_TASK_STATUSES)]
@@ -45872,7 +46658,7 @@ function blockingTasks(db2, old, oldPath) {
       [t.id]
     ).map((r) => r.root_dir);
     const repoPath = t.repo_path ?? oldPath;
-    const candidates = [taskWorktreePath(repoPath, t.branch_id), ...roots];
+    const candidates = [taskWorktreeDir(repoPath, t), ...roots];
     const hit = candidates.find((p) => pathHasSegment(p, old));
     if (hit) blocking.push({ id: t.id, status: t.status, worktree: hit });
   }
@@ -46024,17 +46810,16 @@ function repoTools(db2, graphHolder2 = null) {
 }
 
 // src/tools/cheatcode.ts
-import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname13, join as join22 } from "node:path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync9, readFileSync as readFileSync13, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname14, join as join24 } from "node:path";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
-import { existsSync as existsSync13, mkdirSync as mkdirSync7, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync13, mkdirSync as mkdirSync8, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname12, isAbsolute as isAbsolute6, join as join21 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute7, join as join22 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -46046,7 +46831,7 @@ function probeChildEnv(projectRoot2 = null) {
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
 function runClaude(args2, timeoutSec, projectRoot2) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve7) => {
     try {
       const child = execFile(
         "claude",
@@ -46059,25 +46844,25 @@ function runClaude(args2, timeoutSec, projectRoot2) {
           maxBuffer: MAX_LISTING_BYTES,
           encoding: "utf8"
         },
-        (error2, stdout) => resolve4(error2 ? null : stdout)
+        (error2, stdout) => resolve7(error2 ? null : stdout)
       );
       child.stdin?.end();
     } catch {
-      resolve4(null);
+      resolve7(null);
     }
   });
 }
 function parseMcpListing(text) {
   const names = /* @__PURE__ */ new Set();
   for (const line of text.split("\n")) {
-    const sep5 = line.indexOf(": ");
-    if (sep5 > 0) names.add(line.slice(0, sep5));
+    const sep6 = line.indexOf(": ");
+    if (sep6 > 0) names.add(line.slice(0, sep6));
   }
   return names;
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync10(join21(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync11(join22(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -46119,7 +46904,7 @@ async function probeListings(timeoutSec, projectRoot2) {
 var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
 function readJson(path2) {
   try {
-    return JSON.parse(readFileSync10(path2, "utf8"));
+    return JSON.parse(readFileSync11(path2, "utf8"));
   } catch {
     return null;
   }
@@ -46137,23 +46922,23 @@ function stableJson(value) {
 }
 function cliConfigFingerprint(projectRoot2) {
   const home = homedir3();
-  const claudeJson = readJson(join21(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join21(projectRoot2, ...parts2));
+  const claudeJson = readJson(join22(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join22(projectRoot2, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot2 === null ? null : field(field(field(claudeJson, "projects"), projectRoot2), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join21(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join22(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join21(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join22(home, ".claude", "plugins", "installed_plugins.json"))
   };
   return createHash3("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot2) {
-  return join21(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
+  return join22(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot2) {
   if (projectRoot2 === null) return null;
@@ -46167,8 +46952,8 @@ function writeProbeCache(projectRoot2, cache) {
   if (projectRoot2 === null) return;
   const path2 = probeCachePath(projectRoot2);
   try {
-    mkdirSync7(dirname12(path2), { recursive: true });
-    writeFileSync6(path2, JSON.stringify(cache) + "\n");
+    mkdirSync8(dirname13(path2), { recursive: true });
+    writeFileSync7(path2, JSON.stringify(cache) + "\n");
   } catch (e) {
     serverLog({ kind: "cheatcode_probe_cache_write_failed", error_message: e instanceof Error ? e.message : String(e) });
   }
@@ -46191,7 +46976,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute6(row.file_path) || !pluginRoot ? row.file_path : join21(pluginRoot, row.file_path);
+      const resolved = isAbsolute7(row.file_path) || !pluginRoot ? row.file_path : join22(pluginRoot, row.file_path);
       return existsSync13(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -46271,7 +47056,824 @@ async function reconcileAtStartup(db2) {
   }
 }
 
+// src/tools/cheatcode-runtime.ts
+import { spawn as spawn2 } from "node:child_process";
+import { accessSync as accessSync2, constants as constants3, readFileSync as readFileSync12, statSync as statSync6 } from "node:fs";
+import { constants as osConstants } from "node:os";
+import { join as join23, resolve as resolve6 } from "node:path";
+var CheatcodeInputError = class extends Error {
+  constructor(payload) {
+    super(JSON.stringify(payload));
+    this.payload = payload;
+    this.name = "CheatcodeInputError";
+  }
+  payload;
+};
+var FETCH_TIMEOUT_MS = 8e3;
+var CLI_TIMEOUT_MS = 3e4;
+function requireProjectRoot(projectRoot2) {
+  if (!projectRoot2) {
+    throw new CheatcodeInputError({
+      error: "TMB_PROJECT_ROOT is unset \u2014 the trajectory server sets it to the project root"
+    });
+  }
+}
+function isObject5(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function jqType(v) {
+  if (v === null || v === void 0) return "null";
+  if (typeof v === "boolean") return "boolean";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+function get(v, key) {
+  if (v === null || v === void 0) return null;
+  if (!isObject5(v)) throw new Error(`Cannot index ${jqType(v)} with "${key}"`);
+  return Object.prototype.hasOwnProperty.call(v, key) ? v[key] : null;
+}
+function truthy(v) {
+  return v !== null && v !== void 0 && v !== false;
+}
+function alt(...values) {
+  for (const v of values.slice(0, -1)) if (truthy(v)) return v;
+  return values[values.length - 1] ?? null;
+}
+function iterate(v) {
+  if (Array.isArray(v)) return v;
+  if (isObject5(v)) return Object.values(v);
+  throw new Error(`Cannot iterate over ${jqType(v)}`);
+}
+function iterateOpt(v) {
+  if (Array.isArray(v)) return v;
+  if (isObject5(v)) return Object.values(v);
+  return [];
+}
+function jqLength(v) {
+  if (v === null) return 0;
+  if (typeof v === "boolean") throw new Error("boolean has no length");
+  if (typeof v === "number") return Math.abs(v);
+  if (typeof v === "string") return Array.from(v).length;
+  if (Array.isArray(v)) return v.length;
+  return Object.keys(v).length;
+}
+function typeRank(v) {
+  if (v === null) return 0;
+  if (v === false) return 1;
+  if (v === true) return 2;
+  if (typeof v === "number") return 3;
+  if (typeof v === "string") return 4;
+  if (Array.isArray(v)) return 5;
+  return 6;
+}
+function jqCmp(a, b) {
+  const ra = typeRank(a);
+  const rb = typeRank(b);
+  if (ra !== rb) return ra - rb;
+  if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === "string" && typeof b === "string") return Buffer.compare(Buffer.from(a), Buffer.from(b));
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i2 = 0; i2 < Math.min(a.length, b.length); i2++) {
+      const c = jqCmp(a[i2], b[i2]);
+      if (c !== 0) return c;
+    }
+    return a.length - b.length;
+  }
+  if (isObject5(a) && isObject5(b)) {
+    const ka = Object.keys(a).sort((x, y) => jqCmp(x, y));
+    const kb = Object.keys(b).sort((x, y) => jqCmp(x, y));
+    const keys = jqCmp(ka, kb);
+    if (keys !== 0) return keys;
+    for (const k of ka) {
+      const c = jqCmp(a[k], b[k]);
+      if (c !== 0) return c;
+    }
+  }
+  return 0;
+}
+function jqEq(a, b) {
+  return jqCmp(a, b) === 0;
+}
+function asciiLower(s) {
+  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+function jqSplit(s, sep6) {
+  return s === "" ? [] : s.split(sep6);
+}
+function concatStrings(...parts2) {
+  for (const p of parts2) if (typeof p !== "string") throw new Error(`${jqType(p)} cannot be added to a string`);
+  return parts2.join("");
+}
+function interpolate(v) {
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+function rawText(v) {
+  const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  return text.replace(/\n+$/, "");
+}
+function parseJson(text) {
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return null;
+  }
+}
+function isRegularFile(path2) {
+  try {
+    return statSync6(path2).isFile();
+  } catch {
+    return false;
+  }
+}
+function fixturePath(envVar, defaultName, opts) {
+  const fromEnv = (opts.env ?? process.env)[envVar] ?? "";
+  if (fromEnv) return fromEnv;
+  const fallback = `${opts.projectRoot}/${defaultName}`;
+  return isRegularFile(fallback) ? fallback : null;
+}
+function readFixture(path2, projectRoot2) {
+  const abs = resolve6(projectRoot2, path2);
+  if (!isRegularFile(abs)) throw new CheatcodeInputError({ error: `fixture not found: ${path2}` });
+  try {
+    return readFileSync12(abs, "utf8");
+  } catch {
+    return "";
+  }
+}
+function tierFromFlag(tier) {
+  if (tier.length === 0) return null;
+  const parsed = parseJson(tier);
+  if (parsed === null || typeof parsed.value !== "number") throw new Error(`Cannot parse '${tier}' as a number`);
+  return parsed.value;
+}
+function normalizeCandidate(input, defaultKind) {
+  const raw = input.candidate;
+  if (raw !== void 0 && raw !== "") {
+    const value = typeof raw === "string" ? parseJson(raw)?.value : raw;
+    if (!isObject5(value)) throw new CheatcodeInputError({ error: "--candidate is not a JSON object" });
+    const tier = get(value, "tier");
+    return {
+      name: alt(get(value, "name"), ""),
+      kind: alt(get(value, "kind"), defaultKind),
+      source_url: alt(get(value, "source_url"), ""),
+      tier: typeof tier === "number" ? tier : null
+    };
+  }
+  if (!input.sourceUrl) throw new CheatcodeInputError({ error: "--source-url or --candidate is required" });
+  return {
+    name: input.name ?? "",
+    kind: input.kind || defaultKind,
+    source_url: input.sourceUrl,
+    tier: tierFromFlag(input.tier ?? "")
+  };
+}
+async function fetchText(url2, opts, headers) {
+  const signals = [AbortSignal.timeout(FETCH_TIMEOUT_MS), ...opts.signal ? [opts.signal] : []];
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(url2, { headers, redirect: "follow", signal: AbortSignal.any(signals) });
+    if (res.status >= 400) return "";
+    return await res.text();
+  } catch {
+    return "";
+  }
+}
+function uriEncode(s) {
+  const wellFormed = s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+  return encodeURIComponent(wellFormed).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+function findOnPath(name2, opts) {
+  const path2 = (opts.env ?? process.env)["PATH"] ?? "";
+  for (const dir of path2.split(":")) {
+    const candidate = dir === "" ? join23(opts.projectRoot, name2) : join23(dir, name2);
+    try {
+      if (!statSync6(candidate).isFile()) continue;
+      accessSync2(candidate, constants3.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+function runCli(bin, args2, output, opts) {
+  return new Promise((done) => {
+    try {
+      if (!statSync6(opts.projectRoot).isDirectory()) return done({ code: 1, out: "" });
+    } catch {
+      return done({ code: 1, out: "" });
+    }
+    const env = { ...opts.env ?? process.env, TMB_PROJECT_ROOT: opts.projectRoot };
+    const stdio = output === "none" ? ["ignore", "ignore", "ignore"] : ["ignore", "pipe", output === "merged" ? "pipe" : "ignore"];
+    const chunks = [];
+    let timedOut = false;
+    let settled = false;
+    let timer;
+    let child;
+    const onAbort = () => {
+      child?.kill("SIGKILL");
+    };
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+      done({ code, out: Buffer.concat(chunks).toString("utf8") });
+    };
+    try {
+      child = spawn2(bin, args2, { cwd: opts.projectRoot, env, stdio });
+    } catch {
+      return finish(126);
+    }
+    const running = child;
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      timedOut = true;
+      running.kill("SIGTERM");
+    }, CLI_TIMEOUT_MS);
+    running.stdout?.on("data", (c) => chunks.push(c));
+    running.stderr?.on("data", (c) => chunks.push(c));
+    running.on("error", (e) => finish(e.code === "ENOENT" ? 127 : 126));
+    running.on("close", (code, signal) => {
+      if (timedOut) return finish(124);
+      if (signal) return finish(128 + (osConstants.signals[signal] ?? 0));
+      finish(code ?? 1);
+    });
+  });
+}
+
+// src/tools/cheatcode-search.ts
+var SEARCH_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
+var SEARCH_FIXTURE_ENV = "TMB_CHEATCODE_SEARCH_FIXTURE";
+var SEARCH_FIXTURE_FILE = ".tmb-cheatcode-fixture.json";
+var stringOr = (v) => typeof v === "string" ? v : "";
+async function adapter(url2, opts, map2) {
+  const body2 = await fetchText(url2, opts);
+  if (!body2) return [];
+  const parsed = parseJson(body2);
+  if (parsed === null) return [];
+  try {
+    return map2(parsed.value);
+  } catch {
+    return [];
+  }
+}
+function mcpOfficial(query, opts) {
+  const url2 = `https://registry.modelcontextprotocol.io/v0.1/servers?search=${uriEncode(query)}&limit=50`;
+  return adapter(
+    url2,
+    opts,
+    (body2) => iterate(alt(get(body2, "servers"), [])).map((entry) => {
+      const s = alt(get(entry, "server"), entry);
+      return {
+        name: alt(get(s, "name"), ""),
+        description: alt(get(s, "description"), ""),
+        source_url: stringOr(alt(get(get(s, "repository"), "url"), get(s, "websiteUrl"), "")),
+        kind: "mcp",
+        registry: "mcp-official",
+        tier: 1
+      };
+    })
+  );
+}
+function anthropicMarketplace(opts) {
+  const url2 = "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json";
+  return adapter(
+    url2,
+    opts,
+    (body2) => iterate(alt(get(body2, "plugins"), [])).map((p) => {
+      const source = get(p, "source");
+      const fromSource = source !== null && typeof source === "object" && !Array.isArray(source) ? get(source, "url") : source;
+      return {
+        name: alt(get(p, "name"), ""),
+        description: alt(get(p, "description"), ""),
+        source_url: stringOr(alt(get(p, "source_url"), fromSource, get(p, "homepage"), "")),
+        kind: "plugin",
+        registry: "anthropic-official",
+        tier: 1
+      };
+    })
+  );
+}
+function pulseMcp(query, opts) {
+  const url2 = `https://api.pulsemcp.com/v0beta/servers?query=${uriEncode(query)}&count_per_page=50`;
+  return adapter(
+    url2,
+    opts,
+    (body2) => iterate(alt(get(body2, "servers"), get(body2, "results"), [])).map((s) => ({
+      name: alt(get(s, "name"), ""),
+      description: alt(get(s, "description"), ""),
+      source_url: stringOr(
+        alt(get(s, "source_code_url"), get(s, "source_url"), get(s, "external_url"), get(s, "url"), "")
+      ),
+      kind: "mcp",
+      registry: "pulsemcp",
+      tier: 2
+    }))
+  );
+}
+function tokens(s) {
+  return asciiLower(s).match(/[a-z0-9]+/g) ?? [];
+}
+function rankCandidates(candidates, query, kind) {
+  const qtok = new Set(tokens(query));
+  const deduped = /* @__PURE__ */ new Map();
+  for (const c of iterate(candidates)) {
+    const u = alt(get(c, "source_url"), "");
+    if (u === "") continue;
+    if (typeof u !== "string") throw new Error(`Cannot index object with ${typeof u}`);
+    const existing = deduped.get(u);
+    if (existing === void 0 || jqCmp(get(c, "tier"), get(existing, "tier")) < 0) deduped.set(u, c);
+  }
+  const ranked = [];
+  for (const c of deduped.values()) {
+    if (kind !== "any" && !jqEq(get(c, "kind"), kind)) continue;
+    const htok = new Set(tokens(concatStrings(alt(get(c, "name"), ""), " ", alt(get(c, "description"), ""))));
+    const relevance = [...qtok].filter((t) => htok.has(t)).length;
+    const tier = alt(get(c, "tier"), 2);
+    ranked.push({
+      name: alt(get(c, "name"), ""),
+      kind: alt(get(c, "kind"), "any"),
+      source_url: alt(get(c, "source_url"), ""),
+      score: (jqEq(tier, 1) ? 200 : 100) + relevance * 10,
+      signals: { registry: alt(get(c, "registry"), ""), tier, relevance }
+    });
+  }
+  return ranked.sort((a, b) => jqCmp([-a.score, a.name], [-b.score, b.name]));
+}
+async function cheatcodeSearch(input, opts) {
+  const query = input.query ?? "";
+  const kind = input.kind || "any";
+  if (!query) throw new CheatcodeInputError({ error: "--query is required" });
+  if (!SEARCH_KINDS.has(kind)) throw new CheatcodeInputError({ error: `invalid kind: ${kind}` });
+  requireProjectRoot(opts.projectRoot);
+  const fixture = fixturePath(SEARCH_FIXTURE_ENV, SEARCH_FIXTURE_FILE, opts);
+  let candidates;
+  if (fixture !== null) {
+    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
+    if (parsed === null || !Array.isArray(parsed.value)) {
+      throw new CheatcodeInputError({ error: "fixture is not a JSON array of candidates" });
+    }
+    candidates = parsed.value;
+  } else {
+    candidates = [
+      ...await mcpOfficial(query, opts),
+      ...await anthropicMarketplace(opts),
+      ...await pulseMcp(query, opts)
+    ];
+  }
+  return { query, kind, candidates: rankCandidates(candidates, query, kind) };
+}
+
+// src/tools/cheatcode-vet.ts
+var VET_FIXTURE_ENV = "TMB_CHEATCODE_VET_FIXTURE";
+var VET_FIXTURE_FILE = ".tmb-cheatcode-vet-fixture.json";
+var GITHUB_HEADERS = { Accept: "application/vnd.github+json" };
+var MAX_MANIFESTS = 20;
+var WHY_NESTED = "nested folders not inspected";
+var WHY_OPAQUE = "submodule or symlink not inspected";
+var WHY_MANIFEST = "plugin manifest could not be read";
+var WHY_MANY_MANIFESTS = `more than ${MAX_MANIFESTS} plugin manifests, the rest not inspected`;
+var WHY_EXTERNAL = "external plugin source not inspected";
+var WHY_OUTSIDE = "plugin source outside the folder not inspected";
+var WHY_DEPENDENCIES = "external dependencies not inspected";
+var WHY_UNSAFE_PATH = "plugin manifest with an unusual path not inspected";
+function ownerRepo(url2) {
+  const m = /^https?:\/\/github\.com\/([^/]+)\/([^/.]+)(\.git)?\/?.*$/.exec(url2);
+  return m ? `${m[1]}/${m[2]}` : "";
+}
+function treeRefPath(url2) {
+  const m = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/tree\/([^/]+)\/?(.*)$/.exec(url2.replace(/[?#].*$/, ""));
+  if (!m) return null;
+  const line = `${m[1]}	${m[2]}`.replace(/\/+$/, "");
+  const tab = line.indexOf("	");
+  return { ref: line.slice(0, tab), path: line.slice(tab + 1) };
+}
+function filterTree(tree, p) {
+  const plen = Array.from(p).length;
+  return iterateOpt(tree).filter((e) => isObject5(e) && typeof e["path"] === "string").filter((e) => e["path"] === p || e["path"].startsWith(`${p}/`)).map((e) => {
+    const path2 = e["path"];
+    return {
+      path: path2 === p ? jqSplit(path2, "/").at(-1) ?? null : Array.from(path2).slice(plen + 1).join(""),
+      type: alt(get(e, "type"), null),
+      mode: alt(get(e, "mode"), null)
+    };
+  });
+}
+var hasDir = (entries) => entries.some((e) => isObject5(e) && get(e, "type") === "dir");
+var treeOpaque = (entries) => entries.some((e) => {
+  const type = get(e, "type");
+  const mode = get(e, "mode");
+  return type === "commit" || mode === "160000" || mode === "120000";
+});
+var contentsOpaque = (entries) => entries.some((e) => {
+  if (!isObject5(e)) return false;
+  const type = get(e, "type");
+  return type !== "file" && type !== "dir" || type === "file" && get(e, "download_url") === null;
+});
+function contentsEntries(listing) {
+  return listing.map(
+    (e) => isObject5(e) ? { path: alt(get(e, "name"), get(e, "path")), type: get(e, "type") === "dir" ? "tree" : "blob", mode: null } : e
+  );
+}
+var isContents = (v) => Array.isArray(v) && v.length > 0;
+function manifestPaths(surface) {
+  const paths = surface.map((e) => typeof e === "string" ? e : isObject5(e) ? get(e, "path") : null).filter((p) => typeof p === "string").filter((p) => /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/i.test(p));
+  const unique = [...new Set(paths)].sort((a, b) => jqCmp(a, b));
+  return unique.flatMap((p) => p.split("\n")).filter((p) => p.length > 0);
+}
+function objectsDeep(v, out2 = []) {
+  if (isObject5(v)) {
+    out2.push(v);
+    for (const child of Object.values(v)) objectsDeep(child, out2);
+  } else if (Array.isArray(v)) {
+    for (const child of v) objectsDeep(child, out2);
+  }
+  return out2;
+}
+var has = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
+function manifestFlags(m) {
+  const all = objectsDeep(m);
+  const plugins = iterateOpt(get(m, "plugins")).filter(isObject5);
+  const depsOf = (o) => {
+    const d = get(o, "dependencies");
+    return (Array.isArray(d) || isObject5(d) || typeof d === "string") && jqLength(d) > 0;
+  };
+  return {
+    code: all.some((o) => ["hooks", "mcpServers", "lspServers", "monitors", "settings", "subagentStatusLine"].some((k) => has(o, k))),
+    net: all.some((o) => has(o, "mcpServers")),
+    external: plugins.some((p) => {
+      const s = get(p, "source");
+      return typeof s !== "string" || s !== "." && !s.startsWith("./");
+    }),
+    outside: plugins.some((p) => {
+      const s = get(p, "source");
+      return typeof s === "string" && s.startsWith("./") && jqSplit(s, "/").includes("..");
+    }),
+    deps: [m, ...plugins].some(depsOf)
+  };
+}
+function decodeManifest(body2) {
+  const parsed = parseJson(body2);
+  if (parsed === null || !isObject5(parsed.value) || parsed.value["encoding"] !== "base64") return null;
+  const content = parsed.value["content"];
+  if (typeof content !== "string") return null;
+  const decoded = parseJson(Buffer.from(content.replace(/\s/g, ""), "base64").toString("utf8"));
+  return decoded !== null && isObject5(decoded.value) ? decoded.value : null;
+}
+function ageDays(pushed, nowMs) {
+  if (typeof pushed !== "string") throw new Error("strptime/1 requires string inputs and arguments");
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{1,2}):(\d{1,2})Z\s*$/.exec(pushed);
+  const [y, mo, d, h, mi, s] = (m?.slice(1) ?? []).map(Number);
+  if (!m || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 61) {
+    throw new Error(`date "${pushed}" does not match format "%Y-%m-%dT%H:%M:%SZ"`);
+  }
+  const t = Date.UTC(y, mo - 1, d, h, mi, s) / 1e3;
+  return Math.floor((nowMs / 1e3 - t) / 86400);
+}
+function classify(candidate, kind, s, nowMs = Date.now()) {
+  const rtier = candidate.tier;
+  const repo = s.repo;
+  const haveRepo = jqLength(repo) > 0;
+  const stars = alt(get(repo, "stargazers_count"), null);
+  const forks = alt(get(repo, "forks_count"), null);
+  const pushed = alt(get(repo, "pushed_at"), null);
+  const archived = alt(get(repo, "archived"), false) === true;
+  const license = alt(get(get(repo, "license"), "spdx_id"), null);
+  const ownerLogin = alt(get(get(repo, "owner"), "login"), null);
+  const ownerType = alt(get(get(repo, "owner"), "type"), null);
+  const age = pushed === null ? null : ageDays(pushed, nowMs);
+  const active = age === null ? null : archived ? false : age <= 365;
+  const entries = s.surface.map((e) => typeof e === "string" ? { path: e } : e).filter((e) => isObject5(e) && typeof e["path"] === "string");
+  const segments = entries.map((e) => jqSplit(asciiLower(e["path"]), "/"));
+  const shipsLocalCode = segments.some((seg) => seg.some((x) => x === "hooks" || x === "scripts" || x === "bin" || x === ".lsp.json")) || segments.some((seg) => seg.length >= 2 && seg.at(-2) === "monitors" && seg.at(-1) === "monitors.json") || segments.some((seg) => seg.at(-1) === "settings.json") || entries.some((e) => get(e, "mode") === "100755") || entries.some(
+    (e) => alt(get(e, "type"), "blob") !== "tree" && /\.(sh|bash|zsh|fish|py|js|mjs|cjs|ts|rb|pl|php|ps1|bat|cmd|exe)$/.test(asciiLower(e["path"]))
+  );
+  const shipsMcpServer = segments.some((seg) => seg.some((x) => x === "mcp" || x === "servers" || x === ".mcp.json"));
+  const codeExecution = kind === "mcp" || shipsLocalCode || shipsMcpServer || s.manifestCode || s.manifestMcp;
+  const network = kind === "mcp" || shipsMcpServer || s.manifestMcp;
+  const surface = { code_execution: codeExecution, network, fs_writes: shipsLocalCode };
+  const capabilities = Object.entries(surface).filter(([, v]) => v).map(([k]) => k);
+  const why = s.why;
+  const staleOrUnknownTier = rtier !== null && rtier > 2;
+  let trustTier;
+  if (rtier === null && !haveRepo) trustTier = "unknown";
+  else if (archived) trustTier = "untrusted";
+  else if (staleOrUnknownTier) trustTier = "untrusted";
+  else if (age !== null && age > 730) trustTier = "untrusted";
+  else if (codeExecution) trustTier = "caution";
+  else if (!s.listed) trustTier = "caution";
+  else if (why.length > 0) trustTier = "caution";
+  else if (rtier === 1) trustTier = "trusted";
+  else if (stars !== null && jqCmp(stars, 500) >= 0 && active === true) trustTier = "trusted";
+  else trustTier = "caution";
+  let rationale;
+  if (trustTier === "unknown") rationale = "No reputation signal (offline, web-denied, or unrecognized source) \u2014 tier withheld.";
+  else if (trustTier === "untrusted") {
+    rationale = archived ? "Repository is archived." : staleOrUnknownTier ? `Unrecognized registry tier ${interpolate(rtier)}.` : "Stale: no push in over 730 days.";
+  } else if (trustTier === "caution") {
+    rationale = codeExecution ? `Ships executable surface (${capabilities.join(", ")}) \u2014 not trusted on popularity alone.` : !s.listed ? "Security surface could not be inspected (file listing unavailable) \u2014 not trusted unseen." : why.length > 0 ? `Security surface partly inspected: ${why.join("; ")} \u2014 not trusted unseen.` : "Signals present but below the trusted bar.";
+  } else {
+    rationale = rtier === 1 ? "Official registry (tier 1) with no code-execution surface." : `Popular (${interpolate(stars)} stars), actively maintained, no code-execution surface.`;
+  }
+  return {
+    candidate,
+    signals: {
+      reputation: { registry_tier: rtier, stars, forks },
+      maintenance: { pushed_at: pushed, archived, active },
+      license,
+      maintainer: { login: ownerLogin, type: ownerType },
+      security_surface: surface
+    },
+    trust_tier: trustTier,
+    rationale,
+    capabilities
+  };
+}
+async function cheatcodeVet(input, opts) {
+  requireProjectRoot(opts.projectRoot);
+  const candidate = normalizeCandidate(input, "any");
+  const srcUrl = rawText(candidate.source_url);
+  const kind = rawText(candidate.kind);
+  const why = [];
+  const markPartial = (reason) => {
+    if (!why.includes(reason)) why.push(reason);
+  };
+  const noteTree = (entries) => {
+    if (treeOpaque(entries)) markPartial(WHY_OPAQUE);
+  };
+  const noteContents = (entries) => {
+    if (hasDir(entries)) markPartial(WHY_NESTED);
+    if (contentsOpaque(entries)) markPartial(WHY_OPAQUE);
+  };
+  const fixtureFile = fixturePath(VET_FIXTURE_ENV, VET_FIXTURE_FILE, opts);
+  const refPath = treeRefPath(srcUrl);
+  const treeRef = refPath?.ref ?? "";
+  const treePath = refPath?.path ?? "";
+  let repo = {};
+  let surface = [];
+  let listed2 = false;
+  let slug = "";
+  let fixture = {};
+  if (fixtureFile !== null) {
+    const parsed = parseJson(readFixture(fixtureFile, opts.projectRoot));
+    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    fixture = parsed.value;
+    repo = alt(get(fixture, "repo"), {});
+    const tree = get(fixture, "tree");
+    const contents = get(fixture, "contents");
+    if (treePath && Array.isArray(tree)) {
+      surface = filterTree(tree, treePath);
+      if (surface.length > 0) {
+        listed2 = true;
+        noteTree(surface);
+      }
+    } else if (isContents(contents)) {
+      surface = contentsEntries(contents);
+      listed2 = true;
+      noteContents(surface);
+    }
+  } else {
+    slug = ownerRepo(srcUrl);
+    if (slug) {
+      const body2 = parseJson(await fetchText(`https://api.github.com/repos/${slug}`, opts, GITHUB_HEADERS));
+      if (body2 !== null && isObject5(body2.value)) repo = body2.value;
+      let contentsUrl;
+      if (treePath) {
+        const tbody = parseJson(
+          await fetchText(`https://api.github.com/repos/${slug}/git/trees/${treeRef}?recursive=1`, opts, GITHUB_HEADERS)
+        );
+        if (tbody !== null && isObject5(tbody.value) && Array.isArray(tbody.value["tree"]) && tbody.value["truncated"] !== true) {
+          surface = filterTree(tbody.value["tree"], treePath);
+          if (surface.length > 0) {
+            listed2 = true;
+            noteTree(surface);
+          }
+        }
+        contentsUrl = `https://api.github.com/repos/${slug}/contents/${treePath}?ref=${treeRef}`;
+      } else if (treeRef) {
+        contentsUrl = `https://api.github.com/repos/${slug}/contents?ref=${treeRef}`;
+      } else {
+        contentsUrl = `https://api.github.com/repos/${slug}/contents`;
+      }
+      if (!listed2) {
+        const cbody = parseJson(await fetchText(contentsUrl, opts, GITHUB_HEADERS));
+        if (cbody !== null && isContents(cbody.value)) {
+          surface = contentsEntries(cbody.value);
+          listed2 = true;
+          noteContents(cbody.value);
+        }
+      }
+    }
+  }
+  const prefix = treePath ? `${treePath}/` : "";
+  const readManifest = async (m) => {
+    if (fixtureFile !== null) {
+      try {
+        const manifests = alt(get(fixture, "manifests"), {});
+        const found = alt(alt(get(manifests, m), get(manifests, `${prefix}${m}`)), null);
+        return isObject5(found) ? found : null;
+      } catch {
+        return null;
+      }
+    }
+    if (!slug) return null;
+    const query = treeRef ? `?ref=${treeRef}` : "";
+    return decodeManifest(await fetchText(`https://api.github.com/repos/${slug}/contents/${prefix}${m}${query}`, opts, GITHUB_HEADERS));
+  };
+  let manifestCode = false;
+  let manifestMcp = false;
+  if (listed2) {
+    let readCount = 0;
+    for (const m of manifestPaths(surface)) {
+      if (readCount >= MAX_MANIFESTS) {
+        markPartial(WHY_MANY_MANIFESTS);
+        break;
+      }
+      readCount++;
+      if (!/^[A-Za-z0-9._/-]+$/.test(m)) {
+        markPartial(WHY_UNSAFE_PATH);
+        continue;
+      }
+      const manifest = await readManifest(m);
+      if (manifest === null) {
+        markPartial(WHY_MANIFEST);
+        continue;
+      }
+      const flags2 = manifestFlags(manifest);
+      if (flags2.code) manifestCode = true;
+      if (flags2.net) manifestMcp = true;
+      if (flags2.external) markPartial(WHY_EXTERNAL);
+      if (flags2.outside) markPartial(WHY_OUTSIDE);
+      if (flags2.deps) markPartial(WHY_DEPENDENCIES);
+    }
+  }
+  return classify(candidate, kind, { repo, surface, listed: listed2, why, manifestCode, manifestMcp });
+}
+
+// src/tools/cheatcode-install.ts
+var INSTALL_FIXTURE_ENV = "TMB_CHEATCODE_INSTALL_FIXTURE";
+var INSTALL_FIXTURE_FILE = ".tmb-cheatcode-install-fixture.json";
+var INSTALLABLE_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
+function installableCandidate(input) {
+  const candidate = normalizeCandidate(input, "");
+  const name2 = rawText(candidate.name);
+  const kind = rawText(candidate.kind);
+  const url2 = rawText(candidate.source_url);
+  if (!url2) throw new CheatcodeInputError({ error: "candidate.source_url is required" });
+  if (!INSTALLABLE_KINDS.has(kind)) throw new CheatcodeInputError({ error: `candidate.kind must be skill|mcp|plugin (got '${kind}')` });
+  return { candidate, name: name2, kind, url: url2 };
+}
+var repoSlug = (url2) => url2.replace(/^[a-z]+:\/\/[^/]+\//i, "").replace(/\.git$/, "");
+async function listedMarketplace(claude, url2, opts) {
+  const { out: out2 } = await runCli(claude, ["plugin", "marketplace", "list", "--json"], "stdout", opts);
+  const list = parseJson(out2)?.value;
+  if (!Array.isArray(list)) return "";
+  const slug = repoSlug(url2);
+  const stripGit = (s) => {
+    if (typeof s !== "string") throw new Error(`${typeof s} cannot be matched, as it is not a string`);
+    return s.replace(/\.git$/, "");
+  };
+  try {
+    const match = list.filter((m) => {
+      const mUrl = alt(get(m, "url"), "");
+      return mUrl === url2 || stripGit(mUrl) === stripGit(url2) || alt(get(m, "repo"), "") === slug;
+    });
+    return rawText(alt(get(match[0] ?? null, "name"), ""));
+  } catch {
+    return "";
+  }
+}
+async function registeredMarketplace(claude, url2, opts) {
+  if (url2.startsWith("./")) return "";
+  if (/^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$/.test(url2)) return url2.replace(/^[^@]+@/, "");
+  return listedMarketplace(claude, url2, opts);
+}
+async function marketplaceInstall(name2, url2, opts) {
+  const claude = findOnPath("claude", opts);
+  if (claude === null) return { installed: false, version: null, error: "marketplace CLI unavailable" };
+  let mkt = await registeredMarketplace(claude, url2, opts);
+  if (!mkt) {
+    const add = await runCli(claude, ["plugin", "marketplace", "add", url2, "--scope", "project"], "merged", opts);
+    if (add.code !== 0) return { installed: false, version: null, error: `marketplace add failed (exit ${add.code})` };
+    mkt = /marketplace '([^'\n]+)'/i.exec(add.out)?.[1] ?? await listedMarketplace(claude, url2, opts);
+  }
+  const ref2 = mkt ? `${name2}@${mkt}` : name2;
+  const install = await runCli(claude, ["plugin", "install", ref2, "--scope", "project"], "stdout", opts);
+  if (install.code !== 0) return { installed: false, version: null, error: `marketplace install failed (exit ${install.code})` };
+  return { installed: true, version: /v?[0-9]+\.[0-9]+\.[0-9]+/.exec(install.out)?.[0] ?? null, error: null };
+}
+function fixtureResult(path2, name2, opts) {
+  const parsed = parseJson(readFixture(path2, opts.projectRoot));
+  if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+  const keyed = name2 ? get(parsed.value, name2) : null;
+  const entry = isObject5(keyed) ? keyed : parsed.value;
+  const attachments = get(entry, "attachments");
+  return {
+    installed: alt(get(entry, "installed"), false),
+    version: alt(get(entry, "version"), null),
+    error: alt(get(entry, "error"), null),
+    attachments: Array.isArray(attachments) ? attachments : null
+  };
+}
+function defaultAttachments(kind, name2, url2) {
+  if (kind === "plugin") return [{ target: "plugin", artifact: `marketplace-plugin:${url2}` }];
+  if (kind === "mcp") return [{ target: "mcp", artifact: `mcp-server:${url2}` }];
+  return [{ target: "proposed-pr", artifact: `agent-frontmatter-skill:${name2}` }];
+}
+async function cheatcodeInstall(input, opts) {
+  requireProjectRoot(opts.projectRoot);
+  const scope = input.scope ?? "local";
+  if (scope !== "local" && scope !== "global") {
+    throw new CheatcodeInputError({ error: `--scope must be local|global (got '${scope}')` });
+  }
+  if (scope === "global") {
+    throw new CheatcodeInputError({
+      error: "outside_project",
+      scope: "global",
+      message: "scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-run with --scope local."
+    });
+  }
+  const { candidate, name: name2, kind, url: url2 } = installableCandidate(input);
+  const fixture = fixturePath(INSTALL_FIXTURE_ENV, INSTALL_FIXTURE_FILE, opts);
+  let result2 = { installed: false, version: null, error: null };
+  if (fixture !== null) result2 = fixtureResult(fixture, name2, opts);
+  else if (kind === "plugin") result2 = await marketplaceInstall(name2, url2, opts);
+  else if (kind === "mcp") {
+    result2 = { installed: false, version: null, error: "mcp add needs a run-command (source_url only) \u2014 see follow-up" };
+  }
+  return {
+    candidate,
+    installed: alt(result2.installed, false),
+    version: alt(result2.version, null),
+    scope,
+    method: kind === "plugin" ? "marketplace" : kind === "mcp" ? "mcp-register" : "skill-proposed-pr",
+    attachments: Array.isArray(result2.attachments) ? result2.attachments : defaultAttachments(kind, name2, url2),
+    proposed_pr: kind === "skill" ? {
+      kind: "agent-frontmatter",
+      summary: `Add skill ${name2} to a consuming agent skills: frontmatter`,
+      source_url: url2,
+      note: "Prompt-surface change \u2014 open as a Human-reviewed PR, never an automatic write."
+    } : null,
+    error: alt(result2.error, null)
+  };
+}
+
+// src/tools/cheatcode-uninstall.ts
+var UNINSTALL_FIXTURE_ENV = "TMB_CHEATCODE_UNINSTALL_FIXTURE";
+var UNINSTALL_FIXTURE_FILE = ".tmb-cheatcode-uninstall-fixture.json";
+async function marketplaceUninstall(name2, opts) {
+  const claude = findOnPath("claude", opts);
+  if (claude === null) return { removed: false, error: "marketplace CLI unavailable" };
+  if (!name2) return { removed: false, error: "no plugin name recorded (faithful identity coupled to #108)" };
+  const { code } = await runCli(claude, ["plugin", "uninstall", name2, "--scope", "project", "--keep-data"], "none", opts);
+  return code === 0 ? { removed: true, error: null } : { removed: false, error: `marketplace uninstall failed (exit ${code})` };
+}
+async function mcpDeregister(name2, opts) {
+  const claude = findOnPath("claude", opts);
+  if (claude === null) return { removed: false, error: "mcp CLI unavailable" };
+  if (!name2) return { removed: false, error: "no mcp server name recorded (faithful identity coupled to #108)" };
+  const { code } = await runCli(claude, ["mcp", "remove", name2, "--scope", "project"], "none", opts);
+  return code === 0 ? { removed: true, error: null } : { removed: false, error: `mcp deregister failed (exit ${code})` };
+}
+async function cheatcodeUninstall(input, opts) {
+  requireProjectRoot(opts.projectRoot);
+  const { candidate, name: name2, kind } = installableCandidate(input);
+  const fixture = fixturePath(UNINSTALL_FIXTURE_ENV, UNINSTALL_FIXTURE_FILE, opts);
+  let result2 = { removed: false, error: null };
+  if (fixture !== null) {
+    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
+    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    result2 = { removed: alt(get(parsed.value, "removed"), false), error: alt(get(parsed.value, "error"), null) };
+  } else if (kind === "plugin") result2 = await marketplaceUninstall(name2, opts);
+  else if (kind === "mcp") result2 = await mcpDeregister(name2, opts);
+  return {
+    candidate,
+    removed: alt(result2.removed, false),
+    method: kind === "plugin" ? "marketplace" : kind === "mcp" ? "mcp-deregister" : "skill-proposed-pr-revert",
+    error: alt(result2.error, null)
+  };
+}
+
 // src/tools/cheatcode.ts
+var CHEATCODE_TIMEOUT_MS = 60 * 1e3;
+async function runCheatcodeEngine(label, projectRoot2, run2, timeoutMs = CHEATCODE_TIMEOUT_MS) {
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1e3)} seconds`));
+    }, timeoutMs);
+  });
+  const work = run2({ projectRoot: projectRoot2, signal: controller.signal }).catch((e) => {
+    throw new Error(`${label} failed: ${e.message}`);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -46290,245 +47892,8 @@ function wrap6(fn) {
     }
   };
 }
-function resolveScriptsFile(name2) {
-  const here = dirname13(fileURLToPath7(import.meta.url));
-  const candidates = [
-    join22(here, "..", "..", "..", "..", "scripts", name2),
-    join22(here, "..", "..", "..", "scripts", name2)
-  ];
-  for (const c of candidates) if (existsSync14(c)) return c;
-  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (pluginRoot) {
-    const c = join22(pluginRoot, "scripts", name2);
-    if (existsSync14(c)) return c;
-  }
-  throw new Error(`${name2} not found \u2014 expected at <plugin>/scripts/${name2}`);
-}
-var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
-var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
-var SEARCH_TIMEOUT_MS = 60 * 1e3;
-var VET_TIMEOUT_MS = 60 * 1e3;
-function runSearchWithScript(script, query, kind, timeoutMs, projectRoot2) {
-  return new Promise((resolve4, reject) => {
-    const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
-      ...projectSpawnOptions(projectRoot2),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-search.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!Array.isArray(parsed.candidates)) {
-        reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
-        return;
-      }
-      resolve4(parsed);
-    });
-  });
-}
-var VALID_TIERS = /* @__PURE__ */ new Set([
-  "trusted",
-  "caution",
-  "untrusted",
-  "unknown"
-]);
-function runVetWithScript(script, candidate, timeoutMs, projectRoot2) {
-  return new Promise((resolve4, reject) => {
-    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot2),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-vet.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-vet.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-vet.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-vet.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || !VALID_TIERS.has(parsed.trust_tier)) {
-        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing/invalid trust_tier)"));
-        return;
-      }
-      if (!Array.isArray(parsed.capabilities)) {
-        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
-        return;
-      }
-      resolve4(parsed);
-    });
-  });
-}
 var PROPOSED_PR_TARGET = "proposed-pr";
-function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot2) {
-  return new Promise((resolve4, reject) => {
-    const child = spawn2(
-      "bash",
-      [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
-      { ...projectSpawnOptions(projectRoot2), stdio: ["ignore", "pipe", "pipe"] }
-    );
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-install.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-install.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-install.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-install.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.attachments)) {
-        reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
-        return;
-      }
-      resolve4(parsed);
-    });
-  });
-}
-var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
-var INSTALL_TIMEOUT_MS = 60 * 1e3;
-function runUninstallWithScript(script, candidate, timeoutMs, projectRoot2) {
-  return new Promise((resolve4, reject) => {
-    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot2),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-uninstall.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-uninstall.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-uninstall.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-uninstall.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || typeof parsed.method !== "string") {
-        reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
-        return;
-      }
-      resolve4(parsed);
-    });
-  });
-}
-var resolveUninstallScript = () => resolveScriptsFile("cheatcode-uninstall.sh");
-var UNINSTALL_TIMEOUT_MS = 60 * 1e3;
-var INSTALLABLE_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
+var INSTALLABLE_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
 var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
 function deriveOrigin(sourceUrl) {
   const url2 = sourceUrl.trim();
@@ -46545,7 +47910,7 @@ function parseInstallCandidate(raw) {
   const rawKind = obj["kind"]?.trim();
   if (!name2) return { error: "candidate.name is required" };
   if (!sourceUrl) return { error: "candidate.source_url is required" };
-  if (!rawKind || !INSTALLABLE_KINDS.has(rawKind)) {
+  if (!rawKind || !INSTALLABLE_KINDS2.has(rawKind)) {
     return { error: "candidate.kind must be one of skill|mcp|plugin" };
   }
   const tierVal = obj["tier"];
@@ -46559,18 +47924,18 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join22(pluginRoot, "agents", `${target}.md`);
+    const c2 = join24(pluginRoot, "agents", `${target}.md`);
     if (existsSync14(c2)) return c2;
   }
-  const here = dirname13(fileURLToPath7(import.meta.url));
-  const c = join22(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const here = dirname14(fileURLToPath7(import.meta.url));
+  const c = join24(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync14(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync11(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync13(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -46586,12 +47951,12 @@ function readManifestProvidedTools(manifestPath) {
 function resolveInstalledPluginManifest(name2) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
   if (override) return existsSync14(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join22(process.env["HOME"] || "", ".claude");
-  const registry2 = join22(claudeHome, "plugins", "installed_plugins.json");
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join24(process.env["HOME"] || "", ".claude");
+  const registry2 = join24(claudeHome, "plugins", "installed_plugins.json");
   if (!existsSync14(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync11(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync13(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -46603,7 +47968,7 @@ function resolveInstalledPluginManifest(name2) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join22(installPath, ".claude-plugin", "plugin.json");
+      const manifest = join24(installPath, ".claude-plugin", "plugin.json");
       if (existsSync14(manifest)) return manifest;
     }
   }
@@ -46689,29 +48054,29 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot2 = projectRootFromDbPath(dbPath2);
   if (!projectRoot2) return null;
-  const claudeDir = join22(projectRoot2, ".claude");
+  const claudeDir = join24(projectRoot2, ".claude");
   if (target === "bro") {
-    const claudeMd = join22(claudeDir, "CLAUDE.md");
+    const claudeMd = join24(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body2 = existsSync14(claudeMd) ? readFileSync11(claudeMd, "utf8") : "";
+    let body2 = existsSync14(claudeMd) ? readFileSync13(claudeMd, "utf8") : "";
     if (!body2.includes(reference)) {
       const prefix = body2.length === 0 || body2.endsWith("\n") ? "" : "\n";
       body2 = body2.length === 0 ? `${reference}
 ` : `${body2}${prefix}${reference}
 `;
-      mkdirSync8(claudeDir, { recursive: true });
-      writeFileSync7(claudeMd, body2);
+      mkdirSync9(claudeDir, { recursive: true });
+      writeFileSync8(claudeMd, body2);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join22(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join24(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync14(localAgentMd)) {
-    content = readFileSync11(localAgentMd, "utf8");
+    content = readFileSync13(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync11(globalAgentMd, "utf8");
+    content = readFileSync13(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -46719,8 +48084,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync8(dirname13(localAgentMd), { recursive: true });
-  writeFileSync7(localAgentMd, updated);
+  mkdirSync9(dirname14(localAgentMd), { recursive: true });
+  writeFileSync8(localAgentMd, updated);
   return {
     target,
     artifact: `agent-md:.claude/agents/${target}.md`,
@@ -46732,23 +48097,23 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot2) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join22(projectRoot2, rel);
+    const filePath = join24(projectRoot2, rel);
     if (!existsSync14(filePath)) return;
-    const content = readFileSync11(filePath, "utf8");
+    const content = readFileSync13(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync7(filePath, updated);
+    if (updated !== content) writeFileSync8(filePath, updated);
     return;
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join22(projectRoot2, rel);
+    const filePath = join24(projectRoot2, rel);
     if (!existsSync14(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body2 = readFileSync11(filePath, "utf8");
+    const body2 = readFileSync13(filePath, "utf8");
     if (!body2.includes(reference)) return;
     const updated = body2.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync7(filePath, updated);
+    writeFileSync8(filePath, updated);
   }
 }
 function cheatcodeTools(db2) {
@@ -46764,7 +48129,7 @@ function cheatcodeTools(db2) {
   const definitions = [
     {
       name: "cheatcode_search",
-      description: "Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.",
+      description: "Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Runs in-process (queries tiered registries, ranks by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.",
       inputSchema: {
         type: "object",
         properties: {
@@ -46784,7 +48149,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_vet",
-      description: "Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Forks scripts/cheatcode-vet.sh, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).",
+      description: "Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Runs in-process, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).",
       inputSchema: {
         type: "object",
         properties: {
@@ -46827,7 +48192,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Runs in-process, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url); a target not yet attached to an already-registered skill/plugin is attached (approval-gated, materialized, attachment row added) and returns attached:true. Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -46862,7 +48227,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_uninstall",
-      description: "Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: forks scripts/cheatcode-uninstall.sh to reverse each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent \u2014 an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.",
+      description: "Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: reverses each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent \u2014 an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.",
       inputSchema: {
         type: "object",
         properties: {
@@ -46932,7 +48297,7 @@ function cheatcodeTools(db2) {
         if (!query) return err19("capability_query is required");
         const rawKind = args2["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const out2 = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
+        const out2 = await runCheatcodeEngine("cheatcode_search", scriptRoot(), (o) => cheatcodeSearch({ query, kind }, o));
         auditCheatcode(
           "cheatcode_search",
           `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out2.candidates.length} ranked candidate(s)`,
@@ -46966,7 +48331,7 @@ function cheatcodeTools(db2) {
           source_url: sourceUrl
         };
         if (typeof tierVal === "number") candidate.tier = tierVal;
-        const out2 = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
+        const out2 = await runCheatcodeEngine("cheatcode_vet", scriptRoot(), (o) => cheatcodeVet({ candidate }, o));
         auditCheatcode(
           "cheatcode_vet",
           `Cheatcode vet: '${name2}' (kind=${kind}) \u2192 trust_tier=${out2.trust_tier}`,
@@ -47026,40 +48391,25 @@ function cheatcodeTools(db2) {
             "a skill install requires a target agent (bro|swe|code-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
-        const existing = db2.get(
-          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name2, sourceUrl]
-        );
-        if (existing) {
-          const attachments2 = db2.all(
-            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-            [existing.id]
+        const approvalRefusal = () => {
+          const approval = db2.get(
+            `SELECT id FROM audit
+               WHERE event_type = 'cheatcode_approved'
+                 AND json_extract(content_json, '$.source_url') = ?
+             LIMIT 1`,
+            [sourceUrl]
           );
-          return ok20({
-            installed: false,
-            idempotent: true,
-            cheatcode: existing,
-            attachments: attachments2
-          });
-        }
-        const approval = db2.get(
-          `SELECT id FROM audit
-             WHERE event_type = 'cheatcode_approved'
-               AND json_extract(content_json, '$.source_url') = ?
-           LIMIT 1`,
-          [sourceUrl]
-        );
-        if (!approval) {
+          if (approval) return null;
           return err19(
             `cheatcode install blocked: no approval on record for '${name2}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
-        }
+        };
         const projectRoot2 = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot2 === null) return null;
-          const paths = [join22(projectRoot2, ".claude", "skills", name2, "SKILL.md")];
+          const paths = [join24(projectRoot2, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join22(projectRoot2, ".claude", "CLAUDE.md") : join22(projectRoot2, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join24(projectRoot2, ".claude", "CLAUDE.md") : join24(projectRoot2, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot2, path2);
@@ -47067,6 +48417,67 @@ function cheatcodeTools(db2) {
           }
           return null;
         };
+        const existing = db2.get(
+          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
+          [name2, sourceUrl]
+        );
+        if (existing) {
+          const listAttachments = () => db2.all(
+            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+            [existing.id]
+          );
+          const attachments2 = listAttachments();
+          if (target === null || existing.kind !== "skill" && existing.kind !== "plugin" || attachments2.some((a) => a.target === target)) {
+            return ok20({
+              installed: false,
+              idempotent: true,
+              cheatcode: existing,
+              attachments: attachments2
+            });
+          }
+          const refusedAttachApproval = approvalRefusal();
+          if (refusedAttachApproval) return refusedAttachApproval;
+          const refusedAttachTarget = writesOutside([target]);
+          if (refusedAttachTarget) return refusedAttachTarget;
+          const providedTools = existing.kind === "plugin" && target !== "bro" ? detectProvidedTools(name2) : [];
+          const result2 = materializeConsumingAgent(db2.dbPath, target, name2, providedTools);
+          if (!result2) {
+            return err19(
+              `cheatcode attach failed for '${name2}' \u2192 ${target}: no project root or agent md to materialize. No attachment recorded.`
+            );
+          }
+          const attachedAt = nowISO();
+          db2.transaction(() => {
+            db2.run(
+              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`,
+              [existing.id, result2.target, result2.artifact, attachedAt]
+            );
+            auditCheatcode(
+              "cheatcode_installed",
+              `Cheatcode attached: '${name2}' \u2192 ${result2.target} (cheatcode_id=${existing.id})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name: name2,
+                kind: existing.kind,
+                source_url: sourceUrl,
+                attached: true,
+                target: result2.target,
+                artifact: result2.artifact
+              }),
+              attachedAt
+            );
+          });
+          return ok20({
+            installed: false,
+            attached: true,
+            cheatcode: existing,
+            attachments: listAttachments(),
+            materialized: [{ target: result2.target, artifact: result2.artifact, path: result2.path }]
+          });
+        }
+        const refusedApproval = approvalRefusal();
+        if (refusedApproval) return refusedApproval;
         const refusedBeforeInstall = writesOutside(target ? [target] : []);
         if (refusedBeforeInstall) return refusedBeforeInstall;
         const candidate = {
@@ -47075,12 +48486,10 @@ function cheatcodeTools(db2) {
           source_url: sourceUrl
         };
         if (typeof tier === "number") candidate.tier = tier;
-        const out2 = await runInstallWithScript(
-          resolveInstallScript(),
-          candidate,
-          scope,
-          INSTALL_TIMEOUT_MS,
-          scriptRoot()
+        const out2 = await runCheatcodeEngine(
+          "cheatcode_install",
+          scriptRoot(),
+          (o) => cheatcodeInstall({ candidate, scope }, o)
         );
         if (kind !== "skill" && out2.installed === false && out2.error) {
           return err19(
@@ -47205,11 +48614,10 @@ function cheatcodeTools(db2) {
           kind: existing.kind,
           source_url: existing.source_url ?? ""
         };
-        const reversal = await runUninstallWithScript(
-          resolveUninstallScript(),
-          candidate,
-          UNINSTALL_TIMEOUT_MS,
-          scriptRoot()
+        const reversal = await runCheatcodeEngine(
+          "cheatcode_uninstall",
+          scriptRoot(),
+          (o) => cheatcodeUninstall({ candidate }, o)
         );
         const uninstalledAt = nowISO();
         const auditContent = JSON.stringify({
@@ -47340,15 +48748,15 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync15, readdirSync as readdirSync4, readFileSync as readFileSync12, statSync as statSync5 } from "node:fs";
+import { existsSync as existsSync15, readdirSync as readdirSync5, readFileSync as readFileSync14, statSync as statSync7 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename10, join as join23 } from "node:path";
+import { basename as basename11, join as join25 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "code-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
-    text = readFileSync12(path2, "utf8");
+    text = readFileSync14(path2, "utf8");
   } catch {
     return [];
   }
@@ -47371,7 +48779,7 @@ function messageOf(r) {
 function taskIdFromTranscript(path2) {
   let text;
   try {
-    text = readFileSync12(path2, "utf8");
+    text = readFileSync14(path2, "utf8");
   } catch {
     return null;
   }
@@ -47489,22 +48897,22 @@ function sessionSpawnTypes(records) {
   return out2;
 }
 function defaultTranscriptsDir(projectRoot2) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join23(homedir4(), ".claude");
-  return join23(configDir, "projects", projectRoot2.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join25(homedir4(), ".claude");
+  return join25(configDir, "projects", projectRoot2.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
-  for (const name2 of readdirSync4(dir).sort()) {
-    const p = join23(dir, name2);
+  for (const name2 of readdirSync5(dir).sort()) {
+    const p = join25(dir, name2);
     if (name2.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join23(p, "subagents");
-    if (!existsSync15(sub) || !statSync5(sub).isDirectory()) continue;
-    for (const f of readdirSync4(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join23(sub, f), session: name2 });
+    const sub = join25(p, "subagents");
+    if (!existsSync15(sub) || !statSync7(sub).isDirectory()) continue;
+    for (const f of readdirSync5(sub).sort()) {
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join25(sub, f), session: name2 });
     }
   }
   return { sessions, subagents };
@@ -47513,7 +48921,7 @@ function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
   if (existsSync15(meta3)) {
     try {
-      const t = normalizeRole(JSON.parse(readFileSync12(meta3, "utf8"))["agentType"]);
+      const t = normalizeRole(JSON.parse(readFileSync14(meta3, "utf8"))["agentType"]);
       if (t) return t;
     } catch {
     }
@@ -47521,7 +48929,7 @@ function spawnAgentType(path2, sessionTypes) {
   return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
 }
 function agentIdOf(path2) {
-  return basename10(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+  return basename11(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
 }
 var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
 var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
@@ -47555,7 +48963,7 @@ function agentRunsBackfill(db2, opts) {
     if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
   };
   const sessionRecords = /* @__PURE__ */ new Map();
-  for (const p of sessions) sessionRecords.set(basename10(p, ".jsonl"), readRecords(p));
+  for (const p of sessions) sessionRecords.set(basename11(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
   for (const { path: path2, session } of subagents) {
@@ -47575,7 +48983,7 @@ function agentRunsBackfill(db2, opts) {
       continue;
     }
     const task = db2.get(
-      "SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?",
+      "SELECT id, issue_id, branch_id, status, repo, worktree_path FROM tasks WHERE id = ?",
       [taskId]
     );
     if (!task) {
@@ -47603,10 +49011,10 @@ function agentRunsBackfill(db2, opts) {
       report.rows_skipped_measured++;
       continue;
     }
-    const tokens = usageTotal(stats);
-    report.tokens_total_added += tokens;
+    const tokens2 = usageTotal(stats);
+    report.tokens_total_added += tokens2;
     const repoPath = resolveRepoPath(db2, task.repo);
-    const rootDir = repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null;
+    const rootDir = repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null;
     if (target) {
       claimedRunIds.add(target.id);
       report.rows_updated++;
@@ -47739,7 +49147,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync15(dir) || !statSync5(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync15(dir) || !statSync7(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -47752,25 +49160,35 @@ function agentRunsBackfillTools(db2, dbPath2) {
 // src/tools/trajectory-doctor.ts
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
+// src/data-contracts.ts
+import { readdirSync as readdirSync6 } from "node:fs";
+import { dirname as dirname15, join as join27 } from "node:path";
+
+// src/prose-files.ts
+var PROSE_SUFFIX = /\.(md|markdown|txt|rst)$/i;
+function isProseFile(path2) {
+  return PROSE_SUFFIX.test(path2);
+}
+
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync13, realpathSync as realpathSync8 } from "node:fs";
-import { join as join24 } from "node:path";
+import { readFileSync as readFileSync15, realpathSync as realpathSync9 } from "node:fs";
+import { join as join26 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join24(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join26(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join24(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join26(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync8(dir);
+    return realpathSync9(dir);
   } catch {
     return dir;
   }
 }
 function readJsonObject(path2) {
   try {
-    const parsed = JSON.parse(readFileSync13(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync15(path2, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -47778,9 +49196,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join24(claudeConfigDir(env), "settings.json"),
-    join24(project, ".claude", "settings.json"),
-    join24(project, ".claude", "settings.local.json")
+    join26(claudeConfigDir(env), "settings.json"),
+    join26(project, ".claude", "settings.json"),
+    join26(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {
@@ -47847,6 +49265,20 @@ function noOtherTrajectoryDbs(env, ctx) {
     actual: others.length,
     sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks }))
   };
+}
+var SCRATCH_PROSE_SAMPLE = 10;
+function scratchNoProse(_env, ctx) {
+  if (ctx.dbPath === void 0) return { skipped: "the checked DB has no file behind it" };
+  const scratch = join27(dirname15(ctx.dbPath), "scratch");
+  let entries;
+  try {
+    entries = readdirSync6(scratch, { recursive: true, withFileTypes: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return { actual: 0, sample: [] };
+    return { skipped: `the scratch folder cannot be read: ${e.message}` };
+  }
+  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join27(e.parentPath, e.name)).sort();
+  return { actual: prose.length, sample: prose.slice(0, SCRATCH_PROSE_SAMPLE).map((path2) => ({ path: path2 })) };
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
@@ -48155,6 +49587,19 @@ function buildDataContracts(documentedEventTypes) {
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
     },
     {
+      id: "issues_open_after_remote_close",
+      severity: "warn",
+      description: "no open issue carries an issue_remote_closed_local_open audit row (issue_reconcile_remote found its GitHub/GitLab twin closed but left it open for live tasks): once those tasks close, rerun issue_reconcile_remote to close it",
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, ${auditField("a", "remote_iid")} AS remote_iid, ${auditField("a", "blocking_task_ids")} AS blocking_task_ids
+             FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'
+               AND a.id = (SELECT MAX(b.id) FROM audit b WHERE b.issue_id = i.id AND b.event_type = 'issue_remote_closed_local_open')
+             ORDER BY i.id DESC LIMIT 5`
+    },
+    {
       id: "concepts_trusted",
       severity: "warn",
       min_schema: CONCEPTS_SCHEMA,
@@ -48218,6 +49663,14 @@ function buildDataContracts(documentedEventTypes) {
       description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks \u2014 each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
       expect: { op: "=", value: 0 },
       check: noOtherTrajectoryDbs
+    },
+    {
+      source: "files",
+      id: "scratch_no_prose",
+      severity: "warn",
+      description: "no prose file (.md, .markdown, .txt, .rst) sits under the scratch folder beside the checked DB, at any depth: plans, decisions, specs and drafts live in the trajectory DB, so move each sampled file there with issue_update_description, discussion_append or task_update_spec, then delete it. Skipped when the checked DB has no file behind it",
+      expect: { op: "=", value: 0 },
+      check: scratchNoProse
     }
   ];
 }
@@ -48451,7 +49904,7 @@ function trajectoryDoctorTools(db2) {
 
 // src/tools/bug-report.ts
 import os from "node:os";
-import { basename as basename12 } from "node:path";
+import { basename as basename13 } from "node:path";
 
 // src/bug-report/form.ts
 var FREQUENCY_OPTIONS = ["Every time", "Sometimes", "Once"];
@@ -48616,14 +50069,14 @@ function redactRoots(text, ctx, counts) {
   }
   return out2;
 }
-function basename11(path2) {
+function basename12(path2) {
   const parts2 = path2.split(/[\\/]+/).filter(Boolean);
   return parts2[parts2.length - 1] ?? "";
 }
 function redactPaths(text, counts) {
   const replace = (match) => {
     counts.path++;
-    return `<path>/${basename11(match)}`;
+    return `<path>/${basename12(match)}`;
   };
   return text.replace(WINDOWS_PATH_RE, replace).replace(POSIX_PATH_RE, replace);
 }
@@ -48854,7 +50307,7 @@ function redactContext(db2, home, root) {
     home,
     projectRoot: root,
     remoteUrls: column(db2, `SELECT url AS v FROM repo_remotes`),
-    repoNames: [.../* @__PURE__ */ new Set([...column(db2, `SELECT name AS v FROM repos`), ...repoPaths, ...repoPaths.map((p) => basename12(p))])],
+    repoNames: [.../* @__PURE__ */ new Set([...column(db2, `SELECT name AS v FROM repos`), ...repoPaths, ...repoPaths.map((p) => basename13(p))])],
     branchNames: column(
       db2,
       `SELECT branch_id AS v FROM tasks
@@ -48878,7 +50331,7 @@ function environment(db2, args2, env) {
   const version2 = resolvePluginVersion(env);
   const ccVersion = typeof args2["claude_code_version"] === "string" && args2["claude_code_version"].trim() ? args2["claude_code_version"].trim() : "unknown";
   const client = typeof args2["client"] === "string" ? ` (${args2["client"]})` : "";
-  const shell = env["SHELL"] ? basename12(env["SHELL"]) : "unknown";
+  const shell = env["SHELL"] ? basename13(env["SHELL"]) : "unknown";
   return {
     tmb: version2 ?? "unknown",
     channel: versionChannel(version2),
@@ -49245,14 +50698,14 @@ function startStartupCatchup(dbPath2) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync9(path.dirname(dbPath), { recursive: true });
+  mkdirSync10(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath, void 0, { migrate: true });
 function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync14(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync16(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -49395,5 +50848,5 @@ void reconcileAtStartup(db);
 recordEmbeddingTransitions(db);
 embed("warmup").catch(() => {
 });
-startBackfill(db).catch((e) => console.error("[embeddings] startBackfill error:", e));
+startBackfill(db, dbPath).catch((e) => console.error("[embeddings] startBackfill error:", e));
 //# sourceMappingURL=index.js.map

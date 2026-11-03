@@ -1,5 +1,5 @@
 /**
- * The TypeScript git-guards where it is stricter than scripts/hooks/git-guards.sh
+ * The TypeScript git-guards where it is stricter than the bash git-guards.sh
  * (GH 1692): a command naming git, gh or glab that tree-sitter-bash cannot
  * parse is denied with PARSE_REASON, a git word after a non-ASCII letter is
  * analysed (the .sh skips it in a UTF-8 locale), the switch-then-fast-forward
@@ -124,16 +124,14 @@ describe('git-guards: the TypeScript gate', () => {
     assert.equal(sh('C'), 0, 'the C locale reads é as two non-alnum bytes');
   });
 
-  it('allows switch-then-fast-forward only in an ASCII-only command, as the .sh does where awk fails on UTF-8', async () => {
+  it('allows switch-then-fast-forward only in an ASCII-only command, in any locale', async () => {
     const sync = `cd ${main} && git switch feat/x && git merge --ff-only @{u}`;
     assert.deepEqual(await gitGuards(payload(sync, dir), env), { stdout: '', code: 0 });
     const quoted = `echo "é" && ${sync}`;
     const r = await gitGuards(payload(quoted, dir), env);
     assert.match(reason(r.stdout), /To sync a branch with its own upstream/);
-    const utf8 = { ...env, LC_ALL: 'en_US.UTF-8' };
-    const awkFails = spawnSync('bash', ['-c', '. "$1"; tmb_cmd_strip_literals "$2"', '_', join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh'), 'echo "é"'], { env: utf8 }).status !== 0;
-    const sh = spawnSync('bash', [join(PLUGIN_ROOT, 'scripts/hooks/git-guards.sh')], { input: payload(quoted, dir), encoding: 'utf8', env: utf8 });
-    assert.equal(sh.stdout, awkFails ? r.stdout : '');
+    const utf8 = await gitGuards(payload(quoted, dir), { ...env, LC_ALL: 'en_US.UTF-8' });
+    assert.deepEqual(utf8, r, 'the locale picks no other answer');
   });
 
   it('reads the DB through node:sqlite with no sqlite3 CLI on PATH: an unregistered sibling stays unguarded', async () => {

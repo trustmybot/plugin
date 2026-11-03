@@ -25,12 +25,12 @@ export function worktreeRootForTarget(target) {
  * worktree <target> lies in, by its checked-out branch, then by its slug, then
  * the task_id=<N> of the payload's agent_transcript_path; "" when none.
  */
-export function resolveTaskIdForTarget(target, input, db = '', env = process.env) {
+export async function resolveTaskIdForTarget(target, input, db = '', env = process.env) {
     const resolved = db !== '' ? db : (dbPath(env) ?? '');
     const wt = worktreeRootForTarget(target);
     let task = '';
     if (resolved !== '' && haveSqlite(env) && wt !== '') {
-        const branch = gitOut(wt, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+        const branch = await gitOut(wt, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
         if (branch !== '' && branch !== 'HEAD') {
             task = sqlInt(sqliteRo(resolved, `
         SELECT id FROM tasks

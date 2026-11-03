@@ -1,0 +1,12 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
+  "tool_input": {
+    "agent": "swe",
+    "task_id": 30,
+    "status": "completed"
+  },
+  "corpus_env": {
+    "TMB_VERIFICATION_TIMEOUT_S": "abc"
+  },
+  "corpus_expect": "verification_timeout_s 'abc' is not an integer from 1 to 1800; using the default 900s"
+}

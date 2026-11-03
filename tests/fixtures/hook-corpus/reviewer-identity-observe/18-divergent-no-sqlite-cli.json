@@ -1,0 +1,17 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__validation_record",
+  "agent_id": "agent-abc",
+  "agent_type": "code-reviewer",
+  "tool_input": {
+    "task_id": 42,
+    "attempt_n": 1
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "decision 703: without the sqlite3 CLI the .sh records nothing; the port records the row through node:sqlite",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "empty"
+  }
+}

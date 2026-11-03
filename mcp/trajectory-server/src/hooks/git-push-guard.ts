@@ -76,8 +76,8 @@ class Guard {
   }
 
   /** paths_sig: `<\037-joined changed paths>\t<sha>` per commit of <input> that changes something within the pathspec. */
-  private pathsSig(dir: string, input: string, spec: readonly string[]): string[] {
-    const out = gitRun(dir, ['diff-tree', '--stdin', '-r', '--root', '--name-only', '--format=commit %H', ...spec], this.env, input).stdout;
+  private async pathsSig(dir: string, input: string, spec: readonly string[]): Promise<string[]> {
+    const out = (await gitRun(dir, ['diff-tree', '--stdin', '-r', '--root', '--name-only', '--format=commit %H', ...spec], this.env, input)).stdout;
     const sigs: string[] = [];
     let sha = '';
     let files = '';
@@ -102,15 +102,15 @@ class Guard {
   }
 
   /** pair_by_paths: `<sha> <task sha>...` per commit of <shas> sharing its changed-path set with task commits. */
-  private pairByPaths(dir: string, taskRows: string, shas: string, spec: readonly string[]): string {
+  private async pairByPaths(dir: string, taskRows: string, shas: string, spec: readonly string[]): Promise<string> {
     const bySet = new Map<string, string>();
     const taskInput = `${lines(taskRows).map((r) => field(r, 1)).join('\n')}\n`;
-    for (const sig of this.pathsSig(dir, taskInput, spec)) {
+    for (const sig of await this.pathsSig(dir, taskInput, spec)) {
       const [files, sha = ''] = sig.split('\t');
       bySet.set(files, `${bySet.get(files) ?? ''} ${sha}`);
     }
     const out: string[] = [];
-    for (const sig of this.pathsSig(dir, `${shas}\n`, spec)) {
+    for (const sig of await this.pathsSig(dir, `${shas}\n`, spec)) {
       const [files, sha = ''] = sig.split('\t');
       const tasks = bySet.get(files);
       if (tasks !== undefined) out.push(sha + tasks);
@@ -119,10 +119,10 @@ class Guard {
   }
 
   /** task_matches: `<sha>|<task_id>|<branch_id>|<reviewed>` per paired commit whose patch-id equals a task commit's, a reviewed task preferred. */
-  private taskMatches(dir: string, taskRows: string, pairs: string, spec: readonly string[]): string[] {
+  private async taskMatches(dir: string, taskRows: string, pairs: string, spec: readonly string[]): Promise<string[]> {
     const shas = [...new Set(pairs.split(/[ \n]/))].sort();
-    const patch = gitRun(dir, ['diff-tree', '--stdin', '-p', '-r', '--root', ...spec], this.env, `${shas.join('\n')}\n`).stdout;
-    const ids = stripTrailingNewlines(gitRun(dir, ['patch-id', '--stable'], this.env, patch).stdout);
+    const patch = (await gitRun(dir, ['diff-tree', '--stdin', '-p', '-r', '--root', ...spec], this.env, `${shas.join('\n')}\n`)).stdout;
+    const ids = stripTrailingNewlines((await gitRun(dir, ['patch-id', '--stable'], this.env, patch)).stdout);
     if (ids === '') return [];
     const pid = new Map<string, string>();
     for (const row of lines(ids)) {
@@ -159,7 +159,7 @@ class Guard {
    * per pushed rebase of a task commit that is not reviewed or has no passing
    * verification run of its own; __ERR__ when a DB read fails.
    */
-  uncheckedRebases(dir: string, pushed: string): string {
+  async uncheckedRebases(dir: string, pushed: string): Promise<string> {
     const values = hexLines(pushed).map((sha) => `('${sha}')`);
     if (values.length === 0) return '';
     const taskCommits = this.read(
@@ -169,7 +169,7 @@ class Guard {
     const fresh = without(pushed, taskCommits);
     if (fresh === '') return '';
 
-    const name = repoNameForRoot(this.db, repoGitRoot(dir, this.env), this.env);
+    const name = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
     const repoFilter = name === '' ? '' : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name)}')`;
     const tasks = this.read(
       `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass') FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`,
@@ -179,12 +179,12 @@ class Guard {
 
     const taskLines = lines(tasks);
     const checked = lines(
-      gitRun(
+      (await gitRun(
         dir,
         ['cat-file', '--batch-check=%(objectname) %(objecttype)'],
         this.env,
         `${taskLines.map((r) => field(r, 1)).join('\n')}\n`,
-      ).stdout.replace(/\n$/, ''),
+      )).stdout.replace(/\n$/, ''),
     );
     const fullRows: string[] = [];
     const n = Math.max(checked.length, taskLines.length);
@@ -198,15 +198,15 @@ class Guard {
     if (full === '') return '';
 
     let matches: string[] = [];
-    let pairs = this.pairByPaths(dir, full, fresh, []);
-    if (pairs !== '') matches = this.taskMatches(dir, full, pairs, []).map((m) => `${m}|full`);
+    let pairs = await this.pairByPaths(dir, full, fresh, []);
+    if (pairs !== '') matches = (await this.taskMatches(dir, full, pairs, [])).map((m) => `${m}|full`);
 
     let srcMatches: string[] = [];
     const rest = without(fresh, matches.map((m) => field(m, 1)).join('\n'));
     if (rest !== '') {
       const spec = ['--', ...SOURCE_PATHS];
-      pairs = this.pairByPaths(dir, full, rest, spec);
-      if (pairs !== '') srcMatches = this.taskMatches(dir, full, pairs, spec).map((m) => `${m}|src`);
+      pairs = await this.pairByPaths(dir, full, rest, spec);
+      if (pairs !== '') srcMatches = (await this.taskMatches(dir, full, pairs, spec)).map((m) => `${m}|src`);
     }
     const all = [...matches, ...srcMatches].filter((m) => m !== '');
     if (all.length === 0) return '';
@@ -224,36 +224,40 @@ class Guard {
   }
 
   /** The base the commits of a branch with no upstream are counted from: the target branch's ref, else the remote default's, else "". */
-  private baseRef(dir: string): string {
-    let target = field(repoResolve(this.db, stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
+  private async baseRef(dir: string): Promise<string> {
+    let target = field(repoResolve(this.db, await stmtRepoRoot(dir, this.cwd, this.env), this.env), 1);
     if (target === '') {
       const sole = repoSinglePath(this.db, this.env);
       if (sole !== '') target = field(repoResolve(this.db, sole, this.env), 1);
     }
-    const remoteDefault = (): string =>
-      gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env).replace(/^origin\//gm, '');
-    if (target === '') target = remoteDefault();
+    const remoteDefault = async (): Promise<string> =>
+      (await gitOut(dir, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], this.env)).replace(/^origin\//gm, '');
+    if (target === '') target = await remoteDefault();
     target ||= 'main';
-    const existing = (branch: string): string =>
-      [`origin/${branch}`, branch].find((cand) => gitOk(dir, ['rev-parse', '--verify', '--quiet', cand], this.env)) ?? '';
-    let base = existing(target);
+    const existing = async (branch: string): Promise<string> => {
+      for (const cand of [`origin/${branch}`, branch]) {
+        if (await gitOk(dir, ['rev-parse', '--verify', '--quiet', cand], this.env)) return cand;
+      }
+      return '';
+    };
+    let base = await existing(target);
     if (base === '') {
-      const fallback = remoteDefault();
-      if (fallback !== '') base = existing(fallback);
+      const fallback = await remoteDefault();
+      if (fallback !== '') base = await existing(fallback);
     }
     return base;
   }
 
-  private pushedShas(dir: string): string {
-    const upstream = gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
+  private async pushedShas(dir: string): Promise<string> {
+    const upstream = await gitOut(dir, ['log', '@{u}..HEAD', '--pretty=%H'], this.env);
     if (upstream !== '') return upstream;
-    const base = this.baseRef(dir);
-    return gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
+    const base = await this.baseRef(dir);
+    return await gitOut(dir, ['log', base === '' ? 'HEAD' : `${base}..HEAD`, '--pretty=%H'], this.env);
   }
 
   /** The deny for one push, or null when it may go. */
-  judge(dir: string): GateResult | null {
-    const pushed = this.pushedShas(dir);
+  async judge(dir: string): Promise<GateResult | null> {
+    const pushed = await this.pushedShas(dir);
     if (pushed === '') return null;
     const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
     if (shaList.length === 0) return null;
@@ -270,7 +274,7 @@ class Guard {
       );
     }
 
-    const unchecked = this.uncheckedRebases(dir, pushed);
+    const unchecked = await this.uncheckedRebases(dir, pushed);
     if (unchecked === GATE_READ_ERROR) return deny(DB_REASON);
     if (unchecked === '') return null;
     const rows = lines(unchecked);
@@ -311,7 +315,7 @@ export const gitPushGuard: Gate = async (payload, env) => {
     if (dir === '-') return { stdout: denyAmbiguousGitTarget(stmt, true), code: 0 };
     if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON);
     if (db === '' || !haveSqlite(env)) continue;
-    const verdict = guard.judge(dir);
+    const verdict = await guard.judge(dir);
     if (verdict) return verdict;
   }
   return ALLOW;

@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/bad..name",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/single/.claude/tmb/trajectory.db"
+  },
+  "corpus_expect": "tmb worktree-create: could not create branch feat/bad..name in @SANDBOX@/single/solo"
+}

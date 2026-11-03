@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-feature-branch-active.sh
+# Tests for the TypeScript require-feature-branch-active gate
 #
 # Hook contract: block SWE agent spawn when the task's branch_id does not yet
 # exist (bro pre-creates it; main stays on <base>). Passes through silently for non-swe agents, missing task_id,
@@ -10,7 +10,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/require-feature-branch-active.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-feature-branch-active.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 # ----- helpers ----------------------------------------------------------
 

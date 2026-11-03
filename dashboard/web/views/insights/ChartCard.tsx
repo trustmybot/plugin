@@ -7,7 +7,10 @@ import { csvName, downloadCsv, type TableData } from './csv.ts';
 export interface LegendItem {
   label: string;
   color: string;
+  kind?: 'fill' | 'outline';
 }
+
+export const OUTLINE_DASH = '4 3';
 
 const MENU_ITEM =
   'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-fg hover:bg-(--control-transparent-bgColor-hover) focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color) focus-visible:-outline-offset-2';
@@ -54,7 +57,7 @@ function CardMenu({ title, asTable, onToggle, onDownload }: { title: string; asT
       >
         <button type="button" role="menuitem" className={MENU_ITEM} onClick={choose(onToggle)}>
           {asTable ? <GraphIcon size={16} aria-hidden="true" /> : <TableIcon size={16} aria-hidden="true" />}
-          {asTable ? 'View as chart' : 'View as table'}
+          {asTable ? 'View as Chart' : 'View as Table'}
         </button>
         <button type="button" role="menuitem" className={MENU_ITEM} onClick={choose(onDownload)}>
           <DownloadIcon size={16} aria-hidden="true" />
@@ -99,8 +102,17 @@ export function Legend({ items }: { items: LegendItem[] }) {
     <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted" aria-label="Legend">
       {items.map((item) => (
         <li key={item.label} className="inline-flex items-center gap-1.5">
-          <svg width="16" height="8" aria-hidden="true">
-            <line x1="0" x2="16" y1="4" y2="4" stroke={item.color} strokeWidth="2" />
+          <svg width="16" height="8" aria-hidden="true" data-legend-kind={item.kind}>
+            {item.kind === 'fill' ? (
+              <>
+                <rect x="0" y="0" width="16" height="8" rx="2" fill={item.color} style={{ fillOpacity: 'var(--chart-wash)' }} />
+                <line x1="1" x2="15" y1="1" y2="1" stroke={item.color} strokeWidth="2" />
+              </>
+            ) : item.kind === 'outline' ? (
+              <rect x="0.75" y="0.75" width="14.5" height="6.5" rx="2" fill="none" stroke={item.color} strokeWidth="1.5" strokeDasharray={OUTLINE_DASH} />
+            ) : (
+              <line x1="0" x2="16" y1="4" y2="4" stroke={item.color} strokeWidth="2" />
+            )}
           </svg>
           {item.label}
         </li>

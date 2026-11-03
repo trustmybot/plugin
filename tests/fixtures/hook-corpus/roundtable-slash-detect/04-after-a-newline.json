@@ -1,0 +1,4 @@
+{
+  "prompt": "please help\n/roundtable pick a design",
+  "corpus_expect": "audit: -1 hook:roundtable-slash-detect roundtable_slash_invoked: User typed /roundtable: please help\n/roundtable pick a design"
+}

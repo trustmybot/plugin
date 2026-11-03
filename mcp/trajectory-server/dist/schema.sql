@@ -129,7 +129,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- task_brief returns it so the next spawn resumes from it. A move to
     -- completed clears it and every other move keeps it. Keep this comment
     -- comma-free: DROP COLUMN on the last column cuts back to the nearest comma.
-    checkpoint        TEXT
+    checkpoint        TEXT,
+    -- worktree_path (v54 GH 2032): the realpath of the linked worktree the
+    -- task's swe works in when it is not <repo>/.claude/worktrees/<slug>. NULL
+    -- keeps the slug path. adoptTaskWorktree is its only writer. Keep these two
+    -- comments comma-free for the same DROP COLUMN reason.
+    worktree_path     TEXT,
+    -- worktree_adopted (v54 GH 2032): 1 once adoptTaskWorktree recorded the
+    -- session worktree as worktree_path and 0 for a task_provision worktree.
+    worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -325,7 +333,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 52, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 55, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -439,6 +447,43 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE c
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+
+-- session_handoffs (GH 2193; schema v55): one row per bro session that stopped
+-- past its usage limits with no work running. The session-handoff Stop gate
+-- upserts it until it is consumed. issue_id is the newest issue a non-bro run of
+-- that session recorded (NULL with no such run); summary is the session's last
+-- assistant message capped at 2000 characters (NULL when absent).
+-- session-start-persona sets consumed_at and consumed_by_session when a new
+-- session in the same cwd takes the handoff.
+CREATE TABLE IF NOT EXISTS session_handoffs (
+    session_id          TEXT PRIMARY KEY,
+    cwd                 TEXT NOT NULL,
+    issue_id            INTEGER REFERENCES issues(id),
+    summary             TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    consumed_at         TEXT,
+    consumed_by_session TEXT
+);
+
+-- agent_run_tool_output (GH 1957; schema v53): how much text each tool returned
+-- into one agent run, one row per (run, tool). calls counts the run's
+-- tool_result blocks of that tool; result_chars sums their text length (image
+-- and other non-text blocks count 0); est_tokens = ceil(result_chars / 4). The
+-- tool-output-size recorder rewrites a run's rows from its transcript at stop
+-- (swe and code-reviewer at SubagentStop, bro at every Stop); a result with no
+-- matching tool_use counts under tool_name 'unknown'.
+CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    tool_name    TEXT    NOT NULL,
+    calls        INTEGER NOT NULL DEFAULT 0,
+    result_chars INTEGER NOT NULL DEFAULT 0,
+    est_tokens   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (run_id, tool_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);

@@ -1,0 +1,7 @@
+{
+  "subagent_type": "pm",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad/.claude/tmb/trajectory.db"
+  },
+  "corpus_expect": "BLOCKED: trajectory DB unavailable"
+}

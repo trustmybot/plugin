@@ -89,20 +89,20 @@ function passedInSource(db, runId, env) {
     const commands = parseCommands(out === '' ? '[]' : out);
     return commands === null ? 'error' : new Set(commands);
 }
-function changedPaths(worktree, from, to, env) {
-    const r = gitRun(worktree, ['diff', '--name-only', '--no-renames', '-z', from, to, '--'], env);
+async function changedPaths(worktree, from, to, env) {
+    const r = await gitRun(worktree, ['diff', '--name-only', '--no-renames', '-z', from, to, '--'], env);
     if (r.code !== 0)
         return null;
     return r.stdout.split('\0').filter((p) => p !== '');
 }
 /** The carry plan for one gate run: which ordinals (1-based, GATE_CMDS_JSON order) to record as carried from which run. */
-export function planCarry(req, env = process.env) {
+export async function planCarry(req, env = process.env) {
     const taskId = sqlInt(req.taskId);
     const head = req.head.toLowerCase();
     const commands = parseCommands(req.commandsJson);
     if (req.db === '' || taskId === '' || req.worktree === '' || !SHA_RE.test(head) || commands === null)
         return refuse('bad_input');
-    const actualHead = gitRun(req.worktree, ['rev-parse', '--verify', '-q', 'HEAD^{commit}'], env);
+    const actualHead = await gitRun(req.worktree, ['rev-parse', '--verify', '-q', 'HEAD^{commit}'], env);
     if (actualHead.code !== 0 || actualHead.stdout.trim().toLowerCase() !== head)
         return refuse('head_mismatch');
     const source = sourceRun(req.db, taskId, head, env);
@@ -110,20 +110,20 @@ export function planCarry(req, env = process.env) {
         return refuse('db_unreadable');
     if (source === null)
         return refuse('no_source_run');
-    if (gitRun(req.worktree, ['merge-base', '--is-ancestor', source.sha, head], env).code !== 0)
+    if ((await gitRun(req.worktree, ['merge-base', '--is-ancestor', source.sha, head], env)).code !== 0)
         return refuse('not_ancestor', source);
-    const merges = gitRun(req.worktree, ['rev-list', '--merges', `${source.sha}..${head}`], env);
+    const merges = await gitRun(req.worktree, ['rev-list', '--merges', `${source.sha}..${head}`], env);
     if (merges.code !== 0 || merges.stdout.trim() !== '')
         return refuse('merge_in_range', source);
-    const status = gitRun(req.worktree, ['status', '--porcelain'], env);
+    const status = await gitRun(req.worktree, ['status', '--porcelain'], env);
     if (status.code !== 0 || status.stdout.trim() !== '')
         return refuse('dirty_worktree', source);
-    const changed = changedPaths(req.worktree, source.sha, head, env);
+    const changed = await changedPaths(req.worktree, source.sha, head, env);
     if (changed === null)
         return refuse('diff_failed', source);
     if (changed.includes(VERIFICATION_INPUTS_PATH))
         return refuse('map_changed', source);
-    const mapText = gitRun(req.worktree, ['show', `${head}:${VERIFICATION_INPUTS_PATH}`], env);
+    const mapText = await gitRun(req.worktree, ['show', `${head}:${VERIFICATION_INPUTS_PATH}`], env);
     if (mapText.code !== 0)
         return refuse('map_missing', source);
     const entries = parseInputsMap(mapText.stdout);
@@ -155,9 +155,9 @@ export function planCarry(req, env = process.env) {
     };
 }
 /** planCarry, with any thrown error read as a refusal: the gate then runs every command. */
-export function planCarrySafe(req, env = process.env) {
+export async function planCarrySafe(req, env = process.env) {
     try {
-        return planCarry(req, env);
+        return await planCarry(req, env);
     }
     catch {
         return refuse('error');
@@ -177,6 +177,6 @@ function isMainModule() {
 }
 if (isMainModule()) {
     const [db = '', taskId = '', worktree = '', head = '', commandsJson = ''] = process.argv.slice(2);
-    process.stdout.write(`${JSON.stringify(planCarrySafe({ db, taskId, worktree, head, commandsJson }))}\n`);
+    process.stdout.write(`${JSON.stringify(await planCarrySafe({ db, taskId, worktree, head, commandsJson }))}\n`);
 }
 //# sourceMappingURL=verification-carry.js.map

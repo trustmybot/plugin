@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"Bash","tool_input":{"command":"ls","task_id":11},"corpus_expect":"empty"}

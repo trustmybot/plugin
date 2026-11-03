@@ -13,7 +13,7 @@ import { CounterLabel } from '../ui/CounterLabel.tsx';
 import { RelativeTime } from '../ui/RelativeTime.tsx';
 
 const SORTS: Record<string, ListSort> = {
-  updated: { label: 'Recently updated', key: 'updated_at', dir: -1 },
+  updated: { label: 'Recently Updated', key: 'updated_at', dir: -1 },
   newest: { label: 'Newest', key: 'id', dir: -1 },
   oldest: { label: 'Oldest', key: 'id', dir: 1 },
 };
@@ -154,7 +154,7 @@ export function TaskList({ rows, params }: { rows: Row[]; params: URLSearchParam
       chips={chips}
       tab={params.get('state') === 'closed' ? 'closed' : 'open'}
       path="tasks"
-      noun={['task', 'tasks']}
+      noun={['task', 'tasks', 'Tasks']}
       emptyIcon={TasklistIcon}
       searchPlaceholder="Search by title, branch, issue or #id"
       controls={<StatusSelect value={status} />}

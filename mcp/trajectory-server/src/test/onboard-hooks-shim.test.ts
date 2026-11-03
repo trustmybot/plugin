@@ -3,60 +3,28 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import {
   countShimEntries,
   removeProjectEnforcementShim,
   writeProjectEnforcementShim,
 } from '../tools/onboard-hooks-shim.js';
 
-// A hooks.json mirroring the real plugin's PreToolUse shape (every command is
-// `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>`): each deny-capable
-// gate is preceded by advisory/allow-returning hooks that must be excluded so
-// the deny gate runs first. Plus a PostToolUse + SessionStart that must NOT be
-// copied into settings.json.
+const routerCommand = (event: string, part = ''): string => `node "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" ${event}${part === '' ? '' : ` ${part}`}`;
+
+// A hooks.json in the real plugin's router shape: one router entry per
+// PreToolUse group, fail-closed groups with `onFailure: block`, plus
+// SessionStart and PostToolUse router entries that must NOT be copied.
 const HOOKS_JSON = {
   hooks: {
-    SessionStart: [
-      { matcher: '', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" session-start-prescan', timeout: 5 }] },
-    ],
+    SessionStart: [{ matcher: '', hooks: [{ type: 'command', command: routerCommand('SessionStart', 'prescan'), timeout: 15 }] }],
     PreToolUse: [
-      {
-        matcher: 'Bash',
-        hooks: [
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" git-guards', timeout: 10 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" git-push-guard', timeout: 10 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-boundary', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" branch-up-to-date-with-remote', timeout: 10 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" commit-msg-lint', timeout: 5 },
-        ],
-      },
-      {
-        matcher: 'Edit|Write|MultiEdit|NotebookEdit',
-        hooks: [
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-brief-gate', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" no-source-edit-from-main', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-boundary', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-scope-fence', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" naming-lint', timeout: 5 },
-          { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" code-quality-lint', timeout: 5 },
-        ],
-      },
-      {
-        matcher: 'mcp__.*trajectory-server__.*',
-        hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-brief-gate', timeout: 5 }],
-      },
-      {
-        matcher: 'mcp__.*trajectory-server__task_update_status',
-        hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-verification-gate', timeout: 260 }],
-      },
-      {
-        matcher: 'Bash|Read|Write|Edit|MultiEdit|Agent|Skill',
-        hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" debug-trajectory', timeout: 5 }],
-      },
+      { matcher: 'Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 12, onFailure: 'block' }] },
+      { matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 19, onFailure: 'block' }] },
+      { matcher: 'mcp__.*trajectory-server__.*', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 1833, onFailure: 'block' }] },
+      { matcher: 'Read|Skill', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 11 }] },
     ],
-    PostToolUse: [
-      { matcher: 'Bash', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" attribution-footer', timeout: 15 }] },
-    ],
+    PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PostToolUse'), timeout: 27 }] }],
   },
 };
 
@@ -64,6 +32,7 @@ interface HookCmd {
   type: string;
   command: string;
   timeout?: number;
+  onFailure?: string;
   _tmb_managed?: boolean;
   _tmb_project?: string;
 }
@@ -75,6 +44,8 @@ type Settings = { hooks?: { PreToolUse?: HookGroup[]; PostToolUse?: HookGroup[];
 
 // The shim never writes outside the project: HOME is an empty temp dir for the
 // whole file and must still be empty at the end.
+const PLUGIN_SOURCE = fileURLToPath(new URL('../../../../', import.meta.url));
+
 const ISOLATED_HOME = mkdtempSync(join(tmpdir(), 'shim-home-'));
 process.env['HOME'] = ISOLATED_HOME;
 
@@ -101,16 +72,17 @@ describe('project enforcement shim', () => {
   const readSettings = (): Settings => JSON.parse(readFileSync(settingsPath(), 'utf8'));
   const entriesOf = (s: Settings): HookCmd[] => (s.hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
   const groupFor = (s: Settings, matcher: string) => (s.hooks?.PreToolUse ?? []).find((g) => g.matcher === matcher);
-  const hookOf = (c: string): string => {
-    const m = c.match(/--hook\s+(\S+)/);
-    return m ? `${m[1]}.sh` : (c.split('/').pop() ?? c);
-  };
+  const shimCommand = (hook: string, projectRoot = project): string =>
+    `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook ${hook} --shim --project ${projectRoot}`;
 
   function write(root: string | null = pluginRoot, projectRoot = project) {
     return writeProjectEnforcementShim({ pluginRoot: root, projectRoot, headlessEnforcement: 'yes' });
   }
   function remove() {
     return removeProjectEnforcementShim({ pluginRoot, projectRoot: project });
+  }
+  function useHooksJson(hooks: unknown): void {
+    writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), typeof hooks === 'string' ? hooks : JSON.stringify(hooks));
   }
 
   beforeEach(() => {
@@ -147,44 +119,101 @@ describe('project enforcement shim', () => {
     assert.equal(nullRoot.written, false);
   });
 
-  it('fresh write: project settings.local.json + project resolver, project-tagged --shim commands', () => {
+  it('fresh write: one project-tagged --shim router entry per PreToolUse router entry, never dispatch.sh', () => {
     const res = write();
     assert.equal(res.written, true);
     assert.equal(res.settings_path, settingsPath());
     assert.ok(existsSync(resolverPath()), 'resolver not materialized in the project');
-    const entries = entriesOf(readSettings());
-    assert.equal(res.entries, entries.length);
-    assert.equal(countShimEntries(pluginRoot), entries.length);
+    const s = readSettings();
+    const entries = entriesOf(s);
+    assert.equal(res.entries, 4);
+    assert.equal(entries.length, 4);
+    assert.equal(countShimEntries(pluginRoot), 4);
     for (const h of entries) {
       assert.equal(h._tmb_managed, true);
       assert.equal(h._tmb_project, project);
-      assert.ok(h.command.startsWith(`bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook `), h.command);
-      assert.ok(h.command.endsWith(` --shim --project ${project}`), h.command);
-      const gate = h.command.match(/--hook (\S+) --shim/)?.[1] ?? '';
-      assert.match(gate, /^[a-z0-9-]+$/, `--hook carries a bare gate name: ${h.command}`);
-      assert.notEqual(gate, 'dispatch', h.command);
-      assert.ok(!h.command.includes('dispatch.sh'), `resolver resolves the dispatcher itself: ${h.command}`);
+      assert.equal(h.command, shimCommand('PreToolUse'));
+      assert.ok(!h.command.includes('dispatch'), h.command);
       assert.ok(!/tmb\/\d+\.\d+\.\d+/.test(h.command), `version segment leaked: ${h.command}`);
     }
+    assert.ok(!readFileSync(settingsPath(), 'utf8').includes('dispatch.sh'));
   });
 
-  it('excludes advisory hooks; no-source-edit-from-main runs first in Edit|Write group', () => {
+  it('keeps each group matcher, its timeout and onFailure, in hooks.json order', () => {
     write();
     const s = readSettings();
-    const editGroup = groupFor(s, 'Edit|Write|MultiEdit|NotebookEdit');
-    assert.ok(editGroup);
-    assert.deepEqual(editGroup.hooks.map((h) => hookOf(h.command)), ['no-source-edit-from-main.sh', 'swe-boundary.sh', 'swe-scope-fence.sh']);
-    const all = entriesOf(s).map((h) => hookOf(h.command));
-    for (const denied of ['swe-brief-gate.sh', 'naming-lint.sh', 'code-quality-lint.sh', 'commit-msg-lint.sh', 'branch-up-to-date-with-remote.sh', 'debug-trajectory.sh']) {
-      assert.ok(!all.includes(denied), `${denied} should be excluded`);
-    }
-    for (const kept of ['git-guards.sh', 'git-push-guard.sh', 'swe-verification-gate.sh']) {
-      assert.ok(all.includes(kept), `${kept} should be kept`);
-    }
-    assert.equal(groupFor(s, 'Bash|Read|Write|Edit|MultiEdit|Agent|Skill'), undefined);
-    assert.equal(groupFor(s, 'mcp__.*trajectory-server__.*'), undefined);
+    assert.deepEqual(
+      (s.hooks?.PreToolUse ?? []).map((g) => [g.matcher, g.hooks.length, g.hooks[0].timeout, g.hooks[0].onFailure]),
+      [
+        ['Write|Edit|MultiEdit|NotebookEdit', 1, 12, 'block'],
+        ['Bash', 1, 19, 'block'],
+        ['mcp__.*trajectory-server__.*', 1, 1833, 'block'],
+        ['Read|Skill', 1, 11, undefined],
+      ],
+    );
     assert.equal(s.hooks?.PostToolUse, undefined);
     assert.equal(s.hooks?.SessionStart, undefined);
+  });
+
+  it('a router entry with a part passes it as --part', () => {
+    useHooksJson({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PreToolUse', 'guard'), timeout: 9, onFailure: 'block' }] }] } });
+    write();
+    assert.deepEqual(groupFor(readSettings(), 'Bash')?.hooks.map((h) => h.command), [
+      `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook PreToolUse --part guard --shim --project ${project}`,
+    ]);
+  });
+
+  it('the shipped hooks.json: one entry per PreToolUse router entry, no other event', () => {
+    const shipped = readFileSync(join(PLUGIN_SOURCE, 'hooks', 'hooks.json'), 'utf8');
+    useHooksJson(shipped);
+    assert.equal(write().written, true);
+    const s = readSettings() as Settings & { hooks?: Record<string, unknown> };
+    const real = (JSON.parse(shipped) as { hooks: { PreToolUse: HookGroup[] } }).hooks.PreToolUse;
+    assert.deepEqual(
+      (s.hooks?.PreToolUse ?? []).map((g) => [g.matcher, g.hooks.map((h) => [h.timeout, h.onFailure])]),
+      real.map((g) => [g.matcher, g.hooks.map((h) => [h.timeout, h.onFailure])]),
+    );
+    assert.equal(countShimEntries(pluginRoot), real.reduce((n, g) => n + g.hooks.length, 0));
+    for (const event of Object.keys(s.hooks ?? {})) assert.equal(event, 'PreToolUse');
+    assert.ok(!readFileSync(settingsPath(), 'utf8').includes('dispatch.sh'));
+  });
+
+  it('a hooks.json with no PreToolUse router entry writes nothing, with a reason', () => {
+    useHooksJson({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash "${CLAUDE_PLUGIN_ROOT}/legacy/git-guards.sh"', timeout: 10 }] }] } });
+    const res = write();
+    assert.equal(res.written, false);
+    assert.equal(res.reason, 'hooks/hooks.json has no PreToolUse router entry');
+    assert.equal(existsSync(settingsPath()), false);
+    assert.equal(countShimEntries(pluginRoot), 0);
+  });
+
+  it('replaces the per-gate entries an earlier /onboard wrote, keeping user hooks', () => {
+    mkdirSync(join(project, '.claude'), { recursive: true });
+    const oldEntry = (gate: string, stamped: boolean) => ({
+      type: 'command',
+      command: `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook ${gate} --shim --project ${project}`,
+      timeout: 10,
+      ...(stamped ? { _tmb_managed: true, _tmb_project: project } : {}),
+    });
+    const user = { type: 'command', command: '/usr/local/bin/my-user-hook.sh' };
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [user, oldEntry('git-guards', true), oldEntry('swe-boundary', false)] },
+            { matcher: 'mcp__.*trajectory-server__.*', hooks: [oldEntry('trajectory-gates', true)] },
+          ],
+        },
+      }),
+    );
+    write();
+    const s = readSettings();
+    const all = entriesOf(s);
+    assert.ok(!all.some((h) => /--hook [a-z]/.test(h.command)), 'no per-gate entry left');
+    assert.deepEqual(s.hooks?.PreToolUse?.[0], { matcher: 'Bash', hooks: [user] });
+    assert.equal(all.filter((h) => h._tmb_managed === true).length, 4);
+    assert.ok(all.filter((h) => h._tmb_managed === true).every((h) => h.command === shimCommand('PreToolUse')));
   });
 
   it('quoted and unquoted placeholder commands yield the same shim', () => {
@@ -192,8 +221,8 @@ describe('project enforcement shim', () => {
     const quoted = readFileSync(settingsPath(), 'utf8');
     rmSync(join(project, '.claude'), { recursive: true, force: true });
     const unquoted = JSON.stringify(HOOKS_JSON).replace(/\\"(\$\{CLAUDE_PLUGIN_ROOT\}[^\\]*)\\"/g, '$1');
-    assert.ok(!unquoted.includes('dispatch.sh\\"'), 'fixture rewrite left a quoted command');
-    writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), unquoted);
+    assert.ok(!unquoted.includes('hooks.js\\"'), 'fixture rewrite left a quoted command');
+    useHooksJson(unquoted);
     write();
     assert.equal(readFileSync(settingsPath(), 'utf8'), quoted);
   });

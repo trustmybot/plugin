@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"is it safe to keep the security tokens in the repo?","corpus_expect":"looks like a `security` judgment call"}

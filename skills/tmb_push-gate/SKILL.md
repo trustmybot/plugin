@@ -12,7 +12,7 @@ code-reviewer judges each diff against its own spec; you judge the change at the
 
 The verdict row is always authored by code-reviewer itself — via `validation_record` when MCP is available, via the fallback script otherwise (code-reviewer's `tmb_review` owns that fallback). <!-- LOAD-BEARING-SAFETY: code-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
 
-The spawn prompt carries the anchors only; the reviewer reads the spec, discussions, completion report and open findings from `task_brief`. Context it cannot read there goes in `bro_atomic_close`'s `spawn_note` (300 characters max), which `task_brief` returns; a spawn gate denies a prompt carrying more than 300 characters of prose beyond the anchors.
+The spawn prompt carries the anchors only; the reviewer reads the spec, the task's decision and intent rows, the issue's newest decision and intent, the completion report and open findings from `task_brief`, and asks for the other discussion bodies with `response_format: 'detailed'` when it needs them. Context it cannot read there goes in `bro_atomic_close`'s `spawn_note` (300 characters max), which `task_brief` returns; a spawn gate denies a prompt carrying more than 300 characters of prose beyond the anchors.
 
 **Clean spawn prompt example:**
 ```

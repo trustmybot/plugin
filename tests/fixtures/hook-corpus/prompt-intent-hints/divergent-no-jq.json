@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"audit the importer","corpus_env":{"PATH":"@NOJQ_PATH@"},"corpus_divergent":"decision 703: without jq the .sh exits untouched; the TS gate needs no jq and still hints","corpus_expect":{"bash":"empty","ts":"audit-intent hint: the user's prompt contains 'audit'"}}

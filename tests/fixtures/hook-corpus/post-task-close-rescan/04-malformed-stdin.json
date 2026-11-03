@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "{\"tool_name\": ",
+  "corpus_expect": "empty"
+}

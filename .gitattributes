@@ -4,11 +4,13 @@
 mcp/trajectory-server/dist/index.js -whitespace
 mcp/trajectory-server/dist/codex.js -whitespace
 mcp/trajectory-server/dist/hooks.js -whitespace
+mcp/trajectory-server/dist/run-scan.js -whitespace
 
 # Generated artefacts: a merge keeps ours and names the file; rebuild them all
-# with `bash scripts/maintenance/regen-generated.sh` after the merge. The driver
-# lives in .git/config — scripts/maintenance/install-merge-driver.sh (run by the
-# WorktreeCreate hook). docs/contributing/ENUMS.md stays text-merged: only one
+# with `node --experimental-strip-types scripts/maintenance/regen-generated.ts`
+# after the merge. The driver lives in .git/config — `node
+# mcp/trajectory-server/dist/hooks.js install-merge-driver` (run in-process by
+# the WorktreeCreate hook). docs/contributing/ENUMS.md stays text-merged: only one
 # section of it is generated, and the regen script rewrites that section.
 # dashboard/dist/** is the dashboard build, which bundles trajectory-server
 # sources, so the regen script rebuilds it after the server.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/orphan-scan.sh.
+# Tests for the TypeScript orphan-scan gate.
 #
 # Contract: a SessionStart hook that detects (and, gated, cleans) cross-upgrade
 # TMB orphans scoped STRICTLY to the current project. The critical invariant is
@@ -14,7 +14,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/orphan-scan.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/orphan-scan.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 PLUGIN_NAME="tmb"
 

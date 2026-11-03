@@ -601,7 +601,8 @@ function wrap(fn: Fn): Fn {
 
 type Payload = Record<string, unknown>;
 
-const LOGGED_ARGS = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'] as const;
+const LOGGED_ARGS: readonly string[] = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'];
+const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source'] };
 
 function treeNodeCount(node: Payload): number {
   const children = Array.isArray(node['children']) ? (node['children'] as Payload[]) : [];
@@ -653,7 +654,9 @@ function recordToolCall(db: TrajectoryDB, tool: string, args: Payload, result: C
       tool,
       agent,
       task_id: task?.task_id ?? null,
-      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args[k] !== undefined).map((k) => [k, args[k]])),
+      args: Object.fromEntries(
+        [...LOGGED_ARGS, ...(TOOL_LOGGED_ARGS[tool] ?? [])].filter((k) => args[k] !== undefined).map((k) => [k, args[k]]),
+      ),
       result_count: resultCount,
       empty: error || resultCount === 0,
       error,
@@ -823,7 +826,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: 'object',
         properties: {

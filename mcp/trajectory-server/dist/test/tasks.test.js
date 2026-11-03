@@ -1946,13 +1946,13 @@ describe('effort (GH 1349)', () => {
                 agent: 'bro', issue_id: 1, branch_id: branchId, decision_body: 'Chosen approach: computed effort fixture.',
                 task: { description: 'd', spec_body: SPEC, files, verification: ['true'], repo: 'app', ...extra },
             }));
-            const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/x.sh']);
+            const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/lib/x.sh']);
             assert.deepEqual([unset.effort, unset.effort_reason], ['medium', 'default']);
             const bearing = await provisionWith('feat/ce-bearing', ['docs/x.md'], { prompt_bearing: 1 });
             assert.deepEqual([bearing.effort, bearing.effort_reason], ['high', 'prompt_bearing']);
             const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['scripts/hooks/', 'src/api'] });
             assert.ok(!set.isError, JSON.stringify(parseResult(set)));
-            const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/x.sh']);
+            const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/lib/x.sh']);
             assert.deepEqual([hit.effort, hit.effort_reason], ['high', 'high_effort_paths']);
             assert.equal(effortOf(db, hit.task_id), 'high');
             const broader = await provisionWith('feat/ce-broader', ['scripts/']);
@@ -1961,7 +1961,7 @@ describe('effort (GH 1349)', () => {
             assert.deepEqual([narrower.effort, narrower.effort_reason], ['high', 'high_effort_paths'], 'configured prefix is a directory prefix of the files[] entry');
             const miss = await provisionWith('feat/ce-miss', ['scripts/hooksy/x.sh', 'src/apis/x.ts']);
             assert.deepEqual([miss.effort, miss.effort_reason], ['medium', 'default'], 'a sibling sharing only a name prefix is no overlap');
-            const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/x.sh'], { effort: 'low' });
+            const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/lib/x.sh'], { effort: 'low' });
             assert.deepEqual([explicit.effort, explicit.effort_reason], ['low', 'explicit']);
         }
         finally {

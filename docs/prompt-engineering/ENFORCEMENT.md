@@ -39,7 +39,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
 | `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
 | `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
-| `discussion_append(author='human')` requires `verified_human=true` | 1 | `mcp/.../tools/discussions.ts` |
+| `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 | `mcp/.../tools/discussions.ts`, `mcp/.../hooks/rework-waiver-capture.ts` |
 | AUQ shape during roundtable `awaiting_human` | 2 | `scripts/hooks/roundtable-auq-shape.sh` |
 | Issue-sync default-off + env-var kill-switch | 1 | schema seed + `TMB_DISABLE_REMOTE_SYNC` short-circuit in `sync/backend.ts` |
 | Roundtable state machine | 1 | server rejects state-transition violations |

@@ -55,31 +55,36 @@ function bodyText(src, from, end) {
     return endStart > lineStart ? src.slice(lineStart, endStart) : '';
 }
 const plainBody = (body) => !body.includes('`') && plainDollars(body);
-function specials(node, out) {
+export const NO_CHARGE = () => { };
+function specials(node, out, charge) {
+    charge(1);
     if (SPECIAL.has(node.type)) {
         out.push({ start: node.startIndex, end: node.endIndex, node });
         return out;
     }
     for (const child of node.children)
         if (child)
-            specials(child, out);
+            specials(child, out, charge);
     return out;
 }
-function substitutions(node, out) {
+function substitutions(node, out, charge) {
+    charge(1);
     for (const child of node.children) {
         if (!child)
             continue;
         if (child.type === 'command_substitution' || child.type === 'arithmetic_expansion')
             out.push(child);
         else
-            substitutions(child, out);
+            substitutions(child, out, charge);
     }
     return out;
 }
 export class Encoder {
     src;
-    constructor(src) {
+    charge;
+    constructor(src, charge) {
         this.src = src;
+        this.charge = charge;
     }
     /** Unquoted text: a backslash escapes the next char. */
     plain(from, to) {
@@ -128,7 +133,7 @@ export class Encoder {
     dquoted(node, from, to) {
         let out = '';
         let at = from;
-        for (const sub of substitutions(node, [])) {
+        for (const sub of substitutions(node, [], this.charge)) {
             if (sub.startIndex < from || sub.endIndex > to)
                 continue;
             const start = this.opener(sub);
@@ -151,7 +156,7 @@ export class Encoder {
         const opEnd = start ? start.endIndex : node.startIndex + 2;
         for (const c of kids) {
             if (c.startIndex >= opEnd && c !== body && c !== end)
-                specials(c, rest);
+                specials(c, rest, this.charge);
         }
         const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
         let dropTo = end?.endIndex ?? node.endIndex;
@@ -161,17 +166,18 @@ export class Encoder {
     }
     /** One word node, encoded as `range` encodes it inside its command. */
     word(node) {
-        return this.spans(specials(node, []), node.startIndex, node.endIndex);
+        return this.spans(specials(node, [], this.charge), node.startIndex, node.endIndex);
     }
     /** [from, to) of `node`'s source, encoded as unquoted shell text. */
     range(node, from, to) {
         const spans = node.children
             .filter((c) => c !== null)
-            .flatMap((c) => specials(c, []))
+            .flatMap((c) => specials(c, [], this.charge))
             .filter((s) => s.start >= from && s.end <= to);
         return this.spans(spans, from, to);
     }
     spans(spans, from, to) {
+        this.charge(to - from);
         let out = '';
         let at = from;
         const queue = [...spans].sort((a, b) => a.start - b.start);
@@ -294,7 +300,7 @@ function heredocMisread(src, root) {
     });
 }
 /** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927). */
-export function encode(parser, command) {
+export function encode(parser, command, charge = NO_CHARGE) {
     const tree = parser.parse(command);
     if (!tree)
         return { ok: false };
@@ -304,7 +310,7 @@ export function encode(parser, command) {
             return { ok: false };
         if (command.includes('<<') && heredocMisread(command, root))
             return { ok: false };
-        const encoder = new Encoder(command);
+        const encoder = new Encoder(command, charge);
         const text = encoder.range(root, 0, command.length);
         return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
     }

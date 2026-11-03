@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_r16","tool_input":{"subagent_type":"swe","prompt":"task_id=17"},"corpus_expect":"\"root_dir\":\"@SANDBOX@/project/ghost/.claude/worktrees/ghost\""}

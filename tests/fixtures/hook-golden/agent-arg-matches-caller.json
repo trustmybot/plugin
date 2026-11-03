@@ -1,0 +1,594 @@
+{
+  "01-match-namespaced-subagent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "02-match-main-session-bro.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "03-match-case-insensitive.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "04-mismatch-main-session-task-issue.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_update_status called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_update_status: agent='swe' but the caller is the main session (bro)\",\"summary_hex\":\"7461736B5F7570646174655F7374617475733A206167656E743D277377652720627574207468652063616C6C657220697320746865206D61696E2073657373696F6E202862726F29\",\"content_json\":\"{\\\"tool\\\":\\\"task_update_status\\\",\\\"given\\\":\\\"swe\\\",\\\"actual\\\":\\\"bro\\\",\\\"task_id\\\":42}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "05-mismatch-subagent-system-issue.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: discussion_add called with agent='bro' but the caller is a swe subagent; pass agent='swe'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"discussion_add: agent='bro' but the caller is a swe subagent\",\"summary_hex\":\"64697363757373696F6E5F6164643A206167656E743D2762726F2720627574207468652063616C6C6572206973206120737765207375626167656E74\",\"content_json\":\"{\\\"tool\\\":\\\"discussion_add\\\",\\\"given\\\":\\\"bro\\\",\\\"actual\\\":\\\"swe\\\",\\\"task_id\\\":null}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "06-mismatch-subagent-type-unknown-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_brief called with agent='tmb:swe' but the caller is a code-reviewer subagent; pass agent='code-reviewer'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_brief: agent='tmb:swe' but the caller is a code-reviewer subagent\",\"summary_hex\":\"7461736B5F62726965663A206167656E743D27746D623A7377652720627574207468652063616C6C6572206973206120636F64652D7265766965776572207375626167656E74\",\"content_json\":\"{\\\"tool\\\":\\\"task_brief\\\",\\\"given\\\":\\\"tmb:swe\\\",\\\"actual\\\":\\\"code-reviewer\\\",\\\"task_id\\\":999}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "07-no-agent-argument.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "08-non-trajectory-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "09-mismatch-missing-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "10-mismatch-corrupt-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "11-mismatch-schema-old-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "12-mismatch-fresh-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='code-reviewer' but the caller is a swe subagent; pass agent='swe'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_get: agent='code-reviewer' but the caller is a swe subagent\",\"summary_hex\":\"7461736B5F6765743A206167656E743D27636F64652D72657669657765722720627574207468652063616C6C6572206973206120737765207375626167656E74\",\"content_json\":\"{\\\"tool\\\":\\\"task_get\\\",\\\"given\\\":\\\"code-reviewer\\\",\\\"actual\\\":\\\"swe\\\",\\\"task_id\\\":42}\",\"created_at\":\"<ts>\"}]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "13-mismatch-test-flag-unresolved.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "14-non-ascii-role-by-locale.json": {
+    "C": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='SWÉ' but the caller is a swé subagent; pass agent='swé'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_get: agent='SWÉ' but the caller is a swé subagent\",\"summary_hex\":\"7461736B5F6765743A206167656E743D275357C3892720627574207468652063616C6C65722069732061207377C3A9207375626167656E74\",\"content_json\":\"{\\\"tool\\\":\\\"task_get\\\",\\\"given\\\":\\\"SWÉ\\\",\\\"actual\\\":\\\"swé\\\",\\\"task_id\\\":null}\",\"created_at\":\"<ts>\"}]}"
+      }
+    },
+    "en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "15-number-agent-and-task-literals.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='1.0' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_get: agent='1.0' but the caller is the main session (bro)\",\"summary_hex\":\"7461736B5F6765743A206167656E743D27312E302720627574207468652063616C6C657220697320746865206D61696E2073657373696F6E202862726F29\",\"content_json\":\"{\\\"tool\\\":\\\"task_get\\\",\\\"given\\\":\\\"1.0\\\",\\\"actual\\\":\\\"bro\\\",\\\"task_id\\\":null}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "16-stream-last-value-errors.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "17-non-string-tool-name.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "18-control-characters-and-leading-zero-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='b ro ' but the caller is a swe subagent; pass agent='swe'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_get: agent='b ro ' but the caller is a swe subagent\",\"summary_hex\":\"7461736B5F6765743A206167656E743D276220726F202720627574207468652063616C6C6572206973206120737765207375626167656E74\",\"content_json\":\"{\\\"tool\\\":\\\"task_get\\\",\\\"given\\\":\\\"b ro \\\",\\\"actual\\\":\\\"swe\\\",\\\"task_id\\\":42}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "19-first-of-two-values.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":-1,\"branch_id\":null,\"from_node\":\"hook:agent-arg-matches-caller\",\"event_type\":\"agent_arg_mismatch\",\"summary\":\"task_get: agent='swe' but the caller is the main session (bro)\",\"summary_hex\":\"7461736B5F6765743A206167656E743D277377652720627574207468652063616C6C657220697320746865206D61696E2073657373696F6E202862726F29\",\"content_json\":\"{\\\"tool\\\":\\\"task_get\\\",\\\"given\\\":\\\"swe\\\",\\\"actual\\\":\\\"bro\\\",\\\"task_id\\\":null}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "20-divergent-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 1,
+      "stderr": "agent-arg-matches-caller: jq not found\n",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  },
+  "21-divergent-no-sqlite-cli.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.\"}}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "c69877523c6b120dcaeae52e8bacbe8ca7c7f3a3a9c8c30f0465c654f8d8576e",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": "{\"tasks\":[],\"audit\":[]}",
+        "home/": null,
+        "old/": null,
+        "old/.claude/": null,
+        "old/.claude/tmb/": null,
+        "old/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"}]}",
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": "{\"tasks\":[{\"id\":42,\"issue_id\":7,\"status\":\"running\"},{\"id\":43,\"issue_id\":7,\"status\":\"running\"}],\"audit\":[{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"approved-skill\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/approved\\\"}\",\"created_at\":\"<ts>\"},{\"issue_id\":7,\"branch_id\":null,\"from_node\":\"bro\",\"event_type\":\"cheatcode_approved\",\"summary\":\"approved\",\"summary_hex\":\"617070726F766564\",\"content_json\":\"{\\\"name\\\":\\\"o'brien\\\",\\\"kind\\\":\\\"skill\\\",\\\"source_url\\\":\\\"https://x.test/o'brien\\\"}\",\"created_at\":\"<ts>\"}]}"
+      }
+    }
+  }
+}

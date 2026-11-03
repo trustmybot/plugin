@@ -68,7 +68,7 @@ describe('Overview', () => {
     const cells = [...nav.matchAll(/<a [^>]*href="([^"]+)"[^>]*>.*?<\/a>/g)];
     assert.equal(cells.length, 4);
     assert.deepEqual(cells.map((c) => c[1]), ['#/issues', '#/issues', '#/runs', '#/tasks']);
-    for (const [label, value] of [['Open issues', 7], ['Closed issues', 3], ['Agents running', 2], ['Tasks', 40]]) {
+    for (const [label, value] of [['Open Issues', 7], ['Closed Issues', 3], ['Agents Running', 2], ['Tasks', 40]]) {
       assert.ok(cells.some((c) => c[0].includes(`>${value}<`) && c[0].includes(`>${label}<`)), label);
     }
   });
@@ -87,19 +87,19 @@ describe('Overview', () => {
     assert.deepEqual(ids, ['5', '3', '7', '6', '4']);
     for (const id of ids) assert.match(out, new RegExp(`href="#/issues/${id}"`));
     assert.doesNotMatch(out, /href="#\/issues\/(1|2|8)"/);
-    assert.match(out, /View all issues/);
+    assert.match(out, /View All Issues/);
   });
 
   test('no open issues renders a Blankslate', () => {
     const out = page([issue(2, 'closed', 25)]);
     assert.doesNotMatch(out, /data-issue=/);
-    assert.match(out, /No open issues/);
+    assert.match(out, /No Open Issues/);
     assert.match(out, /octicon-issue-opened/);
   });
 
   test('recent runs render in the run table', () => {
     const out = page();
-    assert.match(out, /Recent agent runs/);
+    assert.match(out, /Recent Agent Runs/);
     assert.match(out, /<table[^>]*>.*Build it.*Review it.*<\/table>/);
   });
 });

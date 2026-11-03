@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/worktree-create.sh.
+# Tests for the TypeScript worktree-create gate.
 # Hook contract: WorktreeCreate event. stdout = bare absolute worktree path on
 # success; exit 0 = success, non-zero = fail. No JSON dialect. Informational
 # output is stderr-only.
@@ -8,7 +8,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/worktree-create.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/worktree-create.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-worktree-create.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -345,7 +347,7 @@ test_case "GH 1277: worktree creation installs the tmb-regen merge driver into t
 ga_path=$(echo "$(input_event 'feat/1277-driver')" | TRAJECTORY_DB_PATH="$GA_DB" bash "$HOOK" 2>/dev/null)
 assert_eq "$GA_ROOT/.claude/worktrees/1277-driver" "$ga_path" "worktree created at the repo-rooted path"
 ga_driver=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.driver || true)
-assert_contains "$ga_driver" 'regen-generated.sh' ".git/config carries merge.tmb-regen.driver"
+assert_contains "$ga_driver" 'regen-generated.ts' ".git/config carries merge.tmb-regen.driver"
 ga_name=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.name || true)
 if [ -n "$ga_name" ]; then _pass; else _fail ".git/config has no merge.tmb-regen.name"; fi
 wt_driver=$(git -C "$ga_path" config --get merge.tmb-regen.driver || true)
@@ -358,5 +360,40 @@ assert_eq "" "$global_driver" "no global merge.tmb-regen.driver"
 test_case "GH 1277: a repo whose .gitattributes never names tmb-regen gets no driver"
 inner_driver=$(git config -f "$(git -C "$INNER_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.driver || true)
 assert_eq "" "$inner_driver" "inner repo config untouched"
+
+test_case "GH 1692: the hook's exit code and bare path on stdout pass through as they are, with no JSON"
+pt_rc=0
+pt_out=$(input_event 'feat/1692-passthrough' | bash "$HOOK" 2>/dev/null) || pt_rc=$?
+assert_eq "0" "$pt_rc" "success exits 0"
+assert_eq "$INNER_ROOT/.claude/worktrees/1692-passthrough" "$pt_out" "stdout is exactly the bare path"
+pt_raw=$(input_event 'feat/1692-passthrough' | bash "$HOOK" 2>/dev/null | od -An -c | tr -d ' \n')
+assert_contains "$pt_raw" '1692-passthrough\n' "one trailing newline after the path"
+pt_rc=0
+pt_fail=$(echo '{}' | bash "$HOOK" 2>/dev/null) || pt_rc=$?
+assert_eq "1" "$pt_rc" "failure exits 1"
+assert_eq "" "$pt_fail" "failure prints nothing on stdout"
+
+test_case "GH 1692: the WorktreeCreate registration (dist/hooks.js WorktreeCreate) runs worktree-create and passes its path and exit code through"
+NODE_RUNS="$TMPDIR/node-runs"
+NODE_SHIM="$TMPDIR/nodeshim"
+mkdir -p "$NODE_SHIM"
+cat > "$NODE_SHIM/node" <<EOF
+#!/usr/bin/env bash
+echo "node \$*" >> "$NODE_RUNS"
+exec "$(command -v node)" "\$@"
+EOF
+chmod +x "$NODE_SHIM/node"
+: > "$NODE_RUNS"
+d_rc=0
+d_out=$(input_event 'feat/1692-dispatch' | PATH="$NODE_SHIM:$PATH" CLAUDE_PROJECT_DIR="$WORKSPACE" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" WorktreeCreate 2>/dev/null) || d_rc=$?
+assert_eq "0" "$d_rc" "dispatch exits 0 on success"
+assert_eq "$INNER_ROOT/.claude/worktrees/1692-dispatch" "$d_out" "dispatch prints the bare path"
+assert_contains "$(cat "$NODE_RUNS")" "dist/hooks.js WorktreeCreate" "the TypeScript router ran"
+d_rc=0
+d_fail=$(echo '{}' | PATH="$NODE_SHIM:$PATH" CLAUDE_PROJECT_DIR="$WORKSPACE" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" WorktreeCreate 2>/dev/null) || d_rc=$?
+assert_eq "1" "$d_rc" "dispatch passes exit 1 through"
+assert_eq "" "$d_fail" "no stdout on failure"
 
 summarize

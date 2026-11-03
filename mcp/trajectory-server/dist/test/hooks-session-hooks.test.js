@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { activationRoutine, HALT_TEXT, LocaleGrep } from '../hooks/activation-routine.js';
+import { constants } from 'node:buffer';
+import { activationRoutine, HALT_TEXT, LocaleGrep, pastContextLimit, recentContext } from '../hooks/activation-routine.js';
 import { argsJson, debugTrajectory } from '../hooks/debug-trajectory.js';
 import { jqNumberLiteral } from '../hooks/lib/jq.js';
 import { commandOnPath, personaContext, personaEmit, personaInit } from '../hooks/lib/persona.js';
@@ -110,6 +111,159 @@ describe('persona raw text', () => {
         }
     });
 });
+describe('activation-routine usage warning', () => {
+    const SESSION = 'usage-session-01';
+    const ACTION = 'Finish what is in flight, then end the session and resume cold from the DB.';
+    let base;
+    let s;
+    let emptyBin;
+    before(() => {
+        base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-usage-warning-')));
+        s = join(base, 'sandbox');
+        emptyBin = join(base, 'empty-bin');
+        mkdirSync(emptyBin);
+    });
+    after(() => rmSync(base, { recursive: true, force: true }));
+    const env = () => ({
+        HOME: join(s, 'home'),
+        CLAUDE_PROJECT_DIR: join(s, 'project'),
+        CLAUDE_PLUGIN_ROOT: join(s, 'plugin'),
+        PATH: emptyBin,
+        LC_ALL: 'C',
+    });
+    const transcriptPath = () => join(base, 'transcript.jsonl');
+    const writeTranscript = (lines) => writeFileSync(transcriptPath(), lines.map((line) => `${line}\n`).join(''));
+    const run = (transcript = transcriptPath()) => {
+        const r = activationRoutine(JSON.stringify({ prompt: 'hey bro', session_id: SESSION, ...(transcript === null ? {} : { transcript_path: transcript }) }), env());
+        const out = JSON.parse(r.stdout);
+        return { code: r.code, stdout: r.stdout, context: out.hookSpecificOutput.additionalContext };
+    };
+    const baseline = () => {
+        buildSandbox(s);
+        writeTranscript([]);
+        return run().stdout;
+    };
+    const warningLines = (context) => context.split('\n').filter((line) => line.startsWith('⚠️'));
+    const warning = (mean, calls, first) => `⚠️ This bro session's recent context is past its limit: ${mean} mean input context over the last ${calls} calls (limit 120000; its first call took ${first}, the cold-start reference). ${ACTION}`;
+    it('warns when the last 5 calls average past 120000, naming the mean, the limit and the first call', () => {
+        const clean = baseline();
+        writeTranscript([
+            assistantLine('m0', 90000),
+            ...[130000, 125000, 121000, 119000, 126000].map((context, i) => assistantLine(`m${i + 1}`, context)),
+        ]);
+        const r = run();
+        assert.equal(r.code, 0);
+        assert.deepEqual(warningLines(r.context), [warning(124200, 5, 90000)]);
+        const cleanContext = JSON.parse(clean).hookSpecificOutput.additionalContext;
+        assert.ok(r.context.startsWith(cleanContext));
+    });
+    it('sums input, cache creation and cache read tokens, a missing field counting 0', () => {
+        buildSandbox(s);
+        writeTranscript([
+            JSON.stringify({ type: 'assistant', message: { id: 'u1', usage: { input_tokens: 1000, cache_creation_input_tokens: 20000, cache_read_input_tokens: 110000 } } }),
+            JSON.stringify({ type: 'assistant', message: { id: 'u2', usage: { cache_read_input_tokens: 129000 } } }),
+        ]);
+        assert.deepEqual(warningLines(run().context), [warning(130000, 2, 131000)]);
+    });
+    it('pre-compaction calls near 167000 followed by 5 calls near 90000 give no warning, however many tool calls', () => {
+        const clean = baseline();
+        const before = Array.from({ length: 300 }, (_, i) => assistantLine(`pre-${i}`, 167000 + (i % 3)));
+        const after = [88000, 91000, 90000, 92000, 89000].map((context, i) => assistantLine(`post-${i}`, context));
+        const toolCalls = Array.from({ length: 400 }, (_, i) => JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `t${i}` }] } }));
+        writeTranscript([...before, ...toolCalls, ...after]);
+        assert.equal(run().stdout, clean);
+    });
+    it('a mean exactly at 120000 gives no warning', () => {
+        const clean = baseline();
+        writeTranscript([110000, 130000, 120000, 125000, 115000].map((context, i) => assistantLine(`e${i}`, context)));
+        assert.equal(run().stdout, clean);
+    });
+    it('fewer than 5 calls average what exists', () => {
+        buildSandbox(s);
+        writeTranscript([assistantLine('a', 121000), assistantLine('b', 123000)]);
+        assert.deepEqual(warningLines(run().context), [warning(122000, 2, 121000)]);
+    });
+    it('lines of one message.id count once', () => {
+        buildSandbox(s);
+        const fourBlocks = (id, context) => Array.from({ length: 4 }, () => assistantLine(id, context));
+        writeTranscript([...[60000, 60000, 60000, 60000].map((context, i) => assistantLine(`d${i}`, context)), ...fourBlocks('high', 200000)]);
+        assert.deepEqual(warningLines(run().context), []);
+        writeTranscript([...[150000, 150000, 150000, 150000].map((context, i) => assistantLine(`d${i}`, context)), ...fourBlocks('low', 10000)]);
+        assert.deepEqual(warningLines(run().context), [warning(122000, 5, 150000)]);
+    });
+    it('isSidechain lines are ignored', () => {
+        const clean = baseline();
+        writeTranscript([
+            ...[90000, 90000, 90000, 90000, 90000].map((context, i) => assistantLine(`main${i}`, context)),
+            ...[500000, 500000, 500000].map((context, i) => assistantLine(`side${i}`, context, { isSidechain: true })),
+        ]);
+        assert.equal(run().stdout, clean);
+    });
+    it('unparseable lines are ignored', () => {
+        buildSandbox(s);
+        writeTranscript([
+            assistantLine('p1', 121000),
+            '{"type":"assistant","message":{"id":"broken","usage":{"input_tokens":1',
+            '{"type":"assistant" not json at all',
+            assistantLine('p2', 125000),
+        ]);
+        assert.deepEqual(warningLines(run().context), [warning(123000, 2, 121000)]);
+    });
+    it('<synthetic> model lines are ignored', () => {
+        buildSandbox(s);
+        const synthetic = (id) => JSON.stringify({ type: 'assistant', message: { id, model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 } } });
+        writeTranscript([assistantLine('s1', 125000), synthetic('z1'), synthetic('z2'), assistantLine('s2', 127000), synthetic('z3')]);
+        assert.deepEqual(warningLines(run().context), [warning(126000, 2, 125000)]);
+    });
+    it('measures a transcript longer than the maximum string length without throwing (F350-1)', () => {
+        const unit = '{"type":"user"}\n';
+        const line = `${JSON.stringify({ type: 'assistant', message: { id: 'x', usage: { input_tokens: 130000 } } })}\n`;
+        const k = Math.ceil(constants.MAX_STRING_LENGTH / unit.length);
+        const transcript = Buffer.alloc(k * unit.length + line.length);
+        transcript.fill(unit, 0, k * unit.length);
+        transcript.write(line, k * unit.length);
+        const recent = recentContext(transcript);
+        assert.deepEqual(recent, { mean: 130000, calls: 1, first: 130000 });
+        assert.equal(pastContextLimit(recent), true);
+    });
+    it('a line whose top-level type is not assistant is ignored, even when it quotes one', () => {
+        const clean = baseline();
+        writeTranscript([JSON.stringify({ type: 'user', message: { content: assistantLine('quoted', 900000) }, toolUseResult: { type: 'assistant' } })]);
+        assert.equal(run().stdout, clean);
+    });
+    const silent = [
+        ['no transcript_path', () => null],
+        ['a missing transcript file', () => join(base, 'missing.jsonl')],
+        ['an empty transcript', () => transcriptPath()],
+        ['a directory as the transcript', () => base],
+    ];
+    for (const [name, path] of silent) {
+        it(`output stays byte-identical with ${name}`, () => {
+            const clean = baseline();
+            assert.equal(run(path()).stdout, clean);
+        });
+    }
+    it('the bro row usage plays no part', () => {
+        const clean = baseline();
+        const db = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'));
+        try {
+            db.prepare("INSERT INTO agent_runs (agent_type, session_id, tool_uses, cache_read_tokens) VALUES ('bro', ?, 500, 90000000)").run(SESSION);
+        }
+        finally {
+            db.close();
+        }
+        assert.equal(run().stdout, clean);
+    });
+});
+function assistantLine(id, context, extra = {}) {
+    return JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: 'assistant',
+        message: { id, role: 'assistant', usage: { input_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: context - 3, output_tokens: 50 } },
+        ...extra,
+    });
+}
 describe("activation-routine's grep", () => {
     const c = new LocaleGrep(false);
     const utf8 = new LocaleGrep(true);

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__plugin_tmb_trajectory-server__task_create_batch","tool_response":{"content":[{"type":"text","text":"[{\"id\":11,\"branch_id\":\"feat/unbriefed\"}]"}]},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/fresh/.claude/tmb/trajectory.db"},"corpus_expect":"worktree=unresolved (task 11 has no tasks row)"}

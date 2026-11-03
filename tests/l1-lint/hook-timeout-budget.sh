@@ -5,11 +5,10 @@
 # silently neutered: the process is killed before its budget can elapse.
 # This lint derives each hook's worst-case internal budget from its source and
 # FAILs when the wrapper doesn't cover it, so a future budget bump can't
-# re-neuter a hook without also reddening L1. Every registration runs through
-# scripts/hooks/dispatch.sh, which adds DISPATCH_OVERHEAD_S to each floor.
-# A gate in a chain (scripts/hooks/lib/registrations.sh) is held to its
-# chain-table timeout, and the chain's registration must cover its gates run
-# one after another: every `*` gate plus the largest tool-specific one.
+# re-neuter a hook without also reddening L1. A registration runs through
+# scripts/hooks/dispatch.sh, which adds DISPATCH_OVERHEAD_S to each floor, or
+# through the router (GH 1692), which runs each gate of a group until its own
+# budget (dist/hooks-router.txt), and a router gate is held to that budget.
 
 set -euo pipefail
 
@@ -25,19 +24,15 @@ FAIL=0
 # shellcheck source=scripts/hooks/lib/registrations.sh
 . scripts/hooks/lib/registrations.sh
 
-REGISTERED=$(jq -r '.hooks[][]?.hooks[]?.command // "" | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$HOOKS_JSON" | sort -u)
-
 # Wrapper timeout for a gate script basename: the smallest of its
-# `dispatch.sh <gate>` registrations and its chain-table entries.
+# `dispatch.sh <gate>` registrations and its router budget in whole seconds.
 wrapper_timeout() {
-  local g="${1%.sh}" chain
+  local g="${1%.sh}"
   {
     jq -r --arg g "$g" '
       .hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh\"? " + $g + "$")) | .timeout // empty
     ' "$HOOKS_JSON"
-    for chain in $REGISTERED; do
-      tmb_chain_table "$chain" | awk -v g="$g" '$1 == g { print $2 }'
-    done
+    awk -v g="$g" '$1 == g { print int(($2 + 999) / 1000) }' mcp/trajectory-server/dist/hooks-router.txt 2>/dev/null
   } | sort -n | head -1
 }
 
@@ -127,29 +122,41 @@ if require "$VG_WRAP" "swe-verification-gate wrapper timeout" \
   fi
 fi
 
-# --- chains: the registration covers the gates run in sequence ---------------
-CHAIN_SUMMARY=""
-for chain in $REGISTERED; do
-  table=$(tmb_chain_table "$chain")
-  [ -n "$table" ] || continue
-  need=$(printf '%s\n' "$table" | awk '$3 == "*" { s += $2; next } $2 > m { m = $2 } END { print s + m }')
-  wrap=$(wrapper_timeout "$chain")
-  if ! require "$wrap" "$chain registration timeout"; then
+# --- the router: its registration covers the parse and the group budget -----
+# The router (GH 1692) runs a group's gates one after another after the shared
+# parse, each until the smaller of its own budget (dist/hooks-router.txt) and
+# the group budget left (budgets.json), so each group's registration timeout is
+# the backstop over the parse allowance plus its group budget, and the group
+# budget leaves every gate its whole budget when it runs first.
+ROUTER_BUDGETS="mcp/trajectory-server/src/hooks/router/budgets.json"
+ROUTER_SUMMARY=""
+# An empty matcher arrives as `-`, as read would collapse an empty tab-separated field.
+while IFS=$'\t' read -r event column wrap part; do
+  matcher="${column#-}"
+  max=$(tmb_router_budget_max "$ROOT" "$event" "$matcher" "$part")
+  parse=$(jq -r '.parse_allowance_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
+  group=$(jq -r --arg m "$event:$matcher${part:+:$part}" '.groups[$m].group_budget_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
+  if ! require "$max" "$event $matcher router gate budgets (dist/hooks-router.txt)" || ! require "$parse" "router parse_allowance_ms ($ROUTER_BUDGETS)" || ! require "$group" "router group_budget_ms of $matcher ($ROUTER_BUDGETS)"; then
     continue
   fi
-  if [ "$wrap" -lt "$need" ]; then
-    printf "hook-timeout-budget: FAIL chain %s wrapper %ss < %ss (every * gate + the largest tool-specific gate)\n" "$chain" "$wrap" "$need" >&2
+  if [ "$group" -lt "$max" ]; then
+    printf "hook-timeout-budget: FAIL router %s %s group budget %sms < its largest gate budget %sms\n" "$event" "$matcher" "$group" "$max" >&2
     FAIL=$((FAIL + 1))
   fi
-  CHAIN_SUMMARY="${CHAIN_SUMMARY}  chain ${chain}: wrapper ${wrap}s >= gates in sequence ${need}s
+  need=$(( (parse + group + 999) / 1000 ))
+  if [ "${wrap:-0}" -lt "$need" ]; then
+    printf "hook-timeout-budget: FAIL router %s %s wrapper %ss < %ss (parse allowance %sms + group budget %sms)\n" "$event" "$matcher" "${wrap:-?}" "$need" "$parse" "$group" >&2
+    FAIL=$((FAIL + 1))
+  fi
+  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event} ${matcher}: wrapper ${wrap}s >= parse allowance ${parse}ms + group budget ${group}ms (>= largest gate budget ${max}ms)
 "
-done
+done < <(jq -r '.hooks[][]? | (.matcher // "") as $m | .hooks[]? | .command = ((.command // "") | sub("^command -v node >/dev/null 2>&1 \\|\\| \\{ [^}]*\\}; "; "")) | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+( [a-z-]+)?$")) | (.command | capture("hooks\\.js\" (?<e>[A-Za-z]+)( (?<p>[a-z-]+))?$")) as $r | [$r.e, (if $m == "" then "-" else $m end), (.timeout // ""), ($r.p // "")] | @tsv' "$HOOKS_JSON")
 
 if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"
   exit 1
 fi
+printf "%s" "$ROUTER_SUMMARY"
 printf "%s" "$DBW_SUMMARY"
-printf "%s" "$CHAIN_SUMMARY"
 printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss = cap %ss + record writes %ss + %ss dispatcher + %ss overhead) — wrappers cover budgets.\n" \
   "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" "$VG_RECORD_S" "$DISPATCH_OVERHEAD_S" "$VG_OVERHEAD_S"

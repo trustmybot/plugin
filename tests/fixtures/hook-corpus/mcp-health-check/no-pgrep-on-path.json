@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "nopgrep-session",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:pgrep@"
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "\"mcp_alive\":null,\"pgrep_count\":-1,\"samples\":0"
+  ]
+}

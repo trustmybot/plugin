@@ -1,0 +1,45 @@
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      },
+      {
+        "question": "Pick?",
+        "header": "Pick",
+        "multiSelect": true,
+        "options": [
+          {
+            "label": "A",
+            "description": "a"
+          },
+          {
+            "label": "B",
+            "description": "b"
+          }
+        ]
+      }
+    ]
+  },
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_divergent": "no jq: the .sh reads no tool name and exits, the TypeScript hook needs no jq and asks",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "\"permissionDecision\":\"ask\""
+  }
+}

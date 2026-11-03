@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-verification-gate.sh
+# Tests for the TypeScript swe-verification-gate gate
 #
 # Hook contract: PreToolUse gate on task_update_status(agent=swe, status=completed).
 # Reads the typed `verification` column (JSON array of command strings, Typed
@@ -14,8 +14,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-verification-gate.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 . "$HERE/fixtures/wal-no-holder.sh"
+
+# An inherited verification budget or tail cap (a gate run's own environment,
+# GH 1829) would override the values each case sets or expects.
+while IFS= read -r knob; do
+  unset "$knob"
+done < <(compgen -v TMB_VERIFICATION_ || true)
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-verification-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -465,8 +473,10 @@ mkdir -p "$WAL_WS/.claude/tmb"
 sqlite3 "$DB" ".backup '$WAL_WS/.claude/tmb/trajectory.db'"
 # Task 3's verification[] fails: an empty verification[] read would print the
 # "no typed verification" skip instead of the deny.
+export TMB_HOOKS_SQLITE=cli
 wal_gate_cases "swe-verification-gate" "$HOOK" "$WAL_WS/.claude/tmb/trajectory.db" "$WAL_WS" \
   "$(make_input swe completed 3)" "verification failed" "no typed verification" "$REPO_DIR"
+unset TMB_HOOKS_SQLITE
 
 # ---- Run lock: one verification run per (task, worktree HEAD) ---------------
 # Two concurrent invocations (the gate registered twice) serialize on the lock;
@@ -924,25 +934,22 @@ docs_edit carry-version more
 wt_commit carry-version "docs only" >/dev/null
 carry_none 107 carry-version "map version 2"
 
-test_case "carry-forward: without the dist helper the gate runs every command"
+test_case "carry-forward: the gate carries in-process, with no separate dist helper to find"
 carry_setup 108 carry-nohelper
 docs_edit carry-nohelper more
 wt_commit carry-nohelper "docs only" >/dev/null
-FAKE_ROOT="$TMPDIR/fake-plugin"
-mkdir -p "$FAKE_ROOT/scripts"
-cp -R "$PLUGIN_ROOT/scripts/hooks" "$FAKE_ROOT/scripts/hooks"
-assert_eq "no" "$([ -e "$FAKE_ROOT/mcp" ] && echo yes || echo no)" "the fake plugin root has no dist"
-out=$(cd "$REPO_DIR" && make_input swe completed 108 | bash "$FAKE_ROOT/scripts/hooks/swe-verification-gate.sh" 2>&1 || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "missing helper: the close passes"
-assert_eq "ABUP" "$(ran_take carry-nohelper)" "missing helper: every command runs"
-assert_eq "" "$(carried_of 108)" "missing helper: no command row is carried"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 108)")
+assert_contains "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty')" "carried forward" "in-process carry: the context names the carry"
+assert_not_contains "$out" '"permissionDecision":"deny"' "in-process carry: the close passes"
+assert_eq "UP" "$(ran_take carry-nohelper)" "in-process carry: only the undeclared command and the probe run"
+assert_eq "1,2" "$(carried_of 108)" "in-process carry: A and B are carried"
 
 # ---- Chain: a call agent-arg-matches-caller denies never runs verification ---
 test_case "chain: main-loop task_update_status(agent='swe') is denied and records no verification run"
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (95, 1, 'feat/chain-close', 'plugin', 'pending', '', '[\"echo ok\"]');"
 git_worktree chain-close >/dev/null
 CHAIN_IN=$(make_input swe completed 95 | jq -c '. + {hook_event_name: "PreToolUse", session_id: "main-1", tool_use_id: "tu-chain-1"}')
-out=$(cd "$REPO_DIR" && printf '%s' "$CHAIN_IN" | CLAUDE_PROJECT_DIR="$WS" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+out=$(cd "$REPO_DIR" && printf '%s' "$CHAIN_IN" | CLAUDE_PROJECT_DIR="$WS" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" PreToolUse 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "denied"
 assert_contains "$(reason_of "$out")" "pass agent='bro'" "by agent-arg-matches-caller"
 assert_eq "0" "$(runs_of 95)" "no verification run recorded"

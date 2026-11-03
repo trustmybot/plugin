@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-atomic-close.sh.
+# Tests for the TypeScript swe-atomic-close gate.
 # Hook contract: SubagentStop for swe agents. Binds the task named by
 # task_id=<N> in the spawn transcript (any status), reads the task's worktree
 # HEAD, and either auto-closes a pending task or records metrics only. A spawn
@@ -10,7 +10,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

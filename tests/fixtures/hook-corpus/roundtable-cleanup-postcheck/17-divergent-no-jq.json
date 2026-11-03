@@ -1,0 +1,14 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__roundtable_close",
+  "tool_input": {
+    "roundtable_id": 2
+  },
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_divergent": "no jq: the .sh reads no tool name and exits, the TypeScript hook needs no jq and advises",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "roundtable_id=2 closed"
+  }
+}

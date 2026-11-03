@@ -84,6 +84,6 @@ describe('dashboard shell', () => {
     assert.equal(current.length, 1);
     assert.match(current[0][0], /href="#\/tasks"/);
     assert.match(html, /<button [^>]*aria-label="Colour mode: auto \(system\)[^"]*"/);
-    assert.match(html, /TMB dashboard/);
+    assert.match(html, /TMB Dashboard/);
   });
 });

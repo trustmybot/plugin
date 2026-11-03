@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:swe","prompt":"Run it. task_id: 10"},"corpus_expect":"created worktree @SANDBOX@/project/plugin/.claude/worktrees/clean for branch feat/clean"}

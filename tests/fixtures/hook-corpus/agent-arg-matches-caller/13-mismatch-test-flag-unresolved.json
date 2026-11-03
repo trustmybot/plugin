@@ -1,0 +1,12 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_get",
+  "tool_input": {
+    "agent": "swe"
+  },
+  "corpus_env": {
+    "TMB_TEST_RUN_ID": "corpus",
+    "TRAJECTORY_DB_PATH": null,
+    "CLAUDE_PROJECT_DIR": null
+  },
+  "corpus_expect": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set"
+}

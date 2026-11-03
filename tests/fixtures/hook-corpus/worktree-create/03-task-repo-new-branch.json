@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/wc-project",
+  "corpus_expect": "@SANDBOX@/ws/project/.claude/worktrees/wc-project\n"
+}

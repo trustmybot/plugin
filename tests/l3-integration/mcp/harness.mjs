@@ -78,6 +78,18 @@ export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l
        FROM tasks t WHERE t.id = ${id};`]);
 }
 
+// seedHumanRow writes an author='human' discussions row, which only the
+// rework-waiver-capture hook writes (discussion_append refuses author='human',
+// GH 2148), and returns its id. Needs a startClient({ fileDb: true }) dbPath.
+export function seedHumanRow(dbPath, issueId, { kind, body }) {
+  const q = (v) => String(v).replace(/'/g, "''");
+  const out = execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
+     SELECT i.id, 'human', '${q(kind)}', '${q(body)}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), i.repo FROM issues i WHERE i.id = ${Number(issueId)};
+     SELECT last_insert_rowid();`]).toString().trim();
+  return Number(out);
+}
+
 // sqliteRun runs sql against a startClient({ fileDb: true }) DB through the sqlite3
 // CLI and returns the rows as objects (a statement that selects nothing returns []).
 export function sqliteRun(dbPath, sql) {

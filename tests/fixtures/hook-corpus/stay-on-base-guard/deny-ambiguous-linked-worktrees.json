@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git checkout feat/multi-open"
+  },
+  "corpus_cwd": "multi",
+  "corpus_expect": "ambiguous_git_target"
+}

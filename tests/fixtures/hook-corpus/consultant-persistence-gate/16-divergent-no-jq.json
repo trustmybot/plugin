@@ -1,0 +1,11 @@
+{
+  "subagent_type": "pm",
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_divergent": "no jq: the .sh reads no agent and lets the consultant stop, the TypeScript hook needs no jq and blocks",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "\"decision\":\"block\""
+  }
+}

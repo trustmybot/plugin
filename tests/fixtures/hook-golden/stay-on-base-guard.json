@@ -1,0 +1,128 @@
+{
+  "allow-closed-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-create-flag.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-inside-worktree.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-malformed-payload.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-checkout-or-switch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-db.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-no-task-branch.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-non-bash-tool.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-not-a-branch-word.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-path-restore.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "allow-switch-create-flag.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "deny-ambiguous-linked-worktrees.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: ambiguous_git_target: `git checkout feat/multi-open` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …\"}}\n"
+    }
+  },
+  "deny-checkout-open-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/open. Branch 'feat/open' belongs to open task #30. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/open\"}}\n"
+    }
+  },
+  "deny-db-unavailable.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — stay-on-base-guard could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+    }
+  },
+  "deny-fallback-worktree-path.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/norepo. Branch 'feat/norepo' belongs to open task #33. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/norepo\"}}\n"
+    }
+  },
+  "deny-git-C-from-project.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/open. Branch 'feat/open' belongs to open task #30. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/open\"}}\n"
+    }
+  },
+  "deny-payload-then-garbage.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/open. Branch 'feat/open' belongs to open task #30. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/open\"}}\n"
+    }
+  },
+  "deny-switch-open-task.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/open. Branch 'feat/open' belongs to open task #30. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/open\"}}\n"
+    }
+  },
+  "diverge-no-jq.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-no-sqlite3.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "diverge-parse-failure.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"the main checkout stays on the base; SWE work lives in worktrees — use the worktree at @SANDBOX@/base/.claude/worktrees/open. Branch 'feat/open' belongs to open task #30. Switch to the worktree instead: cd @SANDBOX@/base/.claude/worktrees/open\"}}\n"
+    }
+  }
+}

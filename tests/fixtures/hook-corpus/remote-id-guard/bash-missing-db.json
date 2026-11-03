@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title x --body 'Closes #5'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/no-such.db"
+  },
+  "corpus_expect": "allow"
+}

@@ -72,8 +72,7 @@ The immutable MCP allowlist is:
 
 Every schema requires `project_root` and disallows additional properties. The
 wrapper removes role/provenance fields from the public contract, rejects any
-caller attempt to supply `agent`, `author`, `verified_human`, `role`, or
-`provenance`, and injects the fixed `bro` identity internally. Scan routing is
+caller attempt to supply `agent`, `author`, `role`, or `provenance`, and injects the fixed `bro` identity internally. Scan routing is
 fixed to the validated project root and `bro_auto_initial`. Configuration is
 limited to an atomic replacement of the classification and priority arrays
 through the shared config foundation; the replacement is advertised as

@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g4",
+  "source": "startup",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/proj-ignored"
+  },
+  "corpus_cwd": "proj-ignored",
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "empty"
+}

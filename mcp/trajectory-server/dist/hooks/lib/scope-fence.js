@@ -46,7 +46,7 @@ function rawElements(json) {
     return items.map((v) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2)));
 }
 /** Whether `sort` collates by the locale's LC_COLLATE table rather than by byte. */
-function localeCollates(env) {
+export function localeCollates(env) {
     const locale = env.LC_ALL || env.LC_COLLATE || env.LANG || 'C';
     return !locale.includes('/') && locale !== 'C' && locale !== 'POSIX' && existsSync(`/usr/share/locale/${locale}/LC_COLLATE`);
 }

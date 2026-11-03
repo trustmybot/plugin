@@ -1,0 +1,2 @@
+### Changed
+- **Gates share read-only git within one hook call** (GH 1692): a read several gates ask for now runs one `git` child, identical `fetch`es share one run, and any other git clears what was read, so a gate still sees its own writes. A gate never inherits a run another gate's deadline cut. Base-ref lookups on the code-reviewer gate no longer block the event loop, and `attribution-footer`'s `gh` and `glab` calls now stop at the gate's deadline.

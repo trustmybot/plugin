@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/existing",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/absent.db"
+  },
+  "corpus_cwd": "@SANDBOX@/ws/other",
+  "corpus_expect": "@SANDBOX@/ws/other/.claude/worktrees/existing\ntmb worktree-create: created worktree @SANDBOX@/ws/other/.claude/worktrees/existing for branch feat/existing (no-DB path)\n"
+}

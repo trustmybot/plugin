@@ -27,7 +27,7 @@ export function ConceptSearch({
   if (data && !data.available) {
     return (
       <Box role="status">
-        <Blankslate icon={LightBulbIcon} heading="No concepts yet" description={CONCEPT_COPY.unavailable} />
+        <Blankslate icon={LightBulbIcon} heading="No Concepts Yet" description={CONCEPT_COPY.unavailable} />
       </Box>
     );
   }
@@ -49,7 +49,7 @@ export function ConceptSearch({
         <section aria-label="Results" className="min-w-0">
           {searching && data && hits.length === 0 && !derived ? (
             <Box>
-              <Blankslate icon={SearchIcon} heading="No concepts found" description={CONCEPT_COPY.empty} />
+              <Blankslate icon={SearchIcon} heading="No Concepts Found" description={CONCEPT_COPY.empty} />
             </Box>
           ) : (
             <ResultList hits={hits} derived={derived} selected={id} onSelect={onSelect} />
@@ -60,7 +60,7 @@ export function ConceptSearch({
             <DerivedPanel steps={derived.steps} />
           ) : (
             <Box>
-              <Blankslate icon={SearchIcon} heading="No unverified chain" description="No unverified chain for this search. Try a function name." />
+              <Blankslate icon={SearchIcon} heading="No Unverified Chain" description="No unverified chain for this search. Try a function name." />
             </Box>
           )
         ) : id ? (
@@ -146,7 +146,7 @@ function ResultList({
             <>
               <div className="flex items-start justify-between gap-2">
                 <span className="font-mono font-semibold break-all text-fg group-hover:text-(--fgColor-accent)">
-                  {derived?.steps[0]?.symbol?.qualified_name ?? 'Call chain'}
+                  {derived?.steps[0]?.symbol?.qualified_name ?? 'Call Chain'}
                 </span>
                 <StepCounter n={derived?.steps.length ?? 0} />
               </div>

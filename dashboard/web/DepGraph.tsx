@@ -513,7 +513,7 @@ function Graph({ data }: { data: FileGraph }) {
   return (
     <section className={`min-w-0 overflow-hidden rounded-md border ${BORDER2} text-[13px] leading-[1.45]`}>
       <header className={`flex flex-wrap items-center gap-x-5 gap-y-3 border-b bg-canvas-muted px-4 py-3 sm:px-6 ${BORDER2}`}>
-        <h2 className="m-0 text-[15px] font-semibold">Dependency graph</h2>
+        <h2 className="m-0 text-[15px] font-semibold">Dependency Graph</h2>
         <div className="relative">
           <SearchIcon size={14} aria-hidden="true" className="pointer-events-none absolute left-[9px] top-[9px] text-fg-muted" />
           <input
@@ -559,16 +559,16 @@ function Graph({ data }: { data: FileGraph }) {
                 setExpanded(new Set());
               }}
             >
-              {d === 1 ? '1 hop' : '2 hops'}
+              {d === 1 ? '1 Hop' : '2 Hops'}
             </button>
           ))}
         </div>
         <div className={`flex items-center gap-3.5 text-xs lg:ml-auto ${MUTED}`} aria-label="Edge kinds">
           {([
-            ['calls', ''],
-            ['imports', '5 3'],
-            ['runs, sources', '1.5 3'],
-            ['instantiates', '7 2 1.5 2'],
+            ['Calls', ''],
+            ['Imports', '5 3'],
+            ['Runs, Sources', '1.5 3'],
+            ['Instantiates', '7 2 1.5 2'],
           ] as const).map(([label, dash]) => (
             <span key={label}>
               <svg viewBox="0 0 26 8" className="mr-[5px] inline h-2 w-[26px] align-middle">
@@ -862,8 +862,8 @@ function Panel({
       {n.summary && <p className="mt-2.5">{n.summary}</p>}
       <div className="mb-[18px] mt-3.5 grid grid-cols-2 gap-2">
         {[
-          [ub.length, 'Direct dependents'],
-          [us.length, 'Direct dependencies'],
+          [ub.length, 'Direct Dependents'],
+          [us.length, 'Direct Dependencies'],
         ].map(([v, k]) => (
           <div key={k} className="rounded-md bg-canvas-muted px-2.5 py-2">
             <div className="text-lg font-semibold tabular-nums">{v}</div>
@@ -872,7 +872,7 @@ function Panel({
         ))}
       </div>
       <div className="mb-1.5 mt-4 flex items-center justify-between">
-        <h3 className="m-0 text-xs font-semibold">Used by</h3>
+        <h3 className="m-0 text-xs font-semibold">Used By</h3>
         {seg('in')}
       </div>
       {list(ub, 'in')}

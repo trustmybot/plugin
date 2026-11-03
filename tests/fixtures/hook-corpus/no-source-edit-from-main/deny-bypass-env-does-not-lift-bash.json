@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Bash","tool_input":{"command":"echo x > agents/swe.md"},"corpus_env":{"TMB_ALLOW_SOURCE_EDIT":"1"},"corpus_expect":"Bash write-forms targeting prompt-surface files"}

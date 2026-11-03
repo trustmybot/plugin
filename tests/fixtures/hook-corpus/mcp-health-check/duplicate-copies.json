@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "dup-session",
+  "source": "startup",
+  "corpus_env": {
+    "TMB_INSTALLED_JSON": "@SANDBOX@/installs/dup.json"
+  },
+  "corpus_expect": "TMB WARNING: 2 copies of the tmb plugin are enabled for this project (dev@1.1.0, main@1.0.0)."
+}

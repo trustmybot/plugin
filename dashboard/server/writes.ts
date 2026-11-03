@@ -234,10 +234,9 @@ export class IssueWriter {
     }
     const res = await this.call('discussion_append', {
       issue_id: String(issueId),
-      author: 'human',
+      author: 'dashboard',
       kind: 'note',
       body: text,
-      verified_human: true,
     });
     if (!res.ok) return handlerError('discussion_append', res.data);
     this.audit(issueId, 'discussion_append', ['comment'], { discussion_id: res.data['id'] });

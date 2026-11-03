@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/substrate-preflight.sh — the SessionStart hook that
+# Tests for the TypeScript substrate-preflight gate — the SessionStart hook that
 # emits a TMB DEGRADED banner when required host binaries are missing.
 #
 # Coverage:
@@ -17,7 +17,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/substrate-preflight.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/substrate-preflight.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 STUB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-substrate-preflight.XXXXXX")
 trap 'rm -rf "$STUB_DIR"' EXIT

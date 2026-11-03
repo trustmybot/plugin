@@ -40,9 +40,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -194,9 +194,9 @@ var require_code = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -339,9 +339,9 @@ var require_scope = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -1059,9 +1059,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -1226,9 +1226,9 @@ var require_util = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -1265,9 +1265,9 @@ var require_names = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -1387,9 +1387,9 @@ var require_errors = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -1438,9 +1438,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -1469,9 +1469,9 @@ var require_rules = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -1492,9 +1492,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -1676,9 +1676,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -1713,9 +1713,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -1846,9 +1846,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -1964,9 +1964,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -2047,9 +2047,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module2) {
     "use strict";
     module2.exports = function equal(a, b) {
       if (a === b) return true;
@@ -2082,9 +2082,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module2) {
     "use strict";
     var traverse = module2.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -2170,9 +2170,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -2326,9 +2326,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -2834,9 +2834,9 @@ var require_validate = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -2850,9 +2850,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -2867,9 +2867,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve3.call(this, root, ref2);
+      let _sch = resolve4.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve3(root, ref2) {
+    function resolve4(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3091,9 +3091,9 @@ var require_compile = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module2) {
     module2.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -3110,9 +3110,9 @@ var require_data = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module2) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -3367,9 +3367,9 @@ var require_utils = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module2) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3577,9 +3577,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module2) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3593,55 +3593,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve3(baseURI, relativeURI, options) {
+    function resolve4(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative5, options, skipNormalization) {
+    function resolveComponent(base, relative6, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative5 = parse4(serialize(relative5, options), options);
+        relative6 = parse4(serialize(relative6, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative5.scheme) {
-        target.scheme = relative5.scheme;
-        target.userinfo = relative5.userinfo;
-        target.host = relative5.host;
-        target.port = relative5.port;
-        target.path = removeDotSegments(relative5.path || "");
-        target.query = relative5.query;
+      if (!options.tolerant && relative6.scheme) {
+        target.scheme = relative6.scheme;
+        target.userinfo = relative6.userinfo;
+        target.host = relative6.host;
+        target.port = relative6.port;
+        target.path = removeDotSegments(relative6.path || "");
+        target.query = relative6.query;
       } else {
-        if (relative5.userinfo !== void 0 || relative5.host !== void 0 || relative5.port !== void 0) {
-          target.userinfo = relative5.userinfo;
-          target.host = relative5.host;
-          target.port = relative5.port;
-          target.path = removeDotSegments(relative5.path || "");
-          target.query = relative5.query;
+        if (relative6.userinfo !== void 0 || relative6.host !== void 0 || relative6.port !== void 0) {
+          target.userinfo = relative6.userinfo;
+          target.host = relative6.host;
+          target.port = relative6.port;
+          target.path = removeDotSegments(relative6.path || "");
+          target.query = relative6.query;
         } else {
-          if (!relative5.path) {
+          if (!relative6.path) {
             target.path = base.path;
-            if (relative5.query !== void 0) {
-              target.query = relative5.query;
+            if (relative6.query !== void 0) {
+              target.query = relative6.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative5.path[0] === "/") {
-              target.path = removeDotSegments(relative5.path);
+            if (relative6.path[0] === "/") {
+              target.path = removeDotSegments(relative6.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative5.path;
+                target.path = "/" + relative6.path;
               } else if (!base.path) {
-                target.path = relative5.path;
+                target.path = relative6.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative5.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative6.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative5.query;
+            target.query = relative6.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3649,7 +3649,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative5.fragment;
+      target.fragment = relative6.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve3,
+      resolve: resolve4,
       resolveComponent,
       equal,
       serialize,
@@ -3832,9 +3832,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -3843,9 +3843,9 @@ var require_uri = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -4454,9 +4454,9 @@ var require_core = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -4469,9 +4469,9 @@ var require_id = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -4591,9 +4591,9 @@ var require_ref = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -4612,9 +4612,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4644,9 +4644,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4672,9 +4672,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str) {
@@ -4698,9 +4698,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4730,9 +4730,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4767,9 +4767,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4796,9 +4796,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4878,9 +4878,9 @@ var require_required = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4907,9 +4907,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -4918,9 +4918,9 @@ var require_equal = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -4985,9 +4985,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5014,9 +5014,9 @@ var require_const = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5063,9 +5063,9 @@ var require_enum = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -5101,9 +5101,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -5154,9 +5154,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -5211,9 +5211,9 @@ var require_items = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -5228,9 +5228,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5263,9 +5263,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5357,9 +5357,9 @@ var require_contains = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -5451,9 +5451,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5494,9 +5494,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5600,9 +5600,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -5658,9 +5658,9 @@ var require_properties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5732,9 +5732,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5763,9 +5763,9 @@ var require_not = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5780,9 +5780,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5838,9 +5838,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5865,9 +5865,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5934,9 +5934,9 @@ var require_if = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5952,9 +5952,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -6000,9 +6000,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6090,9 +6090,9 @@ var require_format = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -6101,9 +6101,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -6124,9 +6124,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -6146,9 +6146,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -6160,9 +6160,9 @@ var require_types = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6265,9 +6265,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module2) {
     module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -6422,9 +6422,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6492,9 +6492,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -6695,9 +6695,9 @@ var require_formats = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -6767,9 +6767,9 @@ var require_limit = __commonJS({
   }
 });
 
-// node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module2) {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6809,7 +6809,7 @@ var require_dist = __commonJS({
   }
 });
 
-// node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
 var tree_sitter_exports = {};
 __export(tree_sitter_exports, {
   CaptureQuantifier: () => CaptureQuantifier,
@@ -7139,7 +7139,7 @@ function checkModule() {
 }
 var __defProp2, __name, SIZE_OF_SHORT, SIZE_OF_INT, SIZE_OF_CURSOR, SIZE_OF_NODE, SIZE_OF_POINT, SIZE_OF_RANGE, ZERO_POINT, INTERNAL, C, LookaheadIterator, Tree, TreeCursor, Node, PREDICATE_STEP_TYPE_CAPTURE, PREDICATE_STEP_TYPE_STRING, QUERY_WORD_REGEX, CaptureQuantifier, isCaptureStep, isStringStep, QueryErrorKind, QueryError, Query, LANGUAGE_FUNCTION_REGEX, Language, Module2, tree_sitter_default, Module3, TRANSFER_BUFFER, LANGUAGE_VERSION, MIN_COMPATIBLE_VERSION, Parser;
 var init_tree_sitter = __esm({
-  "node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
+  "../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
     __defProp2 = Object.defineProperty;
     __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
     SIZE_OF_SHORT = 2;
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve3, reject) => {
-          readyPromiseResolve = resolve3;
+        var readyPromise = new Promise((resolve4, reject) => {
+          readyPromiseResolve = resolve4;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve3, reject) => {
+                return new Promise((resolve4, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve3(xhr.response);
+                      resolve4(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve3, reject) => {
+            return new Promise((resolve4, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve3(mod.exports);
+                resolve4(mod.exports);
               });
             });
           }
@@ -10770,7 +10770,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
   }
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -10904,7 +10904,7 @@ var getParsedType = (data) => {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -11018,7 +11018,7 @@ ZodError.create = (issues) => {
   return error2;
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
   let message2;
   switch (issue2.code) {
@@ -11121,13 +11121,13 @@ var errorMap = (issue2, _ctx) => {
 };
 var en_default = errorMap;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function getErrorMap() {
   return overrideErrorMap;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -11236,14 +11236,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message2) => typeof message2 === "string" ? { message: message2 } : message2 || {};
   errorUtil2.toString = (message2) => typeof message2 === "string" ? message2 : message2?.message;
 })(errorUtil || (errorUtil = {}));
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -14646,7 +14646,7 @@ var nullableType = ZodNullable.create;
 var preprocessType = ZodEffects.createWithPreprocess;
 var pipelineType = ZodPipeline.create;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
 var NEVER = Object.freeze({
   status: "aborted"
 });
@@ -14720,7 +14720,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -15399,7 +15399,7 @@ var Class = class {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -15465,7 +15465,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
   return fieldErrors;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
   const result2 = schema._zod.run({ value, issues: [] }, ctx);
@@ -15545,7 +15545,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -15636,8 +15636,8 @@ function emoji() {
 }
 var ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
 var ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
-var mac = (delimiter) => {
-  const escapedDelim = escapeRegex(delimiter ?? ":");
+var mac = (delimiter2) => {
+  const escapedDelim = escapeRegex(delimiter2 ?? ":");
   return new RegExp(`^(?:[0-9A-F]{2}${escapedDelim}){5}[0-9A-F]{2}$|^(?:[0-9a-f]{2}${escapedDelim}){5}[0-9a-f]{2}$`);
 };
 var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
@@ -15702,7 +15702,7 @@ var sha512_hex = /^[0-9a-fA-F]{128}$/;
 var sha512_base64 = /* @__PURE__ */ fixedBase64(86, "==");
 var sha512_base64url = /* @__PURE__ */ fixedBase64url(86);
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a2;
   inst._zod ?? (inst._zod = {});
@@ -16250,7 +16250,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args2 = []) {
     this.content = [];
@@ -16286,14 +16286,14 @@ var Doc = class {
   }
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 3,
   patch: 6
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a2;
   inst ?? (inst = {});
@@ -18264,7 +18264,7 @@ function handleRefineResult(result2, payload, input, inst) {
   }
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
 var error = () => {
   const Sizable = {
     string: { unit: "characters", verb: "to have" },
@@ -18373,7 +18373,7 @@ function en_default2() {
   };
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
 var _a;
 var $ZodRegistry = class {
   constructor() {
@@ -18421,7 +18421,7 @@ function registry() {
 (_a = globalThis).__zod_globalRegistry ?? (_a.__zod_globalRegistry = registry());
 var globalRegistry = globalThis.__zod_globalRegistry;
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -19225,7 +19225,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
   return inst;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -19577,7 +19577,7 @@ var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) =
   return finalize(ctx, schema);
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
 var formatMap = {
   guid: "uuid",
   url: "uri",
@@ -20053,7 +20053,7 @@ var lazyProcessor = (schema, ctx, _json, params) => {
   seen.ref = innerType;
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -20116,7 +20116,7 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var schemas_exports3 = {};
 __export(schemas_exports3, {
   ZodAny: () => ZodAny2,
@@ -20285,7 +20285,7 @@ __export(schemas_exports3, {
   xor: () => xor
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -20319,7 +20319,7 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
 var iso_exports2 = {};
 __export(iso_exports2, {
   ZodISODate: () => ZodISODate,
@@ -20360,7 +20360,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -20400,7 +20400,7 @@ var ZodRealError = $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
 var parse2 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -20414,7 +20414,7 @@ var safeDecode2 = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync2 = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync2 = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   $ZodType.init(inst, def);
   Object.assign(inst["~standard"], {
@@ -21493,22 +21493,22 @@ function preprocess(fn, schema) {
   return pipe(transform(fn), schema);
 }
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
 var ZodFirstPartyTypeKind2;
 /* @__PURE__ */ (function(ZodFirstPartyTypeKind3) {
 })(ZodFirstPartyTypeKind2 || (ZodFirstPartyTypeKind2 = {}));
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
 var z = {
   ...schemas_exports3,
   ...checks_exports2,
   iso: iso_exports2
 };
 
-// node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
 config(en_default2());
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -23027,15 +23027,15 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function getMethodLiteral(schema) {
   const shape = getObjectShape(schema);
   const methodSchema = shape?.method;
@@ -23056,7 +23056,7 @@ function parseWithCompat(schema, data) {
   return result2.data;
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -23556,7 +23556,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23573,7 +23573,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23651,7 +23651,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve3(parseResult.data);
+            resolve4(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23912,12 +23912,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve3, interval);
+      const timeoutId = setTimeout(resolve4, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24010,7 +24010,7 @@ function mergeCapabilities(base, additional) {
   return result2;
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -24078,7 +24078,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -24291,7 +24291,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -24326,7 +24326,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -24706,10 +24706,10 @@ var Server = class extends Protocol {
   }
 };
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process3 from "node:process";
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
   append(chunk) {
     this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
@@ -24737,7 +24737,7 @@ function serializeMessage(message2) {
   return JSON.stringify(message2) + "\n";
 }
 
-// node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../../../../../../../../Users/Zax/Git/GitHub/TMB/plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = process3.stdin, _stdout = process3.stdout) {
     this._stdin = _stdin;
@@ -24787,12 +24787,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve3();
+        resolve4();
       } else {
-        this._stdout.once("drain", resolve3);
+        this._stdout.once("drain", resolve4);
       }
     });
   }
@@ -25300,14 +25300,17 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "hook_call", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`, GH 1692) decided one call of a routed event (PreToolUse, PostToolUse, PermissionDenied, Stop, SubagentStop, SessionStart, UserPromptSubmit or WorktreeCreate): one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool` (empty on an event with no tool, as Stop), `decision` (`allow`, `deny`, or `failed` on a WorktreeCreate that exited non-zero), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_denied", writers: ["hook"], description: "The router (`node dist/hooks.js <event>`) or `dispatch.sh` (the headless shim) returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or its own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch` from both, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
   { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_closed_from_remote", writers: ["bro"], description: "`issue_reconcile_remote` (`reconcileRemoteCloses`, `sync/issue-reconcile.ts`) closed an open local issue because its linked GitHub/GitLab twin reports closed and the issue has no live task; one row per close, in the close's transaction, on the issue, from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_remote_closed_local_open", writers: ["bro"], description: "`issue_reconcile_remote` found an open local issue whose linked remote twin is closed but left it open because tasks of it are still live (`pending`/`running`/`needs_validation`/`completed`); one row per issue and blocking task set (a rerun with the same `blocking_task_ids` writes none), from_node `bro`; `content_json` carries `remote_kind`, `remote_iid`, `blocking_task_ids`; the `issues_open_after_remote_close` contract reads it" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
@@ -25346,6 +25349,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
   { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
   { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
@@ -25358,7 +25362,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -25506,7 +25510,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 55;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26066,6 +26070,15 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
+  }
+  if (fromVersion < 55 && toVersion >= 55) {
+    migrateV54toV55(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -27911,6 +27924,78 @@ function migrateV51toV52(db) {
     throw err6;
   }
 }
+function migrateV52toV53(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
+    }
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
+function migrateV53toV54(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "worktree_path")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db, "tasks", "worktree_adopted")) {
+        db.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
+    }
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
+function migrateV54toV55(db) {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_handoffs (
+          session_id          TEXT PRIMARY KEY,
+          cwd                 TEXT NOT NULL,
+          issue_id            INTEGER REFERENCES issues(id),
+          summary             TEXT,
+          created_at          TEXT NOT NULL,
+          updated_at          TEXT NOT NULL,
+          consumed_at         TEXT,
+          consumed_by_session TEXT
+      );
+    `);
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -29498,7 +29583,7 @@ var runGit = (cwd, args2, timeoutMs) => {
   env["GIT_CONFIG_NOSYSTEM"] = "1";
   env["GIT_CONFIG_GLOBAL"] = "/dev/null";
   env["LC_ALL"] = "C";
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     let settled = false;
     const child = execFile(
       "git",
@@ -29522,7 +29607,7 @@ var runGit = (cwd, args2, timeoutMs) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve3({
+        resolve4({
           ok: error2 === null,
           stdout: stdout.trim()
         });
@@ -29532,7 +29617,7 @@ var runGit = (cwd, args2, timeoutMs) => {
       if (settled) return;
       settled = true;
       child.kill("SIGKILL");
-      resolve3({ ok: false, stdout: "", timedOut: true });
+      resolve4({ ok: false, stdout: "", timedOut: true });
     }, timeoutMs);
   });
 };
@@ -30493,6 +30578,16 @@ async function topKByCosine(db, table, query, k, filterParams = []) {
   return scored.slice(0, k);
 }
 
+// src/hooks/ensure-mcp-deps-installed.ts
+import { basename as basename3, delimiter, dirname as dirname5, isAbsolute as isAbsolute4, join as join8, relative as relative3, resolve as resolve2, sep as sep2 } from "node:path";
+
+// src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// src/hooks/ensure-mcp-deps-installed.ts
+var MCP_REL = join8("mcp", "trajectory-server");
+var STAGING_STALE_MS = 60 * 60 * 1e3;
+
 // src/embeddings/backfill.ts
 var MISSING_WHERE = {
   discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
@@ -30506,6 +30601,7 @@ var MISSING_SQL = {
   wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
   wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
 };
+var RECHECK_BATCH = 50;
 var WORLD_MODEL_TABLES = ["wm_directories", "wm_files"];
 function embedText(table, r) {
   if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
@@ -30514,13 +30610,27 @@ function embedText(table, r) {
 }
 async function backfillMissing(db, table, limit = 50, onRow) {
   const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db, table, r.id, embedText(table, r)).catch(
-      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+  let attempted = 0;
+  for (let i2 = 0; i2 < rows.length; i2 += RECHECK_BATCH) {
+    if (!db.isOpen) break;
+    const batch = rows.slice(i2, i2 + RECHECK_BATCH);
+    const ids = batch.map((r) => r.id);
+    const stillMissing = new Set(
+      db.all(
+        `SELECT id FROM ${table} WHERE ${MISSING_WHERE[table]} AND id IN (${ids.map(() => "?").join(", ")})`,
+        [MODEL_ID, ...ids]
+      ).map((r) => r.id)
     );
-    onRow?.();
+    for (const r of batch) {
+      if (!stillMissing.has(r.id)) continue;
+      attempted++;
+      await embedAndStore(db, table, r.id, embedText(table, r)).catch(
+        (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+      );
+      onRow?.();
+    }
   }
-  return rows.length;
+  return attempted;
 }
 var worldModelBackfill = null;
 function startWorldModelBackfill(db) {
@@ -30582,6 +30692,8 @@ function insertAudit(db, entry) {
 // src/tools/discussions.ts
 var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
 var MAX_BODY_BYTES = 65536;
+var HUMAN_AUTHOR = "human";
+var HUMAN_AUTHOR_REFUSED = "author_forbidden: discussion_append never writes author='human'. Human rows come only from the rework-waiver-capture hook, which records the Human's own prompt. Write the row under your own name and quote the Human verbatim.";
 function ok(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -30689,7 +30801,7 @@ function discussionTools(db) {
         properties: {
           agent: { type: "string", description: "Caller agent name" },
           issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
-          author: { type: "string", description: "Author of this entry (agent name or human)" },
+          author: { type: "string", description: "Author of this entry: an agent name. 'human' is refused; quote the Human verbatim under your own name." },
           kind: {
             type: "string",
             enum: ["intent", "question", "answer", "decision", "note", "analysis"],
@@ -30703,10 +30815,6 @@ function discussionTools(db) {
           supersedes: {
             type: "string",
             description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
-          },
-          verified_human: {
-            type: "boolean",
-            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
           }
         },
         required: ["agent", "author", "body"]
@@ -30917,6 +31025,7 @@ function discussionTools(db) {
         const rawIssueId = args2["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
         const author = requireArg(args2, "author");
+        if (String(author).trim().toLowerCase() === HUMAN_AUTHOR) return err2(HUMAN_AUTHOR_REFUSED);
         const body2 = requireArg(args2, "body");
         const kind = args2["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body2, "utf8");
@@ -30930,12 +31039,6 @@ function discussionTools(db) {
         }
         if (!author.trim()) {
           throw new Error("author must be a non-empty string");
-        }
-        const verifiedHuman = Boolean(args2["verified_human"]);
-        if (author === "human" && !verifiedHuman) {
-          throw new Error(
-            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
-          );
         }
         const issue2 = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
         if (!issue2) {
@@ -31226,23 +31329,23 @@ function serializeConfigValue(key, rawValue) {
 }
 
 // src/utils/repo-paths.ts
-import { dirname as dirname5, isAbsolute as isAbsolute5, resolve as resolve2 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, resolve as resolve3 } from "node:path";
 
 // src/tools/containment.ts
-import { isAbsolute as isAbsolute4, join as join8, parse as parse3, relative as relative3, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join9, parse as parse3, relative as relative4, sep as sep3 } from "node:path";
 function projectRootFromDbPath(dbPath) {
   if (!dbPath || dbPath === ":memory:") return null;
-  const segments = dbPath.split(sep2);
+  const segments = dbPath.split(sep3);
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
+  return segments.slice(0, idx).join(sep3) || sep3;
 }
 
 // src/utils/repo-paths.ts
 function repoRowPath(db, path) {
-  if (isAbsolute5(path)) return path;
-  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname5(db.dbPath);
-  return resolve2(base, path);
+  if (isAbsolute6(path)) return path;
+  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname6(db.dbPath);
+  return resolve3(base, path);
 }
 function resolveRepoForSync(db, repoName) {
   if (repoName) {
@@ -31375,7 +31478,7 @@ function remoteSyncGate(db, opts = {}) {
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -31389,7 +31492,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join9(logDir, "issue-sync.log"), line);
+    appendFileSync2(join10(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -31953,10 +32056,7 @@ function closeOpenRunsForTask(db, taskId, now2, exitReason) {
   return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
 }
 
-// src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
+// src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
@@ -31970,6 +32070,11 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
 function liveTasksOfIssue(db, issueId) {
   return db.all(
     `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
@@ -32009,6 +32114,225 @@ function markIssueClosed(db, issueId, now2) {
     `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
     [now2, now2, issueId]
   );
+}
+
+// src/sync/issue-reconcile.ts
+var GH_RECONCILE_BATCH = 50;
+function resolveRepoCtx(db, repo) {
+  const resolved = resolveRepoForSync(db, repo);
+  if (!resolved) return null;
+  const remotes = syncRemotes(db, resolved.name);
+  return {
+    cwd: resolved.path,
+    slugFor(kind) {
+      const entry = remotes.find((r) => r.provider === kind);
+      return entry ? { slug: repoSlugFromRemoteUrl(entry.url) } : null;
+    }
+  };
+}
+function spawnOptsFor(cwd) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (cwd) opts.cwd = cwd;
+  return opts;
+}
+function splitGhSlug(slug) {
+  const parts2 = slug.split("/");
+  if (parts2.length < 3 || parts2.some((p) => p === "")) return null;
+  return { host: parts2[0], owner: parts2[1], name: parts2.slice(2).join("/") };
+}
+function gqlString(value) {
+  return JSON.stringify(value);
+}
+function readGithubBatch(slug, iids, cwd, spawnFn) {
+  const out2 = /* @__PURE__ */ new Map();
+  const failAll = (error2, message2) => {
+    for (const iid of iids) out2.set(iid, { error: error2, ...message2 ? { message: message2 } : {} });
+    return out2;
+  };
+  const repo = splitGhSlug(slug);
+  if (!repo) return failAll("slug_unresolved", `cannot split repo slug "${slug}"`);
+  const fields = iids.map((n) => `i${n}: issue(number: ${n}) { state }`).join(" ");
+  const query = `query { repository(owner: ${gqlString(repo.owner)}, name: ${gqlString(repo.name)}) { ${fields} } }`;
+  let result2;
+  try {
+    result2 = spawnFn("gh", ["api", "graphql", "--hostname", repo.host, "-f", `query=${query}`], spawnOptsFor(cwd));
+  } catch (e) {
+    return failAll("read_failed", e instanceof Error ? e.message : String(e));
+  }
+  let data = null;
+  try {
+    const parsed = JSON.parse(result2.stdout);
+    data = parsed?.data?.repository ?? null;
+  } catch {
+    data = null;
+  }
+  if (data === null) {
+    if (result2.status !== 0) return failAll("read_failed", (result2.stderr || `gh exited ${String(result2.status)}`).slice(0, 500));
+    return failAll("parse_failed", "gh api graphql returned no repository data");
+  }
+  for (const iid of iids) {
+    const node = data[`i${iid}`];
+    const state = node && typeof node.state === "string" ? node.state.toUpperCase() : null;
+    if (state === "CLOSED") out2.set(iid, { state: "closed" });
+    else if (state === "OPEN") out2.set(iid, { state: "open" });
+    else out2.set(iid, { error: "not_found", message: `github #${iid} returned no issue state` });
+  }
+  return out2;
+}
+function readGitlabIssue(slug, iid, cwd, spawnFn) {
+  let result2;
+  try {
+    result2 = spawnFn("glab", ["issue", "view", String(iid), "-R", slug, "--output", "json"], spawnOptsFor(cwd));
+  } catch (e) {
+    return { error: "read_failed", message: e instanceof Error ? e.message : String(e) };
+  }
+  if (result2.status !== 0) {
+    return { error: "read_failed", message: (result2.stderr || `glab exited ${String(result2.status)}`).slice(0, 500) };
+  }
+  let state;
+  try {
+    state = JSON.parse(result2.stdout)?.state;
+  } catch {
+    return { error: "parse_failed", message: "glab issue view returned no JSON" };
+  }
+  if (state === "closed") return { state: "closed" };
+  if (state === "opened" || state === "reopened") return { state: "open" };
+  return { error: "parse_failed", message: `gitlab #${iid} returned state ${JSON.stringify(state)}` };
+}
+function sameIds(a, b) {
+  if (!Array.isArray(b) || a.length !== b.length) return false;
+  const sorted = [...b].map(Number).sort((x, y) => x - y);
+  return a.every((v, i2) => v === sorted[i2]);
+}
+function lastDeferralIds(db, issueId) {
+  const row = db.get(
+    `SELECT content_json FROM audit WHERE issue_id = ? AND event_type = 'issue_remote_closed_local_open' ORDER BY id DESC LIMIT 1`,
+    [issueId]
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.content_json).blocking_task_ids ?? null;
+  } catch {
+    return null;
+  }
+}
+function reconcileRemoteCloses(db, opts = {}) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const probe = opts._spawnFn ? (cmd, args2) => opts._spawnFn(cmd, args2, { encoding: "utf8" }) : void 0;
+  const result2 = { checked: 0, closed: [], deferred: [], errors: [], ...opts.dryRun ? { dry_run: true } : {} };
+  const candidates = db.all(
+    `SELECT id, repo, gh_iid, gl_iid FROM issues
+      WHERE status = 'open' AND id > 0 AND (gh_iid IS NOT NULL OR gl_iid IS NOT NULL)
+      ORDER BY id`
+  );
+  const ctxByRepo = /* @__PURE__ */ new Map();
+  const ctxOf = (repo) => {
+    const key = repo ?? "\0";
+    if (!ctxByRepo.has(key)) ctxByRepo.set(key, resolveRepoCtx(db, repo));
+    return ctxByRepo.get(key);
+  };
+  for (const c of candidates) ctxOf(c.repo);
+  if (candidates.length === 0) ctxOf(null);
+  const contexts = [...ctxByRepo.values()].filter((c) => c !== null);
+  const gate = remoteSyncGate(db, {
+    repoRemotes: contexts.length > 0 ? { github: contexts.some((c) => c.slugFor("github") !== null), gitlab: contexts.some((c) => c.slugFor("gitlab") !== null) } : null,
+    spawnFn: probe
+  });
+  if (!gate.enabled) {
+    return { ...result2, skipped: gate.reason ?? "no_backend" };
+  }
+  result2.checked = candidates.length;
+  const targetsByIssue = /* @__PURE__ */ new Map();
+  const states = /* @__PURE__ */ new Map();
+  const ghBySlug = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    const ctx = ctxOf(c.repo);
+    const targets = [];
+    if (c.gh_iid != null) targets.push({ issueId: c.id, kind: "github", iid: c.gh_iid, slug: null, cwd: ctx?.cwd ?? null });
+    if (c.gl_iid != null) targets.push({ issueId: c.id, kind: "gitlab", iid: c.gl_iid, slug: null, cwd: ctx?.cwd ?? null });
+    targetsByIssue.set(c.id, targets);
+    for (const t of targets) {
+      if (ctx === null) {
+        states.set(t, { error: "repo_unresolved", message: `issue repo ${JSON.stringify(c.repo)} resolves to no repos row` });
+        continue;
+      }
+      const remote = ctx.slugFor(t.kind);
+      if (remote === null) {
+        states.set(t, { error: "not_synced", message: `the repo has no synced ${t.kind} remote` });
+        continue;
+      }
+      if (remote.slug === null) {
+        states.set(t, { error: "slug_unresolved", message: `cannot derive a repo slug from the ${t.kind} remote url` });
+        continue;
+      }
+      t.slug = remote.slug;
+      if (t.kind === "github") {
+        const list = ghBySlug.get(remote.slug) ?? [];
+        list.push(t);
+        ghBySlug.set(remote.slug, list);
+      } else {
+        states.set(t, readGitlabIssue(remote.slug, t.iid, t.cwd, spawnFn));
+      }
+    }
+  }
+  for (const [slug, targets] of ghBySlug) {
+    for (let i2 = 0; i2 < targets.length; i2 += GH_RECONCILE_BATCH) {
+      const batch = targets.slice(i2, i2 + GH_RECONCILE_BATCH);
+      const iids = [...new Set(batch.map((t) => t.iid))];
+      const read = readGithubBatch(slug, iids, batch[0].cwd, spawnFn);
+      for (const t of batch) states.set(t, read.get(t.iid));
+    }
+  }
+  const now2 = nowISO();
+  for (const [issueId, targets] of targetsByIssue) {
+    const read = targets.map((t) => ({ t, s: states.get(t) }));
+    const failed = read.filter((r) => "error" in r.s);
+    if (failed.length > 0) {
+      for (const { t, s } of failed) {
+        const e = s;
+        result2.errors.push({ issue_id: issueId, remote_kind: t.kind, remote_iid: t.iid, reason: e.error, ...e.message ? { message: e.message } : {} });
+      }
+      continue;
+    }
+    if (read.some((r) => "state" in r.s && r.s.state === "open")) continue;
+    const first = targets[0];
+    const blocking = liveTasksOfIssue(db, issueId).map((t) => t.id);
+    if (blocking.length > 0) {
+      result2.deferred.push({ issue_id: issueId, blocking_task_ids: blocking });
+      if (!opts.dryRun && !sameIds(blocking, lastDeferralIds(db, issueId))) {
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_remote_closed_local_open",
+          summary: `issue ${issueId}: ${first.kind} #${first.iid} is closed; left open for live tasks ${blocking.join(", ")}`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid, blocking_task_ids: blocking }),
+          created_at: now2
+        });
+      }
+      continue;
+    }
+    if (!opts.dryRun) {
+      const closedNow = db.transaction(() => {
+        const still = db.get(`SELECT status FROM issues WHERE id = ?`, [issueId]);
+        if (still?.status !== "open" || liveTasksOfIssue(db, issueId).length > 0) return false;
+        markIssueClosed(db, issueId, now2);
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: "bro",
+          writer: "bro",
+          event_type: "issue_closed_from_remote",
+          summary: `issue ${issueId} closed: its ${first.kind} twin #${first.iid} is closed`,
+          content_json: JSON.stringify({ remote_kind: first.kind, remote_iid: first.iid }),
+          created_at: now2
+        });
+        return true;
+      });
+      if (!closedNow) continue;
+    }
+    result2.closed.push({ issue_id: issueId, remote_kind: first.kind, remote_iid: first.iid });
+  }
+  return result2;
 }
 
 // src/tools/issues.ts
@@ -32522,6 +32846,18 @@ function issueTools(db, dbPath = "", options = {}) {
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
+      name: "issue_reconcile_remote",
+      description: "Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          dry_run: { type: "boolean", description: "Report what would close or defer and write nothing (default false)." }
+        },
+        required: ["agent"]
       }
     },
     {
@@ -33550,6 +33886,14 @@ function issueTools(db, dbPath = "", options = {}) {
       }
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+    })),
+    issue_reconcile_remote: requireRoles("issue_reconcile_remote", ["bro"], wrapHandler2(async (args2) => {
+      const dryRun = args2["dry_run"];
+      if (dryRun !== void 0 && typeof dryRun !== "boolean") {
+        return err3("invalid_dry_run: dry_run must be a boolean");
+      }
+      const spawnFn = args2["_spawnFn"] ?? void 0;
+      return ok2(reconcileRemoteCloses(db, { dryRun: dryRun === true, _spawnFn: spawnFn }));
     }))
   };
   return { definitions, handlers };
@@ -33558,7 +33902,7 @@ function issueTools(db, dbPath = "", options = {}) {
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync6 } from "node:child_process";
 import { existsSync as existsSync6, readFileSync as readFileSync8, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname7, join as join15 } from "node:path";
+import { dirname as dirname8, join as join16 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/file-purpose.ts
@@ -33614,17 +33958,17 @@ function built(raw, source) {
   const purpose = capChars(raw.replace(/\s+/g, " ").trim(), PURPOSE_MAX_CHARS);
   return purpose ? { purpose, source } : null;
 }
-function fitList(label, items, budget, sep4 = ", ") {
+function fitList(label, items, budget, sep5 = ", ") {
   let out2 = `${label}: `;
   let n = 0;
   for (const item of items) {
     const rest = items.length - n - 1;
-    const more = rest > 0 ? `${sep4}+${rest} more` : "";
-    if (n > 0 && out2.length + sep4.length + item.length + more.length > budget) break;
-    out2 += (n > 0 ? sep4 : "") + item;
+    const more = rest > 0 ? `${sep5}+${rest} more` : "";
+    if (n > 0 && out2.length + sep5.length + item.length + more.length > budget) break;
+    out2 += (n > 0 ? sep5 : "") + item;
     n++;
   }
-  return n < items.length ? `${out2}${sep4}+${items.length - n} more` : out2;
+  return n < items.length ? `${out2}${sep5}+${items.length - n} more` : out2;
 }
 function firstParagraph(lines2) {
   const out2 = [];
@@ -34041,7 +34385,7 @@ function purposeFromSymbols(path, symbols, head = "") {
 
 // src/symbol-purpose.ts
 import { closeSync as closeSync3, openSync as openSync3, readSync } from "node:fs";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function readFileHead(absPath) {
   let fd = null;
   try {
@@ -34087,7 +34431,7 @@ function refreshSymbolPurposes(db, repo) {
   let updated = 0;
   db.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join10(repoPath, f.path)) : "";
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join11(repoPath, f.path)) : "";
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? "";
       const source = next ? "symbols" : "none";
@@ -34102,7 +34446,7 @@ function refreshSymbolPurposes(db, repo) {
 // src/readme-drift.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { existsSync as existsSync3 } from "node:fs";
-import { join as join11, posix } from "node:path";
+import { join as join12, posix } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
 function git(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
@@ -34113,7 +34457,7 @@ function git(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
     return null;
   }
 }
-function basename3(p) {
+function basename4(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -34133,10 +34477,10 @@ function readRepoHistory(root, trackedDirs) {
     else if (status?.startsWith("R")) renamedAway.add(path);
   }
   const trackedFiles = new Set(lines(tracked));
-  const trackedBasenames = new Set([...trackedFiles].map(basename3));
+  const trackedBasenames = new Set([...trackedFiles].map(basename4));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
-    const name2 = basename3(p);
+    const name2 = basename4(p);
     const list = deletedByBasename.get(name2);
     if (list) list.push(p);
     else deletedByBasename.set(name2, [p]);
@@ -34192,7 +34536,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync3(join11(history.root, fromDir)) || existsSync3(join11(history.root, ref2))) continue;
+    if (existsSync3(join12(history.root, fromDir)) || existsSync3(join12(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -34295,11 +34639,11 @@ ${UNTRUSTED_CLOSE}`;
 // src/symbol-index.ts
 import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync6 } from "node:fs";
-import { basename as basename5, join as join13, posix as posix2 } from "node:path";
+import { basename as basename6, join as join14, posix as posix2 } from "node:path";
 
 // src/parsing/loader.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { dirname as dirname6, join as join12 } from "node:path";
+import { dirname as dirname7, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 var RUNTIME_WASM = "tree-sitter.wasm";
 var GRAMMAR_WASM = {
@@ -34313,11 +34657,11 @@ var INDEXED = ["typescript", "tsx", "javascript", "bash"];
 var pending = null;
 var loads = 0;
 function wasmDir() {
-  const here = dirname6(fileURLToPath3(import.meta.url));
-  for (const dir of [join12(here, "parsing"), here]) {
-    if (existsSync4(join12(dir, RUNTIME_WASM))) return dir;
+  const here = dirname7(fileURLToPath3(import.meta.url));
+  for (const dir of [join13(here, "parsing"), here]) {
+    if (existsSync4(join13(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join12(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join13(here, "parsing")} or ${here}`);
 }
 var runtime = null;
 var grammars = /* @__PURE__ */ new Map();
@@ -34330,7 +34674,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file2) => join12(dir, file2) });
+      await mod.Parser.init({ locateFile: (file2) => join13(dir, file2) });
       return mod;
     })(),
     () => {
@@ -34346,7 +34690,7 @@ function loadParser(name2) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join12(wasmDir(), GRAMMAR_WASM[name2])));
+        p.setLanguage(await Language2.load(join13(wasmDir(), GRAMMAR_WASM[name2])));
         return p;
       })(),
       () => grammars.delete(name2)
@@ -34373,7 +34717,7 @@ function loadParsers() {
 
 // src/parsing/extract.ts
 import { createHash as createHash2 } from "node:crypto";
-import { basename as basename4 } from "node:path";
+import { basename as basename5 } from "node:path";
 var GENERATED_PATH = [
   /(^|\/)dist\//,
   /(^|\/)build\//,
@@ -34420,13 +34764,13 @@ function inSymbolScope(relPath) {
   return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 function languageOf(relPath, head) {
-  const name2 = basename4(relPath);
+  const name2 = basename5(relPath);
   const dot = name2.lastIndexOf(".");
   if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
   return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
 }
 function symbolTerms(kind, qualifiedName, relPath) {
-  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename4(relPath))}`;
+  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename5(relPath))}`;
 }
 function normalizedHash(node) {
   const base = node.startIndex;
@@ -34713,10 +35057,10 @@ function extractBash(root, out2, moduleSymbol) {
       const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
       const line = node.startPosition.row + 1;
       if (name2 === "source" || name2 === ".") {
-        if (args2[0]) out2.edge(scope, "sources", basename4(args2[0]), line);
-      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename4(name2), line);
+        if (args2[0]) out2.edge(scope, "sources", basename5(args2[0]), line);
+      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename5(name2), line);
       else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
-        out2.edge(scope, "runs", basename4(args2[0]), line);
+        out2.edge(scope, "runs", basename5(args2[0]), line);
       } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
     } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
       for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
@@ -34765,9 +35109,21 @@ function extractFile(parsers, relPath, lang, src) {
   return out2;
 }
 
+// src/hooks/router/table.ts
+var EMPTY_MATCHER_COLUMN = "-";
+function matcherOfColumn(column) {
+  return column === EMPTY_MATCHER_COLUMN ? "" : column;
+}
+function rowHoldsPart(fields, part) {
+  return fields[6] === part;
+}
+
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
 var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
+var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
+var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
+var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
 var EVENT_ORDER = [
   "SessionStart",
   "UserPromptSubmit",
@@ -34796,8 +35152,12 @@ function eventRanks(events) {
   const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown2, ...EVENT_ORDER.slice(stop2 + 1)];
   return new Map(order.map((e, i2) => [e, i2 + 1]));
 }
-var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-function extractHooks(src, chains) {
+var gateModule = (gate) => `${GATE_MODULE_DIR}/${gate}.ts`;
+function routerGatesOf(table, event, matcher, part) {
+  const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
+  return [...new Set(rows)];
+}
+function extractHooks(src, chains, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -34818,11 +35178,14 @@ function extractHooks(src, chains) {
         const cmd = hook.command ?? "";
         const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
         const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
-        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
+        const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable2, event, matcher, routerCommand[2]) : [];
+        const isRouted = routed.length > 0;
+        const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = gate ? chains.get(gate) : void 0;
-        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -34831,15 +35194,15 @@ function extractHooks(src, chains) {
           doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
           start_line: line,
           end_line: line,
-          body_hash: md5(`${matcher}\0${cmd}`),
+          body_hash: md5(isRouted ? `${matcher}\0${cmd}\0${routed.join(" ")}` : `${matcher}\0${cmd}`),
           exported: 1,
           run_order: rank * 100 + pos
         });
         const at = out2.symbols.length - 1;
         if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
+          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
-          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
+          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
       }
     }
@@ -34848,7 +35211,7 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 2;
+var EXTRACTOR_VERSION = 4;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
@@ -34871,10 +35234,10 @@ function shortName(kind, qualifiedName) {
   return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
 }
 function namesOf(kind, qualifiedName, path) {
-  return kind === "module" ? [basename5(path), path] : [shortName(kind, qualifiedName)];
+  return kind === "module" ? [basename6(path), path] : [shortName(kind, qualifiedName)];
 }
 function readSource(repoPath, relPath) {
-  return readFileSync6(join13(repoPath, relPath), "utf8");
+  return readFileSync6(join14(repoPath, relPath), "utf8");
 }
 function sourceLanguage(repoPath, relPath, sizeBytes) {
   if (sizeBytes > MAX_PARSE_BYTES) return null;
@@ -34973,7 +35336,7 @@ var Resolver = class {
       if (s.kind === "module") {
         this.modules.set(s.path, c.id);
         this.fileSet.add(s.path);
-        push(this.byBase, basename5(s.path), c);
+        push(this.byBase, basename6(s.path), c);
       } else {
         push(this.byName, shortName(s.kind, s.qualified_name), c);
       }
@@ -35045,6 +35408,13 @@ function registrationChains(repoPath) {
     return /* @__PURE__ */ new Map();
   }
 }
+function routerTable(repoPath) {
+  try {
+    return readSource(repoPath, ROUTER_TABLE_PATH);
+  } catch {
+    return "";
+  }
+}
 var toPending = (r) => ({
   from: r.path,
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
@@ -35084,7 +35454,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -35103,7 +35473,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     }
     try {
       const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
       parsed.push({ file: file2, extraction });
     } catch (e) {
       failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
@@ -35319,7 +35689,7 @@ function staleFiles(db, files) {
       `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
       [f.repo, f.path]
     );
-    const disk = fileMd5(join13(root, f.path));
+    const disk = fileMd5(join14(root, f.path));
     checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
   }
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
@@ -35809,7 +36179,7 @@ function derivedChain(db, repo, query, candidates = keywordSearchSymbols(db, rep
 // src/tools/milestones.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync5, readFileSync as readFileSync7 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -36033,10 +36403,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join14(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join14(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join14(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join14(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join15(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join15(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join15(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join15(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -36108,21 +36478,21 @@ function wrap(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname7(fileURLToPath4(import.meta.url));
+  const here = dirname8(fileURLToPath4(import.meta.url));
   const candidates = [
-    join15(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join15(here, "..", "..", "..", "scripts", "scan.sh")
+    join16(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join16(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync6(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join15(pluginRoot, "scripts", "scan.sh");
+    const c = join16(pluginRoot, "scripts", "scan.sh");
     if (existsSync6(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs, dbPath = "") {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const env = dbPath && dbPath !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
     const child = spawn("bash", [script, sessionDir], {
       cwd: sessionDir,
@@ -36175,7 +36545,7 @@ function runScanWithScript(script, sessionDir, timeoutMs, dbPath = "") {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
@@ -36217,7 +36587,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename6(p) {
+function basename7(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -36242,14 +36612,14 @@ function deriveDirectoryEntries(out2) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename6(f.path));
+      entry.file_names.push(basename7(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename6(dirPath);
-  const join17 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename7(dirPath);
+  const join18 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -36260,16 +36630,16 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join17(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join18(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join17(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join18(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join15(absDirPath, name2);
+    const readmePath = join16(absDirPath, name2);
     if (!existsSync6(readmePath)) continue;
     try {
       return { name: name2, text: readFileSync8(readmePath, "utf8") };
@@ -36304,7 +36674,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join15(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join16(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -36323,13 +36693,13 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename6(entry.path));
-    else subdirsByParent.set(key, [basename6(entry.path)]);
+    if (list) list.push(basename7(entry.path));
+    else subdirsByParent.set(key, [basename7(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join15(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join16(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -36383,7 +36753,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join15(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join16(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -36408,7 +36778,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join15(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join16(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -36422,7 +36792,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename6(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename7(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -36705,7 +37075,7 @@ function acquireLock(lockPath) {
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
-function releaseLock(lockPath) {
+function releaseLock2(lockPath) {
   try {
     unlinkSync2(lockPath);
   } catch {
@@ -36761,7 +37131,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         if (!graph && graphOpenError) {
           return err4(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join15(dirname7(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join16(dirname8(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36841,7 +37211,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             warnings
           });
         } finally {
-          if (lockPath) releaseLock(lockPath);
+          if (lockPath) releaseLock2(lockPath);
         }
       })
     ),
@@ -36903,7 +37273,7 @@ function resolveRepoDefaultBranch(repoPath) {
 
 // src/tools/world_model.ts
 import { readFileSync as readFileSync9, realpathSync as realpathSync6 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join16, relative as relative4, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute7, join as join17, relative as relative5, sep as sep4 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -37103,12 +37473,12 @@ function symbolSource(db, symbol2) {
   let file2;
   try {
     root = realpathSync6(rootArg);
-    file2 = realpathSync6(join16(root, symbol2.path));
+    file2 = realpathSync6(join17(root, symbol2.path));
   } catch {
     return { source: null, source_reason: "file-missing" };
   }
-  const rel = relative4(root, file2);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep3}`) || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
+  const rel = relative5(root, file2);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute7(rel)) return { source: null, source_reason: "outside-repo-root" };
   let lines2;
   try {
     lines2 = readFileSync9(file2, "utf8").split("\n");
@@ -37271,6 +37641,7 @@ function wrap2(fn) {
   };
 }
 var LOGGED_ARGS = ["query", "path", "id", "qualified_name", "name", "mode", "depth", "repo", "k"];
+var TOOL_LOGGED_ARGS = { world_model_symbol: ["impact", "source"] };
 function treeNodeCount(node) {
   const children = Array.isArray(node["children"]) ? node["children"] : [];
   const files = Array.isArray(node["files"]) ? node["files"].length : 0;
@@ -37315,7 +37686,9 @@ function recordToolCall(db, tool2, args2, result2, latencyMs) {
       tool: tool2,
       agent,
       task_id: task?.task_id ?? null,
-      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])),
+      args: Object.fromEntries(
+        [...LOGGED_ARGS, ...TOOL_LOGGED_ARGS[tool2] ?? []].filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])
+      ),
       result_count: resultCount,
       empty: error2 || resultCount === 0,
       error: error2,
@@ -37443,7 +37816,7 @@ function worldModelTools(db, graphHolder) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37736,8 +38109,7 @@ var IDENTITY_KEYS = /* @__PURE__ */ new Set([
   "agent",
   "author",
   "provenance",
-  "role",
-  "verified_human"
+  "role"
 ]);
 var OUT_OF_SCOPE_TOOL = /^(?:agent|branch|cheatcode|config|discussion|issue|milestone|onboard|pr_monitor|report|repos|roundtable|scan|skill|stats|task|validation|worktree)(?:_|$)/;
 var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([

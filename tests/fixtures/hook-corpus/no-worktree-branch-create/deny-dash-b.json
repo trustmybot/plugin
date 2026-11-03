@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cd /tmp && git worktree add -B feat/x ../x HEAD"
+  },
+  "corpus_cwd": "project",
+  "corpus_expect": "cannot create a branch"
+}

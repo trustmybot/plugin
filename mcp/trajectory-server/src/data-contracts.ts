@@ -15,9 +15,13 @@
  * that leaves the report healthy, because absent inputs are no evidence of a
  * fault.
  */
+import { type Dirent, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
-import { HAS_PASS_SQL, STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
+import { HAS_PASS_SQL, reviewSkipAuthoredSql } from './review-sql.js';
+import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
+import { isProseFile } from './prose-files.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX } from './symbol-index.js';
 
@@ -96,6 +100,22 @@ export function noOtherTrajectoryDbs(env: NodeJS.ProcessEnv, ctx: FileCheckConte
     actual: others.length,
     sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks })),
   };
+}
+
+const SCRATCH_PROSE_SAMPLE = 10;
+
+export function scratchNoProse(_env: NodeJS.ProcessEnv, ctx: FileCheckContext): FileCheckResult {
+  if (ctx.dbPath === undefined) return { skipped: 'the checked DB has no file behind it' };
+  const scratch = join(dirname(ctx.dbPath), 'scratch');
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(scratch, { recursive: true, withFileTypes: true });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { actual: 0, sample: [] };
+    return { skipped: `the scratch folder cannot be read: ${(e as Error).message}` };
+  }
+  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join(e.parentPath, e.name)).sort();
+  return { actual: prose.length, sample: prose.slice(0, SCRATCH_PROSE_SAMPLE).map((path) => ({ path })) };
 }
 
 export interface NullableColumn {
@@ -483,6 +503,19 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES}) ORDER BY i.id DESC, t.id LIMIT 5`,
     },
     {
+      id: 'issues_open_after_remote_close',
+      severity: 'warn',
+      description: 'no open issue carries an issue_remote_closed_local_open audit row (issue_reconcile_remote found its GitHub/GitLab twin closed but left it open for live tasks): once those tasks close, rerun issue_reconcile_remote to close it',
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, ${auditField('a', 'remote_iid')} AS remote_iid, ${auditField('a', 'blocking_task_ids')} AS blocking_task_ids
+             FROM issues i JOIN audit a ON a.issue_id = i.id
+             WHERE i.status = 'open' AND a.event_type = 'issue_remote_closed_local_open'
+               AND a.id = (SELECT MAX(b.id) FROM audit b WHERE b.issue_id = i.id AND b.event_type = 'issue_remote_closed_local_open')
+             ORDER BY i.id DESC LIMIT 5`,
+    },
+    {
       id: 'concepts_trusted',
       severity: 'warn',
       min_schema: CONCEPTS_SCHEMA,
@@ -545,6 +578,14 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks — each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
       expect: { op: '=', value: 0 },
       check: noOtherTrajectoryDbs,
+    },
+    {
+      source: 'files',
+      id: 'scratch_no_prose',
+      severity: 'warn',
+      description: 'no prose file (.md, .markdown, .txt, .rst) sits under the scratch folder beside the checked DB, at any depth: plans, decisions, specs and drafts live in the trajectory DB, so move each sampled file there with issue_update_description, discussion_append or task_update_spec, then delete it. Skipped when the checked DB has no file behind it',
+      expect: { op: '=', value: 0 },
+      check: scratchNoProse,
     },
   ];
 }

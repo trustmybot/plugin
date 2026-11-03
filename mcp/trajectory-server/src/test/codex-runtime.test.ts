@@ -212,7 +212,7 @@ describe('Codex runtime manager', () => {
       assert.equal(created.project_root, realpathSync(project));
       assert.equal(created.plugin_name, plugin.name);
       assert.equal(created.plugin_version, plugin.version);
-      assert.equal(created.schema_version, 52);
+      assert.equal(created.schema_version, 55);
       assert.equal(created.graph_available, true);
       assert.equal(created.graph_status, 'ready');
       assert.equal(created.graph_db, created.trajectory_db);
@@ -864,7 +864,6 @@ describe('Codex tool surface', () => {
       for (const identity of [
         'agent',
         'author',
-        'verified_human',
         'role',
         'provenance',
       ]) {
@@ -881,6 +880,7 @@ describe('Codex tool surface', () => {
         );
       }
       for (const remoteArgument of [
+        { verified_human: true },
         { remote_iid: 1171 },
         { remote_backend: 'github' },
         { issue_sync: 'gh' },
@@ -930,6 +930,12 @@ describe('Codex tool surface', () => {
       assert.equal(excluded.isError, true);
       assert.equal(
         ((toolPayload(excluded)['error'] as Record<string, unknown>)['code']),
+        'out_of_scope_operation',
+      );
+      const reconcile = await registry.call('issue_reconcile_remote', { dry_run: true });
+      assert.equal(reconcile.isError, true);
+      assert.equal(
+        ((toolPayload(reconcile)['error'] as Record<string, unknown>)['code']),
         'out_of_scope_operation',
       );
       assert.equal(existsSync(join(project, '.tmb')), false);

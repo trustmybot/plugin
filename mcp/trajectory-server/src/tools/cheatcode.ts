@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,52 +7,43 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import type { AuditEventType } from '../audit-events.js';
-import { outsideProject, projectRootFromDbPath, projectSpawnOptions } from './containment.js';
+import { outsideProject, projectRootFromDbPath } from './containment.js';
 import { reconcileNow } from './cheatcode-reconcile.js';
+import type { CheatcodeRunOptions } from './cheatcode-runtime.js';
+import { cheatcodeSearch } from './cheatcode-search.js';
+import { cheatcodeVet } from './cheatcode-vet.js';
+import { cheatcodeInstall, type CheatcodeScope, type InstallAttachment } from './cheatcode-install.js';
+import { cheatcodeUninstall } from './cheatcode-uninstall.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 type CheatcodeKind = 'skill' | 'mcp' | 'plugin' | 'any';
 
-interface Candidate {
-  name: string;
-  kind: string;
-  source_url: string;
-  score: number;
-  signals: {
-    registry: string;
-    tier: number;
-    relevance: number;
-  };
-}
+const CHEATCODE_TIMEOUT_MS = 60 * 1000;
 
-interface SearchOutput {
-  query: string;
-  kind: string;
-  candidates: Candidate[];
-}
-
-type TrustTier = 'trusted' | 'caution' | 'untrusted' | 'unknown';
-
-interface VetCandidate {
-  name: string;
-  kind: string;
-  source_url: string;
-  tier: number | null;
-}
-
-interface VetOutput {
-  candidate: VetCandidate;
-  signals: {
-    reputation: { registry_tier: number | null; stars: number | null; forks: number | null };
-    maintenance: { pushed_at: string | null; archived: boolean; active: boolean | null };
-    license: string | null;
-    maintainer: { login: string | null; type: string | null };
-    security_surface: { code_execution: boolean; network: boolean; fs_writes: boolean };
-  };
-  trust_tier: TrustTier;
-  rationale: string;
-  capabilities: string[];
+// Runs one cheatcode engine in-process under the tools' one-minute ceiling; on timeout its fetches and CLI calls are aborted.
+export async function runCheatcodeEngine<T>(
+  label: string,
+  projectRoot: string,
+  run: (opts: CheatcodeRunOptions) => Promise<T>,
+  timeoutMs = CHEATCODE_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+    }, timeoutMs);
+  });
+  const work = run({ projectRoot, signal: controller.signal }).catch((e: unknown) => {
+    throw new Error(`${label} failed: ${(e as Error).message}`);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function ok(data: unknown): CallToolResult {
@@ -77,325 +67,7 @@ function wrap(fn: Fn): Fn {
   };
 }
 
-// Locate a scripts/<name> file relative to this compiled module. Plugin layout:
-//   <plugin>/mcp/trajectory-server/dist/tools/cheatcode.js
-//   <plugin>/scripts/<name>
-// Walking up four levels lands at the plugin root (mirrors scan.ts).
-function resolveScriptsFile(name: string): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    join(here, '..', '..', '..', '..', 'scripts', name),
-    join(here, '..', '..', '..', 'scripts', name),
-  ];
-  for (const c of candidates) if (existsSync(c)) return c;
-  const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
-  if (pluginRoot) {
-    const c = join(pluginRoot, 'scripts', name);
-    if (existsSync(c)) return c;
-  }
-  throw new Error(`${name} not found — expected at <plugin>/scripts/${name}`);
-}
-
-const resolveSearchScript = (): string => resolveScriptsFile('cheatcode-search.sh');
-const resolveVetScript = (): string => resolveScriptsFile('cheatcode-vet.sh');
-
-const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-const VET_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-
-export function runSearchWithScript(
-  script: string,
-  query: string,
-  kind: CheatcodeKind,
-  timeoutMs: number,
-  projectRoot: string,
-): Promise<SearchOutput> {
-  return new Promise<SearchOutput>((resolve, reject) => {
-    const child = spawn('bash', [script, '--query', query, '--kind', kind], {
-      ...projectSpawnOptions(projectRoot),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // already exited
-      }
-      reject(new Error('cheatcode-search.sh timed out after 60 seconds'));
-    }, timeoutMs);
-
-    child.on('error', (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
-        return;
-      }
-      let parsed: SearchOutput;
-      try {
-        parsed = JSON.parse(stdout) as SearchOutput;
-      } catch {
-        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!Array.isArray(parsed.candidates)) {
-        reject(new Error('cheatcode-search.sh emitted unexpected shape (missing candidates[])'));
-        return;
-      }
-      resolve(parsed);
-    });
-  });
-}
-
-const VALID_TIERS: ReadonlySet<TrustTier> = new Set<TrustTier>([
-  'trusted',
-  'caution',
-  'untrusted',
-  'unknown',
-]);
-
-export function runVetWithScript(
-  script: string,
-  candidate: { name: string; kind: string; source_url: string; tier?: number },
-  timeoutMs: number,
-  projectRoot: string,
-): Promise<VetOutput> {
-  return new Promise<VetOutput>((resolve, reject) => {
-    const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // already exited
-      }
-      reject(new Error('cheatcode-vet.sh timed out after 60 seconds'));
-    }, timeoutMs);
-
-    child.on('error', (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-vet.sh spawn error: ${e.message}`));
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-vet.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
-        return;
-      }
-      let parsed: VetOutput;
-      try {
-        parsed = JSON.parse(stdout) as VetOutput;
-      } catch {
-        reject(new Error(`cheatcode-vet.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== 'object' || !VALID_TIERS.has(parsed.trust_tier)) {
-        reject(new Error('cheatcode-vet.sh emitted unexpected shape (missing/invalid trust_tier)'));
-        return;
-      }
-      if (!Array.isArray(parsed.capabilities)) {
-        reject(new Error('cheatcode-vet.sh emitted unexpected shape (missing capabilities[])'));
-        return;
-      }
-      resolve(parsed);
-    });
-  });
-}
-
 const PROPOSED_PR_TARGET = 'proposed-pr';
-
-interface InstallAttachment {
-  target: string;
-  artifact: string;
-}
-
-type CheatcodeScope = 'local' | 'global';
-
-interface InstallOutput {
-  candidate: { name: string; kind: string; source_url: string; tier: number | null };
-  installed: boolean;
-  version: string | null;
-  scope: CheatcodeScope;
-  method: string;
-  attachments: InstallAttachment[];
-  proposed_pr: Record<string, unknown> | null;
-  error: string | null;
-}
-
-export function runInstallWithScript(
-  script: string,
-  candidate: { name: string; kind: string; source_url: string; tier?: number },
-  scope: CheatcodeScope,
-  timeoutMs: number,
-  projectRoot: string,
-): Promise<InstallOutput> {
-  return new Promise<InstallOutput>((resolve, reject) => {
-    const child = spawn(
-      'bash',
-      [script, '--candidate', JSON.stringify(candidate), '--scope', scope],
-      { ...projectSpawnOptions(projectRoot), stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // already exited
-      }
-      reject(new Error('cheatcode-install.sh timed out after 60 seconds'));
-    }, timeoutMs);
-
-    child.on('error', (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-install.sh spawn error: ${e.message}`));
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-install.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
-        return;
-      }
-      let parsed: InstallOutput;
-      try {
-        parsed = JSON.parse(stdout) as InstallOutput;
-      } catch {
-        reject(new Error(`cheatcode-install.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.attachments)) {
-        reject(new Error('cheatcode-install.sh emitted unexpected shape (missing attachments[])'));
-        return;
-      }
-      resolve(parsed);
-    });
-  });
-}
-
-const resolveInstallScript = (): string => resolveScriptsFile('cheatcode-install.sh');
-const INSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-
-interface UninstallOutput {
-  candidate: { name: string; kind: string; source_url: string; tier: number | null };
-  removed: boolean;
-  method: string;
-  error: string | null;
-}
-
-export function runUninstallWithScript(
-  script: string,
-  candidate: { name: string; kind: string; source_url: string; tier?: number },
-  timeoutMs: number,
-  projectRoot: string,
-): Promise<UninstallOutput> {
-  return new Promise<UninstallOutput>((resolve, reject) => {
-    const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // already exited
-      }
-      reject(new Error('cheatcode-uninstall.sh timed out after 60 seconds'));
-    }, timeoutMs);
-
-    child.on('error', (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-uninstall.sh spawn error: ${e.message}`));
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-uninstall.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
-        return;
-      }
-      let parsed: UninstallOutput;
-      try {
-        parsed = JSON.parse(stdout) as UninstallOutput;
-      } catch {
-        reject(new Error(`cheatcode-uninstall.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== 'object' || typeof parsed.method !== 'string') {
-        reject(new Error('cheatcode-uninstall.sh emitted unexpected shape (missing method)'));
-        return;
-      }
-      resolve(parsed);
-    });
-  });
-}
-
-const resolveUninstallScript = (): string => resolveScriptsFile('cheatcode-uninstall.sh');
-const UNINSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 
 const INSTALLABLE_KINDS = new Set<CheatcodeKind>(['skill', 'mcp', 'plugin']);
 
@@ -450,7 +122,7 @@ export { projectRootFromDbPath };
 
 // Resolve the GLOBAL agent md the install copies from. The plugin ships its
 // agents at ${CLAUDE_PLUGIN_ROOT}/agents/<target>.md; fall back to the on-disk
-// layout four levels up from this compiled module (mirrors resolveScriptsFile).
+// layout four levels up from this compiled module.
 function resolveGlobalAgentMd(target: string): string | null {
   const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
   if (pluginRoot) {
@@ -761,7 +433,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_search',
       description:
-        'Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
+        'Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Runs in-process (queries tiered registries, ranks by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -782,7 +454,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_vet',
       description:
-        'Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Forks scripts/cheatcode-vet.sh, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).',
+        'Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Runs in-process, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -827,7 +499,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+        'Install ONE approved cheatcode via the marketplace path (no seeding). Runs in-process, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url); a target not yet attached to an already-registered skill/plugin is attached (approval-gated, materialized, attachment row added) and returns attached:true. Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -865,7 +537,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_uninstall',
       description:
-        'Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: forks scripts/cheatcode-uninstall.sh to reverse each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent — an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.',
+        'Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: reverses each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent — an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -942,7 +614,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           ? (rawKind as CheatcodeKind)
           : 'any';
 
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
+        const out = await runCheatcodeEngine('cheatcode_search', scriptRoot(), (o) => cheatcodeSearch({ query, kind }, o));
 
         auditCheatcode(
           'cheatcode_search',
@@ -981,7 +653,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
         };
         if (typeof tierVal === 'number') candidate.tier = tierVal;
 
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
+        const out = await runCheatcodeEngine('cheatcode_vet', scriptRoot(), (o) => cheatcodeVet({ candidate }, o));
 
         auditCheatcode(
           'cheatcode_vet',
@@ -1055,43 +727,25 @@ export function cheatcodeTools(db: TrajectoryDB): {
           );
         }
 
-        // Idempotent re-install: the (name, source_url) pair is the candidate
-        // identity. If it is already installed, no-op — never duplicate the row
-        // or re-run the marketplace install.
-        const existing = db.get<CheatcodeRow>(
-          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name, sourceUrl],
-        );
-        if (existing) {
-          const attachments = db.all<{ target: string; artifact: string }>(
-            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-            [existing.id],
+        // Server-side approval gate (#1023): fail-closed. The install (or an
+        // attach to an existing row) only runs when a matching
+        // `cheatcode_approved` audit row exists for this candidate's source_url —
+        // the same row cheatcode_approve writes. The check is self-contained here
+        // so the gate holds even without the hook.
+        const approvalRefusal = (): CallToolResult | null => {
+          const approval = db.get<{ id: number }>(
+            `SELECT id FROM audit
+               WHERE event_type = 'cheatcode_approved'
+                 AND json_extract(content_json, '$.source_url') = ?
+             LIMIT 1`,
+            [sourceUrl],
           );
-          return ok({
-            installed: false,
-            idempotent: true,
-            cheatcode: existing,
-            attachments,
-          });
-        }
-
-        // Server-side approval gate (#1023): fail-closed. The install only runs
-        // when a matching `cheatcode_approved` audit row exists for this
-        // candidate's source_url — the same row cheatcode_approve writes. The
-        // check is self-contained here so the gate holds even without the hook.
-        const approval = db.get<{ id: number }>(
-          `SELECT id FROM audit
-             WHERE event_type = 'cheatcode_approved'
-               AND json_extract(content_json, '$.source_url') = ?
-           LIMIT 1`,
-          [sourceUrl],
-        );
-        if (!approval) {
+          if (approval) return null;
           return err(
             `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
               `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`,
           );
-        }
+        };
 
         const projectRoot = projectRootFromDbPath(db.dbPath);
         const writesOutside = (targets: Iterable<string>): CallToolResult | null => {
@@ -1106,6 +760,85 @@ export function cheatcodeTools(db: TrajectoryDB): {
           }
           return null;
         };
+
+        // The (name, source_url) pair is the candidate identity. An existing row
+        // never duplicates or re-runs the marketplace install: with no target, or
+        // with a target already attached, it no-ops. A skill/plugin target with
+        // no attachment row yet is attached to the existing row, whose
+        // cheatcodes row stays unchanged.
+        const existing = db.get<CheatcodeRow>(
+          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
+          [name, sourceUrl],
+        );
+        if (existing) {
+          const listAttachments = () =>
+            db.all<{ target: string; artifact: string }>(
+              `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+              [existing.id],
+            );
+          const attachments = listAttachments();
+          if (
+            target === null ||
+            (existing.kind !== 'skill' && existing.kind !== 'plugin') ||
+            attachments.some((a) => a.target === target)
+          ) {
+            return ok({
+              installed: false,
+              idempotent: true,
+              cheatcode: existing,
+              attachments,
+            });
+          }
+
+          const refusedAttachApproval = approvalRefusal();
+          if (refusedAttachApproval) return refusedAttachApproval;
+          const refusedAttachTarget = writesOutside([target]);
+          if (refusedAttachTarget) return refusedAttachTarget;
+
+          const providedTools =
+            existing.kind === 'plugin' && target !== 'bro' ? detectProvidedTools(name) : [];
+          const result = materializeConsumingAgent(db.dbPath, target, name, providedTools);
+          if (!result) {
+            return err(
+              `cheatcode attach failed for '${name}' → ${target}: no project root or agent md to materialize. No attachment recorded.`,
+            );
+          }
+
+          const attachedAt = nowISO();
+          db.transaction(() => {
+            db.run(
+              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`,
+              [existing.id, result.target, result.artifact, attachedAt],
+            );
+            auditCheatcode(
+              'cheatcode_installed',
+              `Cheatcode attached: '${name}' → ${result.target} (cheatcode_id=${existing.id})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name,
+                kind: existing.kind,
+                source_url: sourceUrl,
+                attached: true,
+                target: result.target,
+                artifact: result.artifact,
+              }),
+              attachedAt,
+            );
+          });
+
+          return ok({
+            installed: false,
+            attached: true,
+            cheatcode: existing,
+            attachments: listAttachments(),
+            materialized: [{ target: result.target, artifact: result.artifact, path: result.path }],
+          });
+        }
+
+        const refusedApproval = approvalRefusal();
+        if (refusedApproval) return refusedApproval;
+
         const refusedBeforeInstall = writesOutside(target ? [target] : []);
         if (refusedBeforeInstall) return refusedBeforeInstall;
 
@@ -1116,12 +849,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
         };
         if (typeof tier === 'number') candidate.tier = tier;
 
-        const out = await runInstallWithScript(
-          resolveInstallScript(),
-          candidate,
-          scope,
-          INSTALL_TIMEOUT_MS,
-          scriptRoot(),
+        const out = await runCheatcodeEngine('cheatcode_install', scriptRoot(), (o) =>
+          cheatcodeInstall({ candidate, scope }, o),
         );
 
         // No-phantom-row guard (#148): a plugin/mcp install that the marketplace
@@ -1303,19 +1032,16 @@ export function cheatcodeTools(db: TrajectoryDB): {
           [existing.id],
         );
 
-        // Reverse the attachment via the forked uninstall path (marketplace /
-        // plugin uninstall — no manual file deletion). One spawn reverses the
-        // candidate; the per-kind method mirrors the install attachment surface.
+        // Reverse the attachment via the marketplace / plugin uninstall path (no
+        // manual file deletion). One engine call reverses the candidate; the
+        // per-kind method mirrors the install attachment surface.
         const candidate: { name: string; kind: string; source_url: string } = {
           name: existing.name,
           kind: existing.kind,
           source_url: existing.source_url ?? '',
         };
-        const reversal = await runUninstallWithScript(
-          resolveUninstallScript(),
-          candidate,
-          UNINSTALL_TIMEOUT_MS,
-          scriptRoot(),
+        const reversal = await runCheatcodeEngine('cheatcode_uninstall', scriptRoot(), (o) =>
+          cheatcodeUninstall({ candidate }, o),
         );
 
         // Honesty gate (#114): only delete the install + attachment rows when the

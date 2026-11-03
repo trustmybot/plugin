@@ -7,5 +7,6 @@
     "command": "gh pr create --title x --body 'Closes #5'",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "#5 → #42 (GitHub)"
 }

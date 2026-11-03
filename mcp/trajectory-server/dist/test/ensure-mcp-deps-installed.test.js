@@ -18,7 +18,6 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.
 const SERVER_DIR = join(PLUGIN_ROOT, 'mcp/trajectory-server');
 const RUNTIME_DEPS = join(SERVER_DIR, 'runtime-deps');
 const HOOKS_BUNDLE = join(SERVER_DIR, 'dist/hooks.js');
-const HOOK_SH = join(PLUGIN_ROOT, 'scripts/hooks/ensure-mcp-deps-installed.sh');
 const PKG = '@huggingface/transformers';
 const DATA_ARGS = 'install --frozen-lockfile --production --ignore-scripts';
 const LEGACY_BUN_ARGS = 'install --production --ignore-scripts --no-save';
@@ -173,24 +172,13 @@ function runNode(env) {
         throw r.error;
     return { code: r.status, stdout: r.stdout };
 }
-function runBash(env) {
-    const r = spawnSync('/bin/bash', [HOOK_SH], {
-        input: '{"hook_event_name":"SessionStart","session_id":"s1"}',
-        env,
-        cwd: base,
-        encoding: 'utf8',
-    });
-    if (r.error)
-        throw r.error;
-    return { code: r.status, stdout: r.stdout };
-}
 function context(stdout) {
     return JSON.parse(stdout).hookSpecificOutput.additionalContext;
 }
 function bridgeTarget(dataDir, key = runtimeDepsKey()) {
     return join(dataDir, 'deps', key, 'node_modules', PKG);
 }
-/** A PATH of symlinks to the tools the .sh needs, plus the stub dir: no real bun or npm. */
+/** A PATH of symlinks to the base tools, plus the stub dir: no real bun or npm. */
 function toolPath(stubDir) {
     const tools = dir('tools');
     for (const tool of ['jq', 'dirname', 'basename', 'find', 'mkdir', 'rmdir', 'date', 'sqlite3', 'od', 'tr', 'cat', 'sed', 'awk', 'grep', 'head', 'env', 'sleep']) {
@@ -785,84 +773,65 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
             assert.ok(isValidInstall(join(data, 'deps', runtimeDepsKey())));
         });
     });
-    describe('edge cases match the .sh', () => {
+    describe('edge cases the gate kept from its bash original (GH 1692)', () => {
         let path;
         before(() => {
             path = toolPath(bunDir);
         });
-        /** Runs the .sh, then the gate, on one fake root; `wait` names the lock each run's install drops. */
-        function both(name, env, wait) {
+        /** Runs the gate on a fake root; `wait` names the lock its install drops. */
+        function gate(name, env, wait) {
             const root = fakeRoot(dir('edge', name));
             const project = dir('edge', `${name}-project`);
-            return ['bash', 'node'].map((impl) => {
-                const rec = join(base, `edge-${name}-${impl}.rec`);
-                const full = {
-                    PATH: path,
-                    STUB_RECORD: rec,
-                    CLAUDE_PLUGIN_ROOT: root,
-                    CLAUDE_PROJECT_DIR: project,
-                    TMB_FORBID_LIVE_SYNC: '1',
-                    ...env,
-                };
-                for (const [k, v] of Object.entries(full))
-                    if (v === undefined)
-                        delete full[k];
-                const out = impl === 'bash' ? runBash(full) : runNode(full);
-                if (wait)
-                    waitUnlocked(wait(root));
-                return { out, rec: records(rec), root };
-            });
-        }
-        function sameOutput(runs) {
-            const [bash, node] = runs;
-            assert.equal(node.out.code, bash.out.code, 'exit code');
-            assert.deepEqual(node.out.stdout === '' ? null : JSON.parse(node.out.stdout), bash.out.stdout === '' ? null : JSON.parse(bash.out.stdout), 'stdout');
+            const rec = join(base, `edge-${name}.rec`);
+            const full = {
+                PATH: path,
+                STUB_RECORD: rec,
+                CLAUDE_PLUGIN_ROOT: root,
+                CLAUDE_PROJECT_DIR: project,
+                TMB_FORBID_LIVE_SYNC: '1',
+                ...env,
+            };
+            for (const [k, v] of Object.entries(full))
+                if (v === undefined)
+                    delete full[k];
+            const out = runNode(full);
+            if (wait)
+                waitUnlocked(wait(root));
+            return { out, rec: records(rec), root };
         }
         it('TMB_SKIP_MCP_DEPS_INSTALL=1 → no-op', () => {
-            const runs = both('bypass', { TMB_SKIP_MCP_DEPS_INSTALL: '1', CLAUDE_PLUGIN_DATA: dir('edge/bypass-data') });
-            sameOutput(runs);
-            for (const r of runs) {
-                assert.equal(r.out.stdout, '');
-                assert.deepEqual(r.rec, []);
-            }
+            const r = gate('bypass', { TMB_SKIP_MCP_DEPS_INSTALL: '1', CLAUDE_PLUGIN_DATA: dir('edge/bypass-data') });
+            assert.equal(r.out.code, 0);
+            assert.equal(r.out.stdout, '');
+            assert.deepEqual(r.rec, []);
         });
         it('unset CLAUDE_PLUGIN_ROOT → exit 0, no output', () => {
-            const runs = both('noroot', { CLAUDE_PLUGIN_ROOT: undefined, CLAUDE_PLUGIN_DATA: dir('edge/noroot-data') });
-            sameOutput(runs);
-            for (const r of runs) {
-                assert.equal(r.out.code, 0);
-                assert.equal(r.out.stdout, '');
-                assert.deepEqual(r.rec, []);
-            }
+            const r = gate('noroot', { CLAUDE_PLUGIN_ROOT: undefined, CLAUDE_PLUGIN_DATA: dir('edge/noroot-data') });
+            assert.equal(r.out.code, 0);
+            assert.equal(r.out.stdout, '');
+            assert.deepEqual(r.rec, []);
         });
         it('missing MCP dir → exit 0, no output', () => {
-            const runs = ['bash', 'node'].map((impl) => {
-                const root = dir('edge/nomcp', impl);
-                const rec = join(base, `edge-nomcp-${impl}.rec`);
-                const env = { PATH: path, STUB_RECORD: rec, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: dir('edge/nomcp-data'), TMB_FORBID_LIVE_SYNC: '1' };
-                return { out: impl === 'bash' ? runBash(env) : runNode(env), rec: records(rec) };
-            });
-            sameOutput(runs);
-            for (const r of runs) {
-                assert.equal(r.out.stdout, '');
-                assert.deepEqual(r.rec, []);
-            }
+            const rec = join(base, 'edge-nomcp.rec');
+            const out = runNode({ PATH: path, STUB_RECORD: rec, CLAUDE_PLUGIN_ROOT: dir('edge/nomcp/node'), CLAUDE_PLUGIN_DATA: dir('edge/nomcp-data'), TMB_FORBID_LIVE_SYNC: '1' });
+            assert.equal(out.code, 0);
+            assert.equal(out.stdout, '');
+            assert.deepEqual(records(rec), []);
         });
-        it('unset CLAUDE_PLUGIN_DATA → the legacy install in the MCP dir, same flags and notice', () => {
-            const runs = both('nodata', { CLAUDE_PLUGIN_DATA: undefined }, (root) => join(root, 'mcp/trajectory-server/.deps-install.lock'));
-            sameOutput(runs);
-            assert.match(context(runs[1].out.stdout), /^📦 Installing the MCP server's @huggingface\/transformers in the background \(bun\)/);
-            for (const r of runs) {
-                assert.equal(r.rec.length, 1);
-                assert.equal(r.rec[0][2], LEGACY_BUN_ARGS);
-                assert.equal(realpathSync(r.rec[0][0]), realpathSync(join(r.root, 'mcp/trajectory-server')));
-            }
+        it('unset CLAUDE_PLUGIN_DATA → the legacy install in the MCP dir, its flags and notice', () => {
+            const r = gate('nodata', { CLAUDE_PLUGIN_DATA: undefined }, (root) => join(root, 'mcp/trajectory-server/.deps-install.lock'));
+            assert.equal(r.out.code, 0);
+            assert.match(context(r.out.stdout), /^📦 Installing the MCP server's @huggingface\/transformers in the background \(bun\)/);
+            assert.equal(r.rec.length, 1);
+            assert.equal(r.rec[0][2], LEGACY_BUN_ARGS);
+            assert.equal(realpathSync(r.rec[0][0]), realpathSync(join(r.root, 'mcp/trajectory-server')));
         });
-        it('unset CLAUDE_PLUGIN_DATA and no package manager → the same manual-command notice', () => {
+        it('unset CLAUDE_PLUGIN_DATA and no package manager → the manual-command notice', () => {
             const tools = path.split(':')[1];
-            const runs = both('nodata-nopm', { CLAUDE_PLUGIN_DATA: undefined, PATH: tools });
-            sameOutput(runs);
-            assert.match(context(runs[1].out.stdout), /or run: cd ".*" && bun install --production --ignore-scripts --no-save$/);
+            const r = gate('nodata-nopm', { CLAUDE_PLUGIN_DATA: undefined, PATH: tools });
+            assert.equal(r.out.code, 0);
+            assert.match(context(r.out.stdout), /or run: cd ".*" && bun install --production --ignore-scripts --no-save$/);
+            assert.deepEqual(r.rec, []);
         });
     });
 });

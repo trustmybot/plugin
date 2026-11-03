@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"please just do it"},"corpus_expect":"requires task_id=<N> in the prompt"}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-brief-gate.sh
+# Tests for the TypeScript swe-brief-gate gate
 #
 # Hook contract: deny-until-briefed gate for SWE subagents.
 # SWE must call task_brief before any other trajectory-server MCP tool.
@@ -9,7 +9,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/swe-brief-gate.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-brief-gate.sh"
+TMB_TEST_NODE="$(node -p process.execPath)"
+export TMB_TEST_NODE
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-brief-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -251,6 +253,19 @@ out=$(run_hook "$INPUT")
 assert_contains "$out" '"permissionDecision":"deny"' "Write should be denied pre-brief"
 assert_contains "$out" "task_brief" "deny reason must mention task_brief recovery"
 
+# ---- MultiEdit pre-brief: the TS gate denies it like Edit (GH 2070) ---------
+test_case "SWE caller: MultiEdit pre-brief — denied with the Edit text"
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "MultiEdit",
+  agent_transcript_path: $tr,
+  tool_input: {edits: []}
+}')
+out=$(run_hook "$INPUT")
+assert_contains "$out" '"permissionDecision":"deny"' "MultiEdit should be denied pre-brief"
+assert_contains "$out" "BLOCKED: SWE must call task_brief(agent='swe', task_id=50) before MultiEdit. task_brief delivers the spec" "MultiEdit gets the Edit deny text"
+
 # ---- Read allowed pre-brief -------------------------------------------------
 test_case "SWE caller: Read allowed pre-brief (read-only exploration is legitimate)"
 TR=$(make_transcript 50)
@@ -294,6 +309,14 @@ INPUT=$(jq -n --arg tr "$TR" '{
 }')
 out=$(run_hook "$INPUT")
 assert_not_contains "$out" '"permissionDecision":"deny"' "Edit must be allowed after task_brief"
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "MultiEdit",
+  agent_transcript_path: $tr,
+  tool_input: {edits: []}
+}')
+out=$(run_hook "$INPUT")
+assert_eq "" "$out" "MultiEdit must be allowed after task_brief"
 
 # ---- GH 1550: identity is the spawn transcript, never the cwd ---------------
 sqlite3 "$DB" "INSERT OR IGNORE INTO tasks VALUES (70, 1, 'fix/slug-task', 'pending', 'spec');" 2>/dev/null || true

@@ -17,7 +17,7 @@ import { jqCompact } from './lib/jq.js';
 import { awkSpace, grepMultibyte, grepSpace, jqPath, jqRawOr, preToolContext } from './lib/lint-shell.js';
 import { ctypeUtf8 } from './lib/project-env.js';
 export const GATE_NAME = 'commit-msg-lint';
-const TYPES = 'feat|fix|refactor|docs|test|perf|chore|build|ci|style|revert';
+const TYPES = 'feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert';
 const SKIPPED_MODES = [' --amend', ' --no-edit', ' --fixup', ' --squash', ' --merge'];
 const AWK_FIELD_SEP = /[ \t\n]+/;
 const BUILT_MESSAGE = /\$\(|`/;

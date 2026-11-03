@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-readme",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__bro_atomic_close",
+  "tool_input": {
+    "agent": "bro",
+    "task_id": 2
+  },
+  "tool_response": {
+    "is_error": false
+  },
+  "corpus_expect": "src/lib (README.md older than the commit)"
+}

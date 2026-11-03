@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/stay-on-base-guard.sh
+# Tests for the TypeScript stay-on-base-guard gate
 #
 # Hook contract: when the main checkout is NOT inside a worktree, deny
 # `git checkout <branch>` / `git switch <branch>` when the target branch_id
@@ -15,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/stay-on-base-guard.sh"
+HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/stay-on-base-guard.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-stay-on-base-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

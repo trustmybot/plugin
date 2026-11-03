@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/wc-project",
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_divergent": "without jq the .sh reads no .branch and exits 1; the gate needs no jq and creates the worktree",
+  "corpus_expect": {
+    "bash": "has no .branch field",
+    "ts": "@SANDBOX@/ws/project/.claude/worktrees/wc-project\n"
+  }
+}

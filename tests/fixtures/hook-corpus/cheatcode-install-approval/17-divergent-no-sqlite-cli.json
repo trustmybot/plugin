@@ -1,0 +1,17 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__cheatcode_install",
+  "tool_input": {
+    "candidate": {
+      "name": "approved-skill",
+      "source_url": "https://x.test/approved"
+    }
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "decision 703: without the sqlite3 CLI the .sh denies every install as unverifiable; the port reads the approval through node:sqlite",
+  "corpus_expect": {
+    "bash": "BLOCKED: cheatcode_install approval cannot be verified",
+    "ts": "empty"
+  }
+}
