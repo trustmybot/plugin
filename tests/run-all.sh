@@ -122,6 +122,7 @@ run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE
 run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
 run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
 run_step "L1 lint: labels.json triage rule + LABELS.md generated fresh"  node --test "$HERE/l1-lint/labels.test.mjs"
+run_step "L1 lint: bug.yml matches the bug-report FORM_FIELDS"  node --test "$HERE/l1-lint/bug-form.test.mjs"
 run_step "L1 lint: new ts/tsx/sh files open with a purpose header"  node --test "$HERE/l1-lint/purpose-header.test.mjs"
 run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
