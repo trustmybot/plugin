@@ -40,7 +40,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`, `cheatcode_reconcile`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
+- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief` (its `locations` resolves the spec's backticked paths and names in the world model; a name outside the named paths and `files[]` matches only exported symbols off test and fixture paths, and `unresolved_paths` lists named paths the index lacks), `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
 - **audit**: `audit_append`, `audit_list`, `audit_search`
 - **metering backfill**: `agent_runs_backfill`
 - **data contracts**: `trajectory_doctor`
