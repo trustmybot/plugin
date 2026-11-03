@@ -45,8 +45,7 @@ export function pluginName(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
- * tmb_resolve_plugin_name (scripts/lib/resolve-plugin-name.sh): as
- * pluginName, except that an unset or empty CLAUDE_PLUGIN_ROOT reads
+ * As pluginName, except that an unset or empty CLAUDE_PLUGIN_ROOT reads
  * /.claude-plugin/plugin.json.
  */
 export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string {

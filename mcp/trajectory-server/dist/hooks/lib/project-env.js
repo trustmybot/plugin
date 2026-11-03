@@ -46,8 +46,7 @@ export function pluginName(env = process.env) {
     return root === '' ? DEFAULT_PLUGIN_NAME : manifestName(`${root}/.claude-plugin/plugin.json`);
 }
 /**
- * tmb_resolve_plugin_name (scripts/lib/resolve-plugin-name.sh): as
- * pluginName, except that an unset or empty CLAUDE_PLUGIN_ROOT reads
+ * As pluginName, except that an unset or empty CLAUDE_PLUGIN_ROOT reads
  * /.claude-plugin/plugin.json.
  */
 export function resolvePluginName(env = process.env) {
