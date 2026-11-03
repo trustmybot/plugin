@@ -53,7 +53,7 @@ SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro
 5. Runs `verification[]` in the temporary worktree and records it in `verification_runs` (source `manual`, the rebased SHA). A failure exits 1 and leaves the branch where it was. A pass moves `refs/heads/<branch_id>` to the rebased SHA, prints the SHA and exits 0. It refuses to move a branch that is checked out anywhere.
 6. Always removes the temporary worktree, and finishes a run it left open with the code it exits with: 130 on INT, 143 on TERM, otherwise its own failure code. A SIGKILL cannot be trapped; that run is finished as exit 137 by the next run start once it is past its budget + 60 s.
 
-`tasks.commit_sha` keeps the reviewed commit. `git-push-guard.sh` connects the two: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. A commit matching no task's patch-id is compared again with the generated `mcp/*/dist` and `dashboard/dist` left out of both sides, so a rebase that rebuilt them is judged the same way. A commit with no source change has no such patch-id. Commits that match neither are left alone.
+`tasks.commit_sha` keeps the reviewed commit. `git-push-guard` connects the two: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. A commit matching no task's patch-id is compared again with the generated `mcp/*/dist` and `dashboard/dist` left out of both sides, so a rebase that rebuilt them is judged the same way. A commit with no source change has no such patch-id. Commits that match neither are left alone.
 
 ## Where files live, at a glance
 
@@ -87,7 +87,7 @@ Merge commits avoid both: `main` gains ancestry over every `dev` commit, so the 
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro persona; reads plugin_config('onboarded') + issue_resume on activation
-├── scripts/hooks/activation-routine.sh               # UserPromptSubmit: pre-fetches plugin_config('onboarded') + pending issue
+├── mcp/trajectory-server/src/hooks/activation-routine.ts   # UserPromptSubmit: pre-fetches plugin_config('onboarded') + pending issue
 └── mcp/trajectory-server/src/
     ├── tools/onboard.ts                              # onboard_state_get (reads plugin_config marker)
     ├── tools/issues.ts                               # issue_resume
@@ -102,9 +102,9 @@ plugin/
 │   └── tmb_planning/SKILL.md                         # full code-touching flow (spec authoring + SWE spawn + V1/V2/V3)
 ├── commands/
 │   └── scan.md                                       # /scan — must run before task_create_batch (registry-cold gate)
-├── scripts/hooks/
-│   ├── git-guards.sh                                 # enforces branch naming on commits
-│   └── require-feature-branch-active.sh              # blocks issue/task ops without a feature branch
+├── mcp/trajectory-server/src/hooks/
+│   ├── git-guards.ts                              # enforces branch naming on commits
+│   └── require-feature-branch-active.ts           # blocks issue/task ops without a feature branch
 └── mcp/trajectory-server/src/tools/
     ├── issues.ts                                     # issue_create
     ├── tasks.ts                                      # task_create_batch (scope/branch/registry-cold gates)
@@ -118,11 +118,11 @@ plugin/
 ```text
 plugin/
 ├── agents/swe.md                                      # SWE executor prompt
-├── scripts/hooks/
-│   ├── require-task-spec.sh                          # gates spawn on valid pending spec row
-│   ├── worktree-create.sh                            # creates the per-task worktree on spawn (on the task's feature branch — see #2879)
-│   ├── no-worktree-branch-create.sh                  # prevents SWE from creating branches
-│   └── git-guards.sh                                 # commit branch check in worktree
+├── mcp/trajectory-server/src/hooks/
+│   ├── require-task-spec.ts                       # gates spawn on valid pending spec row
+│   ├── worktree-create.ts                         # creates the per-task worktree on spawn (on the task's feature branch — see #2879)
+│   ├── no-worktree-branch-create.ts               # prevents SWE from creating branches
+│   └── git-guards.ts                              # commit branch check in worktree
 └── mcp/trajectory-server/src/tools/
     ├── tasks.ts                                      # task_get (SWE reads spec) + task_update_status(running)
     └── audit.ts                                      # audit table writes
@@ -132,9 +132,9 @@ plugin/
 ```text
 plugin/
 ├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
-├── scripts/hooks/
-│   ├── swe-atomic-close.sh                           # SubagentStop safety net if SWE skips close
-│   └── cleanup-worktree-on-task-close.sh             # removes worktree once code-reviewer passes the closed task
+├── mcp/trajectory-server/src/hooks/
+│   ├── swe-atomic-close.ts                        # SubagentStop safety net if SWE skips close
+│   └── cleanup-worktree-on-task-close.ts          # removes worktree once code-reviewer passes the closed task
 └── mcp/trajectory-server/src/tools/
     └── tasks.ts                                      # task_update_status(completed, commit_sha)
 ```
@@ -145,10 +145,10 @@ plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
 ├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
 ├── skills/tmb_planning/scripts/integrate.sh          # rebases a reviewed task onto <base>, re-verifies, moves the branch
-├── scripts/hooks/
-│   ├── git-push-guard.sh                             # blocks push without pass verdicts or a verified rebase
-│   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
-│   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh the world model
+├── mcp/trajectory-server/src/hooks/
+│   ├── git-push-guard.ts                          # blocks push without pass verdicts or a verified rebase
+│   ├── branch-up-to-date-with-remote.ts           # verifies local branch is current
+│   └── post-task-close-rescan.ts                  # PostToolUse: backgrounds /scan to refresh the world model
 └── mcp/trajectory-server/src/tools/
     ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
     ├── audit.ts                                      # audit_append(bro_verification_pass)
@@ -161,7 +161,7 @@ plugin/
 ├── agents/code-reviewer.md                             # code-reviewer subagent
 ├── skills/tmb_review/SKILL.md                        # code-reviewer diff-level review protocol
 ├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
-├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
+├── mcp/trajectory-server/src/hooks/git-push-guard.ts   # final enforcement before origin push
 └── mcp/trajectory-server/src/
     ├── tools/validation.ts                           # validation_record (verdict write)
     ├── tools/tasks.ts                                # task_get (read spec + commit_sha)
@@ -173,7 +173,7 @@ plugin/
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro post-merge cleanup chain
-├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at a passing review)
+├── mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts   # removes SWE worktree (already done at a passing review)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_append(post-merge state)

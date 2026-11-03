@@ -55,7 +55,7 @@ function netDiffLandedOn(repoPath, tip, target) {
     ]);
     return !!landed && landed.includes(branch[0]);
 }
-// Twin of clean-merged-branch.sh's _cmb_integrated (GH 1674). A tip counts as
+// Twin of clean-merged-branch's integrated() (GH 1674). A tip counts as
 // integrated into target when any of these holds, cheapest first, each one
 // bounded git call:
 //   1. it is an ancestor of target (merge / fast-forward);

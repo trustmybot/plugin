@@ -1,7 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1692), the port of
- * scripts/hooks/code-reviewer-after-atomic-close.sh, run by
- * agent-spawn-dispatch.sh: a code-reviewer spawn naming task_id=<N> is
+ * PreToolUse(Agent) gate (GH 1692), run by agent-spawn-dispatch: a code-reviewer spawn naming task_id=<N> is
  * allowed only once tasks.status of <N> is 'closed', so bro_atomic_close
  * precedes the push gate. No task_id, no resolvable DB or no tasks row
  * allows; a DB read error denies with the DB-unavailable reason.

@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/no-remote-auth-guard.sh:
- * an interactive `gh auth login` / `glab auth login` is denied when the repo's
+ * PreToolUse gate (GH 1692): an interactive `gh auth login` / `glab auth login` is denied when the repo's
  * remotes rows carry no URL, as it would hang with no TTY or network while
  * TMB works locally.
  *

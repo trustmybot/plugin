@@ -79,7 +79,7 @@ export function activeFindingProbes(db: TrajectoryDB, taskId: number): FindingPr
 }
 
 /**
- * The commands swe-verification-gate.sh runs for a verification[] list: every
+ * The commands swe-verification-gate runs for a verification[] list: every
  * non-empty line of every entry, in order, then one entry per review finding
  * probe (probeCommand) — one verification_run_commands row each.
  */
@@ -133,7 +133,7 @@ export function verificationWaivedForCommit(db: TrajectoryDB, taskId: number, co
 
 /**
  * The task's latest recorded verification run (written by
- * swe-verification-gate.sh), or null when none exists. With `startedBy`, only
+ * swe-verification-gate), or null when none exists. With `startedBy`, only
  * runs started at or before that ISO timestamp count.
  */
 export function latestVerificationRun(db: TrajectoryDB, taskId: number, startedBy?: string): VerificationRunRecord | null {

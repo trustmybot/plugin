@@ -1,6 +1,5 @@
 /**
- * PostToolUse(Agent) hook (GH 1692), the port of scripts/hooks/swe-spawn-bind.sh:
- * once CC accepts a swe spawn, the agent_runs row record-swe-spawn.sh opened
+ * PostToolUse(Agent) hook (GH 1692): once CC accepts a swe spawn, the agent_runs row record-swe-spawn opened
  * with spawn_id tool_use:<tool_use_id> is rebound to spawn_id =
  * tool_response.agentId, so a background spawn is bound before its first
  * task_brief. A row of the task already keyed by that agentId wins and the

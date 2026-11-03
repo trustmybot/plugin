@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/branch-up-to-date-with-remote.sh:
- * `git worktree add <path> <branch>` on a registered repo is denied while
+ * PreToolUse gate (GH 1692): `git worktree add <path> <branch>` on a registered repo is denied while
  * <branch> is behind origin/<pr_target>, after one bounded fetch of
  * <pr_target>. No origin, no such branch or no origin/<pr_target> passes, and
  * TMB_ALLOW_STALE_BRANCH=1 bypasses.

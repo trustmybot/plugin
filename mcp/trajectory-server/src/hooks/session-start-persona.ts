@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/session-start-persona.sh:
- * injects bro's persona, the plugin's CLAUDE.md, as additionalContext (raw
+ * SessionStart hook (GH 1692): injects bro's persona, the plugin's CLAUDE.md, as additionalContext (raw
  * text when jq is not on PATH, as the .sh prints it) and marks the session so
  * user-prompt-persona does not inject it again, with a prior session's handoff
  * appended when this one takes it (session-handoff). Never blocks: exit 0.

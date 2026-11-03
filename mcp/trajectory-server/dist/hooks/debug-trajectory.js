@@ -1,6 +1,5 @@
 /**
- * PreToolUse hook (GH 1692), the port of scripts/hooks/debug-trajectory.sh:
- * under TMB_EVAL_MODE=1 and TMB_DEBUG_TRAJECTORY=1 it records each non-MCP
+ * PreToolUse hook (GH 1692): under TMB_EVAL_MODE=1 and TMB_DEBUG_TRAJECTORY=1 it records each non-MCP
  * tool call as a debug_trajectory row (session, next step_n, tool name, the
  * tool_input JSON capped at 4000 bytes). Never blocks: exit 0. Unlike the
  * .sh, it needs neither jq nor the sqlite3 CLI (decision 703).

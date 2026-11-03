@@ -1,6 +1,5 @@
 /**
- * PostToolUse hook on bro_atomic_close (GH 1692), the port of
- * scripts/hooks/post-atomic-close-readme.sh: for each directory the closed
+ * PostToolUse hook on bro_atomic_close (GH 1692): for each directory the closed
  * task's commit touched whose README.md is missing or stale, a non-blocking
  * additionalContext nudge and one `readme_staleness_surfaced` audit row. The
  * world model summarizes each directory from its README.md, so bro decides

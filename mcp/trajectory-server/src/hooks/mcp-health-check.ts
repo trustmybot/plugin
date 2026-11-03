@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/mcp-health-check.sh:
- * samples pgrep for this plugin's trajectory-server, adds the once-per-session
+ * SessionStart hook (GH 1692): samples pgrep for this plugin's trajectory-server, adds the once-per-session
  * install-scope notice and the duplicate-copies warning, and appends one
  * forensic line to <state dir>/logs/mcp-health.log. It never denies.
  *

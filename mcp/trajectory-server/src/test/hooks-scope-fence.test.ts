@@ -1,6 +1,5 @@
 /**
- * src/hooks/lib/scope-fence.ts, the port of scripts/hooks/lib/scope-fence.sh
- * (GH 1692): files[] loaded as a path list, the allow predicate, the
+ * src/hooks/lib/scope-fence.ts (GH 1692): files[] loaded as a path list, the allow predicate, the
  * once-per-path note, and the cksum and `sort -u` it reproduces.
  */
 import { after, before, describe, it } from 'node:test';

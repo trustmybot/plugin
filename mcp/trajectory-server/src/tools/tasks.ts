@@ -279,7 +279,7 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 export type SpecShapeWaiverSource = 'task_create_batch' | 'task_provision';
 
-// One spec_shape_gate_waived row per task, in the shape require-task-spec.sh
+// One spec_shape_gate_waived row per task, in the shape require-task-spec
 // reads to open the SWE spawn gate (from_node 'bro', $.task_id, $.gate, $.reason).
 export function insertSpecShapeWaiver(
   db: TrajectoryDB,

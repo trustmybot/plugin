@@ -1,0 +1,5 @@
+fx-gate 1000 enforcement PreToolUse Bash *
+fx-ts-helper-gate 1000 enforcement PreToolUse Bash *
+fx-dispatcher 1000 enforcement PreToolUse Agent *
+fx-ts-observe 1000 advisory PreToolUse Write|Edit *
+fx-block-gate 1000 enforcement SubagentStop - *

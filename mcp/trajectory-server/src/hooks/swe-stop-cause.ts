@@ -1,5 +1,5 @@
 /**
- * SubagentStop recorder (GH 1905), run fail-open by swe-atomic-close.sh after
+ * SubagentStop recorder (GH 1905), run fail-open by swe-atomic-close after
  * it writes the spawn's agent_runs row: records why the swe run stopped short
  * on that row (agent_runs.stop_cause / stop_detail, schema v52).
  *

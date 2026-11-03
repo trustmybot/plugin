@@ -24,12 +24,29 @@ import {
   settledTree,
   tokenizeRoots,
 } from './golden.js';
+import { gateNames } from '../hooks/registry.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
 const SUITES = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/test');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const REQUIRED_LOCALES = ['C', 'en_US.UTF-8'];
+const TS_BORN_GATES: ReadonlySet<string> = new Set([
+  'bash-output-trim',
+  'code-reviewer-preflight',
+  'code-reviewer-spawn-note',
+  'liveness-alert',
+  'liveness-sentinel',
+  'no-prose-in-scratch',
+  'rework-limit',
+  'rework-waiver-capture',
+  'session-handoff',
+  'swe-resume-gate',
+  'swe-stop-cause',
+  'task-overrun-alert',
+  'tool-output-size',
+  'worktree-adopt-guard',
+]);
 
 function corpusFiles(gate: string): string[] {
   return readdirSync(join(CORPUS_ROOT, gate)).filter((f) => f.endsWith('.json'));
@@ -129,11 +146,13 @@ describe('hook golden recordings', () => {
   describe('coverage', () => {
     const gates = readdirSync(CORPUS_ROOT).sort();
 
-    it('every scripts/hooks/*.sh but dispatch.sh has a corpus, so the checks below cover it', () => {
-      const scripts = readdirSync(join(PLUGIN_ROOT, 'scripts/hooks'))
-        .filter((f) => f.endsWith('.sh') && f !== 'dispatch.sh')
-        .map((f) => f.slice(0, -'.sh'.length));
-      assert.deepEqual(scripts.filter((gate) => !gates.includes(gate)), []);
+    it('every registered gate but the TypeScript-born ones has a corpus, and every corpus is a registered gate', () => {
+      const registered = gateNames();
+      assert.ok(registered.length > 0, 'the registry lists no gates');
+      assert.ok(gates.length > 0, 'the corpus lists no gates');
+      assert.deepEqual(registered.filter((gate) => !TS_BORN_GATES.has(gate) && !gates.includes(gate)), []);
+      assert.deepEqual(gates.filter((gate) => !registered.includes(gate)), []);
+      assert.deepEqual([...TS_BORN_GATES].filter((gate) => !registered.includes(gate) || gates.includes(gate)), []);
     });
 
     it('every gate and corpus payload has an entry in both required locales, and no entry outlives its payload', () => {
@@ -209,16 +228,12 @@ describe('hook golden recordings', () => {
   describe('with the gate scripts gone', () => {
     it('the task-close parity suite passes in default mode, its sandbox setup included', { timeout: 300_000 }, () => {
       const dir = mkdtempSync(join(tmpdir(), 'tmb-golden-no-sh-'));
-      const scripts = join(PLUGIN_ROOT, 'scripts/hooks');
       try {
         cpSync(PLUGIN_ROOT, dir, {
           recursive: true,
-          filter: (src) => {
-            const name = basename(src);
-            if (src !== PLUGIN_ROOT && ['node_modules', '.git', '.claude'].includes(name)) return false;
-            return !(dirname(src) === scripts && name.endsWith('.sh') && name !== 'dispatch.sh');
-          },
+          filter: (src) => src === PLUGIN_ROOT || !['node_modules', '.git', '.claude'].includes(basename(src)),
         });
+        assert.deepEqual(readdirSync(join(dir, 'scripts/hooks')).filter((f) => f.endsWith('.sh')), [], 'no gate script left in scripts/hooks');
         const tests = join(dir, 'mcp/trajectory-server/dist/test');
         const shards = readdirSync(tests).filter((f) => /^hooks-task-close-parity.*\.test\.js$/.test(f));
         assert.ok(shards.length > 0, 'the task-close shards');

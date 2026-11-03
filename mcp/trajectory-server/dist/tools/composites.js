@@ -69,7 +69,7 @@ export function parseTaskFiles(filesJson) {
 // A files[] entry covers the path itself and everything beneath it (the
 // CODEOWNERS / git-pathspec rule), never its siblings: `src/a/b.ts` covers
 // only that file, `src/a/` or `src/a` the whole directory. Any tests/ entry
-// also covers all of tests/. Same rule as scripts/hooks/lib/scope-fence.sh.
+// also covers all of tests/. Same rule as src/hooks/lib/scope-fence.ts.
 export function pathInFiles(path, files) {
     const entries = files.map((e) => e.replace(/\/+$/, '')).filter((e) => e.length > 0);
     if (entries.some((e) => e === 'tests' || e.startsWith('tests/')))
@@ -2441,7 +2441,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     }
                 }
                 // (b) Resolve the worktree path UNDER THE REPO ROOT (not the workspace
-                // root) — that is where ensure-swe-worktree.sh creates it. A worktree's
+                // root) — that is where ensure-swe-worktree creates it. A worktree's
                 // `.git` is a file (a gitdir pointer), not a fetchable remote, so do
                 // NOT fetch from it: the worktree shares the main repo's object store,
                 // so the commit is already present here. When commit_sha is known,

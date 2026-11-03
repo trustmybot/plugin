@@ -2,7 +2,7 @@
  * `node dist/hooks.js <gate>`: runs a registered TypeScript hook gate on the
  * payload read from stdin, writes its stdout and exits with its code
  * (runHook). An unknown gate or an uncaught error prints one stderr line and
- * exits 1, so dispatch.sh fails a fail-closed gate closed; it never allows on
+ * exits 1, so the router fails a fail-closed gate closed; it never allows on
  * error. `node dist/hooks.js ensure-mcp-deps-installed --install` is that
  * gate's detached install worker, which reads no payload.
  * `node dist/hooks.js install-merge-driver [repo-dir]` installs the tmb-regen

@@ -171,19 +171,19 @@ assert_eq "$([ -d "$TMPDIR/locks/scope-notes/1" ] && [ -d "$TMPDIR/locks/scope-n
 # Subtree rule (GH 1705): an entry covers itself and its subtree, never siblings
 # ===========================================================================
 
-# allows <task_id> <path> — yes/no from tmb_scope_fence_allows after loading the task.
+# allows <task_id> <path> — yes/no from the TypeScript ScopeFence.allows after loading the task.
 allows() {
-  (
-    # shellcheck source=/dev/null
-    . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
-    # shellcheck source=/dev/null
-    . "$PLUGIN_ROOT/scripts/hooks/lib/scope-fence.sh"
-    tmb_scope_fence_load "$DB" "$1"
-    if tmb_scope_fence_allows "$2"; then echo yes; else echo no; fi
-  )
+  node --input-type=module -e '
+    const [lib, db, task, rel] = process.argv.slice(1);
+    const { pathToFileURL } = await import("node:url");
+    const { ScopeFence } = await import(pathToFileURL(lib).href);
+    const fence = new ScopeFence();
+    fence.load(db, task);
+    console.log(fence.allows(rel) ? "yes" : "no");
+  ' "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks/lib/scope-fence.js" "$DB" "$1" "$2"
 }
 
-test_case "subtree: tmb_scope_fence_allows matches pathInFiles"
+test_case "subtree: ScopeFence.allows matches pathInFiles"
 assert_eq "$(allows 7 src/a/c.ts)" "no" "a file entry does not cover its sibling"
 assert_eq "$(allows 7 src/a/b.ts)" "yes" "a file entry covers itself"
 assert_eq "$(allows 8 src/a/x/y.ts)" "yes" "a dir entry covers its subtree"

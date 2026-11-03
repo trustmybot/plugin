@@ -1,5 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/git-guards.sh: the git
+ * PreToolUse gate (GH 1692): the git
  * workflow rules of the repo's branching model, judged per executable
  * statement against the repo and branch of that statement's dir.
  *   1. A PR (gh pr create) or MR (glab mr create) targets pr_target; dev → main

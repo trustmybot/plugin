@@ -1,5 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1738, GH 2148), run by agent-spawn-dispatch.sh:
+ * PreToolUse(Agent) gate (GH 1738, GH 2148), run by agent-spawn-dispatch:
  * a swe spawn for task_id=<N> is denied once any of three limits trips, each
  * counted since the latest Human waiver (a discussions row with author
  * 'human' and kind 'decision' on the task, or on its issue with task_id NULL;

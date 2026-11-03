@@ -1,6 +1,5 @@
 /**
- * PostToolUse hook on task_create_batch (GH 1692), the port of
- * scripts/hooks/post-task-create-spawn-hint.sh: after bro creates tasks it
+ * PostToolUse hook on task_create_batch (GH 1692): after bro creates tasks it
  * adds additionalContext naming each created task with its worktree — read
  * from the trajectory DB (taskLocation), never derived from the cwd — and
  * reminding bro to spawn every task's swe in one turn. A hint, never a block:

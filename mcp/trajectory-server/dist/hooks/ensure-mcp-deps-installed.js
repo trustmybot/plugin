@@ -1,6 +1,5 @@
 /**
- * SessionStart gate (GH 1695), the port of scripts/hooks/ensure-mcp-deps-installed.sh:
- * makes the MCP server's external @huggingface/transformers resolve, installing
+ * SessionStart gate (GH 1695): makes the MCP server's external @huggingface/transformers resolve, installing
  * it once, pruned, into `$CLAUDE_PLUGIN_DATA/deps/<key>/` instead of into every
  * plugin version's cache dir, and bridging the bare import there with the
  * symlink `<plugin root>/node_modules/@huggingface/transformers` →
@@ -224,8 +223,8 @@ function claimLock(lock) {
     return token;
 }
 /**
- * Takes over a stale lock under the mutex `<lock>.reclaim`, as dispatch.sh's
- * reclaim() does: the holder re-checks staleness, so a lock re-created
+ * Takes over a stale lock under the mutex `<lock>.reclaim`, as the retired dispatch.sh's
+ * reclaim() did: the holder re-checks staleness, so a lock re-created
  * meanwhile is never removed. A mutex older than 30 s is dropped for the next caller.
  */
 function reclaimLock(lock, staleMin) {

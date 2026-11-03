@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/git-push-guard.sh:
- * a `git push` runs only when every pushed commit that is a task's
+ * PreToolUse gate (GH 1692): a `git push` runs only when every pushed commit that is a task's
  * commit_sha has a code-reviewer pass verdict, and every pushed commit with the
  * patch-id of a task commit (a rebase, GH 1518), or its patch-id outside
  * mcp/[name]/dist and dashboard/dist (a rebase with regenerated dist, GH 1627),

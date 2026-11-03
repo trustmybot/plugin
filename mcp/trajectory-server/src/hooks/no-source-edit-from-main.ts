@@ -1,5 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/no-source-edit-from-main.sh.
+ * PreToolUse gate (GH 1692).
  *
  * Rule 1, Edit / Write / MultiEdit / NotebookEdit outside a task worktree, in
  * a TMB project: allowed for a target under .claude/worktrees/, under a

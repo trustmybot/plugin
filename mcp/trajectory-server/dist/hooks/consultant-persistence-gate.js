@@ -1,6 +1,5 @@
 /**
- * SubagentStop hook (#468, GH 1692), the port of
- * scripts/hooks/consultant-persistence-gate.sh: a TMB consultant (an agents
+ * SubagentStop hook (#468, GH 1692): a TMB consultant (an agents
  * row of kind consultant) may stop only once it has a discussion row on the
  * most recent open issue; otherwise the stop is blocked with a recovery
  * message teaching discussion_append. It passes on stop_hook_active, an

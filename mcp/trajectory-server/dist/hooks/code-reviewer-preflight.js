@@ -1,5 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1740), run by agent-spawn-dispatch.sh after
+ * PreToolUse(Agent) gate (GH 1740), run by agent-spawn-dispatch after
  * code-reviewer-after-atomic-close: before a code-reviewer spawn for task_id=<N>,
  * five deterministic checks on the task's commit, in order. The first that
  * fails denies with the JSON reason {check, expected, actual}, so no reviewer

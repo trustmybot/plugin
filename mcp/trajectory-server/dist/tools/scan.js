@@ -841,7 +841,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     source: {
                         type: 'string',
                         enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_post_change', 'bro_auto_initial', 'startup_catchup'],
-                        description: 'Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server\'s connect-time catch-up. Defaults to bro_auto_initial.',
+                        description: 'Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server\'s connect-time catch-up. Defaults to bro_auto_initial.',
                     },
                 },
                 required: ['agent'],

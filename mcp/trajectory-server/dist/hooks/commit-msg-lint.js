@@ -1,6 +1,5 @@
 /**
- * PreToolUse lint (GH 1692), the port of scripts/hooks/commit-msg-lint.sh:
- * warns through additionalContext when the subject of a real `git commit -m`
+ * PreToolUse lint (GH 1692): warns through additionalContext when the subject of a real `git commit -m`
  * statement is not `<emoji> <type>(<scope>): <description>` or runs past 72
  * characters. Bypass: TMB_SKIP_COMMIT_MSG_LINT=1.
  *

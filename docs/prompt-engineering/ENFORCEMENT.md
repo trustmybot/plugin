@@ -27,25 +27,25 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Activation routine (onboarded marker + pending issue injection) | 2 | `scripts/hooks/activation-routine.sh` |
+| Activation routine (onboarded marker + pending issue injection) | 2 | `mcp/trajectory-server/src/hooks/activation-routine.ts` |
 | Auto-fire `/onboard` on first contact | 2 | hook-injected `additionalContext` directs bro |
-| Bro never edits source code (every code change → SWE) | 2 | `scripts/hooks/no-source-edit-from-main.sh` |
-| Project `.gitignore` excludes `.claude/` | 2 | `scripts/hooks/ensure-gitignore.sh` |
-| Bro creates the task branch (SWE may not invent / abbreviate) | 2 | `scripts/hooks/no-worktree-branch-create.sh` (also blocks `--detach`) |
-| Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
-| Worktree cleanup on task close | 2 | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
+| Bro never edits source code (every code change → SWE) | 2 | `mcp/trajectory-server/src/hooks/no-source-edit-from-main.ts` |
+| Project `.gitignore` excludes `.claude/` | 2 | `mcp/trajectory-server/src/hooks/ensure-gitignore.ts` |
+| Bro creates the task branch (SWE may not invent / abbreviate) | 2 | `mcp/trajectory-server/src/hooks/no-worktree-branch-create.ts` (also blocks `--detach`) |
+| Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `mcp/trajectory-server/src/hooks/branch-up-to-date-with-remote.ts` |
+| Worktree cleanup on task close | 2 | `mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts` |
 | `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
-| World model auto-refresh after `bro_atomic_close` | 4 | `scripts/hooks/post-task-close-rescan.sh` PostToolUse on `bro_atomic_close` backgrounds a fresh `scan_run` |
+| World model auto-refresh after `bro_atomic_close` | 4 | `mcp/trajectory-server/src/hooks/post-task-close-rescan.ts` PostToolUse on `bro_atomic_close` backgrounds a fresh `scan_run` |
 | MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
 | `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
 | `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
 | `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 | `mcp/.../tools/discussions.ts`, `mcp/.../hooks/rework-waiver-capture.ts` |
-| AUQ shape during roundtable `awaiting_human` | 2 | `scripts/hooks/roundtable-auq-shape.sh` |
+| AUQ shape during roundtable `awaiting_human` | 2 | `mcp/trajectory-server/src/hooks/roundtable-auq-shape.ts` |
 | Issue-sync default-off + env-var kill-switch | 1 | schema seed + `TMB_DISABLE_REMOTE_SYNC` short-circuit in `sync/backend.ts` |
 | Roundtable state machine | 1 | server rejects state-transition violations |
 | Welcome banner phrasing | 6 only | CLAUDE.md |
 | Decision-audit row required on every `task_create_batch` | 1 | `mcp/.../tools/tasks.ts` decision_gate |
-| ADR-required hint (architectural intent → advisory injection) | 5 | `scripts/hooks/prompt-intent-hints.sh` (UserPromptSubmit injection) |
+| ADR-required hint (architectural intent → advisory injection) | 5 | `mcp/trajectory-server/src/hooks/prompt-intent-hints.ts` (UserPromptSubmit injection) |
 | Verify-context check before answering | 6 only | CLAUDE.md |
 | Voice / tone | 6 only | CLAUDE.md |
 
@@ -53,23 +53,23 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body`; a schema-touching or column-adding spec names each new item's `Writer:` + `Populated:` (or `Nullable:`) | 2 | `scripts/hooks/require-task-spec.sh` |
+| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body`; a schema-touching or column-adding spec names each new item's `Writer:` + `Populated:` (or `Nullable:`) | 2 | `mcp/trajectory-server/src/hooks/require-task-spec.ts` |
 | Runs in isolated worktree | 2 | worktree Bash hooks |
-| Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `scripts/hooks/no-worktree-branch-create.sh` |
-| Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
+| Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `mcp/trajectory-server/src/hooks/no-worktree-branch-create.ts` |
+| Worktree branch must descend from `origin/<pr_target>` | 2 | `mcp/trajectory-server/src/hooks/branch-up-to-date-with-remote.ts` |
 | Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing code-reviewer-only tools |
-| Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
-| Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
-| Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `scripts/hooks/record-swe-spawn.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
+| Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `mcp/trajectory-server/src/hooks/swe-verification-gate.ts` |
+| Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `mcp/trajectory-server/src/hooks/ensure-swe-worktree.ts` (PREPARE step run by `agent-spawn-dispatch`) |
+| Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `mcp/trajectory-server/src/hooks/record-swe-spawn.ts` (PREPARE step run by `agent-spawn-dispatch`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
 ### code-reviewer
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Push to protected branch blocked unless every unsigned commit has passing `validation_attempts` row | 2 | `scripts/hooks/git-push-guard.sh` |
+| Push to protected branch blocked unless every unsigned commit has passing `validation_attempts` row | 2 | `mcp/trajectory-server/src/hooks/git-push-guard.ts` |
 | MCP calls include `agent: 'code-reviewer'`, scope-restricted | 1 | server middleware |
 | `validation_record` is code-reviewer-only | 1 | `requireRoles` |
 | Cannot edit code (read-only review) | 3 | `agents/code-reviewer.md` `tools:` excludes Edit/Write |
@@ -87,18 +87,18 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Force-push to protected branches blocked | 2 | `scripts/hooks/git-guards.sh` |
-| Direct commits to `dev`/`main` outside the dev→main PR flow blocked | 2 | `scripts/hooks/git-guards.sh` |
-| Push gate (see code-reviewer) | 2 | `scripts/hooks/git-push-guard.sh` |
-| Remote-write text citing a LOCAL issue id whose remote `iid` differs blocked (a bare `#N` resolves to the wrong remote issue) | 2 | `scripts/hooks/remote-id-guard.sh` |
-| Issue a merged PR resolved auto-closed (local row + remote twin) on a successful `gh pr merge` / `glab mr merge` | 4 | `scripts/hooks/close-issue-on-merge.sh` |
-| Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
-| Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
-| Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
-| bro's persona in every session (the plugin's `CLAUDE.md`, which Claude Code never loads) | 2 | `scripts/hooks/session-start-persona.sh`; once-per-session fallback `scripts/hooks/user-prompt-persona.sh` |
-| Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
-| Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/prompt-intent-hints.sh` |
-| Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
+| Force-push to protected branches blocked | 2 | `mcp/trajectory-server/src/hooks/git-guards.ts` |
+| Direct commits to `dev`/`main` outside the dev→main PR flow blocked | 2 | `mcp/trajectory-server/src/hooks/git-guards.ts` |
+| Push gate (see code-reviewer) | 2 | `mcp/trajectory-server/src/hooks/git-push-guard.ts` |
+| Remote-write text citing a LOCAL issue id whose remote `iid` differs blocked (a bare `#N` resolves to the wrong remote issue) | 2 | `mcp/trajectory-server/src/hooks/remote-id-guard.ts` |
+| Issue a merged PR resolved auto-closed (local row + remote twin) on a successful `gh pr merge` / `glab mr merge` | 4 | `mcp/trajectory-server/src/hooks/close-issue-on-merge.ts` |
+| Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `mcp/trajectory-server/src/hooks/naming-lint.ts` |
+| Conventional-commit subject format | 2 | `mcp/trajectory-server/src/hooks/commit-msg-lint.ts` |
+| Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `mcp/trajectory-server/src/hooks/code-quality-lint.ts` |
+| bro's persona in every session (the plugin's `CLAUDE.md`, which Claude Code never loads) | 2 | `mcp/trajectory-server/src/hooks/session-start-persona.ts`; once-per-session fallback `mcp/trajectory-server/src/hooks/user-prompt-persona.ts` |
+| Project inventory at session start | 2 | `mcp/trajectory-server/src/hooks/session-start-prescan.ts` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
+| Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `mcp/trajectory-server/src/hooks/prompt-intent-hints.ts` |
+| Roundtable capture-surface verification on `roundtable_close` | 2 | `mcp/trajectory-server/src/hooks/roundtable-cleanup-postcheck.ts` |
 | Bro task-close atomic invariants (audit + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
 | SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry` |
 | `branch_id` derivation from intent | 1 (composite) | `mcp/.../tools/composites.ts:branch_id_propose` |
@@ -109,7 +109,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 2. Pick the strongest layer that fits (table at top).
 3. Implement:
    - **Layer 1**: `requireRoles` wrapper / handler validation / schema CHECK; add MCP-integration test.
-   - **Layer 2**: write the hook under `scripts/hooks/`, register in `hooks/hooks.json`, add `tests/l3-integration/hooks/<name>.test.sh`.
+   - **Layer 2**: write the gate as `mcp/trajectory-server/src/hooks/<name>.ts`, add it to `src/hooks/registry.ts` (`ROUTER_GROUPS`), and test it under `mcp/trajectory-server/src/test/`.
    - **Layer 3**: edit agent's `.md` frontmatter; verify with subagent spawn.
    - **Layer 4**: schema CHECK in `mcp/.../schema.sql` (and migration in `db.ts` if existing DBs need rebuild).
    - **Layer 5**: add `paths:` to skill frontmatter.

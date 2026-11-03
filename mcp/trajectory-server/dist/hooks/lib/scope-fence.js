@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/lib/scope-fence.sh (GH 1692): a task's
+ * The scope-fence helper (GH 1692): a task's
  * typed files[] as a path list, used to note, never deny, a write outside it.
  * Each entry, trailing slashes stripped, covers itself and everything beneath
  * it; any tests/ entry covers all of tests/.

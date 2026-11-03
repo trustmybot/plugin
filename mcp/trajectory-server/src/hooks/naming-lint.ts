@@ -1,5 +1,5 @@
 /**
- * PreToolUse lint (GH 1692), the port of scripts/hooks/naming-lint.sh: when
+ * PreToolUse lint (GH 1692): when
  * Edit / Write / MultiEdit / NotebookEdit creates a file, warns through
  * additionalContext when its basename breaks the language's convention
  * (snake_case .py / .sql, kebab-case .sh / .ts / .js, kebab-case or

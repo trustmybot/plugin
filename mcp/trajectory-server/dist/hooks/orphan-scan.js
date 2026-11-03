@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/orphan-scan.sh:
- * reports, and with TMB_ORPHAN_SCAN_CLEAN=1 cleans, what version upgrades left
+ * SessionStart hook (GH 1692): reports, and with TMB_ORPHAN_SCAN_CLEAN=1 cleans, what version upgrades left
  * behind for THIS project only: its stale old-layout or 0-byte trajectory DBs,
  * a duplicate trajectory-server on its live DB whose Claude Code session is
  * dead, and cache versions no installed_plugins.json entry pins. Another

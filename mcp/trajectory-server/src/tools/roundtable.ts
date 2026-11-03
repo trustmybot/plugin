@@ -240,7 +240,7 @@ export function roundtableTools(db: TrajectoryDB): {
 
         // --- Slash-invoke gate (MCP-level enforcement) ---
         // /roundtable is Human-triggered only per CLAUDE.md routing. The
-        // roundtable-slash-detect.sh UserPromptSubmit hook writes an
+        // roundtable-slash-detect UserPromptSubmit hook writes an
         // audit row when the user actually types /roundtable. Without
         // that audit, bro is auto-firing roundtable_create from a phrase
         // trigger — captured-bug L6 scenario 08.

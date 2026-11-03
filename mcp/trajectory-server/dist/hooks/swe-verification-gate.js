@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/swe-verification-gate.sh:
- * a swe's task_update_status(status='completed') runs the task's typed
+ * PreToolUse gate (GH 1692): a swe's task_update_status(status='completed') runs the task's typed
  * verification[] (Typed Rails #673), then the probe_cmd of every review
  * finding not wontfix (GH 1737), in the task worktree, and denies on a failing
  * command or a spent budget.
