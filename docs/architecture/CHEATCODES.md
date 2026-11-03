@@ -27,7 +27,7 @@ Everything between those judgments is a tool call, not a checklist.
 
 ## Scan-side discovery
 
-The pipeline is the *acquisition* path. A passive path keeps the registry honest: `scan_run` (`scripts/scan.sh`) reconciles **locally-present** capabilities into `cheatcodes` after its repo/file walk — project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each not already tracked by `(name, kind)` is inserted with `origin='installed'`, `status='installed'`, `source_url='scan_discovered'`, emitting a `scan_discovered` audit row. Best-effort and bounded: CLI calls run under a short timeout; a missing `claude` binary degrades to the skills-only walk.
+The pipeline is the *acquisition* path. A passive path keeps the registry honest: `scan_run` (its walker, `mcp/trajectory-server/src/tools/scan-walk.ts`) reconciles **locally-present** capabilities into `cheatcodes` after its repo/file walk — project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each not already tracked by `(name, kind)` is inserted with `origin='installed'`, `status='installed'`, `source_url='scan_discovered'`, emitting a `scan_discovered` audit row. Best-effort and bounded: CLI calls run under a short timeout; a missing `claude` binary degrades to the skills-only walk.
 
 ## Registries (tiered)
 

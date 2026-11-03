@@ -105,6 +105,10 @@ perl scripts/postprocess-bundle.pl "$TMPDIR/run-scan.js" "$TMPDIR/run-scan.js.ma
   --external:@huggingface/transformers \
   --outfile="$TMPDIR/cli.js" --sourcemap >/dev/null 2>&1
 perl scripts/postprocess-bundle.pl "$TMPDIR/cli.js" "$TMPDIR/cli.js.map"
+./node_modules/.bin/esbuild src/hooks/resolve-hook.ts \
+  --bundle --platform=node --format=esm --target=node22 \
+  --outfile="$TMPDIR/resolve-hook.mjs" --sourcemap >/dev/null 2>&1
+perl scripts/postprocess-bundle.pl "$TMPDIR/resolve-hook.mjs" "$TMPDIR/resolve-hook.mjs.map"
 ./node_modules/.bin/esbuild src/hooks/manifest.ts \
   --bundle --platform=node --format=esm --target=node22 --log-level=warning \
   | node --input-type=module > "$TMPDIR/hooks-gates.txt"

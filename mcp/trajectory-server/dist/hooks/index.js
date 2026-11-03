@@ -10,7 +10,7 @@
  * `node dist/hooks.js <event> [part]` (an event of ROUTER_GROUPS, e.g.
  * PreToolUse) is the router: every gate of the group matching the payload and
  * part, one process (router/main.ts); a trailing `--shim` marks the headless
- * shim's call (scripts/lib/resolve-hook.sh), which yields to the plugin's own
+ * shim's call (resolve-hook.ts, bundled to dist/resolve-hook.mjs), which yields to the plugin's own
  * hooks. It exits once its decision and records are
  * written, so a gate left running past its budget never holds the hook open.
  */

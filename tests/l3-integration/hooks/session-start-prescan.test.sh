@@ -211,19 +211,18 @@ import { writeFileSync } from 'node:fs';
 writeFileSync(process.env.INVOCATION_FLAG, process.env.TRAJECTORY_DB_PATH ?? '<unset>');
 FAKE
 
-# Build a fake scripts tree: hooks/ (the gate resolves the invoker through it),
-# maintenance/, and scan.sh (availability sentinel).
+# Build a fake scripts tree: hooks/ (the gate resolves the invoker through it)
+# and maintenance/.
 FAKE_SCRIPTS="$TMPDIR/fake-scripts"
 mkdir -p "$FAKE_SCRIPTS/hooks" "$FAKE_SCRIPTS/maintenance"
 cp "$FAKE_INVOKER_DIR/run-scan-initial.mjs" "$FAKE_SCRIPTS/maintenance/run-scan-initial.mjs"
-# Provide a stub scan.sh so the hook's availability check passes.
-echo '#!/usr/bin/env bash' > "$FAKE_SCRIPTS/scan.sh"
-chmod +x "$FAKE_SCRIPTS/scan.sh"
 # The TypeScript gate reads scripts/ from the install root holding its bundle.
 FAKE_ROOT="$TMPDIR/fake-root"
 mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist"
 printf '{"name":"tmb"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
 cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js"
+# A stub scan bundle so the hook's availability check passes.
+: > "$FAKE_ROOT/mcp/trajectory-server/dist/run-scan.js"
 cp -R "$FAKE_SCRIPTS" "$FAKE_ROOT/scripts"
 FAKE_HOOK="$FAKE_ROOT/session-start-prescan.sh"
 printf '#!/usr/bin/env bash\nexec "$TMB_TEST_NODE" "%s" session-start-prescan\n' "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js" > "$FAKE_HOOK"

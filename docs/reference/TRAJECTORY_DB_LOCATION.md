@@ -13,7 +13,7 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
    - Otherwise the **outermost** candidate wins (the workspace root beats a nested repo).
 3. Otherwise **unresolved**. The server then creates a fresh DB at `<CLAUDE_PROJECT_DIR or cwd>/.claude/<plugin>/trajectory.db`.
 
-Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks and `scripts/scan.sh` (`tmb_db_path`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
+Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks (`tmb_db_path`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
 
 Nothing under `$HOME` takes part in the rule.
 

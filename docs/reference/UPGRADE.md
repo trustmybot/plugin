@@ -111,11 +111,11 @@ Both columns should match the version you just installed.
 
 ### Upgrading into v1.2.0 — the headless shim runs the router
 
-This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `dispatch.sh`, which this release removes (GH 1692). The shim now writes one entry per PreToolUse group, `resolve-hook.sh --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
+This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `dispatch.sh`, which this release removes (GH 1692). The shim now writes one entry per PreToolUse group, `node <project>/.claude/tmb/resolve-hook.mjs --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
 
-- **Re-run the shim step once.** Re-run `/onboard`, or ask bro to turn headless enforcement on again (`onboard_apply(headless_enforcement='yes')`). It replaces every old `_tmb_managed` or `resolve-hook.sh` entry with the new ones, rewrites `.claude/tmb/resolve-hook.sh`, and leaves your own hooks as they are.
+- **Re-run the shim step once.** Re-run `/onboard`, or ask bro to turn headless enforcement on again (`onboard_apply(headless_enforcement='yes')`). It replaces every old `_tmb_managed` or `resolve-hook.sh` entry with the new `resolve-hook.mjs` ones, writes `.claude/tmb/resolve-hook.mjs`, deletes the old `.claude/tmb/resolve-hook.sh`, and leaves your own hooks as they are.
 - **Until you do,** an old entry prints a `failing OPEN` warning and enforces nothing, since `dispatch.sh` is gone. If a new resolver meets an old per-gate entry, it prints `--hook <gate> is not a hook event (re-run /onboard to rewrite the shim)` and allows the call.
-- **`node` is required.** With `node` off PATH, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call, as it does when no install resolves.
+- **`node` is required.** With no resolvable install, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call. With `node` off PATH the entry cannot start, which Claude Code treats as a non-blocking error, so the call goes ahead.
 
 ### Upgrading into v1.2.0 — pr-reviewer is now code-reviewer
 

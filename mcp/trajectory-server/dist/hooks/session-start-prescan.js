@@ -401,7 +401,7 @@ function startInitialScan(invoker, db, env) {
 }
 function coldNote(root, db, env) {
     const invoker = `${root}/scripts/hooks/../maintenance/run-scan-initial.mjs`;
-    if ((env.TMB_SKIP_AUTO_PRESCAN ?? '0') !== '1' && isFile(`${root}/scripts/scan.sh`) && isFile(invoker) && commandOnPath('node', env)) {
+    if ((env.TMB_SKIP_AUTO_PRESCAN ?? '0') !== '1' && isFile(`${root}/mcp/trajectory-server/dist/run-scan.js`) && isFile(invoker) && commandOnPath('node', env)) {
         startInitialScan(invoker, db, env);
         return 'world model was cold — a deterministic scan is running in the background; re-read world_model_get before planning';
     }

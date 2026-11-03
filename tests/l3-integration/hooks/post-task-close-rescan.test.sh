@@ -171,7 +171,7 @@ done
 test_case "a plugin tree with no node_modules: the copied invoker indexes a .ts file's symbols"
 CACHE="$TMPDIR/cache-plugin"
 mkdir -p "$CACHE/mcp/trajectory-server"
-# scan_run shells out to scripts/scan.sh and the hook libs it sources, as the cache ships them.
+# The invoker runs from scripts/maintenance/ against the bundled dist/, as the cache ships them.
 cp -R "$PLUGIN_ROOT/scripts" "$CACHE/scripts"
 cp "$INVOKER" "$CACHE/scripts/maintenance/"
 cp -R "$PLUGIN_ROOT/mcp/trajectory-server/dist" "$CACHE/mcp/trajectory-server/dist"
