@@ -117,7 +117,7 @@ for my $f (@files) {
     }
     while ($c =~ /\b(?:auditCheatcode|auditMilestone)\(\s*(?:db\s*,\s*)?'([a-z][a-z0-9_]*)'/g) { emit($f, $1); }
     while ($c =~ /\btmb_audit_append$sep$tok$sep$tok$sep$tok$sep$tok$sep(["']?)([a-z][a-z0-9_]*)\1$end/g) { emit($f, $2); }
-    while ($c =~ /\b(?:tmb_audit_sql|_tmb_fallback_audit_sql|tmb_fallback_audit_append)$sep$tok$sep$tok$sep$tok$sep(["']?)([a-z][a-z0-9_]*)\1$end/g) { emit($f, $2); }
+    while ($c =~ /\btmb_audit_sql$sep$tok$sep$tok$sep$tok$sep(["']?)([a-z][a-z0-9_]*)\1$end/g) { emit($f, $2); }
     while ($c =~ /\bINSERT INTO audit\s*\(/g) {
       my $tail = substr($c, pos($c), 600);
       emit($f, $1) if $tail =~ /'(?:system|hook:[a-z0-9-]+)',\s*'([a-z][a-z0-9_]*)'/;

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Catch hardcoded plugin-name strings outside the resolve-plugin-name helper.
+# Catch hardcoded plugin-name strings outside the plugin-name resolvers.
 # Captures: !2896 channel-iso — .claude/tmb/, tmb-active-workspace,
 #           trustmybot-rc, ="tmb"/"tmb" in path-construction code.
 #
 # Scans: scripts/, mcp/trajectory-server/src/
 #
 # Exclusions:
-#   - scripts/lib/resolve-plugin-name.sh (the helper itself)
 #   - Lines containing: jq -r '.name // "tmb"' (inline fallback pattern)
 #   - scripts/hooks/lib/query-task.sh (walk-up default)
 #   - *test* files
@@ -21,7 +20,6 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 HARDCODED_REGEX='(\.claude/tmb/|tmb-active-workspace|trustmybot-rc|=["\x27]tmb["\x27])'
 
 EXCLUDED_FILES=(
-  "scripts/lib/resolve-plugin-name.sh"
   "scripts/hooks/lib/query-task.sh"
   "scripts/publish-rc-channel.sh"
 )

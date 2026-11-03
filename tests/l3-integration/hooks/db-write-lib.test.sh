@@ -247,20 +247,6 @@ else
 fi
 release_lock
 
-test_case "sqlite3 fallback audits against the system issue (issue_id = -1)"
-ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
-  . "$1"
-  tmb_fallback_audit_append -1 "" "bro" "planning_complete" "system audit" "{}" bro
-' _ "$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh" 2>&1 >/dev/null) && RC=0 || RC=$?
-assert_eq "0" "$RC" "fallback accepts issue_id -1"
-assert_eq "" "$ERR" "no stderr"
-assert_eq "1" "$(count "SELECT COUNT(*) FROM audit WHERE issue_id = -1 AND event_type='planning_complete';")" "audit row filed under issue -1"
-ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
-  . "$1"
-  tmb_fallback_audit_append -2 "" "bro" "planning_complete" "x" "{}" bro
-' _ "$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh" 2>&1 >/dev/null) && RC=0 || RC=$?
-[ "$RC" -ne 0 ] && _pass || _fail "issue_id -2 must still be rejected"
-
 test_case "swe-verification-gate denies the waiver when the task-row read errors"
 printf 'this is not a sqlite database, only text' > "$TMPDIR_FIXTURE/corrupt.db"
 WAIVE='{"tool_name":"mcp__plugin_tmb_trajectory-server__task_update_status","tool_input":{"agent":"swe","task_id":"5","status":"completed","waive_verification_gate_reason":"verification impossible offline"}}'
