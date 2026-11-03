@@ -18,10 +18,10 @@ function addFile(db: TrajectoryDB, path: string, purpose: string): void {
   );
 }
 
-function addSymbol(db: TrajectoryDB, path: string, kind: string, name: string, start: number, end: number): number {
+function addSymbol(db: TrajectoryDB, path: string, kind: string, name: string, start: number, end: number, exported = 1): number {
   db.run(
-    `INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash) VALUES (?, ?, ?, ?, ?, ?, 'h')`,
-    [REPO, path, kind, name, start, end],
+    `INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash, exported) VALUES (?, ?, ?, ?, ?, ?, 'h', ?)`,
+    [REPO, path, kind, name, start, end, exported],
   );
   return db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
 }
@@ -277,6 +277,79 @@ describe('GH 1985: brief locations caller count', () => {
     assert.equal(card.callers.total, 51);
     assert.ok(card.callers.total > 50);
     assert.equal(card.callees.total, 0);
+    db.close();
+  });
+});
+
+describe('GH 2282: brief locations precision', () => {
+  function noise(db: TrajectoryDB): void {
+    addFile(db, 'dashboard/web/views/x.tsx', 'a view');
+    addFile(db, 'src/test/foo.test.ts', 'a test');
+    addSymbol(db, 'dashboard/web/views/x.tsx', 'const', 'sqlite3', 3, 3, 0);
+    addSymbol(db, 'dashboard/web/views/x.tsx', 'const', 'SELECT', 4, 4, 0);
+    addSymbol(db, 'src/test/foo.test.ts', 'function', 'sqlite3', 10, 12, 1);
+    addSymbol(db, 'src/test/foo.test.ts', 'function', 'SELECT', 20, 22, 1);
+  }
+
+  it('GH 2282: rank-2 matches that are non-exported or under a test path are dropped; exported source ones kept', () => {
+    const db = tempDB();
+    noise(db);
+    assert.deepEqual(run(db, 'Use `sqlite3` and `SELECT`.').symbols, []);
+    addFile(db, 'src/lib/db.ts', 'db');
+    addSymbol(db, 'src/lib/db.ts', 'function', 'sqlite3', 1, 5, 1);
+    addSymbol(db, 'src/lib/db.ts', 'function', 'SELECT', 6, 9, 1);
+    assert.deepEqual(
+      run(db, 'Use `sqlite3` and `SELECT`.').symbols.map((s) => [s.qualified_name, s.path]),
+      [
+        ['sqlite3', 'src/lib/db.ts'],
+        ['SELECT', 'src/lib/db.ts'],
+      ],
+    );
+    db.close();
+  });
+
+  it('GH 2282: files[] (rank 1) and named-path (rank 0) matches are kept even when non-exported or under a test path', () => {
+    const db = tempDB();
+    noise(db);
+    const scoped = run(db, 'Use `sqlite3`.', ['dashboard/web/', 'src/test/']);
+    assert.deepEqual(scoped.symbols.map((s) => s.path).sort(), ['dashboard/web/views/x.tsx', 'src/test/foo.test.ts']);
+    const named = run(db, 'In `src/test/foo.test.ts` and `dashboard/web/views/x.tsx` use `SELECT`.');
+    assert.deepEqual(named.symbols.map((s) => s.path).sort(), ['dashboard/web/views/x.tsx', 'src/test/foo.test.ts']);
+    db.close();
+  });
+
+  it('GH 2282: the cap drops rank-2 symbols before the named file symbol list', () => {
+    const db = tempDB();
+    addFile(db, 'src/core/named.ts', 'named');
+    for (let j = 0; j < 12; j++) addSymbol(db, 'src/core/named.ts', 'function', `inner${j}`, j * 10 + 1, j * 10 + 9, 0);
+    const pad = 'y'.repeat(120);
+    for (let i = 0; i < 10; i++) {
+      addFile(db, `src/far/f${i}.ts`, 'far');
+      addSymbol(db, `src/far/f${i}.ts`, 'function', `far${i}_${pad}`, 1, 9, 1);
+    }
+    const spec = '`src/core/named.ts` ' + Array.from({ length: 10 }, (_, i) => `\`far${i}_${pad}\``).join(' ');
+    const roomy = briefLocations(db, REPO, spec, [], 1_000_000)!;
+    assert.equal(roomy.symbols.length, 10);
+    assert.equal(roomy.files[0]!.symbols.length, 12);
+    const filesOnly = JSON.stringify({ ...roomy, symbols: [], truncated: true }).length;
+    const loc = briefLocations(db, REPO, spec, [], filesOnly + 200)!;
+    assert.equal(loc.truncated, true);
+    assert.equal(loc.files[0]!.symbols.length, 12, 'named file symbols kept');
+    assert.ok(loc.symbols.length < 10, 'rank-2 symbols dropped first');
+    assert.ok(JSON.stringify(loc).length <= filesOnly + 200);
+    db.close();
+  });
+
+  it('GH 2282: unresolved path spans are listed in spec order; the key is absent when every path resolves', () => {
+    const db = tempDB();
+    addFile(db, 'src/known.ts', 'known');
+    const loc = run(db, 'Add `src/new-file.ts`, edit `src/known.ts`, again `src/new-file.ts:4`.');
+    assert.deepEqual(loc.unresolved_paths, ['src/new-file.ts']);
+    assert.deepEqual(
+      loc.files.map((f) => f.path),
+      ['src/known.ts'],
+    );
+    assert.ok(!('unresolved_paths' in run(db, 'Edit `src/known.ts`.')));
     db.close();
   });
 });
