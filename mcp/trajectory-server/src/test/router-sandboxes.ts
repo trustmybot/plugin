@@ -509,7 +509,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
     const dir = join(root, gate, 'sandbox');
     rebuilt(gate, dir, sessionSandbox, (file) => {
       const c = sessionCase(file, dir, corpusPaths().noJq);
-      return { input: c.input, env: noInstall(sessionEnv(dir, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, dir, false) };
+      return { input: c.input, env: noInstall(sessionEnv(dir, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, dir, c.divergent !== undefined) };
     });
   }
 
