@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Tests for skills/tmb_recovery/scripts/bro-sqlite-readonly.sh on a WAL DB
+# Tests for `cli.js bro-sqlite-readonly` (mcp/trajectory-server/src/cli/) on a WAL DB
 # whose -shm is missing (GH 1629): a copy of db+wal whose rows sit only in the
 # -wal, and a detached WAL DB (no -wal, no -shm, as a clean shutdown leaves it),
 # are read from a VACUUM INTO snapshot. The rows come back, the main file's
 # size and mtime and the -wal stay as they were, and the scratch snapshot is
 # removed. A snapshot that cannot be taken fails loudly; a DB with its -shm, or
-# not in WAL mode, keeps the direct read-only path.
+# not in WAL mode, keeps the direct read-only path. Every node:sqlite open and
+# statement is logged through a --import preload, as the sqlite3 wrapper logged
+# the shell script's CLI calls.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,20 +16,38 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/lib/tmpdir-cleanup.sh
 . "$HERE/../../lib/tmpdir-cleanup.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-READONLY="$PLUGIN_ROOT/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh"
+CLI="$PLUGIN_ROOT/mcp/trajectory-server/dist/cli.js"
 REAL_SQLITE3="$(command -v sqlite3)"
 
 TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-readonly-wal-no-shm.XXXXXX")
 trap 'tmpdir_cleanup "$TMP"' EXIT
 
-BIN="$TMP/bin" LOG="$TMP/sqlite3.log" SCRATCH="$TMP/scratch"
-mkdir -p "$BIN" "$SCRATCH"
-cat > "$BIN/sqlite3" <<WRAP
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$LOG"
-exec "$REAL_SQLITE3" "\$@"
-WRAP
-chmod +x "$BIN/sqlite3"
+LOG="$TMP/sqlite.log" SCRATCH="$TMP/scratch" TRACE="$TMP/sqlite-trace.mjs"
+mkdir -p "$SCRATCH"
+# Each line: [-readonly ]<target> <sql>, one per exec or prepare.
+cat > "$TRACE" <<'PRELOAD'
+import { appendFileSync } from 'node:fs';
+const builtin = process.getBuiltinModule.bind(process);
+const real = builtin('node:sqlite');
+const log = (line) => appendFileSync(process.env.SQLITE_TRACE_LOG, `${line}\n`);
+class TracedDatabase extends real.DatabaseSync {
+  #label;
+  constructor(target, options) {
+    super(target, options);
+    this.#label = `${options?.readOnly ? '-readonly ' : ''}${target}`;
+  }
+  exec(sql) {
+    log(`${this.#label} ${sql}`);
+    return super.exec(sql);
+  }
+  prepare(sql) {
+    log(`${this.#label} ${sql}`);
+    return super.prepare(sql);
+  }
+}
+const traced = { ...real, DatabaseSync: TracedDatabase };
+process.getBuiltinModule = (id) => (id === 'node:sqlite' || id === 'sqlite' ? traced : builtin(id));
+PRELOAD
 
 # shellcheck source=tests/l3-integration/hooks/fixtures/migrated-db.sh
 . "$HERE/fixtures/migrated-db.sh"
@@ -56,8 +76,8 @@ run_helper() {
   shift
   : > "$LOG"
   RC=0
-  OUT=$(cd / && env -u CLAUDE_PROJECT_DIR -u CLAUDE_PLUGIN_ROOT PATH="$BIN:$PATH" TMPDIR="$SCRATCH" \
-    TRAJECTORY_DB_PATH="$(db_in "$proj")" bash "$READONLY" "$@" 2>"$TMP/stderr") || RC=$?
+  OUT=$(cd / && env -u CLAUDE_PROJECT_DIR -u CLAUDE_PLUGIN_ROOT SQLITE_TRACE_LOG="$LOG" TMPDIR="$SCRATCH" \
+    TRAJECTORY_DB_PATH="$(db_in "$proj")" node --experimental-sqlite --import "$TRACE" "$CLI" bro-sqlite-readonly "$@" 2>"$TMP/stderr") || RC=$?
   ERR=$(cat "$TMP/stderr")
 }
 

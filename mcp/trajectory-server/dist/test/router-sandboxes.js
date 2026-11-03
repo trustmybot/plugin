@@ -444,7 +444,7 @@ export function routerSandbox(rootDir, gates) {
         const dir = join(root, gate, 'sandbox');
         rebuilt(gate, dir, sessionSandbox, (file) => {
             const c = sessionCase(file, dir, corpusPaths().noJq);
-            return { input: c.input, env: noInstall(sessionEnv(dir, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, dir, false) };
+            return { input: c.input, env: noInstall(sessionEnv(dir, LOCALE, c.env, c.cwd)), cwd: c.cwd, golden: golden(file, dir, c.divergent !== undefined) };
         });
     }
     for (const gate of ['orphan-scan', 'session-start-prescan']) {

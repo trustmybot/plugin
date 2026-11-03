@@ -23,7 +23,7 @@ import { commandSubstitution, setlocaleUtf8 } from './lib/project-env.js';
 export const GATE_NAME = 'activation-routine';
 
 export const HALT_TEXT =
-  '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.';
+  '⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`) stays available for emergency reads.';
 const FIRST_RUN_LINE = 'onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>';
 export const SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
 export const RECENT_CALLS = 5;

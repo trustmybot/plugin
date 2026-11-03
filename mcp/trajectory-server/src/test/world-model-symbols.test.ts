@@ -79,8 +79,8 @@ const EVAL: Array<[string, string, string[]]> = [
   ],
   [
     'H4',
-    'Recovery fallback bro-sqlite-readonly.sh fails silently: issue_get/issue_resume/config_get query columns that no longer exist',
-    ['skills/tmb_recovery/scripts/bro-sqlite-readonly.sh'],
+    'Recovery fallback broSqliteReadonly fails silently: issue_get/issue_resume/config_get query columns that no longer exist',
+    ['mcp/trajectory-server/src/cli/bro-sqlite-readonly.ts'],
   ],
 ];
 
@@ -749,7 +749,7 @@ describe('generated output stays out of the world model (GH 1835)', () => {
 });
 
 describe('a comment banner or a comment set off by a blank line is never a symbol doc (GH 1834)', () => {
-  // Mirrors skills/tmb_recovery/scripts/bro-sqlite-readonly.sh lines 76-79 and 176-179.
+  // Mirrors the banner comments of the former skills/tmb_recovery bro-sqlite-readonly shell fallback, now cli.js bro-sqlite-readonly (GH 1692).
   const BANNER_SH = [
     '#!/usr/bin/env bash',
     '# ---------------------------------------------------------------------------',

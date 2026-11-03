@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for skills/tmb_recovery/scripts/bro-sqlite-readonly.sh against the
+# Tests for `cli.js bro-sqlite-readonly` (mcp/trajectory-server/src/cli/) against the
 # current schema (GH 1678). The DB is built by the trajectory-server's own
 # migration path (TrajectoryDB from dist/db.js), never a hand-written schema, so
 # a column the fallback queries that the schema drops fails here. Every read
@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/lib/tmpdir-cleanup.sh
 . "$HERE/../../lib/tmpdir-cleanup.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-READONLY="$PLUGIN_ROOT/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh"
+READONLY=(node --experimental-sqlite "$PLUGIN_ROOT/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly)
 
 TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-bro-sqlite-readonly.XXXXXX")
 trap 'tmpdir_cleanup "$TMP"' EXIT
@@ -45,7 +45,7 @@ read -r ISSUE_ID TASK_ID IDLE_ID <<<"$IDS"
 
 run_ro() {
   local db="$1"; shift
-  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR TRAJECTORY_DB_PATH="$db" bash "$READONLY" "$@"
+  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR TRAJECTORY_DB_PATH="$db" "${READONLY[@]}" "$@"
 }
 
 # json_ok <json> — exit 0 when the output parses to a non-empty, non-null value

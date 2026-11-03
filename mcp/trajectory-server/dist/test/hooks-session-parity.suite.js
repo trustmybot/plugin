@@ -16,7 +16,9 @@
  * corpus_env (null unsets), corpus_cwd (sandbox-relative, default project),
  * corpus_stdin (raw stdin in place of the payload) and corpus_expect (`empty`,
  * or a phrase of the stdout; an object of them by locale where grep's `\b`
- * differs) are removed before the run. The payload × locale
+ * differs) are removed before the run. A payload whose TS output differs from
+ * the .sh on purpose names why in corpus_divergent and gives corpus_expect as
+ * {bash, ts}, one phrase per side. The payload × locale
  * runs split across hooks-session-parity.shard-<k>of<n>.test.ts.
  */
 import { after, before, describe, it } from 'node:test';
@@ -209,8 +211,8 @@ export function snapshot(root) {
 }
 export function materialize(file, s, noJqPath) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', noJqPath);
-    const { corpus_env: env = {}, corpus_cwd: cwd = 'project', corpus_stdin: stdin, corpus_expect: expect = '', ...payload } = JSON.parse(text);
-    return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect };
+    const { corpus_env: env = {}, corpus_cwd: cwd = 'project', corpus_stdin: stdin, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
+    return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, divergent };
 }
 export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
@@ -274,7 +276,11 @@ export function sessionHooksParityShard(k, n) {
                     const files = corpusFiles(gate);
                     assert.ok(files.length >= MIN_CORPUS, `${gate}: ${files.length} payloads`);
                     for (const f of files) {
-                        const { expect } = materialize(join(CORPUS_ROOT, gate, f), s0, '');
+                        const { expect, divergent } = materialize(join(CORPUS_ROOT, gate, f), s0, '');
+                        if (divergent !== undefined) {
+                            assert.ok(typeof expect === 'object' && divergent !== '' && !!expect.bash && !!expect.ts, `${gate}/${f}: a divergent case names why and expects each side`);
+                            continue;
+                        }
                         const perLocale = typeof expect === 'string' ? LOCALES.map(() => expect) : LOCALES.map((l) => expect[l] ?? '');
                         assert.ok(perLocale.every((e) => e !== ''), `${gate}/${f}`);
                     }
@@ -293,9 +299,16 @@ export function sessionHooksParityShard(k, n) {
                 const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
                 const nodeTree = snapshot(s);
                 assert.equal(node.code, bash.code, 'exit code');
-                assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
                 assert.deepEqual(nodeTree, bashTree, 'the sandbox after the run');
                 assert.equal(bash.code, 0);
+                if (c.divergent !== undefined) {
+                    const sides = c.expect;
+                    assert.notEqual(node.stdout, bash.stdout, `divergent (${c.divergent}): the sides must differ`);
+                    assert.ok(bash.stdout.includes(sides.bash), `bash stdout holds ${JSON.stringify(sides.bash)}: ${bash.stdout.slice(0, 400)}`);
+                    assert.ok(node.stdout.includes(sides.ts), `ts stdout holds ${JSON.stringify(sides.ts)}: ${node.stdout.slice(0, 400)}`);
+                    return;
+                }
+                assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');
                 const expect = typeof c.expect === 'string' ? c.expect : c.expect[locale];
                 if (expect === 'empty')
                     assert.equal(bash.stdout, '', 'no output');

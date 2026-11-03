@@ -68,6 +68,17 @@ describe('session hooks without jq or the sqlite3 CLI (decision 703)', () => {
         assert.match(out.hookSpecificOutput.additionalContext, /onboarded=yes\. .* pending=#3: ship the \| bar thing\nover two lines session_id=nojq-act-0001$/s);
         assert.ok(!out.hookSpecificOutput.additionalContext.includes(HALT_TEXT), 'no pgrep on PATH: no HALT');
     });
+    it('activation-routine HALT names the cli.js read fallback, where the .sh named a shell script (GH 1692)', () => {
+        buildSandbox(s);
+        const downBin = join(base, 'pgrep-down-bin');
+        mkdirSync(downBin, { recursive: true });
+        writeFileSync(join(downBin, 'pgrep'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+        const r = activationRoutine('{"prompt":"bro","session_id":"halt-cli-0001"}', env({ PATH: downBin }));
+        const context = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+        assert.ok(context.startsWith(HALT_TEXT), 'server down: HALT first');
+        assert.ok(context.includes('(`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly`)'), 'HALT cites the cli.js invocation');
+        assert.ok(!/readonly\.sh\b/.test(context), 'HALT no longer cites the deleted script');
+    });
     it('debug-trajectory records the call through node:sqlite, where the .sh needs jq and sqlite3', () => {
         buildSandbox(s);
         const r = debugTrajectory('{"tool_name":"Bash","tool_input":{"command":"ls","n":1.50}}', env({ TMB_EVAL_MODE: '1', TMB_DEBUG_TRAJECTORY: '1', CLAUDE_SESSION_ID: 'dbg-session-0001' }));
