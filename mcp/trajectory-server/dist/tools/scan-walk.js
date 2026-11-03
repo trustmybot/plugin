@@ -24,7 +24,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, createReadStream, existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, createReadStream, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { lstat, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -209,11 +209,27 @@ function findGitParents(sessionDir) {
     walk(sessionDir, '.', 0);
     return parents;
 }
+/** A linked worktree's git dir differs from its common dir; a main checkout's are the same. */
+async function isLinkedWorktree(repo, env, deadline) {
+    const out = await git(['-C', repo, 'rev-parse', '--git-dir', '--git-common-dir'], env, deadline);
+    if (out.code !== 0)
+        return false;
+    const [gitDir, commonDir] = captured(out.stdout).split('\n');
+    if (!gitDir || !commonDir)
+        return false;
+    try {
+        return realpathSync(resolve(repo, gitDir)) !== realpathSync(resolve(repo, commonDir));
+    }
+    catch {
+        return false;
+    }
+}
 /**
  * Why a discovered repo below the session dir is left out of the scan, or null
  * when it is scanned: dot_dir (a dot-prefixed path segment below the session
  * dir), git_ignored (the nearest enclosing repo up to the session dir ignores
- * it) or no_commits (no HEAD commit).
+ * it), linked_worktree (a `git worktree add` checkout of another repo) or
+ * no_commits (no HEAD commit).
  */
 async function skipReason(repo, sessionDir, env, deadline) {
     const rel = repo.startsWith(`${sessionDir}/`) ? repo.slice(sessionDir.length + 1) : repo;
@@ -230,6 +246,8 @@ async function skipReason(repo, sessionDir, env, deadline) {
             break;
         enclosing = dirname(enclosing);
     }
+    if (await isLinkedWorktree(repo, env, deadline))
+        return 'linked_worktree';
     const head = await git(['-C', repo, 'rev-parse', '--verify', '-q', 'HEAD'], env, deadline);
     return head.code === 0 ? null : 'no_commits';
 }
