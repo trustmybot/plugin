@@ -1,6 +1,7 @@
 /**
  * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
- * bro's integrate and the assert-sql verification check run with
+ * bro's integrate, the assert-sql verification check and the Human-run
+ * maintenance tools (heal-mcp-cache, trajectory-doctor, backfill-agent-runs) run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
  * They read and write the trajectory DB through node:sqlite and never need the
  * server process. SIGINT and SIGTERM exit 130 and 143 as the shell traps did,
@@ -8,19 +9,25 @@
  * process 'exit' event.
  */
 import { assertSql } from './assert-sql.js';
+import { backfillAgentRuns } from './backfill-agent-runs.js';
 import { broSqliteReadonly } from './bro-sqlite-readonly.js';
 import type { CliIo } from './fallback-db.js';
+import { healMcpCache } from './heal-mcp-cache.js';
 import { health } from './health.js';
 import { integrate } from './integrate.js';
+import { trajectoryDoctor } from './trajectory-doctor.js';
 import { validationRecordFallback } from './validation-record-fallback.js';
 
 type Subcommand = (argv: readonly string[], env: NodeJS.ProcessEnv, io: CliIo) => number | Promise<number>;
 
 const SUBCOMMANDS: Record<string, Subcommand> = {
   'assert-sql': assertSql,
+  'backfill-agent-runs': backfillAgentRuns,
   'bro-sqlite-readonly': broSqliteReadonly,
+  'heal-mcp-cache': healMcpCache,
   health,
   integrate,
+  'trajectory-doctor': trajectoryDoctor,
   'validation-record-fallback': validationRecordFallback,
 };
 

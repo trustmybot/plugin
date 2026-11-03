@@ -305,6 +305,8 @@ describe('cli.js health', () => {
         assert.ok(out.includes('[pending]'), 'stale remediation names the pending task status');
         assert.ok(out.includes('feat/some-thing'), 'stale remediation names the branch');
         assert.ok(out.includes('.claude/worktrees/some-thing'), 'stale remediation names the worktree');
+        assert.ok(!out.includes('Cleanup helper'), 'stale remediation names no cleanup helper');
+        assert.doesNotMatch(out, /cleanup-stale-[a-z]+/, 'stale remediation names no deleted cleanup script');
     });
     it('check7 hook-cache-drift: dev checkout != cache → FAIL, scoped update + full relaunch', () => {
         const f = resetScenario('hook-drift');

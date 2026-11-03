@@ -51,8 +51,8 @@ If the SessionStart "newer plugin version … restart to apply" banner is showin
 Each update leaves the previous version's files in `~/.claude/plugins/cache/<owner>/tmb/<version>`. To reclaim that space, run the bundled GC — it keeps the active version plus the single previous one and removes the rest, never touching the active version:
 
 ```bash
-bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh --dry-run   # preview Steps A, B and C
-bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh             # prompts before pruning
+node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js heal-mcp-cache --dry-run   # preview Steps A, B and C
+node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js heal-mcp-cache             # prompts before pruning
 ```
 
 Step C is safe to re-run: once only active + previous remain it reports nothing to prune.
@@ -155,8 +155,8 @@ To remove them:
 Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:
 
 ```bash
-bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh            # dry run: prints the report, writes nothing
-bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh --apply    # writes the rows
+node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js backfill-agent-runs            # dry run: prints the report, writes nothing
+node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js backfill-agent-runs --apply    # writes the rows
 ```
 
 bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / code-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
@@ -193,7 +193,7 @@ If this returns a JSON array containing `"plugin:tmb:trajectory-server"`, that's
 
 Recovery (one of):
 
-- **`heal-mcp-cache.sh`** clears this automatically — Step A diagnoses + offers to remove the flag. No reinstall needed.
+- **`cli.js heal-mcp-cache`** clears this automatically — Step A diagnoses + offers to remove the flag. No reinstall needed.
 - **Manual**:
   ```bash
   jq '.projects."<project-path>".disabledMcpServers = []' ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
@@ -228,11 +228,11 @@ After disabling and re-enabling the plugin, or after CC's auto-update lands a ne
 
 3. **Manual cache nuke + reinstall.** Use the bundled helper, which previews what it will remove, prompts for confirmation, and preserves every other plugin's entry in `installed_plugins.json`:
    ```bash
-   bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh
+   node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js heal-mcp-cache
    ```
    Then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root and relaunch CC.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `cli.js heal-mcp-cache` helper above. Track at issue #2888.
 
 ### "stored schema_version N is newer than code's max M"
 

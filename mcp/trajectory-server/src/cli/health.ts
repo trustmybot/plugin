@@ -159,7 +159,7 @@ function installEntry(installed: string, name: string, root: string): InstallEnt
   };
 }
 
-function pgrepProbe(env: NodeJS.ProcessEnv): { count: string; rc: number } {
+export function pgrepProbe(env: NodeJS.ProcessEnv): { count: string; rc: number } {
   if (!commandOnPath('pgrep', env)) return { count: '-1', rc: 0 };
   const root = env.CLAUDE_PLUGIN_ROOT ?? '';
   const pattern = root !== '' ? `${root}/mcp/trajectory-server/dist/index.js` : 'trajectory-server/dist/index.js';
@@ -439,7 +439,6 @@ export function health(_argv: readonly string[], env: NodeJS.ProcessEnv, io: Cli
     if (worktrees.length > 0) {
       r.remediate(`Worktrees under ${wsRoot}/.claude/worktrees/ (clean up once the task is done):`);
       for (const w of worktrees) r.remediate(`    ${w}`);
-      r.remediate('Cleanup helper: scripts/maintenance/cleanup-stale-worktrees.sh');
     }
   }
 
