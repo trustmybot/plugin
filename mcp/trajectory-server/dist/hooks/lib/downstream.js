@@ -44,19 +44,28 @@ const SYMBOL_JSON = "json_group_array(json_object('id', id, 'qualified_name', qu
 export function symbolsInFile(db, repo, path, env = process.env) {
     return jsonRows(db, `SELECT ${SYMBOL_JSON} FROM (SELECT * FROM wm_symbols WHERE repo = '${sqlQuote(repo)}' AND path = '${sqlQuote(path)}' ORDER BY start_line, id);`, env);
 }
-/** The non-module symbols of <repo> whose line range meets one of a file's ranges; null on a read error. */
+/**
+ * The non-module symbols of <repo> whose line range meets one of a file's
+ * ranges; null on a read error. One read fetches the symbols of every changed
+ * path and the ranges meet them here, so the SQL keeps one term per path
+ * whatever the number of hunks.
+ */
 export function symbolsInRanges(db, repo, ranges, env = process.env) {
-    const terms = [];
+    const spansByPath = new Map();
     for (const [path, spans] of ranges) {
-        for (const [from, to] of spans) {
-            if (!Number.isInteger(from) || !Number.isInteger(to))
-                continue;
-            terms.push(`(path = '${sqlQuote(path)}' AND start_line <= ${to} AND end_line >= ${from})`);
-        }
+        const valid = spans.filter(([from, to]) => Number.isInteger(from) && Number.isInteger(to));
+        if (valid.length > 0)
+            spansByPath.set(path, valid);
     }
-    if (terms.length === 0)
+    if (spansByPath.size === 0)
         return [];
-    return jsonRows(db, `SELECT ${SYMBOL_JSON} FROM (SELECT * FROM wm_symbols WHERE repo = '${sqlQuote(repo)}' AND kind <> 'module' AND (${terms.join(' OR ')}) ORDER BY path, start_line, id);`, env);
+    const paths = [...spansByPath.keys()].map((p) => `'${sqlQuote(p)}'`).join(', ');
+    const rows = jsonRows(db, `SELECT json_group_array(json_object('id', id, 'qualified_name', qualified_name, 'kind', kind, 'path', path, 'line', start_line, 'end_line', end_line)) FROM (SELECT * FROM wm_symbols WHERE repo = '${sqlQuote(repo)}' AND kind <> 'module' AND path IN (${paths}) ORDER BY path, start_line, id);`, env);
+    if (rows === null)
+        return null;
+    return rows
+        .filter((r) => (spansByPath.get(r.path) ?? []).some(([from, to]) => r.line <= to && r.end_line >= from))
+        .map(({ id, qualified_name, kind, path, line }) => ({ id, qualified_name, kind, path, line }));
 }
 /**
  * The direct downstream of <symbolIds> in <repo>: callers over call edges and

@@ -15,7 +15,7 @@ import { downstreamContextArm, enrollDownstreamContextAb } from '../downstream-c
 import { downstreamContextAbReport, formatDownstreamContextAbReport, DOWNSTREAM_AB_METRICS } from '../downstream-context-ab-report.js';
 import { parseDownstreamContextAb } from '../tools/config.js';
 import { isTestPath as indexIsTestPath } from '../symbol-index.js';
-import { capSections, isTestPath, MAX_CHARS, MAX_REFS } from '../hooks/lib/downstream.js';
+import { capSections, isTestPath, MAX_CHARS, MAX_REFS, symbolsInRanges } from '../hooks/lib/downstream.js';
 import { sweDownstreamContext } from '../hooks/swe-downstream-context.js';
 import { oldSideSpans, pendingReviewerTask, reviewerDownstreamContext } from '../hooks/reviewer-downstream-context.js';
 import { findGate } from '../hooks/registry.js';
@@ -139,6 +139,35 @@ describe('GH 1990: downstream-context hooks over a seeded DB', () => {
         assert.equal((await reviewerDownstreamContext(start.replace('tmb:code-reviewer', 'tmb:swe'), env)).stdout, '', 'a swe start');
         const off = JSON.stringify({ hook_event_name: 'SubagentStart', agent_id: 'rev-2', agent_type: 'tmb:code-reviewer', prompt: `task_id=${OFF_TASK}` });
         assert.equal((await reviewerDownstreamContext(off, env)).stdout, '', 'arm off');
+    });
+    it('GH 1990: a diff of more than 1000 hunks still gives the code-reviewer its changed symbols and their callers', async () => {
+        const BIG_TASK = 10;
+        const hunks = 1500;
+        const spans = new Map([
+            ['dist/big.js', Array.from({ length: hunks }, (_, i) => [i * 3 + 100, i * 3 + 101])],
+            ['src/a.ts', [[2, 2]]],
+        ]);
+        assert.deepEqual(symbolsInRanges(dbFile, 'r', spans, env)?.map((s) => s.qualified_name), ['foo']);
+        const big = Array.from({ length: hunks * 3 }, (_, i) => `const v${i} = ${i};`);
+        git(repo, 'checkout', '-q', 'main');
+        mkdirSync(join(repo, 'dist'), { recursive: true });
+        writeFileSync(join(repo, 'dist/big.js'), `${big.join('\n')}\n`);
+        git(repo, 'add', '-A');
+        git(repo, 'commit', '-q', '-m', 'big dist');
+        git(repo, 'checkout', '-q', '-b', 'feat/big');
+        writeFileSync(join(repo, 'dist/big.js'), `${big.map((l, i) => (i % 3 === 0 ? `${l} // rebuilt` : l)).join('\n')}\n`);
+        writeFileSync(join(repo, 'src/a.ts'), 'export function foo(x: number): string {\n  return String(x + 1);\n}\n\nexport function solo(): void {}\n');
+        git(repo, 'commit', '-q', '-am', 'rebuild dist and reshape foo');
+        git(repo, 'checkout', '-q', 'main');
+        assert.ok(git(repo, 'diff', '-U0', 'main', 'feat/big').split('\n').filter((l) => l.startsWith('@@ ')).length > 1000);
+        db.run(`INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, files, worktree_path, created_at, updated_at) VALUES (?, 1, 'feat/big', 'd', 'running', 'r', '["src/a.ts"]', ?, ?, ?)`, [BIG_TASK, repo, NOW, NOW]);
+        const start = JSON.stringify({ hook_event_name: 'SubagentStart', agent_id: 'rev-big', agent_type: 'tmb:code-reviewer', prompt: `task_id=${BIG_TASK}`, cwd: repo });
+        const text = context((await reviewerDownstreamContext(start, env)).stdout, 'SubagentStart');
+        assert.match(text, new RegExp(`task ${BIG_TASK}'s diff`));
+        assert.match(text, /Changed symbols \(1\)/);
+        assert.match(text, /- src\/a\.ts:1 foo/);
+        assert.match(text, /- src\/b\.ts:2 bar \(calls foo\)/);
+        assert.equal(injected().filter((r) => r.role === 'code-reviewer' && r.task_id === BIG_TASK).length, 1);
     });
     it('GH 1990: both hooks exit 0 silent on a bad payload, an unreadable DB and an empty index', async () => {
         for (const bad of ['', '{not json', '[]', 'null', '{"tool_name":"Edit"}']) {
