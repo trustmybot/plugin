@@ -38,16 +38,17 @@ describe('project enforcement shim', () => {
         writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb' }));
         mkdirSync(join(root, 'hooks'), { recursive: true });
         writeFileSync(join(root, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
-        mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
-        writeFileSync(join(root, 'scripts', 'lib', 'resolve-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
+        mkdirSync(join(root, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+        writeFileSync(join(root, 'mcp', 'trajectory-server', 'dist', 'resolve-hook.mjs'), 'process.exitCode = 0;\n');
         return root;
     }
     const settingsPath = () => join(project, '.claude', 'settings.local.json');
-    const resolverPath = () => join(project, '.claude', 'tmb', 'resolve-hook.sh');
+    const resolverPath = () => join(project, '.claude', 'tmb', 'resolve-hook.mjs');
+    const legacyResolverPath = () => join(project, '.claude', 'tmb', 'resolve-hook.sh');
     const readSettings = () => JSON.parse(readFileSync(settingsPath(), 'utf8'));
     const entriesOf = (s) => (s.hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
     const groupFor = (s, matcher) => (s.hooks?.PreToolUse ?? []).find((g) => g.matcher === matcher);
-    const shimCommand = (hook, projectRoot = project) => `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook ${hook} --shim --project ${projectRoot}`;
+    const shimCommand = (hook, projectRoot = project) => `node ${resolverPath()} --marketplace ${MARKETPLACE} --hook ${hook} --shim --project ${projectRoot}`;
     function write(root = pluginRoot, projectRoot = project) {
         return writeProjectEnforcementShim({ pluginRoot: root, projectRoot, headlessEnforcement: 'yes' });
     }
@@ -122,7 +123,7 @@ describe('project enforcement shim', () => {
         useHooksJson({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PreToolUse', 'guard'), timeout: 9, onFailure: 'block' }] }] } });
         write();
         assert.deepEqual(groupFor(readSettings(), 'Bash')?.hooks.map((h) => h.command), [
-            `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook PreToolUse --part guard --shim --project ${project}`,
+            `node ${resolverPath()} --marketplace ${MARKETPLACE} --hook PreToolUse --part guard --shim --project ${project}`,
         ]);
     });
     it('the shipped hooks.json: one entry per PreToolUse router entry, no other event', () => {
@@ -149,7 +150,7 @@ describe('project enforcement shim', () => {
         mkdirSync(join(project, '.claude'), { recursive: true });
         const oldEntry = (gate, stamped) => ({
             type: 'command',
-            command: `bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook ${gate} --shim --project ${project}`,
+            command: `bash ${legacyResolverPath()} --marketplace ${MARKETPLACE} --hook ${gate} --shim --project ${project}`,
             timeout: 10,
             ...(stamped ? { _tmb_managed: true, _tmb_project: project } : {}),
         });
@@ -169,6 +170,52 @@ describe('project enforcement shim', () => {
         assert.deepEqual(s.hooks?.PreToolUse?.[0], { matcher: 'Bash', hooks: [user] });
         assert.equal(all.filter((h) => h._tmb_managed === true).length, 4);
         assert.ok(all.filter((h) => h._tmb_managed === true).every((h) => h.command === shimCommand('PreToolUse')));
+    });
+    function seedLegacyProject() {
+        mkdirSync(join(project, '.claude', 'tmb'), { recursive: true });
+        writeFileSync(legacyResolverPath(), '#!/usr/bin/env bash\nexit 0\n');
+        const legacy = (stamped) => ({
+            type: 'command',
+            command: `bash ${legacyResolverPath()} --marketplace ${MARKETPLACE} --hook PreToolUse --shim --project ${project}`,
+            timeout: 19,
+            ...(stamped ? { _tmb_managed: true, _tmb_project: project } : {}),
+        });
+        const user = { type: 'command', command: '/usr/local/bin/my-user-hook.sh' };
+        writeFileSync(settingsPath(), JSON.stringify({
+            hooks: {
+                PreToolUse: [
+                    { matcher: 'Bash', hooks: [user, legacy(true)] },
+                    { matcher: 'Read|Skill', hooks: [legacy(false)] },
+                ],
+            },
+        }));
+        return { user };
+    }
+    it('migrates a resolve-hook.sh project: only resolve-hook.mjs entries remain and the .sh copy is deleted', () => {
+        const { user } = seedLegacyProject();
+        assert.equal(write().written, true);
+        const s = readSettings();
+        const all = entriesOf(s);
+        assert.ok(!all.some((h) => h.command.includes('resolve-hook.sh')), 'no resolve-hook.sh entry left');
+        assert.deepEqual(s.hooks?.PreToolUse?.[0], { matcher: 'Bash', hooks: [user] });
+        const managed = all.filter((h) => h._tmb_managed === true);
+        assert.equal(managed.length, 4);
+        assert.ok(managed.every((h) => h.command === shimCommand('PreToolUse')));
+        assert.ok(existsSync(resolverPath()));
+        assert.ok(!existsSync(legacyResolverPath()), 'stale resolve-hook.sh copy deleted');
+    });
+    it('remove purges both resolver forms, entries and copies', () => {
+        const { user } = seedLegacyProject();
+        writeFileSync(resolverPath(), 'process.exitCode = 0;\n');
+        const s = readSettings();
+        s.hooks?.PreToolUse?.push({ matcher: 'Write', hooks: [{ type: 'command', command: shimCommand('PreToolUse') }] });
+        writeFileSync(settingsPath(), JSON.stringify(s));
+        const res = remove();
+        assert.equal(res.removed, 3);
+        assert.equal(res.resolver_removed, true);
+        assert.deepEqual(readSettings(), { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [user] }] } });
+        assert.ok(!existsSync(resolverPath()));
+        assert.ok(!existsSync(legacyResolverPath()));
     });
     it('quoted and unquoted placeholder commands yield the same shim', () => {
         write();

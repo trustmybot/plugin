@@ -43631,8 +43631,9 @@ function removeProjectSandbox(opts) {
 }
 
 // src/tools/onboard-hooks-shim.ts
-var RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
+var RESOLVER_NAME = "resolve-hook.mjs";
+var LEGACY_RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["mcp", "trajectory-server", "dist", RESOLVER_NAME];
 var SETTINGS_REL = [".claude", "settings.local.json"];
 function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
@@ -43686,7 +43687,7 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot2) {
     ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
     hooks: group.entries.map((e) => ({
       type: "command",
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== void 0 ? ` --part ${e.part}` : ""} --shim --project ${shellWord(projectRoot2)}`,
+      command: `node ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== void 0 ? ` --part ${e.part}` : ""} --shim --project ${shellWord(projectRoot2)}`,
       ...e.timeout !== void 0 ? { timeout: e.timeout } : {},
       ...e.onFailure !== void 0 ? { onFailure: e.onFailure } : {},
       _tmb_managed: true,
@@ -43694,8 +43695,13 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot2) {
     }))
   }));
 }
-function resolverPathFor(projectRoot2, pluginName2) {
-  return join16(projectRoot2, ".claude", pluginName2, RESOLVER_NAME);
+function resolverPathFor(projectRoot2, pluginName2, name2 = RESOLVER_NAME) {
+  return join16(projectRoot2, ".claude", pluginName2, name2);
+}
+function removeFile(path2) {
+  if (!existsSync8(path2)) return false;
+  rmSync2(path2, { force: true });
+  return true;
 }
 function materializeResolver(pluginRoot, resolverPath) {
   const canonical = join16(pluginRoot, ...CANONICAL_RESOLVER_REL);
@@ -43708,7 +43714,7 @@ function materializeResolver(pluginRoot, resolverPath) {
 function isTmbEntry(h) {
   if (h._tmb_managed === true) return true;
   const command = h.command ?? "";
-  return command.includes(`/${RESOLVER_NAME} --marketplace `);
+  return [RESOLVER_NAME, LEGACY_RESOLVER_NAME].some((name2) => command.includes(`/${name2} --marketplace `));
 }
 function purgeTmbEntries(pre) {
   const kept = [];
@@ -43778,7 +43784,7 @@ function writeProjectEnforcementShim(opts) {
   }
   const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot2, guard.pluginName));
   if (!resolverPath) {
-    const reason = "canonical resolver script missing";
+    const reason = "canonical resolver bundle missing";
     return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
   }
   const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot2);
@@ -43787,6 +43793,7 @@ function writeProjectEnforcementShim(opts) {
   read.settings.hooks = hooks;
   const failure2 = writeSettings2(path2, read.settings);
   if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
+  removeFile(resolverPathFor(projectRoot2, guard.pluginName, LEGACY_RESOLVER_NAME));
   const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
   serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
   return { written: true, entries, settings_path: path2 };
@@ -43814,12 +43821,8 @@ function removeProjectEnforcementShim(opts) {
       }
     }
   }
-  const resolverPath = resolverPathFor(projectRoot2, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
-  let resolver_removed = false;
-  if (existsSync8(resolverPath)) {
-    rmSync2(resolverPath, { force: true });
-    resolver_removed = true;
-  }
+  const name2 = pluginRoot ? pluginNameOf(pluginRoot) : "tmb";
+  const resolver_removed = [RESOLVER_NAME, LEGACY_RESOLVER_NAME].map((file2) => removeFile(resolverPathFor(projectRoot2, name2, file2))).includes(true);
   if (removed > 0 || resolver_removed) {
     serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
   }
