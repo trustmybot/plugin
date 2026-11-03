@@ -25260,7 +25260,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or its walker as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
   { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `linked_worktree`: a `git worktree add` checkout of another repo; `no_commits`: it has no commit)" },
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
@@ -45167,7 +45167,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync8, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
+import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync9, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
 import { dirname as dirname13, join as join22 } from "node:path";
 
 // src/file-purpose.ts
@@ -45895,7 +45895,7 @@ function cleanReadme(raw) {
 // src/tools/scan-walk.ts
 import { spawn } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
-import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, statSync as statSync7 } from "node:fs";
+import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
 import { basename as basename10, dirname as dirname12, join as join21, resolve as resolve6 } from "node:path";
@@ -46097,6 +46097,17 @@ function findGitParents(sessionDir) {
   walk(sessionDir, ".", 0);
   return parents;
 }
+async function isLinkedWorktree(repo, env, deadline) {
+  const out2 = await git4(["-C", repo, "rev-parse", "--git-dir", "--git-common-dir"], env, deadline);
+  if (out2.code !== 0) return false;
+  const [gitDir, commonDir] = captured(out2.stdout).split("\n");
+  if (!gitDir || !commonDir) return false;
+  try {
+    return realpathSync8(resolve6(repo, gitDir)) !== realpathSync8(resolve6(repo, commonDir));
+  } catch {
+    return false;
+  }
+}
 async function skipReason(repo, sessionDir, env, deadline) {
   const rel = repo.startsWith(`${sessionDir}/`) ? repo.slice(sessionDir.length + 1) : repo;
   if (`/${rel}`.includes("/.")) return "dot_dir";
@@ -46109,6 +46120,7 @@ async function skipReason(repo, sessionDir, env, deadline) {
     if (enclosing === sessionDir || dirname12(enclosing) === enclosing) break;
     enclosing = dirname12(enclosing);
   }
+  if (await isLinkedWorktree(repo, env, deadline)) return "linked_worktree";
   const head = await git4(["-C", repo, "rev-parse", "--verify", "-q", "HEAD"], env, deadline);
   return head.code === 0 ? null : "no_commits";
 }
@@ -46748,7 +46760,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath3(p) {
   try {
-    return realpathSync8(p);
+    return realpathSync9(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -49683,7 +49695,7 @@ function isProseFile(path2) {
 }
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync16, realpathSync as realpathSync9 } from "node:fs";
+import { readFileSync as readFileSync16, realpathSync as realpathSync10 } from "node:fs";
 import { join as join27 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join27(env["HOME"] || "", ".claude");
@@ -49693,7 +49705,7 @@ function installedPluginsJsonPath(env = process.env) {
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync9(dir);
+    return realpathSync10(dir);
   } catch {
     return dir;
   }

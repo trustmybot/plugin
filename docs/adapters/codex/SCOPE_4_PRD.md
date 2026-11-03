@@ -1312,7 +1312,7 @@ node tests/benchmarks/codex-agent-materialization.mjs \
 
 - Agent body、metadata、hash 和 expected file bytes 由一个 catalog 提供。
 - tool registry、测试 allowlist、文档数量同步。
-- Prompt 通过现有 `scripts/prompt-author-lint.sh`，并按仓库 A-F rubric 进行人工 Grade A 评审。
+- Prompt 通过现有 `cli.js prompt-author-lint`，并按仓库 A-F rubric 进行人工 Grade A 评审。
 - Adapter doctrine 变更需要维护者人工审查，不 auto-merge。
 
 ## 23. 威胁模型
@@ -1455,7 +1455,7 @@ Desktop 测试是本 Scope 唯一可能触及当前 Codex profile 的步骤，�
 15. catalog 只有两个 template entry。
 16. source tree 不包含会被项目自动发现的 `.codex/agents/*.toml`。
 17. README、CODEX、PARITY 和 MULTI_PLATFORM 不声称完整 parity 或硬只读。
-18. `scripts/prompt-author-lint.sh` 通过。
+18. `cli.js prompt-author-lint` 通过。
 19. Agent prompt 人工 rubric 为 Grade A。
 
 ### 25.2 Materializer 单元测试
