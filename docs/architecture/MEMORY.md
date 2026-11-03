@@ -51,7 +51,7 @@ Ask these of any change that adds context, a tool result, a prompt line or a sto
 
 | Work | Status |
 |---|---|
-| Usage warning on long bro sessions (GH 2193) | Shipped |
+| bro's DB state restored after each compaction (GH 2275) | Shipped |
 | Concise `task_brief` by section (GH 1958) | Shipped |
 | bro's short-session prompt | **In flight (GH 2193)** |
 | Limits and cursors on the other read tools | **In flight (GH 1958)** |

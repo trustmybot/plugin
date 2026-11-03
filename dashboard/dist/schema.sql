@@ -448,13 +448,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, sp
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
 
--- session_handoffs (GH 2193; schema v55): one row per bro session that stopped
--- past its usage limits with no work running. The session-handoff Stop gate
--- upserts it until it is consumed. issue_id is the newest issue a non-bro run of
--- that session recorded (NULL with no such run); summary is the session's last
--- assistant message capped at 2000 characters (NULL when absent).
--- session-start-persona sets consumed_at and consumed_by_session when a new
--- session in the same cwd takes the handoff.
+-- session_handoffs (GH 2193, GH 2275; schema v55): one row per bro session
+-- Claude Code compacted. The session-handoff PreCompact gate upserts it before
+-- each compaction, putting consumed_at and consumed_by_session back to NULL.
+-- issue_id is the newest issue a non-bro run of that session recorded (NULL
+-- with no such run); summary is NULL. session-start-persona sets consumed_at
+-- and consumed_by_session when the same session's SessionStart with source
+-- 'compact' takes the row.
 CREATE TABLE IF NOT EXISTS session_handoffs (
     session_id          TEXT PRIMARY KEY,
     cwd                 TEXT NOT NULL,
