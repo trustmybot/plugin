@@ -699,7 +699,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 55;
+var TARGET_SCHEMA_VERSION = 56;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1268,6 +1268,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 55 && toVersion >= 55) {
     migrateV54toV55(db);
+  }
+  if (fromVersion < 56 && toVersion >= 56) {
+    migrateV55toV56(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3176,6 +3179,41 @@ function migrateV54toV55(db) {
           consumed_by_session TEXT
       );
     `);
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV55toV56(db) {
+  if (!tableExists(db, "wm_edges") || readTableSql(db, "wm_edges").includes("'bundles'")) return;
+  beginImmediate(db);
+  try {
+    rebuildTable(
+      db,
+      "wm_edges",
+      `
+        src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+        dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+        dst_name    TEXT    NOT NULL,
+        kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')),
+        resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+        line        INTEGER,
+        hint        TEXT
+      `,
+      [
+        ["src_id", "0"],
+        ["dst_id", "NULL"],
+        ["dst_name", "''"],
+        ["kind", "'calls'"],
+        ["resolution", "'unresolved'"],
+        ["line", "NULL"],
+        ["hint", "NULL"]
+      ]
+    );
     commitTransaction(db);
   } catch (err3) {
     try {
@@ -9240,3 +9278,4 @@ try {
   console.error(err3 instanceof Error ? err3.message : String(err3));
   process.exit(1);
 }
+//# sourceMappingURL=server.mjs.map

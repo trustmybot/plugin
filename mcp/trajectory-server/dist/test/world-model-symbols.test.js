@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadParsers, parserLoadCount } from '../parsing/loader.js';
-import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
-import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine } from '../parsing/extract.js';
+import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine, languageOf, needsParser } from '../parsing/extract.js';
 import { dispatchChains, extractHooks } from '../parsing/hooks.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -132,6 +132,25 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
         assert.ok(card.callees.refs.some((r) => r['qualified_name'] === 'persistFilesGraph'));
         for (const key of ['id', 'qualified_name', 'kind', 'repo', 'path', 'line_start'])
             assert.ok(key in card.callers.refs[0], key);
+    });
+    it('world_model_symbol on a trajectory-server source inlined by the dashboard bundle lists it in bundled_by (GH 2284)', async () => {
+        const wm = worldModelTools(db, holder).handlers;
+        for (const [name, path] of [
+            ['runMigrations', 'mcp/trajectory-server/src/db.ts'],
+            ['mcp/trajectory-server/src/symbol-index.ts', 'mcp/trajectory-server/src/symbol-index.ts'],
+        ]) {
+            const card = parse((await wm['world_model_symbol']({ agent: 'bro', repo, qualified_name: name, path })));
+            assert.equal(card.symbol['path'], path);
+            const bundle = card.bundled_by.refs.find((r) => r['path'] === 'dashboard/dist/server.mjs');
+            assert.ok(bundle, JSON.stringify(card.bundled_by));
+            assert.equal(bundle['kind'], 'module');
+        }
+        const edges = db.get(`SELECT COUNT(*) AS n FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE s.repo = ? AND s.path = 'dashboard/dist/server.mjs' AND e.kind = 'bundles' AND e.resolution = 'exact'`, [repo]).n;
+        assert.ok(edges > 0, 'server.mjs has exact bundles edges');
+        const outside = db.get(`SELECT COUNT(*) AS n FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE s.repo = ? AND e.kind = 'bundles' AND e.dst_name LIKE '%node_modules/%'`, [repo]).n;
+        assert.equal(outside, 0, 'no bundles edge names a node_modules source');
     });
 });
 describe('L1 symbol index freshness on a small repo (GH 1680)', () => {
@@ -724,7 +743,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
             execFileSync('git', ['add', '-A'], { cwd: root });
             execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
             await scan(db, holder, ws);
-            assert.equal(EXTRACTOR_VERSION, 4);
+            assert.equal(EXTRACTOR_VERSION, 5);
             db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
             db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
             const out = await scan(db, holder, ws);
@@ -820,6 +839,164 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
             db.close();
             rmSync(ws, { recursive: true, force: true });
         }
+    });
+});
+describe('Perl subs and constants (GH 2284)', () => {
+    const PERL = [
+        '#!/usr/bin/env perl',
+        'use strict;',
+        '',
+        '# Seconds to wait.',
+        'use constant TIMEOUT => 30;',
+        'use constant LIMITS => (',
+        '  1, 2,',
+        ');',
+        '# Exit codes.',
+        'use constant {',
+        "  OK    => 0, # plain",
+        "  'FAIL' => [1, 2],",
+        '  _HIDDEN => { a => 1 },',
+        '};',
+        '',
+        '# Reads one file.',
+        'sub slurp {',
+        '  my $f = shift;',
+        '  return 1;',
+        '}',
+        'sub one { return 1; }',
+        'sub Pkg::_inner($) {',
+        '  my $h = sub {',
+        '    1;',
+        '  };',
+        '}',
+        'sub later($); # declared only',
+        '=pod',
+        'sub not_code {',
+        '=cut',
+        '__END__',
+        'sub after_end { 1 }',
+        '',
+    ].join('\n');
+    const rows = () => extractFile(null, 'x.pl', 'perl', PERL)
+        .symbols.filter((s) => s.kind !== 'module')
+        .map((s) => ({ kind: s.kind, name: s.qualified_name, start: s.start_line, end: s.end_line, doc: s.doc, exported: s.exported }));
+    it('indexes subs as function and both use constant forms as const, with line numbers, and skips forward declarations, POD and __END__', () => {
+        assert.deepEqual(rows(), [
+            { kind: 'const', name: 'TIMEOUT', start: 5, end: 5, doc: 'Seconds to wait.', exported: 1 },
+            { kind: 'const', name: 'LIMITS', start: 6, end: 8, doc: '', exported: 1 },
+            { kind: 'const', name: 'OK', start: 11, end: 11, doc: 'Exit codes.', exported: 1 },
+            { kind: 'const', name: 'FAIL', start: 12, end: 12, doc: 'Exit codes.', exported: 1 },
+            { kind: 'const', name: '_HIDDEN', start: 13, end: 13, doc: 'Exit codes.', exported: 0 },
+            { kind: 'function', name: 'slurp', start: 17, end: 20, doc: 'Reads one file.', exported: 1 },
+            { kind: 'function', name: 'one', start: 21, end: 21, doc: '', exported: 1 },
+            { kind: 'function', name: 'Pkg::_inner', start: 22, end: 26, doc: '', exported: 0 },
+        ]);
+        const sigs = extractFile(null, 'x.pl', 'perl', PERL).symbols.map((s) => s.signature);
+        assert.ok(sigs.includes('TIMEOUT => 30'), sigs.join(' | '));
+        assert.ok(sigs.includes('sub Pkg::_inner($)'), sigs.join(' | '));
+    });
+    it('maps .pl, .pm and a perl shebang to perl, which needs no grammar', () => {
+        assert.equal(languageOf('a/b.pl', () => ''), 'perl');
+        assert.equal(languageOf('a/B.pm', () => ''), 'perl');
+        assert.equal(languageOf('bin/tool', () => '#!/usr/bin/env perl -w\n'), 'perl');
+        assert.equal(languageOf('bin/tool', () => '#!/bin/bash\n'), 'bash');
+        assert.equal(needsParser('perl'), false);
+    });
+    it('indexing tests/l1-lint/enums-stable-extract.pl yields its named subs', () => {
+        const src = readFileSync(join(WORKTREE, 'tests/l1-lint/enums-stable-extract.pl'), 'utf8');
+        const subs = extractFile(null, 'tests/l1-lint/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
+        assert.deepEqual(subs.map((s) => s.qualified_name), ['slurp', 'lits', 'strip_js_comments', 'const_value', 'emit']);
+        const line = (n) => subs.find((s) => s.qualified_name === n);
+        const at = (n) => src.split('\n').findIndex((l) => l.startsWith(`sub ${n} `)) + 1;
+        for (const s of subs)
+            assert.equal(s.start_line, at(s.qualified_name), s.qualified_name);
+        assert.equal(line('lits').end_line, line('lits').start_line);
+        assert.ok(line('strip_js_comments').end_line > line('strip_js_comments').start_line);
+    });
+});
+describe("'bundles' edges from a bundle's source map (GH 2284)", () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-bundles-'));
+    const root = join(ws, 'app');
+    const db = tempDB();
+    const holder = GraphHolder.fixed(new WorldModelGraph(db));
+    const MAP = (sources) => JSON.stringify({ version: 3, file: 'bundle.js', sources, names: [], mappings: '' });
+    const commit = (files) => {
+        for (const [p, body] of Object.entries(files)) {
+            mkdirSync(join(root, p, '..'), { recursive: true });
+            writeFileSync(join(root, p), body);
+        }
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        execFileSync('git', ['commit', '-qm', 'change'], { cwd: root });
+    };
+    const bundleEdges = () => edgeRows(db, 'app')
+        .filter((e) => e['kind'] === 'bundles')
+        .map((e) => ({ src: e['path'], dst: e['dst_name'], resolution: e['resolution'] }));
+    before(async () => {
+        mkdirSync(root, { recursive: true });
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+        execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+        commit({
+            'src/a.ts': 'export function alpha(): number {\n  return 1;\n}\n',
+            'src/b.ts': "import { alpha } from './a.js';\nexport const beta = alpha();\n",
+            'dist/bundle.js': 'function alpha(){return 1}\nexport const beta=alpha();\n//# sourceMappingURL=bundle.js.map\n',
+            'dist/bundle.js.map': MAP(['../src/a.ts', '../src/b.ts', '../node_modules/x/i.js', '../../outside.ts']),
+        });
+        await scan(db, holder, ws);
+    });
+    after(() => {
+        db.close();
+        rmSync(ws, { recursive: true, force: true });
+    });
+    it('gives one exact edge per in-repo source and none for node_modules or outside the repo', () => {
+        const edges = bundleEdges();
+        assert.ok(edges.length > 0);
+        assert.deepEqual(edges, [
+            { src: 'dist/bundle.js', dst: 'src/a.ts', resolution: 'exact' },
+            { src: 'dist/bundle.js', dst: 'src/b.ts', resolution: 'exact' },
+        ]);
+        const bundle = symbolRows(db, 'app').filter((r) => r['path'] === 'dist/bundle.js');
+        assert.deepEqual(bundle.map((r) => r['kind']), ['module']);
+        const files = db.all(`SELECT path FROM wm_files WHERE repo = 'app' AND path LIKE 'dist/%'`);
+        assert.equal(files.length, 0, 'the bundle stays out of wm_files');
+    });
+    it('world_model_symbol on a source lists the bundle in bundled_by, not in tests', async () => {
+        const wm = worldModelTools(db, holder).handlers;
+        const card = parse((await wm['world_model_symbol']({ agent: 'bro', repo: 'app', qualified_name: 'alpha' })));
+        assert.deepEqual(card.bundled_by.refs.map((r) => r['path']), ['dist/bundle.js']);
+        assert.equal(card.tests.refs.length, 0);
+        assert.equal(card.symbol['stale'], false);
+    });
+    it('bundleSources resolves sourceRoot and file URLs and skips URLs, node_modules and paths outside the repo', () => {
+        const map = (o) => JSON.stringify({ version: 3, mappings: '', ...o });
+        assert.deepEqual(bundleSources('pkg/dist/x.mjs.map', map({ sourceRoot: '../src/', sources: ['a.ts', 'sub/b.ts', 'a.ts'] }), '/repo'), [
+            'pkg/src/a.ts',
+            'pkg/src/sub/b.ts',
+        ]);
+        assert.deepEqual(bundleSources('d/x.js.map', map({ sources: ['file:///repo/lib/c.ts', 'webpack://app/./e.ts', '/elsewhere/f.ts', '../node_modules/.bun/y/z.js', '../../up.ts'] }), '/repo'), ['lib/c.ts']);
+        assert.deepEqual(bundleSources('d/x.js.map', map({}), '/repo'), []);
+        assert.deepEqual(bundleMaps([
+            { path: 'dist/a.js', content_md5: '1' },
+            { path: 'dist/a.js.map', content_md5: '2' },
+            { path: 'dist/gone.js.map', content_md5: '3' },
+            { path: 'src/x.js', content_md5: '4' },
+            { path: 'src/x.js.map', content_md5: '5' },
+        ]), [{ path: 'dist/a.js.map', content_md5: '2' }]);
+    });
+    it('an unchanged map is not re-read, a changed one rewrites the edges, and a removed map drops the bundle row', async () => {
+        const id = () => db.get(`SELECT id FROM wm_symbols WHERE repo = 'app' AND path = 'dist/bundle.js'`)?.id;
+        const before = id();
+        await scan(db, holder, ws);
+        assert.equal(id(), before);
+        commit({ 'dist/bundle.js.map': MAP(['../src/a.ts']) });
+        await scan(db, holder, ws);
+        assert.deepEqual(bundleEdges(), [{ src: 'dist/bundle.js', dst: 'src/a.ts', resolution: 'exact' }]);
+        rmSync(join(root, 'dist/bundle.js.map'));
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        execFileSync('git', ['commit', '-qm', 'rm map'], { cwd: root });
+        await scan(db, holder, ws);
+        assert.equal(id(), undefined);
+        assert.deepEqual(bundleEdges(), []);
     });
 });
 //# sourceMappingURL=world-model-symbols.test.js.map

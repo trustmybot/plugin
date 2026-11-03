@@ -1,7 +1,8 @@
 // Symbol and reference extraction for the L1 structural layer (ADR 0001):
 // TS/JS and bash through tree-sitter, SQL DDL (in .sql files and in TS string
-// literals) through regexes. Pure functions: a file's text in, its symbols
-// and outgoing references out. Adapted from the GH 1680 MVP.
+// literals) and Perl subs and constants through regexes. Pure functions: a
+// file's text in, its symbols and outgoing references out. Adapted from the
+// GH 1680 MVP.
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import type { Node } from 'web-tree-sitter';
@@ -30,9 +31,10 @@ export type EdgeKind =
   | 'reads_table'
   | 'writes_table'
   | 'indexes'
-  | 'triggers_on';
+  | 'triggers_on'
+  | 'bundles';
 
-export type SourceLanguage = IndexedGrammar | 'sql';
+export type SourceLanguage = IndexedGrammar | 'sql' | 'perl';
 
 export interface ExtractedSymbol {
   kind: SymbolKind;
@@ -84,6 +86,8 @@ const EXTENSION_LANGUAGE: Record<string, SourceLanguage> = {
   sh: 'bash',
   bash: 'bash',
   sql: 'sql',
+  pl: 'perl',
+  pm: 'perl',
 };
 
 const SH_BUILTINS = new Set(
@@ -124,13 +128,20 @@ export function inSymbolScope(relPath: string): boolean {
   return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 
-// The language a path parses as: by extension, else a bash/sh shebang on an
-// extensionless file; null when the file has no symbol extractor.
+// The language a path parses as: by extension, else a perl or bash/sh shebang
+// on an extensionless file; null when the file has no symbol extractor.
 export function languageOf(relPath: string, head: () => string): SourceLanguage | null {
   const name = basename(relPath);
   const dot = name.lastIndexOf('.');
   if (dot > 0) return EXTENSION_LANGUAGE[name.slice(dot + 1).toLowerCase()] ?? null;
-  return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? 'bash' : null;
+  const shebang = head().slice(0, 120);
+  if (/^#!.*\bperl\b/.test(shebang)) return 'perl';
+  return /^#!.*\b(bash|sh)\b/.test(shebang) ? 'bash' : null;
+}
+
+// Grammar-free languages: extracted by regex, with no tree-sitter parser.
+export function needsParser(lang: SourceLanguage): lang is IndexedGrammar {
+  return lang !== 'sql' && lang !== 'perl';
 }
 
 // The split-name text wm_symbols_fts indexes for a symbol.
@@ -488,9 +499,167 @@ function extractBash(root: Node, out: Collector, moduleSymbol: number): void {
   visit(root, moduleSymbol);
 }
 
+// The '#' comment block whose last row is right above row `at` (0-based),
+// with no blank row between; '' for a section banner or the shebang.
+function hashCommentDoc(lines: string[], at: number): string {
+  const block: string[] = [];
+  for (let i = at - 1; i >= 0 && /^\s*#/.test(lines[i]!) && !/^#!/.test(lines[i]!); i--) block.unshift(lines[i]!);
+  if (block.some(isRuleLine)) return '';
+  return clip(oneLine(block.map((l) => l.replace(/^\s*#+/, ' ')).join(' ')), DOC_MAX);
+}
+
+// The rows of Perl code: POD blocks and everything after __END__/__DATA__
+// blank out, so line numbers still match the file.
+function perlCodeLines(src: string): string[] {
+  const lines = src.split('\n');
+  let pod = false;
+  let done = false;
+  return lines.map((l) => {
+    if (done) return '';
+    if (/^__(END|DATA)__\s*$/.test(l)) {
+      done = true;
+      return '';
+    }
+    if (pod) {
+      if (/^=cut\b/.test(l)) pod = false;
+      return '';
+    }
+    if (/^=[a-zA-Z]/.test(l)) {
+      pod = !/^=cut\b/.test(l);
+      return '';
+    }
+    return l;
+  });
+}
+
+const PERL_SUB = /^(\s*)sub\s+([A-Za-z_][\w:]*)\b([^{]*)/;
+const PERL_CONST = /^\s*use\s+constant\s+(?:([A-Za-z_]\w*)\s*=>|(\{))/;
+const PERL_BLOCK_KEY = /\s*['"]?([A-Za-z_]\w*)['"]?\s*=>/y;
+
+// A forward declaration (`sub name;`) declares no body and is no symbol.
+function perlForwardDecl(line: string): boolean {
+  return /^[^{#]*;\s*(#.*)?$/.test(line);
+}
+
+// The row a sub ends on: its own row when its braces close there, else the
+// first later row that opens with `}` at or left of the sub's indent.
+function perlSubEnd(lines: string[], start: number, indent: number): number {
+  const first = lines[start]!.replace(/#.*$/, '');
+  const opens = (first.match(/\{/g) ?? []).length;
+  if (opens > 0 && opens === (first.match(/\}/g) ?? []).length) return start;
+  for (let i = start + 1; i < lines.length; i++) {
+    const m = /^(\s*)\}/.exec(lines[i]!);
+    if (m && m[1]!.length <= indent) return i;
+  }
+  return start;
+}
+
+// The keys of a `use constant { A => ..., B => ... };` block opened at
+// (row, col), each with its row: a key is a bareword or quoted name before
+// `=>` at brace depth 1, first in the block or after a comma.
+function perlConstantKeys(lines: string[], row: number, col: number): { keys: Array<[string, number]>; end: number } {
+  const keys: Array<[string, number]> = [];
+  let depth = 0;
+  let expectKey = false;
+  for (let i = row; i < lines.length; i++) {
+    const line = lines[i]!;
+    let quote: string | null = null;
+    for (let j = i === row ? col : 0; j < line.length; j++) {
+      const ch = line[j]!;
+      if (quote) {
+        if (ch === '\\') j++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '#') break;
+      if (depth === 1 && expectKey) {
+        PERL_BLOCK_KEY.lastIndex = j;
+        const m = PERL_BLOCK_KEY.exec(line);
+        if (m) {
+          keys.push([m[1]!, i]);
+          j = PERL_BLOCK_KEY.lastIndex - 1;
+          expectKey = false;
+          continue;
+        }
+        if (!/\s/.test(ch)) expectKey = false;
+      }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '{' || ch === '(' || ch === '[') {
+        depth++;
+        if (depth === 1) expectKey = true;
+      } else if (ch === '}' || ch === ')' || ch === ']') {
+        if (--depth === 0) return { keys, end: i };
+      } else if (ch === ',' && depth === 1) expectKey = true;
+    }
+  }
+  return { keys, end: lines.length - 1 };
+}
+
+// Perl, line by line: each named `sub NAME` is a 'function' and each
+// `use constant NAME => ...` or `use constant { A => ..., B => ... }` name a
+// 'const'. A leading underscore marks a name private (exported 0).
+function extractPerl(src: string, out: Collector): void {
+  const lines = perlCodeLines(src);
+  const body = (from: number, to: number) =>
+    md5(oneLine(lines.slice(from, to + 1).filter((l) => !/^\s*#/.test(l)).join('\n')));
+  const exported = (name: string) => (/^_|::_/.test(name) ? 0 : 1);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const sub = PERL_SUB.exec(line);
+    if (sub) {
+      if (perlForwardDecl(line)) continue;
+      const name = sub[2]!;
+      const end = perlSubEnd(lines, i, sub[1]!.length);
+      out.symbol({
+        kind: 'function',
+        qualified_name: name,
+        signature: clip(oneLine(`sub ${name}${sub[3]!.replace(/;.*$/, '')}`), 200),
+        doc: hashCommentDoc(lines, i),
+        start_line: i + 1,
+        end_line: end + 1,
+        body_hash: body(i, end),
+        exported: exported(name),
+      });
+      continue;
+    }
+    const constant = PERL_CONST.exec(line);
+    if (!constant) continue;
+    if (constant[1]) {
+      const name = constant[1];
+      let end = i;
+      while (end < lines.length - 1 && !/;\s*(#.*)?$/.test(lines[end]!)) end++;
+      out.symbol({
+        kind: 'const',
+        qualified_name: name,
+        signature: clip(oneLine(lines.slice(i, end + 1).join(' ').replace(/^\s*use\s+constant\s+/, '').replace(/;\s*(#.*)?$/, '')), 200),
+        doc: hashCommentDoc(lines, i),
+        start_line: i + 1,
+        end_line: end + 1,
+        body_hash: body(i, end),
+        exported: exported(name),
+      });
+      continue;
+    }
+    const block = perlConstantKeys(lines, i, line.indexOf('{', constant.index + constant[0].length - 1));
+    for (const [name, row] of block.keys) {
+      out.symbol({
+        kind: 'const',
+        qualified_name: name,
+        signature: clip(oneLine(lines[row]!).replace(/,$/, ''), 200),
+        doc: hashCommentDoc(lines, row) || hashCommentDoc(lines, i),
+        start_line: row + 1,
+        end_line: row + 1,
+        body_hash: md5(oneLine(lines[row]!)),
+        exported: exported(name),
+      });
+    }
+    i = block.end;
+  }
+}
+
 function moduleDoc(lang: SourceLanguage, src: string): string {
   const out: string[] = [];
-  const comment = lang === 'bash' || lang === 'sql' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
+  const comment = lang === 'bash' || lang === 'sql' || lang === 'perl' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
   for (const l of src.split('\n')) {
     if (/^#!/.test(l)) continue;
     const m = l.match(comment);
@@ -517,6 +686,10 @@ export function extractFile(parsers: Parsers | null, relPath: string, lang: Sour
   });
   if (lang === 'sql') {
     extractSqlDdl(src, out, moduleSymbol);
+    return out;
+  }
+  if (lang === 'perl') {
+    extractPerl(src, out);
     return out;
   }
   if (!parsers) throw new Error(`no parser loaded for ${lang}`);
