@@ -121,7 +121,7 @@ When in doubt, refactor toward fewer, smaller skills with sharper descriptions r
 
 CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "code-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
 
-The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/l1-lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
+The canonical fix lives in `mcp/trajectory-server/src/hooks/lib/role.ts` — call `normalizeRole` on any role-bearing string before comparison (shell libs source `scripts/hooks/lib/normalize-role.sh` and call `tmb_normalize_role`). The `tests/l1-lint/no-bare-role-compare.sh` lint catches a hook lib deciding a role from a path at L1.
 
 ---
 
