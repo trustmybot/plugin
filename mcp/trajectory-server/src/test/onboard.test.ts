@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
@@ -1311,9 +1311,9 @@ describe('onboard tools', () => {
       const base = mkdtempSync(join(tmpdir(), 'onboard-headless-'));
       const pluginRoot = join(base, 'claude-home', 'plugins', 'cache', 'trustmybot', 'tmb', '1.0.0');
       mkdirSync(join(pluginRoot, 'hooks'), { recursive: true });
-      mkdirSync(join(pluginRoot, 'scripts', 'lib'), { recursive: true });
+      mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
       writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
-      writeFileSync(join(pluginRoot, 'scripts', 'lib', 'resolve-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
+      writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'resolve-hook.mjs'), 'process.exitCode = 0;\n');
       const project = join(base, 'proj');
       mkdirSync(project);
       const dbPath = join(project, '.claude', 'tmb', 'trajectory.db');
@@ -1410,14 +1410,45 @@ describe('onboard tools', () => {
       assert.equal(entries.length, 2);
       for (const e of entries) {
         assert.equal(e._tmb_project, project);
+        assert.ok(e.command.startsWith(`node ${join(project, '.claude', 'tmb', 'resolve-hook.mjs')} --marketplace trustmybot `), e.command);
         assert.ok(e.command.endsWith(`--shim --project ${project}`), e.command);
       }
-      assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
+      assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));
       const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
       assert.equal((state.current as Record<string, unknown>).headless_enforcement, 'yes');
 
       await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no' });
       assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {});
+      assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    function seedLegacyShim(project: string, settings: string): void {
+      const legacy = join(project, '.claude', 'tmb', 'resolve-hook.sh');
+      mkdirSync(dirname(legacy), { recursive: true });
+      writeFileSync(legacy, '#!/usr/bin/env bash\nexit 0\n');
+      const entry = { type: 'command', command: `bash ${legacy} --marketplace trustmybot --hook PreToolUse --shim --project ${project}`, _tmb_managed: true, _tmb_project: project };
+      writeFileSync(settings, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [entry] }] } }));
+    }
+
+    it('yes migrates a project holding resolve-hook.sh entries and copy to resolve-hook.mjs; no purges both forms', async () => {
+      const db = tempDB();
+      const { base, pluginRoot, project, dbPath, settings } = sandbox();
+      const tools = onboardTools(db, dbPath, { pluginRoot });
+      seedLegacyShim(project, settings);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
+      const commands = (JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
+        .flatMap((g) => g.hooks.map((h) => h.command));
+      assert.equal(commands.length, 2);
+      assert.ok(commands.every((c) => c.startsWith(`node ${join(project, '.claude', 'tmb', 'resolve-hook.mjs')} `)), commands.join('\n'));
+      assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));
+      assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
+
+      seedLegacyShim(project, settings);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no' });
+      assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {});
+      assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));
       assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
       rmSync(base, { recursive: true, force: true });
       db.close();

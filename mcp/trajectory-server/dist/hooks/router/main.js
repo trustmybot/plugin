@@ -1,6 +1,6 @@
 /**
  * `node dist/hooks.js <event> [part] [--shim]`: the router entry. Under
- * --shim (the headless shim, scripts/lib/resolve-hook.sh) it exits 0 with no
+ * --shim (the headless shim, resolve-hook.ts) it exits 0 with no
  * output and runs no gate when the session belongs to another project or the
  * plugin's own hooks marked it (shimYields); otherwise --shim changes nothing.
  * The install this

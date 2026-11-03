@@ -4,14 +4,14 @@
 // project settings hooks do. On opt-in, /onboard mirrors each PreToolUse
 // router entry of the plugin's hooks.json (`node .../dist/hooks.js PreToolUse
 // [part]`) into <project>/.claude/settings.local.json and materializes the
-// resolver at <project>/.claude/<plugin>/resolve-hook.sh. Nothing is written
-// outside the project. Each entry keeps its group's matcher, timeout and
-// onFailure, and is:
+// resolver bundle at <project>/.claude/<plugin>/resolve-hook.mjs. Nothing is
+// written outside the project. Each entry keeps its group's matcher, timeout
+// and onFailure, and is:
 //
-//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <Event> [--part <part>] --shim --project <root>
+//   node <project>/.claude/<plugin>/resolve-hook.mjs --marketplace <mp> --hook <Event> [--part <part>] --shim --project <root>
 //
 // stamped `_tmb_managed: true` and `_tmb_project: <root>`. The resolver
-// discovers the active plugin version at fire time and execs its router,
+// discovers the active plugin version at fire time and runs its router,
 // `node mcp/trajectory-server/dist/hooks.js <Event> [part] --shim`, which runs
 // the group's gates as the plugin's own entry does — and exits 0 without
 // running any when the session belongs to another project
@@ -21,18 +21,20 @@
 // Interactive sessions therefore run each gate once, from the plugin; headless
 // runs get the shim.
 //
-// Every earlier managed entry, the per-gate `--hook <gate>` form included, is
-// replaced on the next write. Answering `no` (or re-onboarding to `no`) purges
-// the managed entries and the project resolver. Only PreToolUse entries are
+// Every earlier managed entry, the per-gate `--hook <gate>` form and the
+// `bash .../resolve-hook.sh` form included, is replaced on the next write, and
+// the stale resolve-hook.sh copy is deleted. Answering `no` (or re-onboarding
+// to `no`) purges the managed entries and both resolver copies. Only PreToolUse entries are
 // copied; the other events are side-effecting and must run once, from the
 // plugin.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { serverLog } from '../logger.js';
 import { ensureLocalSettingsIgnored } from './onboard-sandbox.js';
-const RESOLVER_NAME = 'resolve-hook.sh';
-// Canonical resolver authored in the plugin, relative to the plugin root.
-const CANONICAL_RESOLVER_REL = ['scripts', 'lib', RESOLVER_NAME];
+const RESOLVER_NAME = 'resolve-hook.mjs';
+const LEGACY_RESOLVER_NAME = 'resolve-hook.sh';
+// Canonical resolver bundle built in the plugin, relative to the plugin root.
+const CANONICAL_RESOLVER_REL = ['mcp', 'trajectory-server', 'dist', RESOLVER_NAME];
 const SETTINGS_REL = ['.claude', 'settings.local.json'];
 // Every TMB-managed hook entry is stamped with `_tmb_managed: true`; the purge
 // keys on that field (plus the resolver-invocation signature), never on a broad
@@ -111,7 +113,7 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
         ...(group.matcher !== undefined ? { matcher: group.matcher } : {}),
         hooks: group.entries.map((e) => ({
             type: 'command',
-            command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== undefined ? ` --part ${e.part}` : ''} --shim --project ${shellWord(projectRoot)}`,
+            command: `node ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${e.event}${e.part !== undefined ? ` --part ${e.part}` : ''} --shim --project ${shellWord(projectRoot)}`,
             ...(e.timeout !== undefined ? { timeout: e.timeout } : {}),
             ...(e.onFailure !== undefined ? { onFailure: e.onFailure } : {}),
             _tmb_managed: true,
@@ -132,8 +134,14 @@ export function countShimEntries(pluginRoot) {
         return 0;
     return pre.reduce((n, g) => n + g.entries.length, 0);
 }
-function resolverPathFor(projectRoot, pluginName) {
-    return join(projectRoot, '.claude', pluginName, RESOLVER_NAME);
+function resolverPathFor(projectRoot, pluginName, name = RESOLVER_NAME) {
+    return join(projectRoot, '.claude', pluginName, name);
+}
+function removeFile(path) {
+    if (!existsSync(path))
+        return false;
+    rmSync(path, { force: true });
+    return true;
 }
 // Materialize the project resolver from the canonical copy authored in the
 // plugin. Idempotent: always (re)writes the current canonical contents and
@@ -148,13 +156,13 @@ function materializeResolver(pluginRoot, resolverPath) {
     return resolverPath;
 }
 // Recognize a TMB-managed PreToolUse entry, in any form an earlier /onboard
-// wrote (the per-gate `--hook <gate>` one included): the `_tmb_managed`
-// sentinel, or a resolver invocation written without it.
+// wrote (the per-gate `--hook <gate>` and `resolve-hook.sh` ones included):
+// the `_tmb_managed` sentinel, or a resolver invocation written without it.
 function isTmbEntry(h) {
     if (h._tmb_managed === true)
         return true;
     const command = h.command ?? '';
-    return command.includes(`/${RESOLVER_NAME} --marketplace `);
+    return [RESOLVER_NAME, LEGACY_RESOLVER_NAME].some((name) => command.includes(`/${name} --marketplace `));
 }
 // Remove every TMB-managed entry, dropping now-empty matcher groups. Non-TMB
 // user entries are preserved untouched.
@@ -241,7 +249,7 @@ export function writeProjectEnforcementShim(opts) {
     }
     const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
     if (!resolverPath) {
-        const reason = 'canonical resolver script missing';
+        const reason = 'canonical resolver bundle missing';
         return skip('onboard_hooks_shim_skip', reason, { written: false, reason });
     }
     const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
@@ -251,13 +259,14 @@ export function writeProjectEnforcementShim(opts) {
     const failure = writeSettings(path, read.settings);
     if (failure)
         return skip('onboard_hooks_shim_skip', failure, { written: false, reason: failure });
+    removeFile(resolverPathFor(projectRoot, guard.pluginName, LEGACY_RESOLVER_NAME));
     const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
     serverLog({ event: 'onboard_hooks_shim_written', settingsPath: path, groups: tmbGroups.length, entries });
     return { written: true, entries, settings_path: path };
 }
 /**
  * Purge the managed entries from <project>/.claude/settings.local.json and
- * remove the project resolver. The settings file is left byte-identical when
+ * remove the project resolver, the legacy resolve-hook.sh copy included. The settings file is left byte-identical when
  * it holds no managed entry.
  */
 export function removeProjectEnforcementShim(opts) {
@@ -287,12 +296,10 @@ export function removeProjectEnforcementShim(opts) {
             }
         }
     }
-    const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : 'tmb');
-    let resolver_removed = false;
-    if (existsSync(resolverPath)) {
-        rmSync(resolverPath, { force: true });
-        resolver_removed = true;
-    }
+    const name = pluginRoot ? pluginNameOf(pluginRoot) : 'tmb';
+    const resolver_removed = [RESOLVER_NAME, LEGACY_RESOLVER_NAME]
+        .map((file) => removeFile(resolverPathFor(projectRoot, name, file)))
+        .includes(true);
     if (removed > 0 || resolver_removed) {
         serverLog({ event: 'onboard_hooks_shim_removed', settingsPath: path, removed, resolver_removed });
     }

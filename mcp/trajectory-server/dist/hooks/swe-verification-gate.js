@@ -91,7 +91,7 @@ export function shellLength(s, env) {
     return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
 }
 /** bash's `${s: -n}` for n > 0, in the units shellLength counts. */
-function shellTail(s, n, env) {
+export function shellTail(s, n, env) {
     if (ctypeUtf8(env))
         return [...s].slice(-n).join('');
     const bytes = Buffer.from(s);

@@ -8,6 +8,9 @@
  * checkout with linked worktrees. Each payload's `@SANDBOX@` is the sandbox
  * dir, its `corpus_env` (removed before the run) overrides the env, and its
  * `corpus_expect` (removed too) is `allow` or a phrase of the deny reason.
+ * A payload whose golden entry was re-recorded from the TypeScript gate,
+ * because the gate differs from the .sh on purpose, names why in
+ * `corpus_divergent` (decision 703).
  * The payload × locale runs split across
  * hooks-git-push-guard-parity.shard-<k>of<n>.test.ts (GH 1947), each shard
  * with its own sandbox; shard 1 also runs the whole-corpus check.
@@ -149,8 +152,8 @@ export function buildSandbox(sandbox) {
 }
 export function materialize(file, sandbox) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
-    const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text);
-    return { input: JSON.stringify(payload), env, expect };
+    const { corpus_env: env = {}, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
+    return { input: JSON.stringify(payload), env, expect, divergent };
 }
 function run(cmd, args, input, env, cwd) {
     const r = spawnSync(cmd, args, { input, env, cwd, encoding: 'utf8', timeout: 30_000 });
@@ -175,8 +178,12 @@ export function gitPushGuardParityShard(k, n) {
         if (k === 1) {
             it(`the corpus holds at least ${MIN_CORPUS} payloads, each with an expectation`, () => {
                 assert.ok(corpus.length >= MIN_CORPUS, `${corpus.length} payloads`);
-                for (const f of corpus)
-                    assert.notEqual(materialize(join(CORPUS, f), '/s').expect, '', f);
+                for (const f of corpus) {
+                    const { expect, divergent } = materialize(join(CORPUS, f), '/s');
+                    assert.notEqual(expect, '', f);
+                    if (divergent !== undefined)
+                        assert.match(divergent, /^decision 703: \S/, `${f}: a divergent case names why`);
+                }
             });
         }
         for (const { f, locale } of shardOf(cases, k, n)) {

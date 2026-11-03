@@ -13,6 +13,7 @@ mcp/trajectory-server/src/tools/pr_monitor.ts	const result = spawnSync(cmd, args
 mcp/trajectory-server/src/tools/pr_monitor.ts	['auth', 'status']	not-location	gh / glab `auth status` availability probe; reads no repo
 mcp/trajectory-server/src/tools/cheatcode-reconcile.ts	const child = execFile(	anchored-cd	runClaude sets cwd: projectRoot four lines below the call
 mcp/trajectory-server/src/tools/cheatcode.ts	projectRootFromDbPath(db.dbPath) ?? process.cwd()	fallback	an in-memory DB (tests) names no project
+mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	an in-memory DB (tests) with no CLAUDE_PROJECT_DIR names no project
 mcp/trajectory-server/src/utils/repo-paths.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
 mcp/trajectory-server/src/tools/onboard.ts	process.cwd()	fallback	onboard probes before a DB exists: the sole repo, else the DB's project, else CLAUDE_PROJECT_DIR, else the server's start dir (GH 1553 WP1)
 mcp/trajectory-server/src/tools/onboard.ts	], opts);	anchored-cd	probeGit's opts carry cwd, set two lines above the call
@@ -27,12 +28,10 @@ scripts/hooks/lib/resolve-repo.sh	tmb_cmd_cwd() {	join-base	the definition: the 
 scripts/hooks/lib/resolve-repo.sh	declare -F tmb_payload_cwd	join-base	sources the helper tmb_cmd_cwd joins to
 scripts/hooks/lib/resolve-repo.sh	base=$(tmb_payload_cwd "$input")	join-base	tmb_cmd_cwd: the join base of a relative cd / git -C path
 scripts/hooks/lib/query-task.sh	start="$(pwd)"	fallback	_tmb_db_resolve: DB walk-up discovery, reached only when TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR are both unset and no test flag is set
-scripts/release.sh	git 	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
+scripts/release.ts	spawnSync(cmd, args	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
 scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
-scripts/publish-rc-channel.sh	git ls-remote --tags "$PLUGIN_REPO"	not-location	ls-remote names its remote URL; reads no checkout
-scripts/publish-rc-channel.sh	git clone --quiet --depth 1 "$CATALOG_REPO" "$WORK_DIR/marketplace-rc"	not-location	clone names its source URL and an absolute destination
-scripts/scan.sh	SESSION_DIR="${1:-$PWD}"	fallback	scan_run always passes the session dir; only a manual run with no argument scans where it starts
-skills/tmb_planning/scripts/integrate.sh	(cd "$WT" && git rebase --abort)	anchored-cd	the rebase is aborted in the worktree the subshell cds to
+scripts/publish-rc-channel.ts	'ls-remote', '--tags', PLUGIN_REPO	not-location	ls-remote names its remote URL; reads no checkout
+scripts/publish-rc-channel.ts	'clone', '--quiet', '--depth', '1', CATALOG_REPO	not-location	clone names its source URL and an absolute destination
 tests/lib/assert.sh	git -C "$(pwd -P)" rev-parse --show-toplevel	test-harness	assert_not_in_plugin_repo refuses a test whose own cwd is the plugin checkout
 tests/lib/live-db-shim.sh	"\$PWD" "\$*"	test-harness	the generated sqlite3 shim logs the dir it was invoked in
 tests/lib/live-db-shim.sh	abs="\$PWD/\$arg"	test-harness	the generated sqlite3 shim joins a relative DB argument to the dir it was invoked in
@@ -62,3 +61,4 @@ scripts/hooks/lib/cmd-analysis.sh	p="\$PWD/$p"	not-location	an escaped literal $
 scripts/hooks/lib/query-task.sh	case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac	canonicalize	_tmb_db_immutable_uri makes a relative DB path absolute for its file: URI; the DB is already chosen
 mcp/trajectory-server/src/cli/health.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	the server-reachable check counts MCP server processes from the process table; reads no project or repo
 mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	the redaction root falls back to the server's start dir only when neither the DB nor CLAUDE_PROJECT_DIR names a project (an in-memory DB in tests)
+mcp/trajectory-server/src/hooks/resolve-hook.ts	const result = spawnSync(process.execPath, [router	not-location	the headless-shim resolver finds nothing from the cwd: it runs the router in the hook runner's directory, as the plugin's own hooks.json entry does and resolve-hook.sh's exec did (GH 1692)

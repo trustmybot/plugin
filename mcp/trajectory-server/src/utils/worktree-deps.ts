@@ -1,7 +1,7 @@
 // Untracked node_modules installs never reach a fresh git worktree (GH 1541,
 // GH 1853): link the main checkout's install beside each tracked package.json.
-// Shared by ensureTaskWorktree and skills/tmb_planning/scripts/integrate.sh,
-// which runs `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
+// Shared by ensureTaskWorktree and cli.js integrate; standalone it runs as
+// `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
 import { execFileSync } from 'node:child_process';
 import { lstatSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';

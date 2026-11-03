@@ -93,7 +93,7 @@ describe('router budgets.json (GH 1861)', () => {
         });
     }
     it('the routed groups are the only router entries of their events, the Stop liveness-sentinel apart', () => {
-        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate']) {
+        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate']) {
             const matchers = [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort();
             assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), matchers, event);
         }
@@ -120,30 +120,31 @@ describe('router budgets.json (GH 1861)', () => {
             assert.deepEqual(namesOf('UserPromptSubmit', 'roundtable'), ['roundtable-slash-detect']);
             assert.equal(namesOf('SessionStart').length, 7);
             assert.equal(namesOf('UserPromptSubmit').length, 6);
-            assert.deepEqual(namesOf('Stop', 'handoff'), ['session-handoff']);
+            assert.deepEqual(namesOf('PreCompact'), ['session-handoff']);
             assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
             assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);
             assert.deepEqual(namesOf('PreToolUse', 'swe-downstream-context'), ['swe-downstream-context']);
             assert.deepEqual(namesOf('SubagentStart', 'reviewer-downstream-context'), ['reviewer-downstream-context']);
-            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['handoff', 'persona', 'prescan', 'reviewer-downstream-context', 'roundtable', 'swe-downstream-context', undefined]);
+            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['persona', 'prescan', 'reviewer-downstream-context', 'roundtable', 'swe-downstream-context', undefined]);
         });
         it('hooks.json holds one command per group of the event', () => {
             const commands = (event) => routerEntries(event).flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
             assert.deepEqual(commands('SessionStart'), ['SessionStart', 'SessionStart persona', 'SessionStart prescan']);
             assert.deepEqual(commands('UserPromptSubmit'), ['UserPromptSubmit', 'UserPromptSubmit persona', 'UserPromptSubmit roundtable']);
-            assert.deepEqual(commands('Stop'), ['Stop', 'Stop handoff']);
+            assert.deepEqual(commands('Stop'), ['Stop']);
+            assert.deepEqual(commands('PreCompact'), ['PreCompact']);
             assert.deepEqual(commands('WorktreeCreate'), ['WorktreeCreate']);
             assert.deepEqual(commands('SubagentStart'), ['SubagentStart reviewer-downstream-context']);
         });
     });
     it('the post-tool and stop groups keep one registration per matcher', () => {
-        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop']) {
+        for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact', 'SubagentStop']) {
             assert.deepEqual(routerEntries(event).map((g) => g.matcher ?? '').sort(), [...new Set(ROUTER_GROUPS.filter((g) => g.event === event).map((g) => g.matcher))].sort(), event);
         }
         assert.equal(HOOKS.hooks.Stop.length, routerEntries('Stop').length + 1);
     });
     it('onFailure block holds on SubagentStop alone among the routed events past PreToolUse', () => {
-        const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
+        const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
         assert.deepEqual(blocked, ['SubagentStop']);
     });
     it('swe-verification-gate keeps its chain-table budget as its floor', () => {

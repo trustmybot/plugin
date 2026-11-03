@@ -1,6 +1,6 @@
 import { it } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { walkProject } from './scan-walk.js';
 
 it('forks the scanner with no DB pin', () => {
-  execFileSync('bash', ['../../scripts/scan.sh', '.']);
+  void walkProject(db, '.', { timeoutMs: 1000 });
 });

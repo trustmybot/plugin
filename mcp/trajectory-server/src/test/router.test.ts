@@ -449,7 +449,7 @@ describe('router events: a deny reads as its event wants (GH 1692 R3)', () => {
     });
   }
 
-  for (const event of ['PostToolUse', 'PermissionDenied', 'Stop']) {
+  for (const event of ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact']) {
     it(`an unparseable payload on ${event} logs to stderr and exits 0`, async () => {
       const d = await decide(event, '{not json', {}, { findGate: fakes({}) });
       assert.equal(d.stdout, '');
@@ -539,6 +539,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     assert.equal(matcherFits('', 'Bash'), true);
     assert.equal(matcherFits('Bash', ''), false);
     assert.deepEqual(names('Stop', ''), ['bro-turn-usage']);
+    assert.deepEqual(names('PreCompact', ''), ['session-handoff']);
     assert.deepEqual(names('SubagentStop', ''), ['consultant-persistence-gate', 'swe-atomic-close']);
     assert.deepEqual(routerGates('SubagentStart', 'tmb:code-reviewer', undefined, 'reviewer-downstream-context').map((g) => g.name), ['reviewer-downstream-context']);
     assert.deepEqual(routerGates('SubagentStart', 'tmb:swe', undefined, 'reviewer-downstream-context'), []);
@@ -573,7 +574,8 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     const rows = lines.map((l) => l.split(' '));
     for (const f of rows) assert.equal(f.length, f[6] === undefined ? 6 : 7, f.join(' '));
     assert.equal(rows.filter((f) => f[0] === 'cleanup-worktree-on-task-close').length, 2);
-    assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*'], ['session-handoff', EMPTY_MATCHER_COLUMN, '*']]);
+    assert.deepEqual(rows.filter((f) => f[3] === 'Stop').map((f) => [f[0], f[4], f[5]]), [['bro-turn-usage', EMPTY_MATCHER_COLUMN, '*']]);
+    assert.deepEqual(rows.filter((f) => f[3] === 'PreCompact').map((f) => [f[0], f[4], f[5]]), [['session-handoff', EMPTY_MATCHER_COLUMN, '*']]);
     assert.deepEqual(rows.filter((f) => f[3] === 'SubagentStop').map((f) => [f[0], f[2], f[4]]), [['consultant-persistence-gate', 'enforcement', '-'], ['swe-atomic-close', 'advisory', '-']]);
     assert.equal(matcherColumn(''), '-');
     assert.equal(matcherColumn('Bash'), 'Bash');

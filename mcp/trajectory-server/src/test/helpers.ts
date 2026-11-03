@@ -54,11 +54,12 @@ export interface ScanEnvPin {
 
 const SCAN_PIN_KEYS = ['TMB_FORBID_LIVE_SYNC', 'TRAJECTORY_DB_PATH', 'TMB_SCAN_MCP_JSON'] as const;
 
-// pinScanEnv is the one way a test that forks scripts/scan.sh (directly or via
-// scan_run) reaches a DB: it sets TMB_FORBID_LIVE_SYNC=1, points
-// TRAJECTORY_DB_PATH at an empty per-file temp DB and TMB_SCAN_MCP_JSON at an
-// empty mcpServers fixture, so scan.sh never walks up to the project's live
-// trajectory DB nor reads ~/.claude.json. Child processes inherit the pin.
+// pinScanEnv is the one way a test that runs the scan walker (walkProject,
+// directly or via scan_run) sets up its env: it sets TMB_FORBID_LIVE_SYNC=1,
+// points TRAJECTORY_DB_PATH at an empty per-file temp DB and TMB_SCAN_MCP_JSON
+// at an empty mcpServers fixture, so no scan or child process walks up to the
+// project's live trajectory DB, spawns `claude` or reads ~/.claude.json.
+// Child processes inherit the pin.
 export function pinScanEnv(): ScanEnvPin {
   const saved: Record<string, string | undefined> = {};
   for (const k of SCAN_PIN_KEYS) saved[k] = process.env[k];

@@ -6,10 +6,7 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 
 | Script | Purpose |
 |---|---|
-| `scan.sh` | Deterministic project scanner. Walks the session dir for git repos, enumerates each repo's tracked files, computes md5 + size + last-commit SHA per file, and emits a single JSON document. Forked by the `scan_run` MCP tool to feed the world model. Its plugin inventory comes from `claude plugin list --json`. Under the test flags (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) it never spawns `claude` and reads that JSON from the file `TMB_SCAN_PLUGIN_JSON` names, else reports `plugin_inventory.status: unavailable` with a note; it requires the DB to resolve from `TRAJECTORY_DB_PATH` or `CLAUDE_PROJECT_DIR` (the shared `tmb_db_path` rule, which never walks up under a flag; exit 2 otherwise) and reads the MCP servers from the file `TMB_SCAN_MCP_JSON` names — an `mcpServers` object, the shape of `~/.claude.json`'s `.mcpServers` — instead of `~/.claude.json`, else reports `mcp_inventory.status: unavailable` with a note. |
-| `release.sh` | Cuts a release from `main` after `dev` is merged and the version bump has landed. |
-| `prompt-author-lint.sh` | Pre-write lint for agent + skill files — flags pink-elephant negations and other prompt anti-patterns before a prompt file is written. |
-| `dashboard.sh` | Starts the local read-only dashboard (`dashboard/dist/server.mjs`) on `127.0.0.1` (port 7477, or `TMB_DASHBOARD_PORT`) over the resolved trajectory DB and prints its URL. See [`dashboard/README.md`](../dashboard/README.md). |
+| `release.ts` | Run as `node --experimental-strip-types scripts/release.ts`. Cuts a release from `main` after `dev` is merged and the version bump has landed. |
 
 ## Subdirectories
 
@@ -19,4 +16,4 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 
 ## How it fits
 
-`scan.sh` backs `scan_run` (the `cheatcode_*` MCP tools run in-process TypeScript under `mcp/trajectory-server/src/tools/`); `release.sh` is Human-run release tooling. Keeping this logic in deterministic scripts lets the same behavior be exercised from a hook, an MCP tool, and the test suite without re-implementation.
+`release.ts` is Human-run release tooling; `scan_run` and the `cheatcode_*` MCP tools run in-process TypeScript under `mcp/trajectory-server/src/tools/`. Keeping this logic in deterministic scripts lets the same behavior be exercised from a hook, an MCP tool, and the test suite without re-implementation.

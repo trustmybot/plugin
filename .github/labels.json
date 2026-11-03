@@ -116,7 +116,7 @@
   {
     "name": "Area: Release",
     "color": "5319e7",
-    "description": "CI workflows, dev-build, release-gate, integrate.sh, versioning",
+    "description": "CI workflows, dev-build, release-gate, cli.js integrate, versioning",
     "group": "area"
   },
   {

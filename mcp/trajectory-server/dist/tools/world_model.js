@@ -9,7 +9,7 @@ import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileRefKey, IMPACT_MAX_DEPTH, isTestPath, keywordSearchSymbols, staleFiles, symbolById, symbolCard, symbolImpact, symbolsByName, } from '../symbol-index.js';
 import { CLAIMS, CONCEPT_KINDS, DERIVED_SEED_HITS, HANDOFFS, derivedChain, getConcept, searchConcepts, upsertConcept, } from '../world-model/concepts.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
@@ -145,7 +145,7 @@ function computeUnmergedWork(db, repo) {
         if (refCheck.status !== 0)
             continue; // absent ref → integrated or abandoned, skip
         const tip = refCheck.stdout.trim();
-        // Judge the live ref, not tasks.commit_sha: integrate.sh rebases and
+        // Judge the live ref, not tasks.commit_sha: cli.js integrate rebases and
         // regenerates dist, so the pushed tip differs from the recorded one.
         const integration = tipIntegratedInto(repoPath, tip, target);
         if (integration === 'spawn-error') {
@@ -604,7 +604,43 @@ function framedStep(step, derived) {
     const description = derived && step.description ? frameUntrusted('symbol-doc', step.description) : step.description;
     return { ...step, description, symbol };
 }
-export function worldModelTools(db, graphHolder) {
+const REPO_DEFAULT_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole'). With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.";
+function realOrResolved(path) {
+    try {
+        return realpathSync(path);
+    }
+    catch {
+        return resolve(path);
+    }
+}
+function containsPath(dir, path) {
+    const rel = relative(dir, path);
+    return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+// GH 1968: explicit arg, then the repo whose path holds the cwd (longest wins),
+// then the sole repo; two or more repos and no match warn repo-unspecified.
+export function resolveWorldModelRepo(db, arg, cwd = process.cwd()) {
+    if (typeof arg === 'string' && arg)
+        return { name: arg, repo_source: 'arg' };
+    const rows = db.all(`SELECT name, path FROM repos ORDER BY name`);
+    const here = realOrResolved(cwd);
+    let best = null;
+    for (const row of rows) {
+        if (!row.path)
+            continue;
+        const dir = realOrResolved(repoRowPath(db, row.path));
+        if (containsPath(dir, here) && (!best || dir.length > best.length))
+            best = { name: row.name, length: dir.length };
+    }
+    if (best)
+        return { name: best.name, repo_source: 'cwd' };
+    if (rows.length >= 2)
+        return { name: '', warning: 'repo-unspecified', available_repos: rows.map((r) => r.name) };
+    if (rows.length === 1)
+        return { name: rows[0].name, repo_source: 'sole' };
+    return { name: '' };
+}
+export function worldModelTools(db, graphHolder, cwd) {
     const definitions = [
         {
             name: 'world_model_get',
@@ -615,7 +651,7 @@ export function worldModelTools(db, graphHolder) {
                     agent: { type: 'string' },
                     repo: {
                         type: 'string',
-                        description: 'Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects.',
+                        description: `Repo name (matches \`repos.name\`). ${REPO_DEFAULT_DOC}`,
                     },
                     path: {
                         type: 'string',
@@ -647,7 +683,7 @@ export function worldModelTools(db, graphHolder) {
                     },
                     repo: {
                         type: 'string',
-                        description: 'Optional — restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects.',
+                        description: `Repo to search. ${REPO_DEFAULT_DOC}`,
                     },
                     k: {
                         type: 'number',
@@ -667,7 +703,7 @@ export function worldModelTools(db, graphHolder) {
                     id: { type: 'number', description: 'Symbol id from a world_model_search hit.' },
                     repo: {
                         type: 'string',
-                        description: 'Repo name. Defaults to the sole registered repo; required in multi-repo projects without id.',
+                        description: `Repo name, used without id. ${REPO_DEFAULT_DOC}`,
                     },
                     path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
                     qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
@@ -691,7 +727,7 @@ export function worldModelTools(db, graphHolder) {
                 properties: {
                     agent: { type: 'string' },
                     query: { type: 'string' },
-                    repo: { type: 'string', description: 'Defaults to the sole registered repo.' },
+                    repo: { type: 'string', description: REPO_DEFAULT_DOC },
                 },
                 required: ['agent', 'query'],
             },
@@ -712,7 +748,7 @@ export function worldModelTools(db, graphHolder) {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
-                    repo: { type: 'string' },
+                    repo: { type: 'string', description: REPO_DEFAULT_DOC },
                     name: { type: 'string' },
                     kind: { type: 'string', enum: [...CONCEPT_KINDS] },
                     body: { type: 'string' },
@@ -743,28 +779,16 @@ export function worldModelTools(db, graphHolder) {
             },
         },
     ];
-    const conceptRepo = (arg) => {
-        if (typeof arg === 'string' && arg)
-            return { name: arg };
-        const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-        if (available.length >= 2)
-            return { name: '', warning: 'repo-unspecified', available_repos: available };
-        return { name: resolveSoleRepo(db)?.name ?? '' };
-    };
+    const resolveRepo = (arg) => resolveWorldModelRepo(db, arg, cwd);
+    const sourceOf = (r) => r.repo_source ? { repo_source: r.repo_source } : {};
     const handlers = {
         world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'code-reviewer', 'consultant'], logged(db, 'world_model_get', wrap(async (args) => {
-            let repo = args['repo'] ?? '';
-            if (!repo) {
-                const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-                if (available.length >= 2) {
-                    // Multi-repo with no selector: don't silently target one repo.
-                    // Name the available repos so the caller can pass one.
-                    return ok({ repo: '', root: null, warning: 'repo-unspecified', available_repos: available });
-                }
-                // 0 repos → fall through with repo='' to the empty/unavailable paths.
-                // Exactly 1 → resolve the sole repo.
-                repo = resolveSoleRepo(db)?.name ?? '';
+            const resolved = resolveRepo(args['repo']);
+            if (resolved.warning) {
+                return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos });
             }
+            const repo = resolved.name;
+            const source = sourceOf(resolved);
             const path = args['path'] ?? '';
             const depthArg = args['depth'];
             const depth = depthArg === null ? null : typeof depthArg === 'number' ? depthArg : 2;
@@ -775,22 +799,23 @@ export function worldModelTools(db, graphHolder) {
             const lag = checkoutLag(db, repo);
             const graph = graphHolder?.ensureGraph() ?? null;
             if (!graph) {
-                return ok({ repo, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag });
+                return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag });
             }
             if (graph.directoryCount(repo) === 0) {
-                return ok({ repo, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag });
+                return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag });
             }
             const rows = graph.subtree(repo, path, depth);
             const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
             const tree = buildTree(rows, path, depth, { nodeCounter });
             if (!tree) {
-                return ok({ repo, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
+                return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
             }
             const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
             if (path !== '')
                 tree.files = graph.filesForDirectory(repo, path).map(fileView);
             return ok({
                 repo,
+                ...source,
                 root: tree,
                 ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
                 ...(truncated ? { truncated: true } : {}),
@@ -805,32 +830,27 @@ export function worldModelTools(db, graphHolder) {
                 return err('query is required');
             const mode = args['mode'] ?? 'hybrid';
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
-            let repo = args['repo'] ?? '';
-            if (!repo) {
-                const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-                if (available.length >= 2) {
-                    // Multi-repo with no selector: don't silently search one repo.
-                    // Name the available repos so the caller can pass one.
-                    return ok({ repo: '', results: [], total_matched: 0, warning: 'repo-unspecified', available_repos: available, mode });
-                }
-                // 0 repos → fall through with repo='' to the empty/unavailable paths.
-                // Exactly 1 → resolve the sole repo.
-                repo = resolveSoleRepo(db)?.name ?? '';
+            const resolved = resolveRepo(args['repo']);
+            if (resolved.warning) {
+                return ok({ repo: '', results: [], total_matched: 0, warning: resolved.warning, available_repos: resolved.available_repos, mode });
             }
+            const repo = resolved.name;
+            const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
             const lag = checkoutLag(db, repo);
             const graph = graphHolder?.ensureGraph() ?? null;
             if (!graph) {
-                return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
+                return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
             }
             const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
             const top = ranked.slice(0, k);
             const stale = staleFiles(db, top.flatMap(({ hit }) => (hit.kind === 'symbol' ? [hit.node] : [])));
             const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-            return ok({ results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match, ...lag });
+            return ok({ ...scope, results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match, ...lag });
         }))),
         world_model_symbol: requireRoles('world_model_symbol', ['bro', 'swe', 'code-reviewer', 'consultant'], logged(db, 'world_model_symbol', wrap(async (args) => {
             const id = args['id'];
             let symbol = null;
+            let source = {};
             if (typeof id === 'number') {
                 symbol = symbolById(db, id);
                 if (!symbol)
@@ -840,13 +860,11 @@ export function worldModelTools(db, graphHolder) {
                 const name = args['qualified_name'];
                 if (typeof name !== 'string' || !name)
                     return err('id or qualified_name is required');
-                let repo = args['repo'] ?? '';
-                if (!repo) {
-                    const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-                    if (available.length >= 2)
-                        return ok({ symbol: null, warning: 'repo-unspecified', available_repos: available });
-                    repo = resolveSoleRepo(db)?.name ?? '';
-                }
+                const resolved = resolveRepo(args['repo']);
+                if (resolved.warning)
+                    return ok({ symbol: null, warning: resolved.warning, available_repos: resolved.available_repos });
+                const repo = resolved.name;
+                source = sourceOf(resolved);
                 const path = args['path'];
                 const matches = symbolsByName(db, repo, name, typeof path === 'string' && path ? path : undefined);
                 if (matches.length === 0)
@@ -855,6 +873,7 @@ export function worldModelTools(db, graphHolder) {
                 if (definitions.length > 1) {
                     return ok({
                         symbol: null,
+                        ...source,
                         warning: 'ambiguous',
                         matches: definitions.map((m) => ({
                             id: m.id,
@@ -885,6 +904,7 @@ export function worldModelTools(db, graphHolder) {
             const card = symbolCard(db, symbol);
             return ok({
                 ...card,
+                ...source,
                 symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
                 ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
                 ...(args['source'] === true ? symbolSource(db, symbol) : {}),
@@ -895,12 +915,13 @@ export function worldModelTools(db, graphHolder) {
             const query = args['query'];
             if (typeof query !== 'string' || !query.trim())
                 return err('query is required');
-            const repo = conceptRepo(args['repo']);
+            const repo = resolveRepo(args['repo']);
             if (repo.warning)
                 return ok({ available: false, concepts: [], derived: null, ...repo });
+            const source = sourceOf(repo);
             const available = db.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== undefined;
             if (!available)
-                return ok({ available, concepts: [], derived: null });
+                return ok({ available, ...source, concepts: [], derived: null });
             const concepts = searchConcepts(db, repo.name, query, CONCEPT_LIMIT);
             const graph = concepts.length === 0 ? (graphHolder?.ensureGraph() ?? null) : null;
             const derived = graph
@@ -908,6 +929,7 @@ export function worldModelTools(db, graphHolder) {
                 : null;
             return ok({
                 available,
+                ...source,
                 concepts,
                 derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null,
             });
@@ -922,7 +944,7 @@ export function worldModelTools(db, graphHolder) {
             return ok({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
         }))),
         world_model_concept_upsert: requireRoles('world_model_concept_upsert', ['bro', 'consultant'], logged(db, 'world_model_concept_upsert', wrap(async (args) => {
-            const repo = conceptRepo(args['repo']);
+            const repo = resolveRepo(args['repo']);
             if (repo.warning)
                 return ok({ concept: null, ...repo });
             const input = { ...args, repo: repo.name };

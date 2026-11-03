@@ -611,34 +611,31 @@ function overrunCases(dir: string, cwd: string): RouterCase[] {
   }));
 }
 
-/** session-handoff's Stop cases, on a DB holding one bro row and at most one open swe run, and a transcript whose last calls carry the given context, rebuilt per case. */
+/** session-handoff's PreCompact cases, on a DB holding at most one bro row and one open swe run of the session, rebuilt per case. */
 function sessionHandoffCases(dir: string, cwd: string): RouterCase[] {
   const db = join(dir, 'trajectory.db');
-  const transcript = join(dir, 'transcript.jsonl');
   mkdirSync(dir, { recursive: true });
   const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
   const sessionId = 'sess-handoff';
-  const build = (context: number, openRun: boolean): void => {
+  const build = (broRow: boolean, openRun: boolean): void => {
     for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
     const d = new DatabaseSync(db);
     d.exec(schema);
-    d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at, completed_at) VALUES ('bro', ?, ?, ?)").run(sessionId, SWE_RESUME_T0, SWE_RESUME_T0);
+    if (broRow) d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at, completed_at) VALUES ('bro', ?, ?, ?)").run(sessionId, SWE_RESUME_T0, SWE_RESUME_T0);
     if (openRun) d.prepare("INSERT INTO agent_runs (agent_type, session_id, started_at) VALUES ('swe', ?, ?)").run(sessionId, new Date().toISOString());
     d.close();
-    const calls = Array.from({ length: 5 }, (_, i) => JSON.stringify({ type: 'assistant', message: { id: `msg-${i}`, usage: { input_tokens: context } } }));
-    writeFileSync(transcript, calls.map((line) => `${line}\n`).join(''));
   };
   const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
   const payload = (extra: object): string =>
-    JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId, cwd, transcript_path: transcript, last_assistant_message: 'note', ...extra });
-  const scenarios: readonly (readonly [string, number, boolean, string])[] = [
-    ['past-limits-notice', 130000, false, payload({})],
-    ['under-limits', 90000, false, payload({})],
-    ['open-run', 130000, true, payload({})],
-    ['hook-active', 130000, false, payload({ stop_hook_active: true })],
-    ['background-task', 130000, false, payload({ background_tasks: [{ id: 'b' }] })],
+    JSON.stringify({ hook_event_name: 'PreCompact', session_id: sessionId, cwd, transcript_path: join(dir, 'transcript.jsonl'), trigger: 'auto', custom_instructions: '', ...extra });
+  const scenarios: readonly (readonly [string, boolean, boolean, string])[] = [
+    ['auto-compact', true, false, payload({})],
+    ['manual-compact', true, false, payload({ trigger: 'manual', custom_instructions: 'keep the plan' })],
+    ['no-bro-row', false, false, payload({})],
+    ['open-run', true, true, payload({})],
+    ['bad-session-id', true, false, payload({ session_id: "bad'id" })],
   ];
-  return scenarios.map(([file, context, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(context, openRun) }));
+  return scenarios.map(([file, broRow, openRun, input]) => ({ gate: 'session-handoff', file, input, env, cwd, fakeUid: false, reset: () => build(broRow, openRun) }));
 }
 
 /** liveness-alert's cases, on a DB holding at most one open swe run of the given start, DB and throttle state rebuilt per case. */

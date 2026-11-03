@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # L1 lint: no unguarded shell variable interpolations inside sqlite3 SQL strings.
 #
-# Heuristic: greps hook scripts, scripts/lib/, and scripts/scan.sh for patterns
+# Heuristic: greps hook scripts and scripts/lib/ for patterns
 # of the form
 #   sqlite3 ... "... ${VAR} ..."  or  sqlite3 ... "... $var ..."  or
 #   sqlite3 ... <<SQL ... ${VAR} ... SQL  or
@@ -105,7 +105,7 @@ scan() {
       # Heuristic 2: a sqlite3 heredoc was opened in the preceding 20 lines
       #   (only counts if the heredoc opener is a sqlite3 command, not a plain cat/echo).
       IN_SQL_CONTEXT=0
-      #   `sqlite3-<name>` tokens (e.g. the sqlite3-fallback lib's messages) are
+      #   `sqlite3-<name>` tokens (e.g. a lint name such as sqlite3-needs-timeout) are
       #   names, not invocations — drop them too.
       PROBE_LINE="${line//command -v sqlite3/}"
       PROBE_LINE="${PROBE_LINE//sqlite3-/}"
@@ -205,7 +205,7 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 cd "$ROOT" || exit 1
-HOOK_FILES=$( { find scripts/hooks scripts/hooks/lib scripts/lib -maxdepth 1 -name '*.sh' -type f; echo scripts/scan.sh; } | sort)
+HOOK_FILES=$(find scripts/hooks scripts/hooks/lib scripts/lib -maxdepth 1 -name '*.sh' -type f | sort)
 # shellcheck disable=SC2086
 FOUND=$(scan tests/l1-lint/no-raw-sql-interpolation.allowlist $HOOK_FILES)
 rc=$?

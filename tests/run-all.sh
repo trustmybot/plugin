@@ -57,7 +57,7 @@ fi
 # ----- Live-CLI stubs (L1, L2 and L4) ----------------------------------------
 # gh/glab/claude stubs append to a sentinel file on invocation and exit 97; a
 # 0-byte sentinel means the step made no live CLI calls (B5 incident guard).
-# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which scripts/scan.sh
+# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which the scan walker
 # reads its plugin list from TMB_SCAN_PLUGIN_JSON (an empty list here) instead
 # of spawning `claude plugin list --json`.
 _stub_dir="$_run_tmp/stubs"
@@ -116,7 +116,6 @@ run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-c
 run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
-run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
 run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE/l1-lint/dist-bundles.sh" --self-test
 run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
@@ -163,7 +162,6 @@ run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw
 run_step "L1 lint: tmb_gate_read SQL is read-only" bash "$HERE/l1-lint/gate-read-sql-readonly.sh"
 run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-direct-sqlite-write.sh"
 run_step "L1 lint: every sqlite3 call sets a busy timeout" bash "$HERE/l1-lint/sqlite3-needs-timeout.sh"
-run_step "L1 lint: sqlite3 fallback roles match the server" bash "$HERE/l1-lint/sqlite3-fallback-roles.sh"
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
 run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
@@ -235,13 +233,14 @@ run_step "L3 integration: hook script tests"                         bash "$HERE
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"
+run_step "L3 integration: release.ts + publish-rc-channel.ts (stubbed git/gh)"  node --test "$HERE/l3-integration/release-scripts.test.mjs"
 run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"
 run_step "L3 integration: dev-build-version"                          node --test "$HERE/l3-integration/dev-build-version.test.mjs"
 run_step "L3 integration: tmb-regen merge driver"                     node --test "$HERE/l3-integration/merge-driver.test.mjs"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 # The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
-# plugin-list fixture, so its gh/glab auth probes and scan.sh never reach a
+# plugin-list fixture, so its gh/glab auth probes and scan never reach a
 # real CLI. Each flow gets a 30 s per-test timeout (bun's 5 s default flakes
 # under a loaded full run).
 

@@ -3,6 +3,7 @@
 // swe reads by line range instead of whole files.
 import type { TrajectoryDB } from './db.js';
 import { symbolCard, symbolsByName, type RefList, type SymbolRow } from './symbol-index.js';
+import { isTestPath } from './utils/test-paths.js';
 import { frameUntrusted } from './utils/untrusted.js';
 
 export const LOCATIONS_MAX_CHARS = 6000;
@@ -64,6 +65,7 @@ export interface BriefLocations {
   files: FileLocation[];
   symbols: SymbolLocation[];
   truncated: boolean;
+  unresolved_paths?: string[];
 }
 
 // Backtick spans of a spec: path-shaped spans (with an optional :L or :L-M)
@@ -144,12 +146,23 @@ function resolvePath(db: TrajectoryDB, repo: string, path: string): { path: stri
   return suffix.length === 1 ? { path: suffix[0]!.path, purpose: suffix[0]!.purpose } : null;
 }
 
-function capToSize(loc: BriefLocations, maxChars: number): BriefLocations {
+// Drop order: rank-2 symbols, rank-1 symbols, named files' symbol lists from
+// the last file, rank-0 symbols, then files; each tier from its last entry.
+function capToSize(loc: BriefLocations, ranks: number[], maxChars: number): BriefLocations {
   const fits = () => JSON.stringify(loc).length <= maxChars;
   if (fits()) return loc;
   loc.truncated = true;
+  const dropRank = (r: number) => {
+    for (let i = loc.symbols.length - 1; i >= 0 && !fits(); i--) {
+      if (ranks[i] !== r) continue;
+      loc.symbols.splice(i, 1);
+      ranks.splice(i, 1);
+    }
+  };
+  dropRank(2);
+  dropRank(1);
   for (let i = loc.files.length - 1; i >= 0 && !fits(); i--) loc.files[i]!.symbols = [];
-  while (!fits() && loc.symbols.length > 0) loc.symbols.pop();
+  dropRank(0);
   while (!fits() && loc.files.length > 0) loc.files.pop();
   return loc;
 }
@@ -175,9 +188,14 @@ export function briefLocations(
   let truncated = false;
   const files: FileLocation[] = [];
   const named = new Set<string>();
+  const unresolved: string[] = [];
   for (const ref of refs.paths) {
     const hit = resolvePath(db, repo, ref.path);
-    if (!hit || named.has(hit.path)) continue;
+    if (!hit) {
+      if (!unresolved.includes(ref.path) && unresolved.length < MAX_FILES) unresolved.push(ref.path);
+      continue;
+    }
+    if (named.has(hit.path)) continue;
     named.add(hit.path);
     if (files.length >= MAX_FILES) {
       truncated = true;
@@ -187,11 +205,12 @@ export function briefLocations(
   }
 
   const rank = (s: SymbolRow) => (named.has(s.path) ? 0 : underFiles(s.path, taskFiles) ? 1 : 2);
+  const admitted = (s: SymbolRow) => rank(s) < 2 || (s.exported === 1 && !isTestPath(s.path));
   const picked: SymbolRow[] = [];
   const seen = new Set<number>();
   for (const name of refs.identifiers) {
     const matches = symbolsByName(db, repo, name)
-      .filter((s) => s.kind !== 'module' && !seen.has(s.id))
+      .filter((s) => s.kind !== 'module' && !seen.has(s.id) && admitted(s))
       .map((s, i) => ({ s, i }))
       .sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i)
       .slice(0, MAX_MATCHES_PER_NAME)
@@ -202,7 +221,8 @@ export function briefLocations(
     }
   }
   if (picked.length > MAX_SYMBOLS) truncated = true;
-  const symbols = picked.slice(0, MAX_SYMBOLS).map((s): SymbolLocation => {
+  const kept = picked.slice(0, MAX_SYMBOLS);
+  const symbols = kept.map((s): SymbolLocation => {
     const card = symbolCard(db, s);
     const callers = neighbours(card.callers);
     const callersTruncated = card.callers.total > callers.length;
@@ -220,5 +240,6 @@ export function briefLocations(
       callees: neighbours(card.callees),
     };
   });
-  return capToSize({ files, symbols, truncated }, maxChars);
+  const loc: BriefLocations = { files, symbols, truncated, ...(unresolved.length > 0 ? { unresolved_paths: unresolved } : {}) };
+  return capToSize(loc, kept.map(rank), maxChars);
 }

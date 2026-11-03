@@ -8,6 +8,9 @@
  * checkout with linked worktrees. Each payload's `@SANDBOX@` is the sandbox
  * dir, its `corpus_env` (removed before the run) overrides the env, and its
  * `corpus_expect` (removed too) is `allow` or a phrase of the deny reason.
+ * A payload whose golden entry was re-recorded from the TypeScript gate,
+ * because the gate differs from the .sh on purpose, names why in
+ * `corpus_divergent` (decision 703).
  * The payload × locale runs split across
  * hooks-git-push-guard-parity.shard-<k>of<n>.test.ts (GH 1947), each shard
  * with its own sandbox; shard 1 also runs the whole-corpus check.
@@ -168,15 +171,22 @@ interface Materialized {
   input: string;
   env: NodeJS.ProcessEnv;
   expect: string;
+  divergent: string | undefined;
 }
 
 export function materialize(file: string, sandbox: string): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
-  const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text) as {
+  const {
+    corpus_env: env = {},
+    corpus_expect: expect = '',
+    corpus_divergent: divergent,
+    ...payload
+  } = JSON.parse(text) as {
     corpus_env?: NodeJS.ProcessEnv;
     corpus_expect?: string;
+    corpus_divergent?: string;
   };
-  return { input: JSON.stringify(payload), env, expect };
+  return { input: JSON.stringify(payload), env, expect, divergent };
 }
 
 function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string): { code: number | null; stdout: string } {
@@ -208,7 +218,11 @@ export function gitPushGuardParityShard(k: number, n: number): void {
       if (k === 1) {
         it(`the corpus holds at least ${MIN_CORPUS} payloads, each with an expectation`, () => {
           assert.ok(corpus.length >= MIN_CORPUS, `${corpus.length} payloads`);
-          for (const f of corpus) assert.notEqual(materialize(join(CORPUS, f), '/s').expect, '', f);
+          for (const f of corpus) {
+            const { expect, divergent } = materialize(join(CORPUS, f), '/s');
+            assert.notEqual(expect, '', f);
+            if (divergent !== undefined) assert.match(divergent, /^decision 703: \S/, `${f}: a divergent case names why`);
+          }
         });
       }
 

@@ -1,10 +1,10 @@
 import { after, afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, worldModelTools } from '../tools/world_model.js';
+import { buildTree, resolveWorldModelRepo, worldModelTools } from '../tools/world_model.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync, renameSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { bagOfWordsLoader, pinScanEnv, tempDB } from './helpers.js';
@@ -171,6 +171,73 @@ describe('world_model_get/search — repo-unspecified (#15)', () => {
         assert.equal(out['warning'], 'world-model-unavailable', 'sole repo resolves past the selector check');
         assert.notEqual(out['warning'], 'repo-unspecified');
         db.close();
+    });
+});
+describe('world_model tools — repo defaults to the cwd repo (GH 1968)', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'wm-cwd-')));
+    for (const d of ['a/sub', 'a/inner/x', 'a-old', 'b'])
+        mkdirSync(join(root, d), { recursive: true });
+    after(() => rmSync(root, { recursive: true, force: true }));
+    function twoRepos() {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('a', ?)`, [join(root, 'a')]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('b', ?)`, [join(root, 'b')]);
+        return db;
+    }
+    async function call(tools, name, args) {
+        return wmParse((await tools.handlers[name]({ agent: 'bro', ...args })));
+    }
+    it('get, search and symbol resolve the repo containing the cwd with repo_source cwd', async () => {
+        const db = twoRepos();
+        db.run(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash) VALUES ('a', 'f.ts', 'function', 'foo', 1, 2, 'h')`);
+        const tools = worldModelTools(db, null, join(root, 'a', 'sub'));
+        const got = await call(tools, 'world_model_get', {});
+        assert.equal(got['repo'], 'a');
+        assert.equal(got['repo_source'], 'cwd');
+        const found = await call(tools, 'world_model_search', { query: 'parser' });
+        assert.equal(found['repo'], 'a');
+        assert.equal(found['repo_source'], 'cwd');
+        const sym = await call(tools, 'world_model_symbol', { qualified_name: 'foo' });
+        assert.equal(sym['repo_source'], 'cwd');
+        assert.equal(sym['symbol']['repo'], 'a');
+        db.close();
+    });
+    it('a cwd sharing only a name prefix, or the project root, keeps the repo-unspecified warning', async () => {
+        const db = twoRepos();
+        for (const cwd of [join(root, 'a-old'), root]) {
+            const out = await call(worldModelTools(db, null, cwd), 'world_model_get', {});
+            assert.equal(out['warning'], 'repo-unspecified', cwd);
+            assert.deepEqual(out['available_repos'], ['a', 'b']);
+            assert.equal(out['repo_source'], undefined);
+        }
+        db.close();
+    });
+    it('the deepest repo containing the cwd wins', () => {
+        const db = twoRepos();
+        db.run(`INSERT INTO repos (name, path) VALUES ('inner', ?)`, [join(root, 'a', 'inner')]);
+        assert.deepEqual(resolveWorldModelRepo(db, undefined, join(root, 'a', 'inner', 'x')), { name: 'inner', repo_source: 'cwd' });
+        assert.deepEqual(resolveWorldModelRepo(db, undefined, join(root, 'a', 'sub')), { name: 'a', repo_source: 'cwd' });
+        db.close();
+    });
+    it('a symlinked cwd still matches', () => {
+        const db = twoRepos();
+        const link = join(root, 'link-to-a');
+        symlinkSync(join(root, 'a'), link);
+        assert.deepEqual(resolveWorldModelRepo(db, undefined, join(link, 'sub')), { name: 'a', repo_source: 'cwd' });
+        db.close();
+    });
+    it('an explicit repo wins over the cwd, and a single repo resolves as sole', async () => {
+        const db = twoRepos();
+        const out = await call(worldModelTools(db, null, join(root, 'a', 'sub')), 'world_model_get', { repo: 'b' });
+        assert.equal(out['repo'], 'b');
+        assert.equal(out['repo_source'], 'arg');
+        db.close();
+        const solo = tempDB();
+        solo.run(`INSERT INTO repos (name, path) VALUES ('b', ?)`, [join(root, 'b')]);
+        const sole = await call(worldModelTools(solo, null, join(root, 'a-old')), 'world_model_get', {});
+        assert.equal(sole['repo'], 'b');
+        assert.equal(sole['repo_source'], 'sole');
+        solo.close();
     });
 });
 // unmerged_work — closed-task branches not yet merged into the target (#1059).

@@ -1768,7 +1768,7 @@ function migrateV30toV31(db) {
 const OWN_MCP_SERVER_NAME = 'trajectory-server';
 // v31→v32: cheatcodes is keyed by (name, kind). A plugin and the MCP server it
 // bundles share a name (`linear` plugin → `linear` server); UNIQUE(name) made
-// scan.sh's insert of the server fail on every scan, and before the hook writes
+// the scan's insert of the server fail on every scan, and before the hook writes
 // were transactional each failure still committed a scan_discovered audit row.
 //
 //   1. Rebuild cheatcodes with UNIQUE (name, kind) instead of UNIQUE on name.
@@ -2764,7 +2764,7 @@ function migrateV53toV54(db) {
     }
 }
 // v54→v55: session handoffs (GH 2193). A new table, written by the
-// session-handoff Stop gate and consumed by session-start-persona; no backfill.
+// session-handoff PreCompact gate and consumed by session-start-persona; no backfill.
 function migrateV54toV55(db) {
     beginImmediate(db);
     try {
@@ -3038,7 +3038,7 @@ function migrateV22toV23(db) {
 }
 // v23→v24: cheatcode registry data-integrity (#150) + origin provenance (#152).
 //
-//   (#150) Delete the rows the scan-ingest leaked. scripts/scan.sh used to
+//   (#150) Delete the rows the scan-ingest leaked. The shell scanner used to
 //     line-split human-formatted `claude plugin list` stdout, inserting header
 //     words (Installed/Version/Scope/Status/Location), the ❯ glyph, and
 //     tokenized fragments as fake cheatcodes rows (all source_url='scan_discovered').

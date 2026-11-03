@@ -63,7 +63,7 @@
             "p99_sum_ms": 755,
             "group_budget_ms": 6000
         },
-        "Stop::handoff": {
+        "PreCompact:": {
             "max_budget_ms": 6000,
             "p99_sum_ms": 29.1,
             "group_budget_ms": 6000
@@ -754,7 +754,7 @@
             "floor_ms": 6000,
             "budget_ms": 6000,
             "date": "2026-11-01",
-            "reason": "no session-handoff Stop hook attachment in 1043 transcript files of the last 14 days"
+            "reason": "no session-handoff hook attachment in 1043 transcript files of the last 14 days"
         },
         "swe-atomic-close": {
             "kind": "advisory",

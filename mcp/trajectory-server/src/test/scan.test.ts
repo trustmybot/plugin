@@ -7,13 +7,13 @@ import { tmpdir } from 'node:os';
 import { pinScanEnv, runGraphScript, tempDB, type ScanEnvPin } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
-import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
+import { scanTools } from '../tools/scan.js';
+import { upsertDiscoveredCheatcode, walkProject } from '../tools/scan-walk.js';
 import { renameRepo } from '../tools/repos.js';
 import { remotesView, repoRemotes, setRemoteSync } from '../repos/remotes.js';
 
-// scan.sh never spawns `claude` here: pinScanEnv sets TMB_FORBID_LIVE_SYNC=1 and
-// points TRAJECTORY_DB_PATH at an empty DB (no cheatcodes table) so resource
-// discovery writes nowhere unless a test supplies its own DB; the plugin
+// The walker never spawns `claude` here: pinScanEnv sets TMB_FORBID_LIVE_SYNC=1
+// and points TMB_SCAN_MCP_JSON at an empty mcpServers fixture; the plugin
 // inventory comes from a fixture file.
 const PLUGIN_LIST_FIXTURE = [
   {
@@ -822,24 +822,24 @@ describe('scan_run retired repos + dirs (#340)', () => {
   });
 });
 
-describe('scan_run async spawn + timeout (#398)', () => {
-  it('runScanWithScript rejects with timeout error when child hangs past deadline', async () => {
+describe('scan_run timeout (#398)', () => {
+  it('walkProject rejects with a timeout error once its deadline passes', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-timeout-'));
+    const db = tempDB();
     try {
-      const stubScript = join(ws, 'hang.sh');
-      writeFileSync(stubScript, '#!/usr/bin/env bash\nsleep 30\n', { mode: 0o755 });
-
+      mkRepo(ws, 'r', { 'README.md': 'r\n' });
       await assert.rejects(
-        () => runScanWithScript(stubScript, ws, 200),
-        /timed out/,
-        'runScanWithScript must reject with timed out message',
+        () => walkProject(db, ws, { timeoutMs: 0 }),
+        /scan timed out after 10 minutes/,
+        'walkProject must reject with the timed out message',
       );
     } finally {
+      db.close();
       rmSync(ws, { recursive: true, force: true });
     }
   });
 
-  it('lock file is released when scan times out (#398)', async () => {
+  it('a stale lock left by a timed-out scan is cleared by the next scan (#398)', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-lock-timeout-'));
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
@@ -847,25 +847,9 @@ describe('scan_run async spawn + timeout (#398)', () => {
     writeFileSync(dbPath, '');
     const lockPath = join(dbDir, 'scan.lock');
     try {
-      const stubScript = join(ws, 'hang.sh');
-      writeFileSync(stubScript, '#!/usr/bin/env bash\nsleep 30\n', { mode: 0o755 });
-
-      // Override SCAN_TIMEOUT_MS by directly calling the tool handler. We can't
-      // inject a custom timeout into scanTools, so instead we verify via the
-      // runScanWithScript unit test above that timeout fires and kills the child.
-      // Here we test the lock-release path using a dead-pid stale lock scenario:
-      // the scan handler detects the lock is stale (pid dead) and clears it,
-      // which means after a crashed/timed-out previous scan the lock is always
-      // releasable by the next caller.
-      //
-      // Direct lock-release-on-timeout test: write the lock, simulate timeout
-      // cleanup path by calling releaseLock equivalent (just delete the file),
-      // and assert lock is gone — the actual release-on-timeout is covered by
-      // integration via runScanWithScript above.
       writeFileSync(lockPath, JSON.stringify({ pid: 99999999, started_at: new Date().toISOString() }));
       assert.ok(existsSync(lockPath), 'lock file should exist before test');
 
-      // A stale-lock scan proceeds (clears it) and lock is absent afterward.
       const db = tempDB();
       mkRepo(ws, 'r', { 'README.md': 'r\n' });
       const tools = scanTools(db, null, dbPath);
@@ -881,20 +865,24 @@ describe('scan_run async spawn + timeout (#398)', () => {
 });
 
 describe('scan_run targets the project root, not the server cwd (GH 1553)', () => {
-  it('runScanWithScript hands scan.sh the server DB as TRAJECTORY_DB_PATH and runs it in the session dir', async () => {
+  it('walkProject writes to the DB it is handed and scans the session dir, whatever the cwd', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-env-'));
+    const originalCwd = process.cwd();
+    const db = tempDB();
     try {
-      const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
-      const stubScript = join(ws, 'echo-env.sh');
-      writeFileSync(
-        stubScript,
-        '#!/usr/bin/env bash\njq -n --arg db "$TRAJECTORY_DB_PATH" --arg cwd "$(pwd -P)" \'{session_dir: $cwd, scanned_at: "", repos: [], files: [], db: $db, cwd: $cwd}\'\n',
-        { mode: 0o755 },
-      );
-      const out = (await runScanWithScript(stubScript, ws, 5000, dbPath)) as unknown as Record<string, unknown>;
-      assert.equal(out['db'], dbPath, 'scan.sh receives the server DB path');
-      assert.equal(out['cwd'], realpathSync(ws), 'scan.sh runs in the session dir');
+      mkRepo(ws, 'app', { 'README.md': 'app\n' });
+      mkRepo(ws, '.hidden', { 'README.md': 'hidden\n' });
+      process.chdir(tmpdir());
+      const out = await walkProject(db, ws, { timeoutMs: 60_000 });
+      assert.equal(out.session_dir, ws, 'the walk reports the session dir');
+      assert.deepEqual(out.repos.map((r) => r.path), [join(ws, 'app')]);
+      const skipped = db.all<{ content_json: string }>(
+        "SELECT content_json FROM audit WHERE event_type = 'scan_skipped' AND from_node = 'hook:scan'",
+      ).map((r) => JSON.parse(r.content_json));
+      assert.deepEqual(skipped, [{ path: join(ws, '.hidden'), reason: 'dot_dir' }], 'the skip lands in the handed DB');
     } finally {
+      process.chdir(originalCwd);
+      db.close();
       rmSync(ws, { recursive: true, force: true });
     }
   });
@@ -1058,60 +1046,7 @@ describe('scan_run plugin inventory under TMB_FORBID_LIVE_SYNC=1', () => {
   });
 });
 
-describe('scan.sh under the test flags: pinned DB, MCP fixture', () => {
-  const scanSh = new URL('../../../../scripts/scan.sh', import.meta.url).pathname;
-
-  function runScanSh(cwd: string, env: NodeJS.ProcessEnv): { status: number; stderr: string } {
-    try {
-      execFileSync('bash', [scanSh, cwd], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      return { status: 0, stderr: '' };
-    } catch (e: unknown) {
-      const se = e as { status?: number; stderr?: string };
-      return { status: se.status ?? -1, stderr: se.stderr ?? '' };
-    }
-  }
-
-  function flaggedEnv(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    delete env['TMB_FORBID_LIVE_SYNC'];
-    delete env['TMB_TEST_RUN_ID'];
-    delete env['TRAJECTORY_DB_PATH'];
-    delete env['CLAUDE_PROJECT_DIR'];
-    for (const [k, v] of Object.entries(overrides)) {
-      if (v === undefined) delete env[k];
-      else env[k] = v;
-    }
-    return env;
-  }
-
-  const REQUIRED = /scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC\/TMB_TEST_RUN_ID \(walk-up discovery disabled\)/;
-
-  it('exits 2 with the message when TRAJECTORY_DB_PATH is unset or missing under either flag', () => {
-    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-nodb-'));
-    try {
-      for (const flag of [{ TMB_FORBID_LIVE_SYNC: '1' }, { TMB_TEST_RUN_ID: 'tmb-unit-1' }]) {
-        const unset = runScanSh(ws, flaggedEnv(flag));
-        assert.equal(unset.status, 2, JSON.stringify(flag));
-        assert.match(unset.stderr, REQUIRED);
-        const missing = runScanSh(ws, flaggedEnv({ ...flag, TRAJECTORY_DB_PATH: join(ws, 'nope', 'trajectory.db') }));
-        assert.equal(missing.status, 2, JSON.stringify(flag));
-        assert.match(missing.stderr, REQUIRED);
-      }
-    } finally {
-      rmSync(ws, { recursive: true, force: true });
-    }
-  });
-
-  it('runs when TRAJECTORY_DB_PATH names an existing file', () => {
-    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-db-'));
-    try {
-      const r = runScanSh(ws, flaggedEnv({ TMB_TEST_RUN_ID: 'tmb-unit-2', TRAJECTORY_DB_PATH: scanPin.dbPath }));
-      assert.equal(r.status, 0, r.stderr);
-    } finally {
-      rmSync(ws, { recursive: true, force: true });
-    }
-  });
-
+describe('scan_run under the test flags: MCP fixture', () => {
   function withFileDb(prefix: string): { ws: string; dbPath: string; db: TrajectoryDB } {
     const ws = mkdtempSync(join(tmpdir(), prefix));
     mkRepo(ws, 'r', { 'README.md': 'r\n' });
@@ -1248,7 +1183,7 @@ console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, ro
 
       assert.deepEqual(Object.keys(first).sort(), tracked.map((p) => `app/${p}`).sort(), 'one File node per tracked file');
       for (const [path, md5] of Object.entries(expectedMd5)) {
-        assert.equal(first[path]!['content_md5'], md5, `${path} carries scan.sh's content_md5`);
+        assert.equal(first[path]!['content_md5'], md5, `${path} carries the walker's content_md5`);
       }
       assert.deepEqual(out['linked'], Object.keys(first).sort(), 'every File has a HAS_FILE edge');
       assert.equal(first['app/src/a.ts']!['dir'], 'src');
