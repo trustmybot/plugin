@@ -106,7 +106,7 @@ assert_contains "$out" '"permissionDecision":"deny"' "an unverified rebase with 
 assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
 assert_contains "$out" "task_id=7" "the deny names the task"
 assert_contains "$out" "regenerated dist" "the deny says the dist was regenerated"
-assert_contains "$out" "integrate.sh" "the deny points at integrate.sh"
+assert_contains "$out" "dist/cli.js\\\" integrate <task_id> <base>" "the deny points at cli.js integrate"
 cleanup
 
 test_case "GH 1627: the same rebase after a passing verification run on its SHA → allowed"

@@ -67,7 +67,7 @@ INSERT INTO tasks VALUES (20, 'pending', '## Success Criteria
 - the column exists', '["mcp/trajectory-server/src/schema.sql","mcp/trajectory-server/src/db.ts"]', 1, 'feat/col');
 INSERT INTO tasks VALUES (21, 'pending', '## Success Criteria
 - `Writer: task_update_status`
-- `Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks WHERE x IS NOT NULL" 1 --op ge`', '["migrations/031.sql"]', 1, 'feat/col2');
+- `Populated: node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql db.copy "SELECT count(*) FROM tasks WHERE x IS NOT NULL" 1 --op ge`', '["migrations/031.sql"]', 1, 'feat/col2');
 INSERT INTO tasks VALUES (22, 'pending', '## Success Criteria
 Nullable: only set for legacy rows', '["mcp/trajectory-server/src/schema.sql"]', 1, 'feat/col3');
 INSERT INTO tasks VALUES (23, 'pending', '## Success Criteria
@@ -87,13 +87,13 @@ INSERT INTO tasks VALUES (36, 'pending', 'ADD' || char(160) || 'COLUMN ended_at 
 INSERT INTO tasks VALUES (37, 'pending', 'Add a new' || char(8239) || 'field and a new' || char(12288) || 'tool.', '["src/handlers.ts"]', 1, 'feat/dodge8');
 INSERT INTO tasks VALUES (32, 'pending', '## Success Criteria
 1. Writer: task_update_status
-2. Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/num');
+2. Populated: node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/num');
 INSERT INTO tasks VALUES (33, 'pending', '## Success Criteria
 - Writer: task_update_status
-- Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/bullet');
+- Populated: node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/bullet');
 INSERT INTO tasks VALUES (34, 'pending', '## Success Criteria
 - Writer:
-- Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/empty');
+- Populated: node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/empty');
 INSERT INTO tasks VALUES (35, 'pending', '## Success Criteria
 - `Writer: `
 - Nullable:', '["src/schema.sql"]', 1, 'feat/empty2');

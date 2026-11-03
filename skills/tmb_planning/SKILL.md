@@ -81,7 +81,7 @@ When the task adds a column, field, enum value, tool-result key or file output, 
 
 A spec for a guard or gate (a hook, permission check or validator) states in `## Description` whether it is allowlist-based: it admits what it can prove safe and denies the rest. A denylist design, which blocks known-bad input and admits everything else, fails open on whatever it did not foresee, so it needs a recorded decision (in `decision_body`) naming why an allowlist does not fit.
 
-A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
+A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" assert-sql <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
 
 The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so there's no separate `discussion_append` here.
 
@@ -129,7 +129,7 @@ If any of the four checks fails, record it with `bro_verification_fail_record` (
 
 ### Integrate after the review pass
 
-When code-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>`:
+When code-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>`:
 
 - **Exit 0** — rebased and re-verified; push the SHA it prints.
 - **Exit 1** — `verification[]` failed on the rebased commit; surface the failure and rework the task (below).

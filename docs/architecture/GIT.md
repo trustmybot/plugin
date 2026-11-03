@@ -42,9 +42,9 @@ Branch policy is **per-repo**, not global. Each registered repo's `repos` row ca
 
 Guard scoping is **registration-based**: a git op is enforced only when its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — TMB never enforces on a tree it doesn't manage. For a single-repo project the sole repo is the registered root, so the whole tree is guarded; `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) for the full resolution contract.
 
-## Rebasing a reviewed task: integrate.sh
+## Rebasing a reviewed task: cli.js integrate
 
-SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the code-reviewer, bro runs `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>` from the main checkout. The script:
+SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the code-reviewer, bro runs `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>` from the main checkout. The subcommand:
 
 1. Exits 3 when the task has no passing review for its `commit_sha`.
 2. Prints `commit_sha` and exits 0 when `<base>` is already an ancestor of it. No run is recorded.
@@ -144,7 +144,7 @@ plugin/
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
 ├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
-├── skills/tmb_planning/scripts/integrate.sh          # rebases a reviewed task onto <base>, re-verifies, moves the branch
+├── mcp/trajectory-server/src/cli/integrate.ts      # rebases a reviewed task onto <base>, re-verifies, moves the branch
 ├── mcp/trajectory-server/src/hooks/
 │   ├── git-push-guard.ts                          # blocks push without pass verdicts or a verified rebase
 │   ├── branch-up-to-date-with-remote.ts           # verifies local branch is current

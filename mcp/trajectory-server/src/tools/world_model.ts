@@ -205,7 +205,7 @@ function computeUnmergedWork(
     if (refCheck.status !== 0) continue; // absent ref → integrated or abandoned, skip
     const tip = refCheck.stdout.trim();
 
-    // Judge the live ref, not tasks.commit_sha: integrate.sh rebases and
+    // Judge the live ref, not tasks.commit_sha: cli.js integrate rebases and
     // regenerates dist, so the pushed tip differs from the recorded one.
     const integration = tipIntegratedInto(repoPath, tip, target);
     if (integration === 'spawn-error') {

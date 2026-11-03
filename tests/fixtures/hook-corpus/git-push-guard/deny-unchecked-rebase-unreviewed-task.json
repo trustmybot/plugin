@@ -6,5 +6,6 @@
   "tool_input": {
     "command": "git push"
   },
-  "corpus_expect": "the task has no passing review"
+  "corpus_expect": "the task has no passing review",
+  "corpus_divergent": "decision 703: the deny names cli.js integrate where the .sh named its shell script, so this golden entry is re-recorded from the TypeScript gate (GH 1692)"
 }
