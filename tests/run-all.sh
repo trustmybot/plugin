@@ -57,7 +57,7 @@ fi
 # ----- Live-CLI stubs (L1, L2 and L4) ----------------------------------------
 # gh/glab/claude stubs append to a sentinel file on invocation and exit 97; a
 # 0-byte sentinel means the step made no live CLI calls (B5 incident guard).
-# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which scripts/scan.sh
+# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which the scan walker
 # reads its plugin list from TMB_SCAN_PLUGIN_JSON (an empty list here) instead
 # of spawning `claude plugin list --json`.
 _stub_dir="$_run_tmp/stubs"
@@ -240,7 +240,7 @@ run_step "L3 integration: tmb-regen merge driver"                     node --tes
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 # The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
-# plugin-list fixture, so its gh/glab auth probes and scan.sh never reach a
+# plugin-list fixture, so its gh/glab auth probes and scan never reach a
 # real CLI. Each flow gets a 30 s per-test timeout (bun's 5 s default flakes
 # under a loaded full run).
 

@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Keeps L2 unit tests from reaching the live trajectory DB through scan.sh.
+# Keeps L2 unit tests that run the scan walker off the live claude CLI,
+# ~/.claude.json and the live trajectory DB.
 #
 # Rule: every *.ts file under mcp/trajectory-server/src/test/, except the data
 # modules under src/test/fixtures/ (schema snapshots that only name scan_run in
-# SQL comments), whose text contains `scan.sh`, `scan_run` or `project_scan`
+# SQL comments), whose text contains `walkProject`, `scan_run` or `project_scan`
 # (the Codex tool that runs scan_run) must also, outside comments, call
 # `pinScanEnv(` (the src/test/helpers.ts export that pins TRAJECTORY_DB_PATH,
 # TMB_SCAN_MCP_JSON and TMB_FORBID_LIVE_SYNC=1) or assign `TRAJECTORY_DB_PATH`
 # (`TRAJECTORY_DB_PATH: ...`, `env['TRAJECTORY_DB_PATH'] = ...`). A mention —
-# an import, a comment — is not a pin. Without the pin, a forked scan.sh run
-# outside the test flags resolves its DB by walking up from cwd — to the
+# an import, a comment — is not a pin. Without the pin, a walk outside the test
+# flags spawns `claude plugin list` and reads ~/.claude.json, and a child
+# process the test starts resolves its DB by walking up from cwd — to the
 # project's live .claude/tmb/trajectory.db for any checkout inside the project.
 #
 # Usage: bash tests/l1-lint/no-unpinned-scan-in-tests.sh [--self-test]
@@ -21,7 +23,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-FORKS_SCAN='scan\.sh|scan_run|project_scan'
+FORKS_SCAN='walkProject|scan_run|project_scan'
 PINNED='pinScanEnv\(|TRAJECTORY_DB_PATH['"'"'"]?\]?[[:space:]]*(:|=[^=])'
 
 # code_only <file> — the file with comment lines and trailing // comments
@@ -31,7 +33,7 @@ code_only() {
 }
 
 # unpinned_files <dir> [<excluded-dir>] — prints each *.ts file under <dir>,
-# outside <excluded-dir>, that references scan.sh/scan_run/project_scan unpinned.
+# outside <excluded-dir>, that references walkProject/scan_run/project_scan unpinned.
 unpinned_files() {
   local f
   while IFS= read -r -d '' f; do
@@ -71,7 +73,7 @@ TEST_DIR="$PLUGIN_ROOT/mcp/trajectory-server/src/test"
 out=$(unpinned_files "$TEST_DIR" "$TEST_DIR/fixtures")
 if [ -n "$out" ]; then
   while IFS= read -r f; do
-    printf '%s: references scan.sh/scan_run/project_scan without a pinScanEnv( call (src/test/helpers.ts) or a TRAJECTORY_DB_PATH assignment outside comments\n' "${f#"$PLUGIN_ROOT/"}"
+    printf '%s: references walkProject/scan_run/project_scan without a pinScanEnv( call (src/test/helpers.ts) or a TRAJECTORY_DB_PATH assignment outside comments\n' "${f#"$PLUGIN_ROOT/"}"
   done <<< "$out"
   printf '\nno-unpinned-scan-in-tests: FAIL\n' >&2
   exit 1

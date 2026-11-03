@@ -417,11 +417,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants6) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants4);
+          this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -438,10 +438,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants6) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants4);
+        this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -502,8 +502,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants4) {
-        this.code = optimizeExpr(this.code, names, constants4);
+      optimizeNames(names, constants6) {
+        this.code = optimizeExpr(this.code, names, constants6);
         return this;
       }
       get names() {
@@ -532,12 +532,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants6) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants4))
+          if (n.optimizeNames(names, constants6))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i2, 1);
@@ -590,12 +590,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants6) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants4);
-        if (!(super.optimizeNames(names, constants4) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants6);
+        if (!(super.optimizeNames(names, constants6) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants4);
+        this.condition = optimizeExpr(this.condition, names, constants6);
         return this;
       }
       get names() {
@@ -618,10 +618,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants4) {
-        if (!super.optimizeNames(names, constants4))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants4);
+        this.iteration = optimizeExpr(this.iteration, names, constants6);
         return this;
       }
       get names() {
@@ -657,10 +657,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants4) {
-        if (!super.optimizeNames(names, constants4))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants4);
+        this.iterable = optimizeExpr(this.iterable, names, constants6);
         return this;
       }
       get names() {
@@ -702,11 +702,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants6) {
         var _a2, _b;
-        super.optimizeNames(names, constants4);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants4);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants4);
+        super.optimizeNames(names, constants6);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants6);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants6);
         return this;
       }
       get names() {
@@ -1007,7 +1007,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants4) {
+    function optimizeExpr(expr, names, constants6) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1022,14 +1022,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants4[n.str];
+        const c = constants6[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants4[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants6[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve7.call(this, root, ref2);
+      let _sch = resolve8.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve7(root, ref2) {
+    function resolve8(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3593,7 +3593,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve7(baseURI, relativeURI, options) {
+    function resolve8(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve7,
+      resolve: resolve8,
       resolveComponent,
       equal,
       serialize,
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve7, reject) => {
-          readyPromiseResolve = resolve7;
+        var readyPromise = new Promise((resolve8, reject) => {
+          readyPromiseResolve = resolve8;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve7, reject) => {
+                return new Promise((resolve8, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve7(xhr.response);
+                      resolve8(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve7, reject) => {
+            return new Promise((resolve8, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve7(mod.exports);
+                resolve8(mod.exports);
               });
             });
           }
@@ -10772,7 +10772,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync10, readFileSync as readFileSync16 } from "node:fs";
+import { mkdirSync as mkdirSync10, readFileSync as readFileSync17 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -17034,13 +17034,13 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     }
     return propValues;
   });
-  const isObject6 = isObject;
+  const isObject7 = isObject;
   const catchall = def.catchall;
   let value;
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject6(input)) {
+    if (!isObject7(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -17138,7 +17138,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject6 = isObject;
+  const isObject7 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -17147,7 +17147,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject6(input)) {
+    if (!isObject7(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -23561,7 +23561,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
+        await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23578,7 +23578,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve7, reject) => {
+    return new Promise((resolve8, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23656,7 +23656,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve7(parseResult.data);
+            resolve8(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23917,12 +23917,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve7, reject) => {
+    return new Promise((resolve8, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve7, interval);
+      const timeoutId = setTimeout(resolve8, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24792,12 +24792,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve7) => {
+    return new Promise((resolve8) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve7();
+        resolve8();
       } else {
-        this._stdout.once("drain", resolve7);
+        this._stdout.once("drain", resolve8);
       }
     });
   }
@@ -25258,9 +25258,9 @@ var AUDIT_EVENT_TYPES = [
   { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
-  { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
+  { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or its walker as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
   { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-  { type: "scan_skipped", writers: ["hook"], description: "`scan.sh` left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
@@ -29404,9 +29404,9 @@ function toFtsOrQuery(raw) {
   });
   return tokens2.length > 0 ? tokens2.map(quoted).join(" OR ") : null;
 }
-function withFtsGuard(run2) {
+function withFtsGuard(run3) {
   try {
-    return run2();
+    return run3();
   } catch (e) {
     const message2 = e instanceof Error ? e.message : String(e);
     if (/fts5|no such column/i.test(message2)) {
@@ -30339,14 +30339,14 @@ function canonicalPath(path2, projectRoot2) {
       continue;
     }
     const candidate = join7(root, ...real, part);
-    let stat;
+    let stat2;
     try {
-      stat = lstatSync4(candidate);
+      stat2 = lstatSync4(candidate);
     } catch {
       tail.push(part);
       continue;
     }
-    if (stat.isSymbolicLink() && hops < 40) {
+    if (stat2.isSymbolicLink() && hops < 40) {
       hops += 1;
       const target = readlinkSync2(candidate);
       if (isAbsolute3(target)) real.length = 0;
@@ -34057,13 +34057,13 @@ function hookBlockStats(db2, runs, now2) {
     if (Number.isNaN(at) || row.task_id === null || row.agent_type === null) continue;
     const taskId = Number(row.task_id);
     const agentType = row.agent_type.startsWith("tmb:") ? row.agent_type.slice(4) : row.agent_type;
-    const run2 = windows.find((w) => w.task_id === taskId && w.agent_type === agentType && w.start <= at && at <= w.end);
-    if (!run2) continue;
+    const run3 = windows.find((w) => w.task_id === taskId && w.agent_type === agentType && w.start <= at && at <= w.end);
+    if (!run3) continue;
     const { reason, gate_failure } = hookBlockReason(row.hook, row.rule);
     if (gate_failure) gateFailures += 1;
     else denials += 1;
     byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
-    perRun.set(run2.id, (perRun.get(run2.id) ?? 0) + 1);
+    perRun.set(run3.id, (perRun.get(run3.id) ?? 0) + 1);
   }
   return { denials, gate_failures: gateFailures, by_reason: sortedReasons(byReason), per_run: perRun };
 }
@@ -36995,27 +36995,27 @@ function verificationWaivedForCommit(db2, taskId, commitSha) {
   return (row?.c ?? 0) > 0;
 }
 function latestVerificationRun(db2, taskId, startedBy) {
-  const run2 = db2.get(
+  const run3 = db2.get(
     `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
        FROM verification_runs
       WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
       ORDER BY started_at DESC, id DESC LIMIT 1`,
     startedBy ? [taskId, startedBy] : [taskId]
   );
-  if (!run2) return null;
+  if (!run3) return null;
   const commands = db2.all(
     `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
-    [run2.id]
+    [run3.id]
   ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
   return {
-    run_id: run2.id,
-    commit_sha: run2.commit_sha,
-    source: run2.source,
-    started_at: run2.started_at,
-    finished_at: run2.finished_at,
-    exit_code: run2.exit_code,
-    timed_out: run2.timed_out === 1,
-    budget_s: run2.budget_s,
+    run_id: run3.id,
+    commit_sha: run3.commit_sha,
+    source: run3.source,
+    started_at: run3.started_at,
+    finished_at: run3.finished_at,
+    exit_code: run3.exit_code,
+    timed_out: run3.timed_out === 1,
+    budget_s: run3.budget_s,
     commands
   };
 }
@@ -43906,15 +43906,15 @@ function scanRepoEvidence(repoPath, opts = {}) {
     evidence.note = "path is not a directory";
     return done();
   }
-  const git4 = gitRunner(repoPath);
-  const top = git4(["rev-parse", "--show-toplevel"]);
+  const git5 = gitRunner(repoPath);
+  const top = git5(["rev-parse", "--show-toplevel"]);
   if (!top.ok) {
     evidence.note = top.note;
     return done();
   }
   evidence.in_git = true;
   const originBranches = /* @__PURE__ */ new Set();
-  const refs = git4(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
+  const refs = git5(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
   if (refs.ok) {
     const branches = /* @__PURE__ */ new Set();
     for (const line of refs.stdout.split("\n")) {
@@ -43934,7 +43934,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
   }
   evidence.long_lived = LONG_LIVED.filter((b) => evidence.branches.includes(b));
   if (evidence.remotes.length === 0) {
-    const remotes = git4(["remote", "-v"]);
+    const remotes = git5(["remote", "-v"]);
     if (remotes.ok) evidence.remotes = parseRemotes(remotes.stdout);
   }
   const dev = pick2(DEV_TYPE, evidence.long_lived, evidence.origin_head);
@@ -43942,7 +43942,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
   const candidates = [...new Set([dev, main, ...evidence.long_lived].filter((b) => b !== null))];
   for (const branch of candidates) {
     const ref2 = originBranches.has(branch) ? `refs/remotes/origin/${branch}` : `refs/heads/${branch}`;
-    const log = git4(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref2]);
+    const log = git5(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref2]);
     if (!log.ok) continue;
     evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
   }
@@ -44736,7 +44736,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       "onboard_state_get",
       ["bro"],
       wrapHandler13(async () => {
-        const git4 = probeGit(probeDir());
+        const git5 = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
@@ -44758,9 +44758,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             bug_report_consent: readConfig(db2, "bug_report_consent") ?? "no"
           },
           probe: {
-            in_git: git4.in_git,
-            origin_kind: git4.origin_kind,
-            detected_remotes: git4.detected_remotes,
+            in_git: git5.in_git,
+            origin_kind: git5.origin_kind,
+            detected_remotes: git5.detected_remotes,
             gh_installed: gh.installed,
             gh_authed: gh.authed,
             glab_installed: glab.installed,
@@ -44778,13 +44778,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const shape = args2["shape"];
         const round = args2["round"];
         const repo = args2["repo"];
-        const git4 = probeGit(probeDir());
+        const git5 = probeGit(probeDir());
         if (round === "shape") {
-          return ok17({ questions: [shapeQuestion(git4.origin_kind, shapeAdvice(scanWorkspace(db2), git4.origin_kind))] });
+          return ok17({ questions: [shapeQuestion(git5.origin_kind, shapeAdvice(scanWorkspace(db2), git5.origin_kind))] });
         }
         if (round === "sandbox") {
           const current = readConfig(db2, "sandbox_enforcement");
-          const detected = git4.detected_remotes.map((r) => r.url);
+          const detected = git5.detected_remotes.map((r) => r.url);
           return ok17({
             questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
           });
@@ -44824,13 +44824,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           }
           if (shape === "remote") {
             questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard, advice.prTarget));
-            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git4.origin_kind, scan)));
+            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git5.origin_kind, scan)));
           }
         } else if (round === "remote") {
           if (shape !== "remote") {
             throw new Error(`round='remote' only valid for shape='remote' (got '${String(shape)}')`);
           }
-          questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git4.origin_kind, scanWorkspace(db2))));
+          questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git5.origin_kind, scanWorkspace(db2))));
         } else if (round === "sync") {
           if (shape !== "remote") {
             throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
@@ -45134,10 +45134,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync12, readFileSync as readFileSync10, realpathSync as realpathSync8, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
-import { dirname as dirname12, join as join21 } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { spawnSync as spawnSync13 } from "node:child_process";
+import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync8, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
+import { dirname as dirname13, join as join22 } from "node:path";
 
 // src/file-purpose.ts
 var PURPOSE_HEAD_BYTES = 4096;
@@ -45779,12 +45778,12 @@ function deadRefs(readme, dir, history) {
 }
 var MAX_REFERENCED_PATHSPECS = 200;
 function referencedFiles(readme, dir, readmePath, history) {
-  const isFile = (p) => history.trackedFiles.has(p) || history.deleted.has(p) || history.renamedAway.has(p);
+  const isFile2 = (p) => history.trackedFiles.has(p) || history.deleted.has(p) || history.renamedAway.has(p);
   const files = /* @__PURE__ */ new Set();
   for (const { ref: ref2 } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
     const fromRoot = posix2.normalize(ref2);
-    const hit = isFile(fromDir) ? fromDir : isFile(fromRoot) ? fromRoot : void 0;
+    const hit = isFile2(fromDir) ? fromDir : isFile2(fromRoot) ? fromRoot : void 0;
     if (hit && hit !== readmePath) files.add(hit);
   }
   return [...files].sort();
@@ -45861,6 +45860,562 @@ function cleanReadme(raw) {
 ` : text;
 }
 
+// src/tools/scan-walk.ts
+import { spawn } from "node:child_process";
+import { createHash as createHash3 } from "node:crypto";
+import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, statSync as statSync7 } from "node:fs";
+import { lstat, stat } from "node:fs/promises";
+import { homedir as homedir3 } from "node:os";
+import { basename as basename10, dirname as dirname12, join as join21, resolve as resolve6 } from "node:path";
+
+// src/hooks/lib/host.ts
+import { accessSync as accessSync2, constants as constants3, statSync as statSync6 } from "node:fs";
+function commandOnPath(name2, env = process.env) {
+  for (const dir of (env.PATH ?? "").split(":")) {
+    const candidate = `${dir === "" ? "." : dir}/${name2}`;
+    try {
+      if (!statSync6(candidate).isFile()) continue;
+      accessSync2(candidate, constants3.X_OK);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+}
+
+// src/tools/scan-walk.ts
+function upsertDiscoveredCheatcode(db2, r) {
+  const description = r.description ?? "";
+  const version2 = r.version ?? null;
+  return db2.transaction(() => {
+    const now2 = nowISO();
+    const res = db2.run(
+      `INSERT INTO cheatcodes
+         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?,
+               (SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = ?),
+               'project-local', ?, ?, ?, ?)
+       ON CONFLICT (name, kind) DO NOTHING`,
+      [
+        r.name,
+        r.kind,
+        r.origin,
+        description,
+        r.source_url,
+        r.file_path ?? null,
+        version2,
+        r.trust_parent ?? null,
+        r.status,
+        now2,
+        now2,
+        now2
+      ]
+    );
+    if (res.changes > 0) {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: r.from_node ?? "system",
+        event_type: "scan_discovered",
+        summary: `${r.name} (${r.kind}): discovered`,
+        content_json: JSON.stringify({ name: r.name, kind: r.kind, origin: r.origin, source: r.source_url })
+      });
+      return { id: Number(res.lastInsertRowid), inserted: true };
+    }
+    db2.run(
+      `UPDATE cheatcodes
+          SET description = CASE WHEN description = '' THEN ? ELSE description END,
+              version = COALESCE(version, ?),
+              source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
+                                THEN ? ELSE source_url END,
+              updated_at = ?
+        WHERE name = ? AND kind = ?
+          AND ((description = '' AND ? <> '')
+               OR (version IS NULL AND ? IS NOT NULL)
+               OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`,
+      [
+        description,
+        version2,
+        r.source_url,
+        r.source_url,
+        now2,
+        r.name,
+        r.kind,
+        description,
+        version2,
+        r.source_url
+      ]
+    );
+    const row = db2.get("SELECT id FROM cheatcodes WHERE name = ? AND kind = ?", [r.name, r.kind]);
+    return { id: row.id, inserted: false };
+  });
+}
+var MAX_DEPTH = 4;
+var PRUNED_TAIL = /\/(node_modules|dist|build|\.next|target|\.venv|venv)$/;
+var FILE_WORKERS = 16;
+var SHA_LINE = /^[0-9a-f]{40}$/;
+var VALID_NAME = /^[A-Za-z0-9._-]+$/;
+var DEFAULT_DISCOVERY_TIMEOUT_S = 4;
+var NO_CHEATCODES_NOTE = "no trajectory DB with a cheatcodes table";
+var Deadline = class {
+  at;
+  constructor(timeoutMs) {
+    this.at = Date.now() + timeoutMs;
+  }
+  left() {
+    return this.at - Date.now();
+  }
+  check() {
+    if (this.left() <= 0) throw new Error("scan timed out after 10 minutes");
+  }
+};
+function run2(cmd, args2, opts) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(cmd, args2, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    let pending2 = "";
+    let settled = false;
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      if (!opts.onLine) {
+        stdout += chunk;
+        return;
+      }
+      pending2 += chunk;
+      let nl = pending2.indexOf("\n");
+      while (nl >= 0) {
+        opts.onLine(pending2.slice(0, nl));
+        pending2 = pending2.slice(nl + 1);
+        nl = pending2.indexOf("\n");
+      }
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      child.kill("SIGKILL");
+      const e = opts.onTimeout();
+      if (e) {
+        settled = true;
+        reject(e);
+      }
+    }, Math.max(0, opts.limitMs));
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise({ code: null, stdout: "" });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (opts.onLine && pending2 !== "") opts.onLine(pending2);
+      resolvePromise({ code, stdout });
+    });
+  });
+}
+function git4(args2, env, deadline, onLine) {
+  deadline.check();
+  return run2("git", args2, {
+    env,
+    limitMs: deadline.left(),
+    onLine,
+    onTimeout: () => new Error("scan timed out after 10 minutes")
+  });
+}
+function captured(text) {
+  return text.replace(/\n+$/, "");
+}
+function isDir(path2) {
+  try {
+    return statSync7(path2).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function isReadable(path2) {
+  try {
+    accessSync3(path2, constants4.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function hasTable(db2, name2) {
+  return db2.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name2]) !== void 0;
+}
+function testMode(env) {
+  return env["TMB_FORBID_LIVE_SYNC"] === "1" || (env["TMB_TEST_RUN_ID"] ?? "") !== "";
+}
+function findGitParents(sessionDir) {
+  const parents = [];
+  const walk = (abs, rel, depth) => {
+    if (depth >= MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = readdirSync5(abs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const childRel = `${rel}/${e.name}`;
+      if (PRUNED_TAIL.test(childRel) || childRel.includes("/.claude/worktrees")) continue;
+      if (e.name === ".git") parents.push(rel);
+      if (e.isDirectory()) walk(join21(abs, e.name), childRel, depth + 1);
+    }
+  };
+  walk(sessionDir, ".", 0);
+  return parents;
+}
+async function skipReason(repo, sessionDir, env, deadline) {
+  const rel = repo.startsWith(`${sessionDir}/`) ? repo.slice(sessionDir.length + 1) : repo;
+  if (`/${rel}`.includes("/.")) return "dot_dir";
+  let enclosing = dirname12(repo);
+  for (; ; ) {
+    if (existsSync12(join21(enclosing, ".git"))) {
+      if ((await git4(["-C", enclosing, "check-ignore", "-q", repo], env, deadline)).code === 0) return "git_ignored";
+      break;
+    }
+    if (enclosing === sessionDir || dirname12(enclosing) === enclosing) break;
+    enclosing = dirname12(enclosing);
+  }
+  const head = await git4(["-C", repo, "rev-parse", "--verify", "-q", "HEAD"], env, deadline);
+  return head.code === 0 ? null : "no_commits";
+}
+function auditSkip(db2, path2, reason) {
+  try {
+    if (!hasTable(db2, "audit")) return;
+    const seen = db2.get(
+      `SELECT 1 AS one FROM audit
+        WHERE event_type = 'scan_skipped' AND json_valid(content_json)
+          AND json_extract(content_json, '$.path') IS ? AND json_extract(content_json, '$.reason') IS ?
+        LIMIT 1`,
+      [path2, reason]
+    );
+    if (seen) return;
+    insertAudit(db2, {
+      issue_id: -1,
+      from_node: "hook:scan",
+      event_type: "scan_skipped",
+      summary: `${path2}: skipped (${reason})`,
+      content_json: JSON.stringify({ path: path2, reason })
+    });
+  } catch {
+  }
+}
+async function discoverRepos(db2, sessionDir, env, deadline) {
+  const found = new Set(findGitParents(sessionDir).map((rel) => rel === "." ? sessionDir : `${sessionDir}/${rel.slice(2)}`));
+  const repos = [];
+  for (const repo of [...found].sort()) {
+    if (repo !== sessionDir) {
+      const reason = await skipReason(repo, sessionDir, env, deadline);
+      if (reason) {
+        auditSkip(db2, repo, reason);
+        continue;
+      }
+    }
+    repos.push(repo);
+  }
+  return repos;
+}
+function md5Of(path2) {
+  return new Promise((resolvePromise) => {
+    const hash2 = createHash3("md5");
+    const stream = createReadStream(path2);
+    stream.on("data", (chunk) => hash2.update(chunk));
+    stream.on("error", () => resolvePromise(""));
+    stream.on("end", () => resolvePromise(hash2.digest("hex")));
+  });
+}
+async function isFile(path2) {
+  try {
+    return (await stat(path2)).isFile();
+  } catch {
+    return false;
+  }
+}
+async function sizeOf(path2) {
+  try {
+    return (await lstat(path2)).size;
+  } catch {
+    return 0;
+  }
+}
+async function eachLimited(items, deadline, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      deadline.check();
+      await fn(items[next++]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FILE_WORKERS, items.length) }, worker));
+}
+async function walkRepo(repoRoot, env, deadline) {
+  const name2 = basename10(repoRoot);
+  const empty = { repo: { name: name2, path: repoRoot, file_count: 0 }, files: [] };
+  const listed2 = captured((await git4(["-C", repoRoot, "-c", "core.quotePath=false", "ls-files"], env, deadline)).stdout);
+  if (listed2 === "") return empty;
+  const relPaths = listed2.split("\n");
+  const shaByPath = /* @__PURE__ */ new Map();
+  let current = "";
+  await git4(["-C", repoRoot, "-c", "core.quotePath=false", "log", "--format=%H", "--name-only", "--no-renames"], env, deadline, (line) => {
+    if (SHA_LINE.test(line)) current = line;
+    else if (line !== "" && !shaByPath.has(line)) shaByPath.set(line, current);
+  });
+  const present = [];
+  await eachLimited(relPaths.map((rel, i2) => ({ rel, i: i2 })), deadline, async ({ rel, i: i2 }) => {
+    if (await isFile(`${repoRoot}/${rel}`)) present[i2] = `${repoRoot}/${rel}`;
+  });
+  const existing = present.filter((abs) => abs !== void 0);
+  if (existing.length === 0) return empty;
+  const md5ByAbs = /* @__PURE__ */ new Map();
+  const sizeByAbs = /* @__PURE__ */ new Map();
+  await eachLimited([...new Set(existing)], deadline, async (abs) => {
+    const [md52, size] = await Promise.all([md5Of(abs), sizeOf(abs)]);
+    md5ByAbs.set(abs, md52);
+    sizeByAbs.set(abs, size);
+  });
+  const files = relPaths.filter((rel) => rel !== "").map((rel) => {
+    const abs = `${repoRoot}/${rel}`;
+    return {
+      repo: name2,
+      path: rel,
+      size_bytes: sizeByAbs.get(abs) ?? 0,
+      content_md5: md5ByAbs.get(abs) ?? "",
+      last_commit_sha: shaByPath.get(rel) ?? ""
+    };
+  });
+  return { repo: { name: name2, path: repoRoot, file_count: existing.length }, files };
+}
+function scalar(v) {
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || v === true) return String(v);
+  return "";
+}
+function isObject5(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+}
+function register(db2, r) {
+  if (!VALID_NAME.test(r.name)) return;
+  try {
+    upsertDiscoveredCheatcode(db2, {
+      ...r,
+      source_url: r.source_url || "scan_discovered",
+      version: r.version || null,
+      file_path: r.file_path || null,
+      trust_parent: r.trust_parent || null,
+      from_node: "hook:scan"
+    });
+  } catch {
+  }
+}
+function registerSkills(db2, sessionDir) {
+  const skillsDir = join21(sessionDir, ".claude", "skills");
+  let entries;
+  try {
+    if (lstatSync7(skillsDir).isSymbolicLink()) return;
+    entries = readdirSync5(skillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const names = entries.filter((e) => {
+    if (!e.isDirectory()) return false;
+    try {
+      lstatSync7(join21(skillsDir, e.name, "SKILL.md"));
+      return true;
+    } catch {
+      return false;
+    }
+  }).map((e) => e.name).sort((a, b) => `${a}/SKILL.md` < `${b}/SKILL.md` ? -1 : 1);
+  for (const name2 of names) {
+    register(db2, {
+      kind: "skill",
+      name: name2,
+      file_path: `.claude/skills/${name2}/SKILL.md`,
+      origin: "external",
+      source_url: `skill:${name2}`,
+      status: "active"
+    });
+  }
+}
+async function pluginList(sessionDir, env, deadline) {
+  let raw = "";
+  let source = "";
+  let note = "";
+  if (testMode(env)) {
+    const fixture = env["TMB_SCAN_PLUGIN_JSON"] ?? "";
+    if (fixture !== "" && isReadable(fixture)) {
+      try {
+        raw = readFileSync10(fixture, "utf8");
+      } catch {
+        raw = "";
+      }
+      source = "fixture";
+    } else {
+      note = "TMB_FORBID_LIVE_SYNC=1 or TMB_TEST_RUN_ID set and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped";
+    }
+  } else if (commandOnPath("claude", env)) {
+    const seconds = Number(env["TMB_SCAN_DISCOVERY_TIMEOUT"] ?? DEFAULT_DISCOVERY_TIMEOUT_S);
+    const limitS = Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_DISCOVERY_TIMEOUT_S;
+    deadline.check();
+    raw = (await run2("claude", ["plugin", "list", "--json"], {
+      env,
+      cwd: sessionDir,
+      limitMs: Math.min(limitS * 1e3, deadline.left()),
+      onTimeout: () => null
+    })).stdout;
+    source = "cli";
+  } else {
+    note = "claude CLI not on PATH";
+  }
+  const parsed = source ? parseJson(raw) : void 0;
+  if (source && !Array.isArray(parsed)) {
+    return { list: null, inventory: { status: "unavailable", note: `${source} plugin list is not a JSON array` } };
+  }
+  if (!source) return { list: null, inventory: { status: "unavailable", note } };
+  return { list: parsed, inventory: { status: source, note: "" } };
+}
+function manifestDescription(installPath) {
+  const manifest = join21(installPath, ".claude-plugin", "plugin.json");
+  try {
+    if (!statSync7(manifest).isFile()) return "";
+    const parsed = parseJson(readFileSync10(manifest, "utf8"));
+    return isObject5(parsed) ? captured(scalar(parsed["description"])) : "";
+  } catch {
+    return "";
+  }
+}
+function registerPlugins(db2, list) {
+  const entries = list.filter(isObject5).map((p) => {
+    const id = typeof p["id"] === "string" ? p["id"] : "";
+    return { p, id, name: id.split("@")[0] ?? "", version: scalar(p["version"]) };
+  });
+  for (const { p, id, name: name2, version: version2 } of entries) {
+    if (name2 === "") continue;
+    const listed2 = typeof p["description"] === "string" ? p["description"].replace(/[\t\n\r]/g, " ") : "";
+    const installPath = scalar(p["installPath"]);
+    const description = listed2 === "" && installPath !== "" ? manifestDescription(installPath) : listed2;
+    register(db2, {
+      kind: "plugin",
+      name: name2,
+      origin: "marketplace",
+      source_url: id,
+      status: p["enabled"] === true ? "active" : "installed",
+      description,
+      version: version2
+    });
+  }
+  for (const { p, name: plugin, version: version2 } of entries) {
+    const servers = p["mcpServers"];
+    if (!isObject5(servers) || !VALID_NAME.test(plugin)) continue;
+    for (const server2 of Object.keys(servers).sort()) {
+      if (server2 === "") continue;
+      register(db2, {
+        kind: "mcp",
+        name: server2,
+        origin: "marketplace",
+        source_url: `mcp:${plugin}/${server2}`,
+        status: "active",
+        description: `${server2} MCP server bundled by ${plugin}`,
+        version: version2,
+        trust_parent: plugin
+      });
+    }
+  }
+}
+function mcpServers(env) {
+  let servers;
+  let source = "";
+  let note = "";
+  if (testMode(env)) {
+    const fixture = env["TMB_SCAN_MCP_JSON"] ?? "";
+    if (fixture !== "" && isReadable(fixture)) {
+      try {
+        servers = parseJson(readFileSync10(fixture, "utf8"));
+      } catch {
+        servers = void 0;
+      }
+      source = "fixture";
+    } else {
+      note = "TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID set and no readable TMB_SCAN_MCP_JSON: ~/.claude.json skipped";
+    }
+  } else {
+    const home = join21(env["HOME"] ?? homedir3(), ".claude.json");
+    let homeIsFile = false;
+    try {
+      homeIsFile = statSync7(home).isFile();
+    } catch {
+      homeIsFile = false;
+    }
+    if (homeIsFile) {
+      try {
+        const parsed = parseJson(readFileSync10(home, "utf8"));
+        const value = isObject5(parsed) ? parsed["mcpServers"] : void 0;
+        servers = isObject5(parsed) ? value === null || value === void 0 || value === false ? {} : value : void 0;
+      } catch {
+        servers = void 0;
+      }
+      source = "home";
+    } else {
+      note = "no ~/.claude.json";
+    }
+  }
+  if (source && !isObject5(servers)) {
+    return { servers: null, inventory: { status: "unavailable", note: `${source} mcpServers is not a JSON object` } };
+  }
+  if (!source) return { servers: null, inventory: { status: "unavailable", note } };
+  return { servers, inventory: { status: source, note: "" } };
+}
+async function discoverResources(db2, sessionDir, env, deadline) {
+  const skipped2 = { status: "skipped", note: NO_CHEATCODES_NOTE };
+  const result2 = { plugin: skipped2, mcp: skipped2 };
+  try {
+    if (!hasTable(db2, "cheatcodes")) return result2;
+    registerSkills(db2, sessionDir);
+    const plugins = await pluginList(sessionDir, env, deadline);
+    result2.plugin = plugins.inventory;
+    if (plugins.list) registerPlugins(db2, plugins.list);
+    const mcp = mcpServers(env);
+    result2.mcp = mcp.inventory;
+    for (const key of Object.keys(mcp.servers ?? {}).sort()) {
+      if (key !== "") register(db2, { kind: "mcp", name: key, origin: "external", source_url: `mcp:${key}`, status: "active" });
+    }
+  } catch (e) {
+    if (e.message === "scan timed out after 10 minutes") throw e;
+  }
+  return result2;
+}
+async function walkProject(db2, sessionDir, opts) {
+  const env = opts.env ?? process.env;
+  const deadline = new Deadline(opts.timeoutMs);
+  const root = resolve6(sessionDir);
+  if (!isDir(root)) throw new Error("session_dir does not exist");
+  deadline.check();
+  const repos = [];
+  const files = [];
+  for (const repoRoot of await discoverRepos(db2, root, env, deadline)) {
+    if (!isDir(repoRoot)) continue;
+    const walked = await walkRepo(repoRoot, env, deadline);
+    repos.push(walked.repo);
+    files.push(...walked.files);
+  }
+  const inventory = await discoverResources(db2, root, env, deadline);
+  return {
+    session_dir: root,
+    scanned_at: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    repos,
+    files,
+    plugin_inventory: inventory.plugin,
+    mcp_inventory: inventory.mcp
+  };
+}
+
 // src/tools/scan.ts
 function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -45879,81 +46434,6 @@ function wrap5(fn) {
       return err18(e.message);
     }
   };
-}
-function resolveScanScript() {
-  const here = dirname12(fileURLToPath6(import.meta.url));
-  const candidates = [
-    join21(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join21(here, "..", "..", "..", "scripts", "scan.sh")
-  ];
-  for (const c of candidates) if (existsSync12(c)) return c;
-  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (pluginRoot) {
-    const c = join21(pluginRoot, "scripts", "scan.sh");
-    if (existsSync12(c)) return c;
-  }
-  throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
-}
-function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
-  return new Promise((resolve7, reject) => {
-    const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
-    const child = spawn("bash", [script, sessionDir], {
-      cwd: sessionDir,
-      env,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    let killTimer = null;
-    function killGroup() {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-      }
-    }
-    killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      killGroup();
-      reject(new Error("scan.sh timed out after 10 minutes"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      if (killTimer) clearTimeout(killTimer);
-      reject(new Error(`scan.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      if (killTimer) clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`scan.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed.repos || !parsed.files) {
-        reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
-        return;
-      }
-      resolve7(parsed);
-    });
-  });
-}
-function runScan(sessionDir, timeoutMs, dbPath2) {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath2);
 }
 var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
@@ -45990,7 +46470,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename10(p) {
+function basename11(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -46015,14 +46495,14 @@ function deriveDirectoryEntries(out2) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename10(f.path));
+      entry.file_names.push(basename11(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename10(dirPath);
-  const join28 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename11(dirPath);
+  const join29 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -46033,19 +46513,19 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join28(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join29(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join28(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join29(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join21(absDirPath, name2);
-    if (!existsSync12(readmePath)) continue;
+    const readmePath = join22(absDirPath, name2);
+    if (!existsSync13(readmePath)) continue;
     try {
-      return { name: name2, text: readFileSync10(readmePath, "utf8") };
+      return { name: name2, text: readFileSync11(readmePath, "utf8") };
     } catch {
     }
   }
@@ -46077,7 +46557,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join21(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join22(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -46096,13 +46576,13 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename10(entry.path));
-    else subdirsByParent.set(key, [basename10(entry.path)]);
+    if (list) list.push(basename11(entry.path));
+    else subdirsByParent.set(key, [basename11(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join21(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join22(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -46156,7 +46636,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join21(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join22(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -46181,7 +46661,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join21(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join22(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -46195,7 +46675,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename10(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename11(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -46456,7 +46936,7 @@ async function persistScan(db2, graph, out2, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync10(lockPath, "utf8"));
+    return JSON.parse(readFileSync11(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -46534,7 +47014,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         if (!graph && graphOpenError) {
           return err18(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join21(dirname12(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join22(dirname13(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -46558,7 +47038,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           }
         }
         try {
-          const out2 = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
+          const out2 = await walkProject(db2, sessionDir, { timeoutMs: SCAN_TIMEOUT_MS });
           if (!graph && out2.files.length > 0) {
             return err18("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
           }
@@ -46810,16 +47290,16 @@ function repoTools(db2, graphHolder2 = null) {
 }
 
 // src/tools/cheatcode.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync9, readFileSync as readFileSync13, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname14, join as join24 } from "node:path";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
+import { existsSync as existsSync15, mkdirSync as mkdirSync9, readFileSync as readFileSync14, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname15, join as join25 } from "node:path";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { createHash as createHash3 } from "node:crypto";
-import { existsSync as existsSync13, mkdirSync as mkdirSync8, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { dirname as dirname13, isAbsolute as isAbsolute7, join as join22 } from "node:path";
+import { createHash as createHash4 } from "node:crypto";
+import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname14, isAbsolute as isAbsolute7, join as join23 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -46831,7 +47311,7 @@ function probeChildEnv(projectRoot2 = null) {
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
 function runClaude(args2, timeoutSec, projectRoot2) {
-  return new Promise((resolve7) => {
+  return new Promise((resolve8) => {
     try {
       const child = execFile(
         "claude",
@@ -46844,11 +47324,11 @@ function runClaude(args2, timeoutSec, projectRoot2) {
           maxBuffer: MAX_LISTING_BYTES,
           encoding: "utf8"
         },
-        (error2, stdout) => resolve7(error2 ? null : stdout)
+        (error2, stdout) => resolve8(error2 ? null : stdout)
       );
       child.stdin?.end();
     } catch {
-      resolve7(null);
+      resolve8(null);
     }
   });
 }
@@ -46862,7 +47342,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync11(join22(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync12(join23(homedir4(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -46881,10 +47361,10 @@ function parsePluginListing(text) {
   const plugins = /* @__PURE__ */ new Map();
   for (const entry of parsed) {
     if (!entry || typeof entry !== "object") continue;
-    const { id, enabled, mcpServers } = entry;
+    const { id, enabled, mcpServers: mcpServers2 } = entry;
     plugins.set(typeof id === "string" ? id : "", {
       enabled: enabled === true,
-      mcpServers: new Set(mcpServers && typeof mcpServers === "object" ? Object.keys(mcpServers) : [])
+      mcpServers: new Set(mcpServers2 && typeof mcpServers2 === "object" ? Object.keys(mcpServers2) : [])
     });
   }
   return plugins;
@@ -46904,7 +47384,7 @@ async function probeListings(timeoutSec, projectRoot2) {
 var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
 function readJson(path2) {
   try {
-    return JSON.parse(readFileSync11(path2, "utf8"));
+    return JSON.parse(readFileSync12(path2, "utf8"));
   } catch {
     return null;
   }
@@ -46921,24 +47401,24 @@ function stableJson(value) {
   return JSON.stringify(value ?? null);
 }
 function cliConfigFingerprint(projectRoot2) {
-  const home = homedir3();
-  const claudeJson = readJson(join22(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join22(projectRoot2, ...parts2));
+  const home = homedir4();
+  const claudeJson = readJson(join23(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join23(projectRoot2, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot2 === null ? null : field(field(field(claudeJson, "projects"), projectRoot2), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join22(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join23(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join22(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join23(home, ".claude", "plugins", "installed_plugins.json"))
   };
-  return createHash3("sha256").update(stableJson(inputs)).digest("hex");
+  return createHash4("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot2) {
-  return join22(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
+  return join23(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot2) {
   if (projectRoot2 === null) return null;
@@ -46952,7 +47432,7 @@ function writeProbeCache(projectRoot2, cache) {
   if (projectRoot2 === null) return;
   const path2 = probeCachePath(projectRoot2);
   try {
-    mkdirSync8(dirname13(path2), { recursive: true });
+    mkdirSync8(dirname14(path2), { recursive: true });
     writeFileSync7(path2, JSON.stringify(cache) + "\n");
   } catch (e) {
     serverLog({ kind: "cheatcode_probe_cache_write_failed", error_message: e instanceof Error ? e.message : String(e) });
@@ -46976,8 +47456,8 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute7(row.file_path) || !pluginRoot ? row.file_path : join22(pluginRoot, row.file_path);
-      return existsSync13(resolved) ? "active" : "broken";
+      const resolved = isAbsolute7(row.file_path) || !pluginRoot ? row.file_path : join23(pluginRoot, row.file_path);
+      return existsSync14(resolved) ? "active" : "broken";
     }
     case "mcp": {
       const bundled = /^mcp:([^/]+)\/(.+)$/.exec(row.source_url ?? "");
@@ -47058,9 +47538,9 @@ async function reconcileAtStartup(db2) {
 
 // src/tools/cheatcode-runtime.ts
 import { spawn as spawn2 } from "node:child_process";
-import { accessSync as accessSync2, constants as constants3, readFileSync as readFileSync12, statSync as statSync6 } from "node:fs";
+import { accessSync as accessSync4, constants as constants5, readFileSync as readFileSync13, statSync as statSync8 } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { join as join23, resolve as resolve6 } from "node:path";
+import { join as join24, resolve as resolve7 } from "node:path";
 var CheatcodeInputError = class extends Error {
   constructor(payload) {
     super(JSON.stringify(payload));
@@ -47078,7 +47558,7 @@ function requireProjectRoot(projectRoot2) {
     });
   }
 }
-function isObject5(v) {
+function isObject6(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function jqType(v) {
@@ -47089,7 +47569,7 @@ function jqType(v) {
 }
 function get(v, key) {
   if (v === null || v === void 0) return null;
-  if (!isObject5(v)) throw new Error(`Cannot index ${jqType(v)} with "${key}"`);
+  if (!isObject6(v)) throw new Error(`Cannot index ${jqType(v)} with "${key}"`);
   return Object.prototype.hasOwnProperty.call(v, key) ? v[key] : null;
 }
 function truthy(v) {
@@ -47101,12 +47581,12 @@ function alt(...values) {
 }
 function iterate(v) {
   if (Array.isArray(v)) return v;
-  if (isObject5(v)) return Object.values(v);
+  if (isObject6(v)) return Object.values(v);
   throw new Error(`Cannot iterate over ${jqType(v)}`);
 }
 function iterateOpt(v) {
   if (Array.isArray(v)) return v;
-  if (isObject5(v)) return Object.values(v);
+  if (isObject6(v)) return Object.values(v);
   return [];
 }
 function jqLength(v) {
@@ -47139,7 +47619,7 @@ function jqCmp(a, b) {
     }
     return a.length - b.length;
   }
-  if (isObject5(a) && isObject5(b)) {
+  if (isObject6(a) && isObject6(b)) {
     const ka = Object.keys(a).sort((x, y) => jqCmp(x, y));
     const kb = Object.keys(b).sort((x, y) => jqCmp(x, y));
     const keys = jqCmp(ka, kb);
@@ -47171,7 +47651,7 @@ function rawText(v) {
   const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
   return text.replace(/\n+$/, "");
 }
-function parseJson(text) {
+function parseJson2(text) {
   try {
     return { value: JSON.parse(text) };
   } catch {
@@ -47180,7 +47660,7 @@ function parseJson(text) {
 }
 function isRegularFile(path2) {
   try {
-    return statSync6(path2).isFile();
+    return statSync8(path2).isFile();
   } catch {
     return false;
   }
@@ -47192,25 +47672,25 @@ function fixturePath(envVar, defaultName, opts) {
   return isRegularFile(fallback) ? fallback : null;
 }
 function readFixture(path2, projectRoot2) {
-  const abs = resolve6(projectRoot2, path2);
+  const abs = resolve7(projectRoot2, path2);
   if (!isRegularFile(abs)) throw new CheatcodeInputError({ error: `fixture not found: ${path2}` });
   try {
-    return readFileSync12(abs, "utf8");
+    return readFileSync13(abs, "utf8");
   } catch {
     return "";
   }
 }
 function tierFromFlag(tier) {
   if (tier.length === 0) return null;
-  const parsed = parseJson(tier);
+  const parsed = parseJson2(tier);
   if (parsed === null || typeof parsed.value !== "number") throw new Error(`Cannot parse '${tier}' as a number`);
   return parsed.value;
 }
 function normalizeCandidate(input, defaultKind) {
   const raw = input.candidate;
   if (raw !== void 0 && raw !== "") {
-    const value = typeof raw === "string" ? parseJson(raw)?.value : raw;
-    if (!isObject5(value)) throw new CheatcodeInputError({ error: "--candidate is not a JSON object" });
+    const value = typeof raw === "string" ? parseJson2(raw)?.value : raw;
+    if (!isObject6(value)) throw new CheatcodeInputError({ error: "--candidate is not a JSON object" });
     const tier = get(value, "tier");
     return {
       name: alt(get(value, "name"), ""),
@@ -47244,10 +47724,10 @@ function uriEncode(s) {
 function findOnPath(name2, opts) {
   const path2 = (opts.env ?? process.env)["PATH"] ?? "";
   for (const dir of path2.split(":")) {
-    const candidate = dir === "" ? join23(opts.projectRoot, name2) : join23(dir, name2);
+    const candidate = dir === "" ? join24(opts.projectRoot, name2) : join24(dir, name2);
     try {
-      if (!statSync6(candidate).isFile()) continue;
-      accessSync2(candidate, constants3.X_OK);
+      if (!statSync8(candidate).isFile()) continue;
+      accessSync4(candidate, constants5.X_OK);
       return candidate;
     } catch {
       continue;
@@ -47258,7 +47738,7 @@ function findOnPath(name2, opts) {
 function runCli(bin, args2, output, opts) {
   return new Promise((done) => {
     try {
-      if (!statSync6(opts.projectRoot).isDirectory()) return done({ code: 1, out: "" });
+      if (!statSync8(opts.projectRoot).isDirectory()) return done({ code: 1, out: "" });
     } catch {
       return done({ code: 1, out: "" });
     }
@@ -47309,7 +47789,7 @@ var stringOr = (v) => typeof v === "string" ? v : "";
 async function adapter(url2, opts, map2) {
   const body2 = await fetchText(url2, opts);
   if (!body2) return [];
-  const parsed = parseJson(body2);
+  const parsed = parseJson2(body2);
   if (parsed === null) return [];
   try {
     return map2(parsed.value);
@@ -47409,7 +47889,7 @@ async function cheatcodeSearch(input, opts) {
   const fixture = fixturePath(SEARCH_FIXTURE_ENV, SEARCH_FIXTURE_FILE, opts);
   let candidates;
   if (fixture !== null) {
-    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
+    const parsed = parseJson2(readFixture(fixture, opts.projectRoot));
     if (parsed === null || !Array.isArray(parsed.value)) {
       throw new CheatcodeInputError({ error: "fixture is not a JSON array of candidates" });
     }
@@ -47450,7 +47930,7 @@ function treeRefPath(url2) {
 }
 function filterTree(tree, p) {
   const plen = Array.from(p).length;
-  return iterateOpt(tree).filter((e) => isObject5(e) && typeof e["path"] === "string").filter((e) => e["path"] === p || e["path"].startsWith(`${p}/`)).map((e) => {
+  return iterateOpt(tree).filter((e) => isObject6(e) && typeof e["path"] === "string").filter((e) => e["path"] === p || e["path"].startsWith(`${p}/`)).map((e) => {
     const path2 = e["path"];
     return {
       path: path2 === p ? jqSplit(path2, "/").at(-1) ?? null : Array.from(path2).slice(plen + 1).join(""),
@@ -47459,30 +47939,30 @@ function filterTree(tree, p) {
     };
   });
 }
-var hasDir = (entries) => entries.some((e) => isObject5(e) && get(e, "type") === "dir");
+var hasDir = (entries) => entries.some((e) => isObject6(e) && get(e, "type") === "dir");
 var treeOpaque = (entries) => entries.some((e) => {
   const type = get(e, "type");
   const mode = get(e, "mode");
   return type === "commit" || mode === "160000" || mode === "120000";
 });
 var contentsOpaque = (entries) => entries.some((e) => {
-  if (!isObject5(e)) return false;
+  if (!isObject6(e)) return false;
   const type = get(e, "type");
   return type !== "file" && type !== "dir" || type === "file" && get(e, "download_url") === null;
 });
 function contentsEntries(listing) {
   return listing.map(
-    (e) => isObject5(e) ? { path: alt(get(e, "name"), get(e, "path")), type: get(e, "type") === "dir" ? "tree" : "blob", mode: null } : e
+    (e) => isObject6(e) ? { path: alt(get(e, "name"), get(e, "path")), type: get(e, "type") === "dir" ? "tree" : "blob", mode: null } : e
   );
 }
 var isContents = (v) => Array.isArray(v) && v.length > 0;
 function manifestPaths(surface) {
-  const paths = surface.map((e) => typeof e === "string" ? e : isObject5(e) ? get(e, "path") : null).filter((p) => typeof p === "string").filter((p) => /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/i.test(p));
+  const paths = surface.map((e) => typeof e === "string" ? e : isObject6(e) ? get(e, "path") : null).filter((p) => typeof p === "string").filter((p) => /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/i.test(p));
   const unique = [...new Set(paths)].sort((a, b) => jqCmp(a, b));
   return unique.flatMap((p) => p.split("\n")).filter((p) => p.length > 0);
 }
 function objectsDeep(v, out2 = []) {
-  if (isObject5(v)) {
+  if (isObject6(v)) {
     out2.push(v);
     for (const child of Object.values(v)) objectsDeep(child, out2);
   } else if (Array.isArray(v)) {
@@ -47493,10 +47973,10 @@ function objectsDeep(v, out2 = []) {
 var has = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
 function manifestFlags(m) {
   const all = objectsDeep(m);
-  const plugins = iterateOpt(get(m, "plugins")).filter(isObject5);
+  const plugins = iterateOpt(get(m, "plugins")).filter(isObject6);
   const depsOf = (o) => {
     const d = get(o, "dependencies");
-    return (Array.isArray(d) || isObject5(d) || typeof d === "string") && jqLength(d) > 0;
+    return (Array.isArray(d) || isObject6(d) || typeof d === "string") && jqLength(d) > 0;
   };
   return {
     code: all.some((o) => ["hooks", "mcpServers", "lspServers", "monitors", "settings", "subagentStatusLine"].some((k) => has(o, k))),
@@ -47513,12 +47993,12 @@ function manifestFlags(m) {
   };
 }
 function decodeManifest(body2) {
-  const parsed = parseJson(body2);
-  if (parsed === null || !isObject5(parsed.value) || parsed.value["encoding"] !== "base64") return null;
+  const parsed = parseJson2(body2);
+  if (parsed === null || !isObject6(parsed.value) || parsed.value["encoding"] !== "base64") return null;
   const content = parsed.value["content"];
   if (typeof content !== "string") return null;
-  const decoded = parseJson(Buffer.from(content.replace(/\s/g, ""), "base64").toString("utf8"));
-  return decoded !== null && isObject5(decoded.value) ? decoded.value : null;
+  const decoded = parseJson2(Buffer.from(content.replace(/\s/g, ""), "base64").toString("utf8"));
+  return decoded !== null && isObject6(decoded.value) ? decoded.value : null;
 }
 function ageDays(pushed, nowMs) {
   if (typeof pushed !== "string") throw new Error("strptime/1 requires string inputs and arguments");
@@ -47543,7 +48023,7 @@ function classify(candidate, kind, s, nowMs = Date.now()) {
   const ownerType = alt(get(get(repo, "owner"), "type"), null);
   const age = pushed === null ? null : ageDays(pushed, nowMs);
   const active = age === null ? null : archived ? false : age <= 365;
-  const entries = s.surface.map((e) => typeof e === "string" ? { path: e } : e).filter((e) => isObject5(e) && typeof e["path"] === "string");
+  const entries = s.surface.map((e) => typeof e === "string" ? { path: e } : e).filter((e) => isObject6(e) && typeof e["path"] === "string");
   const segments = entries.map((e) => jqSplit(asciiLower(e["path"]), "/"));
   const shipsLocalCode = segments.some((seg) => seg.some((x) => x === "hooks" || x === "scripts" || x === "bin" || x === ".lsp.json")) || segments.some((seg) => seg.length >= 2 && seg.at(-2) === "monitors" && seg.at(-1) === "monitors.json") || segments.some((seg) => seg.at(-1) === "settings.json") || entries.some((e) => get(e, "mode") === "100755") || entries.some(
     (e) => alt(get(e, "type"), "blob") !== "tree" && /\.(sh|bash|zsh|fish|py|js|mjs|cjs|ts|rb|pl|php|ps1|bat|cmd|exe)$/.test(asciiLower(e["path"]))
@@ -47615,8 +48095,8 @@ async function cheatcodeVet(input, opts) {
   let slug = "";
   let fixture = {};
   if (fixtureFile !== null) {
-    const parsed = parseJson(readFixture(fixtureFile, opts.projectRoot));
-    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    const parsed = parseJson2(readFixture(fixtureFile, opts.projectRoot));
+    if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
     fixture = parsed.value;
     repo = alt(get(fixture, "repo"), {});
     const tree = get(fixture, "tree");
@@ -47635,14 +48115,14 @@ async function cheatcodeVet(input, opts) {
   } else {
     slug = ownerRepo(srcUrl);
     if (slug) {
-      const body2 = parseJson(await fetchText(`https://api.github.com/repos/${slug}`, opts, GITHUB_HEADERS));
-      if (body2 !== null && isObject5(body2.value)) repo = body2.value;
+      const body2 = parseJson2(await fetchText(`https://api.github.com/repos/${slug}`, opts, GITHUB_HEADERS));
+      if (body2 !== null && isObject6(body2.value)) repo = body2.value;
       let contentsUrl;
       if (treePath) {
-        const tbody = parseJson(
+        const tbody = parseJson2(
           await fetchText(`https://api.github.com/repos/${slug}/git/trees/${treeRef}?recursive=1`, opts, GITHUB_HEADERS)
         );
-        if (tbody !== null && isObject5(tbody.value) && Array.isArray(tbody.value["tree"]) && tbody.value["truncated"] !== true) {
+        if (tbody !== null && isObject6(tbody.value) && Array.isArray(tbody.value["tree"]) && tbody.value["truncated"] !== true) {
           surface = filterTree(tbody.value["tree"], treePath);
           if (surface.length > 0) {
             listed2 = true;
@@ -47656,7 +48136,7 @@ async function cheatcodeVet(input, opts) {
         contentsUrl = `https://api.github.com/repos/${slug}/contents`;
       }
       if (!listed2) {
-        const cbody = parseJson(await fetchText(contentsUrl, opts, GITHUB_HEADERS));
+        const cbody = parseJson2(await fetchText(contentsUrl, opts, GITHUB_HEADERS));
         if (cbody !== null && isContents(cbody.value)) {
           surface = contentsEntries(cbody.value);
           listed2 = true;
@@ -47671,7 +48151,7 @@ async function cheatcodeVet(input, opts) {
       try {
         const manifests = alt(get(fixture, "manifests"), {});
         const found = alt(alt(get(manifests, m), get(manifests, `${prefix}${m}`)), null);
-        return isObject5(found) ? found : null;
+        return isObject6(found) ? found : null;
       } catch {
         return null;
       }
@@ -47726,7 +48206,7 @@ function installableCandidate(input) {
 var repoSlug = (url2) => url2.replace(/^[a-z]+:\/\/[^/]+\//i, "").replace(/\.git$/, "");
 async function listedMarketplace(claude, url2, opts) {
   const { out: out2 } = await runCli(claude, ["plugin", "marketplace", "list", "--json"], "stdout", opts);
-  const list = parseJson(out2)?.value;
+  const list = parseJson2(out2)?.value;
   if (!Array.isArray(list)) return "";
   const slug = repoSlug(url2);
   const stripGit = (s) => {
@@ -47763,10 +48243,10 @@ async function marketplaceInstall(name2, url2, opts) {
   return { installed: true, version: /v?[0-9]+\.[0-9]+\.[0-9]+/.exec(install.out)?.[0] ?? null, error: null };
 }
 function fixtureResult(path2, name2, opts) {
-  const parsed = parseJson(readFixture(path2, opts.projectRoot));
-  if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+  const parsed = parseJson2(readFixture(path2, opts.projectRoot));
+  if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
   const keyed = name2 ? get(parsed.value, name2) : null;
-  const entry = isObject5(keyed) ? keyed : parsed.value;
+  const entry = isObject6(keyed) ? keyed : parsed.value;
   const attachments = get(entry, "attachments");
   return {
     installed: alt(get(entry, "installed"), false),
@@ -47841,8 +48321,8 @@ async function cheatcodeUninstall(input, opts) {
   const fixture = fixturePath(UNINSTALL_FIXTURE_ENV, UNINSTALL_FIXTURE_FILE, opts);
   let result2 = { removed: false, error: null };
   if (fixture !== null) {
-    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
-    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    const parsed = parseJson2(readFixture(fixture, opts.projectRoot));
+    if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
     result2 = { removed: alt(get(parsed.value, "removed"), false), error: alt(get(parsed.value, "error"), null) };
   } else if (kind === "plugin") result2 = await marketplaceUninstall(name2, opts);
   else if (kind === "mcp") result2 = await mcpDeregister(name2, opts);
@@ -47856,7 +48336,7 @@ async function cheatcodeUninstall(input, opts) {
 
 // src/tools/cheatcode.ts
 var CHEATCODE_TIMEOUT_MS = 60 * 1e3;
-async function runCheatcodeEngine(label, projectRoot2, run2, timeoutMs = CHEATCODE_TIMEOUT_MS) {
+async function runCheatcodeEngine(label, projectRoot2, run3, timeoutMs = CHEATCODE_TIMEOUT_MS) {
   const controller = new AbortController();
   let timer;
   const deadline = new Promise((_, reject) => {
@@ -47865,7 +48345,7 @@ async function runCheatcodeEngine(label, projectRoot2, run2, timeoutMs = CHEATCO
       reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1e3)} seconds`));
     }, timeoutMs);
   });
-  const work = run2({ projectRoot: projectRoot2, signal: controller.signal }).catch((e) => {
+  const work = run3({ projectRoot: projectRoot2, signal: controller.signal }).catch((e) => {
     throw new Error(`${label} failed: ${e.message}`);
   });
   try {
@@ -47924,18 +48404,18 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join24(pluginRoot, "agents", `${target}.md`);
-    if (existsSync14(c2)) return c2;
+    const c2 = join25(pluginRoot, "agents", `${target}.md`);
+    if (existsSync15(c2)) return c2;
   }
-  const here = dirname14(fileURLToPath7(import.meta.url));
-  const c = join24(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync14(c)) return c;
+  const here = dirname15(fileURLToPath6(import.meta.url));
+  const c = join25(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync15(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync13(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync14(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -47950,13 +48430,13 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name2) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync14(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join24(process.env["HOME"] || "", ".claude");
-  const registry2 = join24(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync14(registry2)) return null;
+  if (override) return existsSync15(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join25(process.env["HOME"] || "", ".claude");
+  const registry2 = join25(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync15(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync13(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync14(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -47968,8 +48448,8 @@ function resolveInstalledPluginManifest(name2) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join24(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync14(manifest)) return manifest;
+      const manifest = join25(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync15(manifest)) return manifest;
     }
   }
   return null;
@@ -48054,11 +48534,11 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot2 = projectRootFromDbPath(dbPath2);
   if (!projectRoot2) return null;
-  const claudeDir = join24(projectRoot2, ".claude");
+  const claudeDir = join25(projectRoot2, ".claude");
   if (target === "bro") {
-    const claudeMd = join24(claudeDir, "CLAUDE.md");
+    const claudeMd = join25(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body2 = existsSync14(claudeMd) ? readFileSync13(claudeMd, "utf8") : "";
+    let body2 = existsSync15(claudeMd) ? readFileSync14(claudeMd, "utf8") : "";
     if (!body2.includes(reference)) {
       const prefix = body2.length === 0 || body2.endsWith("\n") ? "" : "\n";
       body2 = body2.length === 0 ? `${reference}
@@ -48069,14 +48549,14 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join24(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join25(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync14(localAgentMd)) {
-    content = readFileSync13(localAgentMd, "utf8");
+  if (existsSync15(localAgentMd)) {
+    content = readFileSync14(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync13(globalAgentMd, "utf8");
+    content = readFileSync14(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -48084,7 +48564,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync9(dirname14(localAgentMd), { recursive: true });
+  mkdirSync9(dirname15(localAgentMd), { recursive: true });
   writeFileSync8(localAgentMd, updated);
   return {
     target,
@@ -48097,9 +48577,9 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot2) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join24(projectRoot2, rel);
-    if (!existsSync14(filePath)) return;
-    const content = readFileSync13(filePath, "utf8");
+    const filePath = join25(projectRoot2, rel);
+    if (!existsSync15(filePath)) return;
+    const content = readFileSync14(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync8(filePath, updated);
@@ -48107,10 +48587,10 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join24(projectRoot2, rel);
-    if (!existsSync14(filePath)) return;
+    const filePath = join25(projectRoot2, rel);
+    if (!existsSync15(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body2 = readFileSync13(filePath, "utf8");
+    const body2 = readFileSync14(filePath, "utf8");
     if (!body2.includes(reference)) return;
     const updated = body2.split("\n").filter((line) => line !== reference).join("\n");
     writeFileSync8(filePath, updated);
@@ -48407,9 +48887,9 @@ function cheatcodeTools(db2) {
         const projectRoot2 = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot2 === null) return null;
-          const paths = [join24(projectRoot2, ".claude", "skills", name2, "SKILL.md")];
+          const paths = [join25(projectRoot2, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join24(projectRoot2, ".claude", "CLAUDE.md") : join24(projectRoot2, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join25(projectRoot2, ".claude", "CLAUDE.md") : join25(projectRoot2, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot2, path2);
@@ -48748,15 +49228,15 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync15, readdirSync as readdirSync5, readFileSync as readFileSync14, statSync as statSync7 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { basename as basename11, join as join25 } from "node:path";
+import { existsSync as existsSync16, readdirSync as readdirSync6, readFileSync as readFileSync15, statSync as statSync9 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { basename as basename12, join as join26 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "code-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
-    text = readFileSync14(path2, "utf8");
+    text = readFileSync15(path2, "utf8");
   } catch {
     return [];
   }
@@ -48779,7 +49259,7 @@ function messageOf(r) {
 function taskIdFromTranscript(path2) {
   let text;
   try {
-    text = readFileSync14(path2, "utf8");
+    text = readFileSync15(path2, "utf8");
   } catch {
     return null;
   }
@@ -48897,31 +49377,31 @@ function sessionSpawnTypes(records) {
   return out2;
 }
 function defaultTranscriptsDir(projectRoot2) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join25(homedir4(), ".claude");
-  return join25(configDir, "projects", projectRoot2.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join26(homedir5(), ".claude");
+  return join26(configDir, "projects", projectRoot2.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
-  for (const name2 of readdirSync5(dir).sort()) {
-    const p = join25(dir, name2);
+  for (const name2 of readdirSync6(dir).sort()) {
+    const p = join26(dir, name2);
     if (name2.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join25(p, "subagents");
-    if (!existsSync15(sub) || !statSync7(sub).isDirectory()) continue;
-    for (const f of readdirSync5(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join25(sub, f), session: name2 });
+    const sub = join26(p, "subagents");
+    if (!existsSync16(sub) || !statSync9(sub).isDirectory()) continue;
+    for (const f of readdirSync6(sub).sort()) {
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join26(sub, f), session: name2 });
     }
   }
   return { sessions, subagents };
 }
 function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
-  if (existsSync15(meta3)) {
+  if (existsSync16(meta3)) {
     try {
-      const t = normalizeRole(JSON.parse(readFileSync14(meta3, "utf8"))["agentType"]);
+      const t = normalizeRole(JSON.parse(readFileSync15(meta3, "utf8"))["agentType"]);
       if (t) return t;
     } catch {
     }
@@ -48929,7 +49409,7 @@ function spawnAgentType(path2, sessionTypes) {
   return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
 }
 function agentIdOf(path2) {
-  return basename11(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+  return basename12(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
 }
 var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
 var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
@@ -48963,7 +49443,7 @@ function agentRunsBackfill(db2, opts) {
     if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
   };
   const sessionRecords = /* @__PURE__ */ new Map();
-  for (const p of sessions) sessionRecords.set(basename11(p, ".jsonl"), readRecords(p));
+  for (const p of sessions) sessionRecords.set(basename12(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
   for (const { path: path2, session } of subagents) {
@@ -49147,7 +49627,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync15(dir) || !statSync7(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync16(dir) || !statSync9(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -49161,8 +49641,8 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/data-contracts.ts
-import { readdirSync as readdirSync6 } from "node:fs";
-import { dirname as dirname15, join as join27 } from "node:path";
+import { readdirSync as readdirSync7 } from "node:fs";
+import { dirname as dirname16, join as join28 } from "node:path";
 
 // src/prose-files.ts
 var PROSE_SUFFIX = /\.(md|markdown|txt|rst)$/i;
@@ -49171,13 +49651,13 @@ function isProseFile(path2) {
 }
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync15, realpathSync as realpathSync9 } from "node:fs";
-import { join as join26 } from "node:path";
+import { readFileSync as readFileSync16, realpathSync as realpathSync9 } from "node:fs";
+import { join as join27 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join26(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join27(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join26(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join27(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
@@ -49188,7 +49668,7 @@ function canonicalDir(dir) {
 }
 function readJsonObject(path2) {
   try {
-    const parsed = JSON.parse(readFileSync15(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync16(path2, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -49196,9 +49676,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join26(claudeConfigDir(env), "settings.json"),
-    join26(project, ".claude", "settings.json"),
-    join26(project, ".claude", "settings.local.json")
+    join27(claudeConfigDir(env), "settings.json"),
+    join27(project, ".claude", "settings.json"),
+    join27(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {
@@ -49269,15 +49749,15 @@ function noOtherTrajectoryDbs(env, ctx) {
 var SCRATCH_PROSE_SAMPLE = 10;
 function scratchNoProse(_env, ctx) {
   if (ctx.dbPath === void 0) return { skipped: "the checked DB has no file behind it" };
-  const scratch = join27(dirname15(ctx.dbPath), "scratch");
+  const scratch = join28(dirname16(ctx.dbPath), "scratch");
   let entries;
   try {
-    entries = readdirSync6(scratch, { recursive: true, withFileTypes: true });
+    entries = readdirSync7(scratch, { recursive: true, withFileTypes: true });
   } catch (e) {
     if (e.code === "ENOENT") return { actual: 0, sample: [] };
     return { skipped: `the scratch folder cannot be read: ${e.message}` };
   }
-  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join27(e.parentPath, e.name)).sort();
+  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join28(e.parentPath, e.name)).sort();
   return { actual: prose.length, sample: prose.slice(0, SCRATCH_PROSE_SAMPLE).map((path2) => ({ path: path2 })) };
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
@@ -49291,7 +49771,7 @@ var SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias) => `${alias}.event_type = 'spec
                                    AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))
                     OR COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.gate') END, '') <> 'spec_shape')`;
 var REVIEW_GRACE_HOURS_DEFAULT = 24;
-var runMatchesTaskCommit = (run2, task) => `${run2}.task_id = ${task}.id AND substr(${run2}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+var runMatchesTaskCommit = (run3, task) => `${run3}.task_id = ${task}.id AND substr(${run3}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
 var V36_RECORDING_SINCE = `(SELECT MIN(${ts("started_at")}) FROM verification_runs)`;
 var VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(7)}
                AND ${ts("t.updated_at")} >= ${V36_RECORDING_SINCE}
@@ -49567,7 +50047,7 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "no_fixture_rows_in_inventory",
       severity: "warn",
-      description: "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan.sh run reached this DB; report only \u2014 agents never delete these rows, the Human decides",
+      description: "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan reached this DB; report only \u2014 agents never delete these rows, the Human decides",
       sql: `SELECT COUNT(*) FROM cheatcodes c
              WHERE ${FIXTURE_INVENTORY_ROW("c")}`,
       expect: { op: "=", value: 0 },
@@ -49904,7 +50384,7 @@ function trajectoryDoctorTools(db2) {
 
 // src/tools/bug-report.ts
 import os from "node:os";
-import { basename as basename13 } from "node:path";
+import { basename as basename14 } from "node:path";
 
 // src/bug-report/form.ts
 var FREQUENCY_OPTIONS = ["Every time", "Sometimes", "Once"];
@@ -49945,7 +50425,7 @@ var FORM_FIELDS = [
 ];
 
 // src/bug-report/render.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // src/bug-report/redact.ts
 var REDACT_RULES = ["token", "email", "remote", "project", "home", "path", "branch", "repo", "title"];
@@ -50069,14 +50549,14 @@ function redactRoots(text, ctx, counts) {
   }
   return out2;
 }
-function basename12(path2) {
+function basename13(path2) {
   const parts2 = path2.split(/[\\/]+/).filter(Boolean);
   return parts2[parts2.length - 1] ?? "";
 }
 function redactPaths(text, counts) {
   const replace = (match) => {
     counts.path++;
-    return `<path>/${basename12(match)}`;
+    return `<path>/${basename13(match)}`;
   };
   return text.replace(WINDOWS_PATH_RE, replace).replace(POSIX_PATH_RE, replace);
 }
@@ -50175,7 +50655,7 @@ function redactFields(input, env, ctx) {
 }
 function computeSignature(tool, errorClass, redactedError) {
   const normalized = redactedError.replace(/\d+/g, "N").replace(/\s+/g, " ").trim();
-  return createHash4("sha256").update([tool, errorClass, normalized].join("\n")).digest("hex").slice(0, 12);
+  return createHash5("sha256").update([tool, errorClass, normalized].join("\n")).digest("hex").slice(0, 12);
 }
 function reportMarker(signature) {
   return `<!-- tmb-report v1 sig=${signature} -->`;
@@ -50307,7 +50787,7 @@ function redactContext(db2, home, root) {
     home,
     projectRoot: root,
     remoteUrls: column(db2, `SELECT url AS v FROM repo_remotes`),
-    repoNames: [.../* @__PURE__ */ new Set([...column(db2, `SELECT name AS v FROM repos`), ...repoPaths, ...repoPaths.map((p) => basename13(p))])],
+    repoNames: [.../* @__PURE__ */ new Set([...column(db2, `SELECT name AS v FROM repos`), ...repoPaths, ...repoPaths.map((p) => basename14(p))])],
     branchNames: column(
       db2,
       `SELECT branch_id AS v FROM tasks
@@ -50331,7 +50811,7 @@ function environment(db2, args2, env) {
   const version2 = resolvePluginVersion(env);
   const ccVersion = typeof args2["claude_code_version"] === "string" && args2["claude_code_version"].trim() ? args2["claude_code_version"].trim() : "unknown";
   const client = typeof args2["client"] === "string" ? ` (${args2["client"]})` : "";
-  const shell = env["SHELL"] ? basename13(env["SHELL"]) : "unknown";
+  const shell = env["SHELL"] ? basename14(env["SHELL"]) : "unknown";
   return {
     tmb: version2 ?? "unknown",
     channel: versionChannel(version2),
@@ -50657,16 +51137,16 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
 
 // src/startup-catchup.ts
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync16 } from "node:fs";
-import { fileURLToPath as fileURLToPath8 } from "node:url";
-var RUN_SCAN_SCRIPT = fileURLToPath8(new URL("../../../scripts/maintenance/run-scan.mjs", import.meta.url));
+import { existsSync as existsSync17 } from "node:fs";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
+var RUN_SCAN_SCRIPT = fileURLToPath7(new URL("../../../scripts/maintenance/run-scan.mjs", import.meta.url));
 var STARTUP_CATCHUP_SOURCE = "startup_catchup";
 function startupCatchupArgs(script, projectRoot2, execArgv = process.execArgv) {
   return [...execArgv, script, projectRoot2, STARTUP_CATCHUP_SOURCE];
 }
 function decideStartupCatchup(opts) {
   const script = opts.script ?? RUN_SCAN_SCRIPT;
-  const exists = opts.exists ?? existsSync16;
+  const exists = opts.exists ?? existsSync17;
   if (opts.dbPath === ":memory:") return { spawn: false, reason: "memory-db" };
   if (opts.env["TMB_SKIP_AUTO_RESCAN"] === "1") return { spawn: false, reason: "skip-env" };
   if (opts.env["NODE_TEST_CONTEXT"]) return { spawn: false, reason: "test-context" };
@@ -50705,7 +51185,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync16(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync17(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";

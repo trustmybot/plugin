@@ -184,7 +184,7 @@
     {
       "id": "no_fixture_rows_in_inventory",
       "severity": "warn",
-      "description": "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan.sh run reached this DB; report only — agents never delete these rows, the Human decides",
+      "description": "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan reached this DB; report only — agents never delete these rows, the Human decides",
       "sql": "SELECT COUNT(*) FROM cheatcodes c\n             WHERE c.kind IN ('plugin','mcp')\n               AND (c.name IN ('alpha','beta','alpha-server')\n                    OR c.name GLOB 'fixture-*' OR c.name GLOB 'test-plugin*'\n                    OR COALESCE(c.source_url, '') LIKE '%@tmb-test-market')",
       "expect": {
         "op": "=",

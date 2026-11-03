@@ -384,7 +384,7 @@ export function buildDataContracts(documentedEventTypes) {
         {
             id: 'no_fixture_rows_in_inventory',
             severity: 'warn',
-            description: 'no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test\'s scan.sh run reached this DB; report only — agents never delete these rows, the Human decides',
+            description: 'no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test\'s scan reached this DB; report only — agents never delete these rows, the Human decides',
             sql: `SELECT COUNT(*) FROM cheatcodes c
              WHERE ${FIXTURE_INVENTORY_ROW('c')}`,
             expect: { op: '=', value: 0 },

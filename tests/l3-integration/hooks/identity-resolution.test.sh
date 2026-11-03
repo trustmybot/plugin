@@ -15,7 +15,7 @@
 #   (e) .claude/worktrees appears twice above the project, and repos.path is
 #       relative to the project root (the dir holding .claude/<plugin>).
 # Plus: an unresolved swe is denied naming the missing piece, bro is
-# unchanged, the subagents/ transcript fallback, scan.sh from a session dir
+# unchanged, the subagents/ transcript fallback, the scan walker from a session dir
 # under .claude/worktrees/<n>, and heredoc text vs a redirect target. The
 # no-cwd-reads lint has its own self-test, no-cwd-reads-lint.test.sh.
 set -uo pipefail
@@ -286,13 +286,15 @@ for H in "$BOUNDARY" "$CONTAIN"; do
   fi
 done
 
-test_case "scan.sh from a session dir under .claude/worktrees/<n> finds the repo"
-mkdir -p "$SB/stub-bin"
-printf '#!/usr/bin/env bash\necho "[]"\n' > "$SB/stub-bin/claude"
-chmod +x "$SB/stub-bin/claude"
-SCAN_OUT=$(PATH="$SB/stub-bin:$PATH" CLAUDE_PROJECT_DIR="$C_PROJ" TRAJECTORY_DB_PATH="$C_DB" bash "$PLUGIN_ROOT/scripts/scan.sh" "$C_PROJ" 2>/dev/null)
+test_case "the scan walker from a session dir under .claude/worktrees/<n> finds the repo"
+SCAN_OUT=$(TMB_FORBID_LIVE_SYNC=1 node --experimental-sqlite --no-warnings --input-type=module -e '
+  const [, dist, db, dir] = process.argv;
+  const { TrajectoryDB } = await import(`${dist}/db.js`);
+  const { walkProject } = await import(`${dist}/tools/scan-walk.js`);
+  process.stdout.write(JSON.stringify(await walkProject(new TrajectoryDB(db), dir, { timeoutMs: 60000 })));
+' "$PLUGIN_ROOT/mcp/trajectory-server/dist" "$C_DB" "$C_PROJ" 2>/dev/null)
 N=$(printf '%s' "$SCAN_OUT" | jq '.repos | length' 2>/dev/null || echo 0)
-if [ "${N:-0}" -ge 1 ]; then _pass; else _fail "scan.sh found $N repos under $C_PROJ"; fi
+if [ "${N:-0}" -ge 1 ]; then _pass; else _fail "the scan walker found $N repos under $C_PROJ"; fi
 assert_eq "$C_PROJ" "$(printf '%s' "$SCAN_OUT" | jq -r '.repos[0].path' 2>/dev/null)" "the repo is the session dir itself"
 
 summarize
