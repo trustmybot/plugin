@@ -35298,6 +35298,18 @@ function staleFiles(db2, files) {
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
 }
 
+// src/utils/test-paths.ts
+var TEST_SEGMENTS = /* @__PURE__ */ new Set(["test", "tests", "__tests__", "fixtures"]);
+var TEST_BASENAME_RE = /\.(?:test|spec|suite)\./;
+var SCHEMA_RE = /^schema-v\d+/;
+function isTestPath2(path2) {
+  const segments = path2.replace(/\\/g, "/").split("/").filter(Boolean);
+  const base = segments.at(-1) ?? "";
+  const dirs = segments.slice(0, -1);
+  if (dirs.some((s) => TEST_SEGMENTS.has(s) || SCHEMA_RE.test(s))) return true;
+  return TEST_BASENAME_RE.test(base) || SCHEMA_RE.test(base);
+}
+
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
 function frameUntrusted(source, content) {
@@ -35378,12 +35390,21 @@ function resolvePath(db2, repo, path2) {
   );
   return suffix.length === 1 ? { path: suffix[0].path, purpose: suffix[0].purpose } : null;
 }
-function capToSize(loc, maxChars) {
+function capToSize(loc, ranks, maxChars) {
   const fits = () => JSON.stringify(loc).length <= maxChars;
   if (fits()) return loc;
   loc.truncated = true;
+  const dropRank = (r) => {
+    for (let i2 = loc.symbols.length - 1; i2 >= 0 && !fits(); i2--) {
+      if (ranks[i2] !== r) continue;
+      loc.symbols.splice(i2, 1);
+      ranks.splice(i2, 1);
+    }
+  };
+  dropRank(2);
+  dropRank(1);
   for (let i2 = loc.files.length - 1; i2 >= 0 && !fits(); i2--) loc.files[i2].symbols = [];
-  while (!fits() && loc.symbols.length > 0) loc.symbols.pop();
+  dropRank(0);
   while (!fits() && loc.files.length > 0) loc.files.pop();
   return loc;
 }
@@ -35399,9 +35420,14 @@ function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHA
   let truncated = false;
   const files = [];
   const named2 = /* @__PURE__ */ new Set();
+  const unresolved = [];
   for (const ref2 of refs.paths) {
     const hit = resolvePath(db2, repo, ref2.path);
-    if (!hit || named2.has(hit.path)) continue;
+    if (!hit) {
+      if (!unresolved.includes(ref2.path) && unresolved.length < MAX_FILES) unresolved.push(ref2.path);
+      continue;
+    }
+    if (named2.has(hit.path)) continue;
     named2.add(hit.path);
     if (files.length >= MAX_FILES) {
       truncated = true;
@@ -35410,17 +35436,19 @@ function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHA
     files.push({ path: hit.path, purpose: hit.purpose ? frameUntrusted("file-purpose", hit.purpose) : "", symbols: fileSymbols(db2, repo, hit.path, ref2) });
   }
   const rank = (s) => named2.has(s.path) ? 0 : underFiles(s.path, taskFiles) ? 1 : 2;
+  const admitted = (s) => rank(s) < 2 || s.exported === 1 && !isTestPath2(s.path);
   const picked = [];
   const seen = /* @__PURE__ */ new Set();
   for (const name2 of refs.identifiers) {
-    const matches = symbolsByName(db2, repo, name2).filter((s) => s.kind !== "module" && !seen.has(s.id)).map((s, i2) => ({ s, i: i2 })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).slice(0, MAX_MATCHES_PER_NAME).map((x) => x.s);
+    const matches = symbolsByName(db2, repo, name2).filter((s) => s.kind !== "module" && !seen.has(s.id) && admitted(s)).map((s, i2) => ({ s, i: i2 })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).slice(0, MAX_MATCHES_PER_NAME).map((x) => x.s);
     for (const s of matches) {
       seen.add(s.id);
       picked.push(s);
     }
   }
   if (picked.length > MAX_SYMBOLS) truncated = true;
-  const symbols = picked.slice(0, MAX_SYMBOLS).map((s) => {
+  const kept = picked.slice(0, MAX_SYMBOLS);
+  const symbols = kept.map((s) => {
     const card = symbolCard(db2, s);
     const callers = neighbours(card.callers);
     const callersTruncated = card.callers.total > callers.length;
@@ -35438,7 +35466,8 @@ function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHA
       callees: neighbours(card.callees)
     };
   });
-  return capToSize({ files, symbols, truncated }, maxChars);
+  const loc = { files, symbols, truncated, ...unresolved.length > 0 ? { unresolved_paths: unresolved } : {} };
+  return capToSize(loc, kept.map(rank), maxChars);
 }
 
 // src/effort-inputs.ts
@@ -41927,7 +41956,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated, unresolved_paths?}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all; a name outside the named paths and files[] resolves only to exported, non-test symbols; unresolved_paths, present only when non-empty, lists named paths the index lacks), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
       inputSchema: {
         type: "object",
         properties: {
