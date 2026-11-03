@@ -69,7 +69,9 @@ describe('hooks.json node guard (GH 2215)', () => {
             assert.equal(bare.length, 1, matcher);
             assert.equal(bare[0].onFailure, 'block', matcher);
             for (const h of entry.hooks.filter((x) => x !== bare[0])) {
-                assert.match(h.command, new RegExp(`^${tail('PreToolUse').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} [a-z-]+$`), matcher);
+                const prefix = `${tail('PreToolUse')} `;
+                assert.ok(h.command.startsWith(prefix), matcher);
+                assert.match(h.command.slice(prefix.length), /^[a-z-]+$/, matcher);
                 assert.equal(h.onFailure, undefined, `${matcher}: an advisory part never fails closed`);
             }
         }
