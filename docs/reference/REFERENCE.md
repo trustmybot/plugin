@@ -77,7 +77,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 - `TMB_LIVENESS_POLL_S` — seconds between `liveness-sentinel` polls (default 60)
 - `CLAUDE_CODE_SESSION_ATTENDED` — set by CC; `liveness-sentinel` arms only at `1`, since a pending `asyncRewake` blocks `claude -p`
 
-## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / SubagentStop / WorktreeCreate)
+## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / SubagentStart / SubagentStop / WorktreeCreate)
 
 Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a row names its source), wired via `hooks/hooks.json`. The nine PreToolUse-Agent gates run through a single `agent-spawn-dispatch` dispatcher rather than as separate registrations. Every gate but one runs through the TypeScript router, one `hooks.json` registration per group (`node dist/hooks.js <Event> [part]`, gates listed in `dist/hooks-router.txt`), one gate after another, except the PreToolUse Bash and Write groups, whose gates run concurrently with the first deny in group order answering. The gate outside the router is the Stop entry `node dist/hooks.js liveness-sentinel`, whose exit 2 is an `asyncRewake` wake and not a deny. The SessionStart default and WorktreeCreate commands open with a `command -v node` guard that, with `node` off PATH, prints `TMB DEGRADED: missing node …` and exits 2 before the router would fail to start (GH 2215). SessionStart's `persona` and `prescan` and UserPromptSubmit's `persona` and `roundtable` are registrations of their own, so each stays under Claude Code's 10,000-character context cap and they still run in parallel. The headless shim runs the same router, one entry per PreToolUse group, as `node dist/hooks.js PreToolUse --shim` ([INSTALL.md](./INSTALL.md)). The trajectory-server group runs `agent-arg-matches-caller`, `swe-brief-gate`, then the tool's own gate, in that order, stopping at the first deny.
 
@@ -127,6 +127,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `naming-lint.ts` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |
 | `code-quality-lint.ts` | PreToolUse Edit/Write | Catch mechanical quality patterns (bare except, mutable defaults, etc.) |
 | `debug-trajectory.ts` | PreToolUse (all, debug-mode) | Persist trajectory rows when TMB_DEBUG_TRAJECTORY=1 |
+| `swe-downstream-context.ts` | PreToolUse Write/Edit/MultiEdit/NotebookEdit (own registration) | For a swe task in the `downstream_context_ab` A/B's `on` arm, list the direct downstream of a file's symbols on its first edit per run (capped at 30 refs / ~2000 chars) and write one `downstream_context_injected` row. Born in TypeScript; never denies |
 | `cleanup-worktree-on-task-close.ts` | PostToolUse task_update_status + validation_record | Remove worktree on a `task_update_status` close or a passing review of the closed task |
 | `roundtable-cleanup-postcheck.ts` | PostToolUse roundtable_close | Verify capture surface on close |
 | `post-task-close-rescan.ts` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
@@ -140,6 +141,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `swe-spawn-rollback.ts` | PermissionDenied Agent | Roll back a swe spawn auto mode refused: close its `tool_use:<tool_use_id>` run row as `swept_orphan` and, with no other swe run open, return the task to `pending` |
 | `bro-turn-usage.ts` | Stop | Meter bro's token usage into one `agent_runs` row per session. Runs async and does not block the turn; a lost run is recovered by the next, which re-reads the whole transcript |
 | `session-handoff.ts` | Stop | Past bro's usage limits with no work running in the session, record a `session_handoffs` row and tell the Human once to start a new session; the next startup or clear in that folder takes it in its context. Synchronous, never blocks; `TMB_DISABLE_SESSION_HANDOFF_HOOK=1` turns it off |
+| `reviewer-downstream-context.ts` | SubagentStart `^tmb:code-reviewer$` | For a task in the `downstream_context_ab` A/B's `on` arm, give the code-reviewer the diff's changed symbols and their direct downstream under the same caps, and write one `downstream_context_injected` row. Born in TypeScript; never denies |
 | `swe-atomic-close.ts` | SubagentStop | Auto-close a pending or running SWE task that committed; capture swe and code-reviewer agent_runs metrics and effort |
 | `consultant-persistence-gate.ts` | SubagentStop | Persist a consultant subagent's output before it exits |
 | `worktree-create.ts` | WorktreeCreate | Enforce worktree-creation rules |
