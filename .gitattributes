@@ -5,6 +5,7 @@ mcp/trajectory-server/dist/index.js -whitespace
 mcp/trajectory-server/dist/codex.js -whitespace
 mcp/trajectory-server/dist/hooks.js -whitespace
 mcp/trajectory-server/dist/run-scan.js -whitespace
+mcp/trajectory-server/dist/cli.js -whitespace
 
 # Generated artefacts: a merge keeps ours and names the file; rebuild them all
 # with `node --experimental-strip-types scripts/maintenance/regen-generated.ts`
