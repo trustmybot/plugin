@@ -6981,7 +6981,7 @@ function hookAbStore(db, gate, env = process.env) {
           issueId: anchor.issueId,
           branchId: anchor.branchId,
           fromNode: `hook:${gate}`,
-          eventType: DOWNSTREAM_AB_EVENT,
+          eventType: "downstream_context_ab_enrolled",
           summary: `Task ${task} enrolled in downstream-context A/B '${label}' at ${arm}.`,
           contentJson: JSON.stringify({ label, arm, task_id: task }),
           dedupePaths: ["$.label", "$.task_id"]
@@ -7011,7 +7011,7 @@ function recordInjected(db, gate, taskId, content, dedupe, env = process.env) {
       issueId: anchor.issueId,
       branchId: anchor.branchId,
       fromNode: `hook:${gate}`,
-      eventType: DOWNSTREAM_INJECTED_EVENT,
+      eventType: "downstream_context_injected",
       summary: `${gate} injected the direct downstream for task ${taskId}.`,
       contentJson: JSON.stringify({ task_id: taskId, ...content }),
       dedupePaths: dedupe.map((k) => `$.${k}`)

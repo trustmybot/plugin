@@ -14,7 +14,7 @@ import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { downstreamContextArm, enrollDownstreamContextAb, type DownstreamAbStore } from '../downstream-context-ab.js';
 import { downstreamContextAbReport, formatDownstreamContextAbReport, DOWNSTREAM_AB_METRICS } from '../downstream-context-ab-report.js';
-import { parseDownstreamContextAb } from '../tools/config.js';
+import { DOWNSTREAM_CONTEXT_AB_KEY, parseDownstreamContextAb } from '../tools/config.js';
 import { isTestPath as indexIsTestPath } from '../symbol-index.js';
 import { capSections, isTestPath, MAX_CHARS, MAX_REFS, symbolsInRanges } from '../hooks/lib/downstream.js';
 import { sweDownstreamContext } from '../hooks/swe-downstream-context.js';
@@ -48,8 +48,8 @@ describe('GH 1990: downstream-context hooks over a seeded DB', () => {
   const enrolled = (): Array<{ task_id: number; arm: string }> =>
     db.all<{ c: string }>(`SELECT content_json AS c FROM audit WHERE event_type = 'downstream_context_ab_enrolled' ORDER BY id`).map((r) => JSON.parse(r.c));
   const setAb = (value: string | null): void => {
-    db.run(`DELETE FROM plugin_config WHERE key = 'downstream_context_ab'`);
-    if (value !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('downstream_context_ab', ?)`, [value]);
+    db.run(`DELETE FROM plugin_config WHERE key = ?`, [DOWNSTREAM_CONTEXT_AB_KEY]);
+    if (value !== null) db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`, [DOWNSTREAM_CONTEXT_AB_KEY, value]);
   };
   const edit = (agentId: string, file: string, extra: Record<string, unknown> = {}): string =>
     JSON.stringify({ hook_event_name: 'PreToolUse', agent_id: agentId, agent_type: 'tmb:swe', cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, file), old_string: 'a', new_string: 'b' }, ...extra });
