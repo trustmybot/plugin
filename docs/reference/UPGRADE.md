@@ -306,10 +306,10 @@ Promotion runs through a PR — merge `dev` → `main` via `gh pr create` + `gh 
 
 ```bash
 git checkout main && git pull origin main
-bash scripts/release.sh
+node --experimental-strip-types scripts/release.ts
 ```
 
-`release.sh` tags `main` HEAD as `v<X.Y.Z>` (read from `plugin.json`), then resolves the promoted rc's release-gate verdict via `resolve_gate_tag()`: the gate is rc/main-only (rc tag pushes plus dispatch from `rc`/`main`), so a stable tag resolves to the newest `v*-rc.*` tag in HEAD's ancestry — the rc it promotes — and consumes that run's verdict. It refuses to publish on a red or missing verdict, and on green creates the GitHub release from the CHANGELOG notes.
+`release.ts` tags `main` HEAD as `v<X.Y.Z>` (read from `plugin.json`), then resolves the promoted rc's release-gate verdict via `resolveGateTag()` (`scripts/lib/await-release-gate.ts`): the gate is rc/main-only (rc tag pushes plus dispatch from `rc`/`main`), so a stable tag resolves to the newest `v*-rc.*` tag in HEAD's ancestry — the rc it promotes — and consumes that run's verdict. It refuses to publish on a red or missing verdict, and on green creates the GitHub release from the CHANGELOG notes.
 
 ### Bumping the version
 

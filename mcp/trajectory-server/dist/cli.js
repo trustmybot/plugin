@@ -486,7 +486,7 @@ var init_audit_events = __esm({
       { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
       { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or its walker as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
       { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-      { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+      { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `linked_worktree`: a `git worktree add` checkout of another repo; `no_commits`: it has no commit)" },
       { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
       { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
       { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
@@ -5382,7 +5382,7 @@ var init_prose_files = __esm({
 });
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync13, realpathSync as realpathSync6 } from "node:fs";
+import { readFileSync as readFileSync14, realpathSync as realpathSync6 } from "node:fs";
 import { join as join12 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join12(env["HOME"] || "", ".claude");
@@ -5399,7 +5399,7 @@ function canonicalDir2(dir) {
 }
 function readJsonObject(path) {
   try {
-    const parsed = JSON.parse(readFileSync13(path, "utf8"));
+    const parsed = JSON.parse(readFileSync14(path, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -6274,10 +6274,10 @@ function render(value, indent, at) {
   const inner = at + indent;
   const record = value;
   const [open, close] = Array.isArray(value) ? "[]" : "{}";
-  const body = Array.isArray(value) ? value.map((v) => render(v, indent, inner)) : keysInOrder(value).filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${indent === "" ? "" : " "}${render(record[key], indent, inner)}`);
-  if (body.length === 0) return `${open}${close}`;
-  return indent === "" ? `${open}${body.join(",")}${close}` : `${open}
-${inner}${body.join(`,
+  const body2 = Array.isArray(value) ? value.map((v) => render(v, indent, inner)) : keysInOrder(value).filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${indent === "" ? "" : " "}${render(record[key], indent, inner)}`);
+  if (body2.length === 0) return `${open}${close}`;
+  return indent === "" ? `${open}${body2.join(",")}${close}` : `${open}
+${inner}${body2.join(`,
 ${inner}`)}
 ${at}${close}`;
 }
@@ -7366,8 +7366,8 @@ ${USAGE2}`);
   const res = await agentRunsBackfillTools2(db, dbPath2).handlers.agent_runs_backfill(args);
   db.close();
   const first = res.content[0];
-  const body = JSON.parse(first.type === "text" ? first.text : "");
-  io2.out(`${JSON.stringify(body, null, 2)}
+  const body2 = JSON.parse(first.type === "text" ? first.text : "");
+  io2.out(`${JSON.stringify(body2, null, 2)}
 `);
   return res.isError ? 1 : 0;
 }
@@ -10026,6 +10026,48 @@ async function integrate(argv2, env, io2) {
   return code;
 }
 
+// src/cli/prompt-author-lint.ts
+import { readFileSync as readFileSync13 } from "node:fs";
+var USAGE3 = "usage: cli.js prompt-author-lint <path-to-md-file>\n";
+var COMMENT_LINE = /^[ \t\n\v\f\r]*(#|\/\/|--)/;
+var CHECKS = [
+  { name: "pink-elephant", match: /^(Don't|Never|Do not) / },
+  {
+    name: "pink-elephant-mid",
+    match: /MUST NOT|\bdo not\b|\bdon't\b|\bnever\b/,
+    skip: (text) => COMMENT_LINE.test(text) || text.includes("LOAD-BEARING-SAFETY")
+  },
+  { name: "issue-number", match: /#[0-9]{1,5}\b|\(#[A-Z]+[0-9]+\)|\[bro #[0-9]+\]/ },
+  { name: "memory-path", match: /feedback_[a-z_-]+\.md|~\/\.claude\/projects\// },
+  { name: "origin-attribution", match: /caught in|prior incident|regression during|2× during|2x during/i },
+  { name: "date", match: /\b20[0-9]{2}-[0-9]{2}-[0-9]{2}\b/ },
+  { name: "pr-url", match: /![0-9]+|gitlab\.com\/[^ \t\n\v\f\r]*\/merge_requests\// }
+];
+function body(text) {
+  const lines = text.split("\n");
+  const open = lines.indexOf("---");
+  if (open === -1) return [];
+  const close = lines.indexOf("---", open + 1);
+  return close === -1 ? [] : lines.slice(close + 1);
+}
+function promptAuthorLint(argv2, _env, io2) {
+  const file = argv2[0] ?? "";
+  if (!isFile2(file)) {
+    io2.err(USAGE3);
+    return 0;
+  }
+  const lines = body(readFileSync13(file, "utf8"));
+  let out = "";
+  for (const { name: name2, match, skip } of CHECKS) {
+    lines.forEach((text, i) => {
+      if (match.test(text) && !skip?.(text)) out += `[${name2}] ${i + 1}:${text}
+`;
+    });
+  }
+  io2.out(out);
+  return 0;
+}
+
 // src/cli/trajectory-doctor.ts
 import { existsSync as existsSync11 } from "node:fs";
 var HELP = `Check a trajectory DB against its data contracts. Prints the JSON report.
@@ -10121,7 +10163,7 @@ async function trajectoryDoctor(argv2, env, io2) {
 }
 
 // src/cli/validation-record-fallback.ts
-var USAGE3 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
+var USAGE4 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed}";
 var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed')";
@@ -10205,7 +10247,7 @@ DROP TABLE fallback_last_finding;`;
 }
 function validationRecordFallback(argv2, env, io2) {
   if (argv2.length < 5 || argv2.length > 6) {
-    io2.out(USAGE3);
+    io2.out(USAGE4);
     return 1;
   }
   const [taskId, attemptN, verdict, feedback, session] = argv2;
@@ -10264,10 +10306,11 @@ var SUBCOMMANDS = {
   "heal-mcp-cache": healMcpCache,
   health,
   integrate,
+  "prompt-author-lint": promptAuthorLint,
   "trajectory-doctor": trajectoryDoctor,
   "validation-record-fallback": validationRecordFallback
 };
-var USAGE4 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
+var USAGE5 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
 `;
 var io = {
   out: (text) => process.stdout.write(text),
@@ -10278,10 +10321,10 @@ process.on("SIGTERM", () => process.exit(143));
 var [name, ...argv] = process.argv.slice(2);
 var run = name !== void 0 && Object.hasOwn(SUBCOMMANDS, name) ? SUBCOMMANDS[name] : void 0;
 if (name === "--help" || name === "-h") {
-  io.out(USAGE4);
+  io.out(USAGE5);
 } else if (!run) {
-  io.err(name === void 0 ? USAGE4 : `cli.js: unknown subcommand '${name}'
-${USAGE4}`);
+  io.err(name === void 0 ? USAGE5 : `cli.js: unknown subcommand '${name}'
+${USAGE5}`);
   process.exitCode = 2;
 } else {
   void Promise.resolve(run(argv, process.env, io)).then((code) => {
