@@ -51,7 +51,7 @@ Adding, renaming or removing a label is a doctrine change: edit `labels.json` in
 | **Area: Agents** | agents/, skills/, commands/, CLAUDE.md and the bro/swe/code-reviewer workflow |
 | **Area: Cheatcode** | Cheatcode search, vet, install and ranking |
 | **Area: Adapters** | Codex, Cursor and Gemini adapters |
-| **Area: Release** | CI workflows, dev-build, release-gate, integrate.sh, versioning |
+| **Area: Release** | CI workflows, dev-build, release-gate, cli.js integrate, versioning |
 
 ### Theme — optional
 

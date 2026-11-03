@@ -63,7 +63,7 @@ tests/
 │   ├── mcp/                    ← L3 real server subprocess + JSON-RPC
 │   └── hooks/                  ← L3 hook script tests
 ├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
-├── lib/                        ← shared shell-assert helpers + assert-sql.sh (wrapper for the shipped dry-run helper)
+├── lib/                        ← shared shell-assert helpers
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
@@ -288,22 +288,22 @@ Assertion helpers (`tests/lib/assert.sh`):
 - `assert_exit_code <expected> <actual> [label]`
 - `summarize` — prints pass/fail summary; returns non-zero if any assertion failed.
 
-### Dry runs as assertions (`assert-sql.sh`)
+### Dry runs as assertions (`cli.js assert-sql`)
 
-A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and code-reviewer re-run it. The helper ships with the plugin at `skills/tmb_planning/scripts/assert-sql.sh`; point it at a `cp` of the reference data, not the live trajectory DB. In a user project, call it through the plugin root:
+A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and code-reviewer re-run it. The helper ships with the plugin as the `assert-sql` subcommand of `mcp/trajectory-server/dist/cli.js`; point it at a `cp` of the reference data, not the live trajectory DB. In a user project, call it through the plugin root:
 
 ```bash
 mkdir -p .claude/tmb/tmp && cp .claude/tmb/trajectory.db .claude/tmb/tmp/ref.db
-bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
+node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" assert-sql .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
 ```
 
-In this repo, `tests/lib/assert-sql.sh` is a wrapper that runs the same script, so `verification[]` entries can use the short path:
+In this repo, `verification[]` entries can use the path from the plugin root:
 
 ```bash
-bash tests/lib/assert-sql.sh .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
+node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
 ```
 
-`assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]` snapshots the DB with `VACUUM INTO` over a `sqlite3 -readonly` connection (so rows still in its `-wal` are included, even while another connection has it open, and the DB and its `-wal` are never written or checkpointed; a WAL-mode DB with no `-wal` is opened immutable, so no `-wal` / `-shm` appears beside it) and queries that private snapshot read-only, requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch or a NULL / no-row result (`got NULL or no rows`, under every op), 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). The snapshot is removed on exit, including when the run is interrupted (INT or TERM). `bash tests/lib/assert-sql.sh --self-test` covers eq/ge/le, mismatches, NULL and no-row results, one output line per call, a WAL-mode copy without `-shm`, a row that is only in the `-wal` (with its `-shm` gone, the main file's size and mtime and the `-wal` stay as they were), a row that is only in the `-wal` of a DB held open elsewhere, a missing DB, the read-only guarantee (the DB's mtime is unchanged) and a SIGINT that leaves no temp copy. A spec's `Populated:` line is usually one of these commands.
+`cli.js assert-sql <db> "<sql>" <expected> [--op eq|ge|le]` snapshots the DB with `VACUUM INTO` over a read-only `node:sqlite` connection (so rows still in its `-wal` are included, even while another connection has it open, and the DB and its `-wal` are never written or checkpointed; a WAL-mode DB with no `-wal` is opened immutable, so no `-wal` / `-shm` appears beside it) and queries that private snapshot read-only, requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch or a NULL / no-row result (`got NULL or no rows`, under every op), 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). The snapshot is removed before the query runs, so an interrupted run (INT or TERM) leaves no copy behind. `mcp/trajectory-server/src/test/cli-assert-sql.test.ts` covers eq/ge/le, mismatches, NULL and no-row results, one output line per call, a WAL-mode copy without `-shm`, a row that is only in the `-wal` (with its `-shm` gone, the main file's size and mtime and the `-wal` stay as they were), a row that is only in the `-wal` of a DB held open elsewhere, a missing DB, the read-only guarantee (the DB's mtime is unchanged) and a SIGINT that leaves no temp copy. A spec's `Populated:` line is usually one of these commands.
 
 ## L5/L6 sandbox
 

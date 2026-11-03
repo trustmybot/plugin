@@ -107,7 +107,7 @@ export function shellLength(s: string, env: NodeJS.ProcessEnv): number {
 }
 
 /** bash's `${s: -n}` for n > 0, in the units shellLength counts. */
-function shellTail(s: string, n: number, env: NodeJS.ProcessEnv): string {
+export function shellTail(s: string, n: number, env: NodeJS.ProcessEnv): string {
   if (ctypeUtf8(env)) return [...s].slice(-n).join('');
   const bytes = Buffer.from(s);
   return bytes.subarray(Math.max(0, bytes.length - n)).toString('utf8');

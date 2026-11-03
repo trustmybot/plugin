@@ -1,18 +1,26 @@
 /**
- * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks and the health check run with
+ * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
+ * bro's integrate and the assert-sql verification check run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
  * They read and write the trajectory DB through node:sqlite and never need the
- * server process. SIGINT and SIGTERM wait for the synchronous run, which
- * removes its scratch files, then exit 130 and 143 as the shell traps did.
+ * server process. SIGINT and SIGTERM exit 130 and 143 as the shell traps did,
+ * once the synchronous part of the run returns; a subcommand cleans up on the
+ * process 'exit' event.
  */
+import { assertSql } from './assert-sql.js';
 import { broSqliteReadonly } from './bro-sqlite-readonly.js';
 import type { CliIo } from './fallback-db.js';
 import { health } from './health.js';
+import { integrate } from './integrate.js';
 import { validationRecordFallback } from './validation-record-fallback.js';
 
-const SUBCOMMANDS: Record<string, (argv: readonly string[], env: NodeJS.ProcessEnv, io: CliIo) => number> = {
+type Subcommand = (argv: readonly string[], env: NodeJS.ProcessEnv, io: CliIo) => number | Promise<number>;
+
+const SUBCOMMANDS: Record<string, Subcommand> = {
+  'assert-sql': assertSql,
   'bro-sqlite-readonly': broSqliteReadonly,
   health,
+  integrate,
   'validation-record-fallback': validationRecordFallback,
 };
 
@@ -34,5 +42,7 @@ if (name === '--help' || name === '-h') {
   io.err(name === undefined ? USAGE : `cli.js: unknown subcommand '${name}'\n${USAGE}`);
   process.exitCode = 2;
 } else {
-  process.exitCode = run(argv, process.env, io);
+  void Promise.resolve(run(argv, process.env, io)).then((code) => {
+    process.exitCode = code;
+  });
 }

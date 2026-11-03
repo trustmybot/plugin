@@ -9,7 +9,6 @@ import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
-import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskHasPassingReview } from '../tools/lifecycle.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 const DB_PATH = '/tmp/.claude/tmb/trajectory.db';
@@ -260,11 +259,10 @@ describe('issue_close: review evidence for closed tasks', () => {
         assert.match(src, /^import \{ HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
         assert.match(src, /t\.status='closed' AND \$\{HAS_PASS_SQL\}/);
     });
-    it('integrate.sh carries a byte-identical copy of the pass rule', () => {
-        const script = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'skills', 'tmb_planning', 'scripts', 'integrate.sh'), 'utf8');
-        const m = /^_INT_HAS_PASS="([^"]*)"$/m.exec(script);
-        assert.ok(m, '_INT_HAS_PASS not found in integrate.sh');
-        assert.equal(m[1].replace(/\\\$/g, '$'), HAS_PASS_SQL);
+    it('cli.js integrate queries the shared pass rule', () => {
+        const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'integrate.ts'), 'utf8');
+        assert.match(src, /^import \{ HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
+        assert.match(src, /\|\| \$\{HAS_PASS_SQL\}\n  FROM tasks t WHERE t\.id = /);
     });
     it('waive_review + reason closes and writes review_gate_waived per task', async () => {
         const db = tempDB();

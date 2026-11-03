@@ -668,7 +668,7 @@ out=$(run_hook "git push origin feat/r-rebased" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "an unverified rebase must block"
 assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
 assert_contains "$out" "task_id=5" "the deny names the reviewed task"
-assert_contains "$out" "integrate.sh" "the deny points at integrate.sh"
+assert_contains "$out" "dist/cli.js\\\" integrate <task_id> <base>" "the deny points at cli.js integrate"
 cleanup
 
 test_case "GH 1518: a rebased SHA whose only run failed → BLOCKED"

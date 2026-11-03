@@ -1,5 +1,6 @@
-// src/cli/bro-sqlite-readonly.ts
-import { appendFileSync, existsSync as existsSync3, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+// src/cli/assert-sql.ts
+import { closeSync as closeSync2, existsSync as existsSync3, mkdtempSync, openSync as openSync2, readSync as readSync2, rmSync } from "node:fs";
+import { setImmediate as nextTurn } from "node:timers/promises";
 
 // src/hooks/lib/db.ts
 import { accessSync as accessSync2, closeSync, constants as constants2, existsSync as existsSync2, openSync, readFileSync as readFileSync2, readSync, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
@@ -143,6 +144,9 @@ function pluginName(env = process.env) {
   const root = env.CLAUDE_PLUGIN_ROOT ?? "";
   return root === "" ? DEFAULT_PLUGIN_NAME : manifestName(`${root}/.claude-plugin/plugin.json`);
 }
+function commandSubstitution(text) {
+  return text.replace(/\0/g, "").replace(/\n+$/, "");
+}
 function manifestName(manifest) {
   let text;
   try {
@@ -190,6 +194,10 @@ function installRoot(fromDir) {
     dir = parent;
   }
 }
+function ctypeUtf8(env = process.env) {
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || "C";
+  return /(^|\.)utf-?8$/i.test(locale) && !locale.includes("/") && existsSync(`/usr/share/locale/${locale}/LC_CTYPE`);
+}
 
 // src/hooks/lib/jq.ts
 function jsonStream(text) {
@@ -222,6 +230,13 @@ var scopes = new AsyncLocalStorage();
 function msLeft(at, now) {
   return Math.max(1, Math.ceil(at - now()));
 }
+function deadlineSignal() {
+  return scopes.getStore()?.signal;
+}
+function markDeadlineExpired() {
+  const scope = scopes.getStore();
+  if (scope) scope.expired = true;
+}
 function spawnLimit(ownMs, killSignal = "SIGTERM") {
   const scope = scopes.getStore();
   const left = scope ? msLeft(scope.at, scope.now) : void 0;
@@ -246,10 +261,10 @@ var NOT_FOUND_CODE = 127;
 var MAX_BUFFER = 64 * 1024 * 1024;
 var nodeSqlite;
 function isSqliteExperimentalWarning(warning, rest) {
-  const message = typeof warning === "string" ? warning : warning instanceof Error ? warning.message : "";
+  const message2 = typeof warning === "string" ? warning : warning instanceof Error ? warning.message : "";
   const opt = rest[0];
   const type = typeof opt === "string" ? opt : opt !== null && typeof opt === "object" && typeof opt.type === "string" ? opt.type : warning instanceof Error ? warning.name : "";
-  return type === "ExperimentalWarning" && /sqlite/i.test(message);
+  return type === "ExperimentalWarning" && /sqlite/i.test(message2);
 }
 function loadNodeSqlite() {
   if (nodeSqlite !== void 0) return nodeSqlite;
@@ -797,6 +812,8 @@ ${line}`;
 // src/hooks/lib/db.ts
 var GATE_READ_ERROR = "__ERR__";
 var DEFAULT_READ_TIMEOUT_MS = 1500;
+var SQLITE_RO_TIMEOUT_MS = 500;
+var CANTOPEN = 14;
 function stripTrailingNewlines(text) {
   return text.replace(/\n+$/, "");
 }
@@ -834,6 +851,14 @@ function walCold(db) {
 function sqliteOnce(ro, ms, target, sql, env) {
   const r = sqliteRun({ target, readonly: ro, timeoutMs: ms, sql }, env);
   return { code: r.code, out: stripTrailingNewlines(r.stdout) };
+}
+function gateRead(db, sql, env = process.env) {
+  const ms = readTimeoutMs(env);
+  if (db === "" || !isFile(db)) return GATE_READ_ERROR;
+  const ro = !walCold(db);
+  let r = sqliteOnce(ro, ms, db, sql, env);
+  if (r.code === CANTOPEN && ro) r = sqliteOnce(false, ms, db, sql, env);
+  return r.code === 0 ? r.out : GATE_READ_ERROR;
 }
 function immutableUri(db, env = process.env) {
   let p = db.startsWith("/") ? db : `${shellPwd(env).replace(/\/$/, "")}/${db}`;
@@ -926,6 +951,13 @@ function projectRoot(env = process.env) {
   const root = db !== null ? dbProjectRoot(db) : "";
   return root || claudeProjectDir(env);
 }
+function sqliteRo(db, sql, env = process.env) {
+  const out = gateRead(db, sql, { ...env, TMB_DB_WRITE_TIMEOUT_MS: String(SQLITE_RO_TIMEOUT_MS) });
+  return out === GATE_READ_ERROR ? "" : out;
+}
+function sqlInt(value = "") {
+  return /^[0-9]+$/.test(value) ? value : "";
+}
 function sqlQuote(value = "") {
   return stripTrailingNewlines(value.replace(/'/g, "''"));
 }
@@ -955,10 +987,166 @@ function digitsOr2(value, fallback) {
   return value !== void 0 && /^[0-9]+$/.test(value) ? Number(value) : fallback;
 }
 
+// src/cli/assert-sql.ts
+var USAGE = 'usage: cli.js assert-sql <db> "<sql>" <expected> [--op eq|ge|le]\n';
+var SNAPSHOT_TIMEOUT_MS = 5e3;
+var NUMBER = /^-?[0-9]+(\.[0-9]+)?$/;
+var OPS = ["eq", "ge", "le"];
+function parseArgs(argv2) {
+  let op = "eq";
+  const positional = [];
+  for (let i = 0; i < argv2.length; i += 1) {
+    const arg = argv2[i];
+    if (arg === "--op") {
+      if (i + 1 >= argv2.length) return null;
+      op = argv2[i += 1];
+    } else if (arg.startsWith("--op=")) {
+      op = arg.slice("--op=".length);
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length !== 3 || !OPS.includes(op)) return null;
+  const [db, sql, expected] = positional;
+  return { db, sql, expected, op };
+}
+function uriPath(path) {
+  return path.replace(/%/g, "%25").replace(/\?/g, "%3f").replace(/#/g, "%23");
+}
+function walModeHeader(db) {
+  const byte = Buffer.alloc(1);
+  const fd = openSync2(db, "r");
+  try {
+    return readSync2(fd, byte, 0, 1, 18) === 1 && byte[0] === 2;
+  } finally {
+    closeSync2(fd);
+  }
+}
+function message(e) {
+  const err = e;
+  const text = err && typeof err.message === "string" ? err.message : String(e);
+  const code = err && typeof err.errcode === "number" ? err.errcode & 255 : 0;
+  return code > 1 ? `${text} (${code})` : text;
+}
+function openSnapshot(db, env) {
+  const { DatabaseSync } = loadNodeSqlite();
+  const src = !existsSync3(`${db}-wal`) && walModeHeader(db) ? `file:${uriPath(db)}?immutable=1` : db;
+  const dir = mkdtempSync(`${(env.TMPDIR || "/tmp").replace(/\/+$/, "")}/assert-sql.`);
+  try {
+    const snap = `${dir}/ref.db`;
+    const source = new DatabaseSync(src, { readOnly: true, timeout: SNAPSHOT_TIMEOUT_MS });
+    try {
+      source.prepare("VACUUM INTO ?").run(snap);
+    } finally {
+      source.close();
+    }
+    const copy = new DatabaseSync(snap);
+    try {
+      copy.exec("PRAGMA journal_mode=DELETE;");
+    } finally {
+      copy.close();
+    }
+    return new DatabaseSync(snap, { readOnly: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+function query(db, sql) {
+  let out = "";
+  for (const stmt of splitStatements(sql)) {
+    let prepared;
+    try {
+      prepared = db.prepare(stmt.text);
+    } catch (e) {
+      throw new Error(`Error: in prepare, ${message(e)}`);
+    }
+    try {
+      prepared.setReturnArrays(true);
+      prepared.setReadBigInts(true);
+      for (const row of prepared.iterate()) out += `${row.map(listValue).join("|")}
+`;
+    } catch (e) {
+      throw new Error(`Error: stepping, ${message(e)}`);
+    }
+  }
+  return stripTrailingNewlines(out);
+}
+function compare(op, got, expected) {
+  if (op === "eq") return got === expected;
+  if (!NUMBER.test(got) || !NUMBER.test(expected)) return null;
+  return op === "ge" ? Number(got) >= Number(expected) : Number(got) <= Number(expected);
+}
+async function assertSql(argv2, env, io2) {
+  const args = parseArgs(argv2);
+  if (!args) {
+    io2.err(USAGE);
+    return 2;
+  }
+  const { db, sql, expected, op } = args;
+  if (!isFile2(db)) {
+    io2.out(`assert-sql: ERROR database not found: ${db}
+`);
+    return 2;
+  }
+  if (!loadNodeSqlite()) {
+    io2.out("assert-sql: ERROR node:sqlite is unavailable in this Node (needs Node 22.13+)\n");
+    return 2;
+  }
+  let reader;
+  try {
+    reader = openSnapshot(db, env);
+  } catch (e) {
+    io2.out(`assert-sql: ERROR query failed: Error: ${message(e)}
+`);
+    return 2;
+  }
+  await nextTurn();
+  process.removeAllListeners("SIGINT");
+  process.removeAllListeners("SIGTERM");
+  let out;
+  try {
+    out = query(reader, sql);
+  } catch (e) {
+    io2.out(`assert-sql: ERROR query failed: ${e.message.split("\n")[0]}
+`);
+    return 2;
+  } finally {
+    reader.close();
+  }
+  if (out === "") {
+    io2.out(`assert-sql: FAIL got NULL or no rows, want ${op} '${expected}': ${sql}
+`);
+    return 1;
+  }
+  const rows = out.split("\n").length;
+  if (rows > 1) {
+    io2.out(`assert-sql: FAIL expected a single value, got ${rows} rows: ${sql}
+`);
+    return 1;
+  }
+  const ok = compare(op, out, expected);
+  if (ok === null) {
+    io2.out(`assert-sql: FAIL --op ${op} needs numbers, got '${out}' vs '${expected}': ${sql}
+`);
+    return 1;
+  }
+  if (ok) {
+    io2.out(`assert-sql: PASS '${out}' ${op} '${expected}': ${sql}
+`);
+    return 0;
+  }
+  io2.out(`assert-sql: FAIL got '${out}', want ${op} '${expected}': ${sql}
+`);
+  return 1;
+}
+
+// src/cli/bro-sqlite-readonly.ts
+import { appendFileSync, existsSync as existsSync4, mkdirSync, mkdtempSync as mkdtempSync2, rmSync as rmSync2 } from "node:fs";
+
 // src/cli/py-json.ts
 var PyJsonError = class extends Error {
 };
-var NUMBER = /(-?(?:0|[1-9]\d*))(\.\d+)?([eE][-+]?\d+)?/y;
+var NUMBER2 = /(-?(?:0|[1-9]\d*))(\.\d+)?([eE][-+]?\d+)?/y;
 var WHITESPACE = /[ \t\n\r]*/y;
 var SHORT_ESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "	" };
 var Parser = class {
@@ -994,10 +1182,10 @@ var Parser = class {
         return v;
       }
     }
-    NUMBER.lastIndex = this.pos;
-    const m = NUMBER.exec(t);
+    NUMBER2.lastIndex = this.pos;
+    const m = NUMBER2.exec(t);
     if (!m) this.fail("Expecting value");
-    this.pos = NUMBER.lastIndex;
+    this.pos = NUMBER2.lastIndex;
     if (m[2] === void 0 && m[3] === void 0) return BigInt(m[1]);
     return Number(m[0]);
   }
@@ -1171,7 +1359,7 @@ var KNOWN_WRITE_TOOLS = [
   "audit_append",
   "validation_record"
 ];
-var SNAPSHOT_TIMEOUT_MS = 5e3;
+var SNAPSHOT_TIMEOUT_MS2 = 5e3;
 var ISSUE_SQL = "SELECT id, objective, description, status, created_at, updated_at, closed_at, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?;";
 var ISSUE_FULL_SQL = "SELECT * FROM issues WHERE id = ?;";
 var FIRST_ACTIONABLE_SQL = "SELECT * FROM tasks WHERE issue_id = ? AND status IN ('pending','failed') ORDER BY branch_id ASC LIMIT 1;";
@@ -1190,11 +1378,11 @@ function refusalJson(tool) {
   return `{"error":"degraded-mode-readonly","requested":"${tool}","recovery":"MCP is dead. Kill zombie: pkill -f 'trajectory-server/dist/index.js' then restart Claude Code."}
 `;
 }
-function errorJson(message) {
-  return `{"error":${pyDumps(message)}}
+function errorJson(message2) {
+  return `{"error":${pyDumps(message2)}}
 `;
 }
-function uriPath(path) {
+function uriPath2(path) {
   return path.replace(/%/g, "%25").replace(/\?/g, "%3f").replace(/#/g, "%23");
 }
 function errorText(e) {
@@ -1226,18 +1414,18 @@ var ReadSession = class {
   prepare(io2) {
     this.readDb = this.dbPath;
     if (!walCold(this.dbPath)) return;
-    const src = existsSync3(`${this.dbPath}-wal`) ? this.dbPath : `file:${uriPath(this.dbPath)}?immutable=1`;
+    const src = existsSync4(`${this.dbPath}-wal`) ? this.dbPath : `file:${uriPath2(this.dbPath)}?immutable=1`;
     try {
-      this.snapDir = mkdtempSync(`${this.env.TMPDIR || "/tmp"}/bro-sqlite-readonly.`);
+      this.snapDir = mkdtempSync2(`${this.env.TMPDIR || "/tmp"}/bro-sqlite-readonly.`);
       const { DatabaseSync } = sqlite();
       const snap = `${this.snapDir}/snap.db`;
-      const source = new DatabaseSync(src, { readOnly: true, timeout: SNAPSHOT_TIMEOUT_MS });
+      const source = new DatabaseSync(src, { readOnly: true, timeout: SNAPSHOT_TIMEOUT_MS2 });
       try {
         source.prepare("VACUUM INTO ?").run(snap);
       } finally {
         source.close();
       }
-      const copy = new DatabaseSync(snap, { timeout: SNAPSHOT_TIMEOUT_MS });
+      const copy = new DatabaseSync(snap, { timeout: SNAPSHOT_TIMEOUT_MS2 });
       try {
         copy.exec("PRAGMA journal_mode=DELETE;");
       } finally {
@@ -1280,7 +1468,7 @@ var ReadSession = class {
     } catch {
     }
     this.db = null;
-    if (this.snapDir !== "") rmSync(this.snapDir, { recursive: true, force: true });
+    if (this.snapDir !== "") rmSync2(this.snapDir, { recursive: true, force: true });
     this.snapDir = "";
   }
 };
@@ -1494,7 +1682,7 @@ function broSqliteReadonly(argv2, env, io2) {
 
 // src/cli/health.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync4, readdirSync, readFileSync as readFileSync4, statSync as statSync6 } from "node:fs";
+import { existsSync as existsSync5, readdirSync, readFileSync as readFileSync4, statSync as statSync6 } from "node:fs";
 import { constants as constants4 } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -2072,7 +2260,7 @@ function health(_argv, env, io2) {
   if (db !== "" && db !== MEMORY) {
     legacyGraph = db.slice(db.lastIndexOf("/") + 1) === TMB_DB_FILENAME ? `${db.slice(0, -TMB_DB_FILENAME.length)}world-model.kuzu` : `${db}.world-model.kuzu`;
   }
-  if (legacyGraph !== "" && existsSync4(legacyGraph)) {
+  if (legacyGraph !== "" && existsSync5(legacyGraph)) {
     r.line(
       `INFO  world-model: ${legacyGraph} is an unused leftover from the old graph store \u2014 TMB no longer reads it; you may delete it (and any ${legacyGraph.slice(legacyGraph.lastIndexOf("/") + 1)}.* files beside it).`
     );
@@ -2187,6 +2375,12 @@ function health(_argv, env, io2) {
   return 1;
 }
 
+// src/cli/integrate.ts
+import { spawn as spawn3, spawnSync as spawnSync4 } from "node:child_process";
+import { closeSync as closeSync4, existsSync as existsSync6, mkdirSync as mkdirSync3, mkdtempSync as mkdtempSync4, openSync as openSync4, readFileSync as readFileSync7, rmdirSync, rmSync as rmSync4 } from "node:fs";
+import { constants as osConstants2, tmpdir as tmpdir2 } from "node:os";
+import { join as join3 } from "node:path";
+
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants5, readFileSync as readFileSync5, statSync as statSync7 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
@@ -2264,8 +2458,940 @@ COMMIT;
   return { ok: false, code, stdout, error: `tmb_db_write: ${caller}: ${detail}` };
 }
 
+// src/hooks/lib/git.ts
+import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
+import { spawn } from "node:child_process";
+import { statSync as statSync8 } from "node:fs";
+var GIT_MAX_BUFFER = 256 * 1024 * 1024;
+function codedError(message2, code) {
+  return Object.assign(new Error(message2), { code });
+}
+function collector() {
+  const chunks = [];
+  let size = 0;
+  return {
+    add(chunk) {
+      if (size <= GIT_MAX_BUFFER) chunks.push(chunk.subarray(0, GIT_MAX_BUFFER - size + 1));
+      size += chunk.length;
+    },
+    bytes: () => Buffer.concat(chunks).subarray(0, GIT_MAX_BUFFER),
+    over: () => size > GIT_MAX_BUFFER
+  };
+}
+function timedOut(args) {
+  return codedError(`git ${args[0] ?? ""} timed out`, "ETIMEDOUT");
+}
+async function spawnGit(dir, args, options) {
+  const { env = process.env, input = "", stderr = "ignore", timeoutMs } = options;
+  const limit = spawnLimit(timeoutMs);
+  const signal = limit === null ? void 0 : limit.byDeadline ? deadlineSignal() : AbortSignal.timeout(limit.timeout);
+  if (signal?.aborted) {
+    const error = timedOut(args);
+    noteSpawn(limit, { error, signal: null });
+    return { code: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error };
+  }
+  return new Promise((resolve) => {
+    const child = spawn("git", ["-C", dir, ...args], { env, stdio: ["pipe", "pipe", stderr], signal });
+    const out = collector();
+    const err = collector();
+    let cut;
+    let done = false;
+    const dropOutput = () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
+    const finish = (code, killedBy, failure2) => {
+      if (done) return;
+      done = true;
+      const overflow = out.over() || err.over() ? codedError(`git ${args[0] ?? ""} passed its output limit`, "ENOBUFS") : void 0;
+      const error = failure2 ?? cut ?? overflow;
+      noteSpawn(limit, { error, signal: killedBy });
+      resolve({ code: error || code === null ? -1 : code, stdout: out.bytes(), stderr: err.bytes(), error });
+    };
+    const take = (into, chunk) => {
+      into.add(chunk);
+      if (!into.over()) return;
+      dropOutput();
+      child.kill();
+    };
+    for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.on("error", () => void 0);
+    child.stdout?.on("data", (chunk) => take(out, chunk));
+    child.stderr?.on("data", (chunk) => take(err, chunk));
+    child.on("error", (failure2) => {
+      if (failure2.name !== "AbortError") {
+        finish(null, null, failure2);
+        return;
+      }
+      cut = timedOut(args);
+      dropOutput();
+    });
+    child.on("close", (code, killedBy) => finish(code, killedBy));
+    child.stdin?.end(input);
+  });
+}
+var memos = new AsyncLocalStorage2();
+var READ_SUBCOMMANDS = /* @__PURE__ */ new Set(["rev-parse", "show-ref", "merge-base", "cat-file", "status"]);
+var WALK_SUBCOMMANDS = /* @__PURE__ */ new Set(["log", "rev-list"]);
+var WRITES_A_FILE = /^--ou/;
+var SYMBOLIC_REF_READ_FLAGS = /* @__PURE__ */ new Set(["--short", "-q", "--quiet"]);
+function isProvablyReadOnly(args) {
+  const [subcommand, ...rest] = args;
+  if (READ_SUBCOMMANDS.has(subcommand)) return true;
+  if (WALK_SUBCOMMANDS.has(subcommand)) return !rest.some((arg) => WRITES_A_FILE.test(arg));
+  if (subcommand === "remote") return rest[0] === "get-url";
+  if (subcommand === "worktree") return rest[0] === "list";
+  if (subcommand !== "symbolic-ref") return false;
+  const others = rest.filter((arg) => !SYMBOLIC_REF_READ_FLAGS.has(arg));
+  return others.length === 1 && !others[0].startsWith("-");
+}
+function isFetch(args) {
+  let at = 0;
+  while (args[at] === "-c" && args[at + 1]?.startsWith("http.")) at += 2;
+  return args[at] === "fetch";
+}
+function isCut(r) {
+  return r.code === -1 && r.error?.code === "ETIMEDOUT";
+}
+function forget(memo, settledFetches) {
+  for (const [key, entry] of memo.entries) {
+    if (entry.kind === "read" || settledFetches && entry.settled) memo.entries.delete(key);
+  }
+}
+function startShared(memo, key, kind, dir, args, options) {
+  const conclude = (keep) => {
+    entry.settled = true;
+    if (!keep && memo.entries.get(key) === entry) memo.entries.delete(key);
+    if (kind === "fetch") forget(memo, false);
+  };
+  const entry = {
+    kind,
+    settled: false,
+    run: spawnGit(dir, args, options).then(
+      (r) => {
+        conclude(kind === "read" ? r.code !== -1 : r.code === 0);
+        return r;
+      },
+      (failure2) => {
+        conclude(false);
+        throw failure2;
+      }
+    )
+  };
+  memo.entries.set(key, entry);
+  return entry.run;
+}
+var OWN_DEADLINE = /* @__PURE__ */ Symbol("own-deadline");
+async function untilOwnDeadline(run2, signal) {
+  if (signal === void 0) return await run2;
+  let onAbort = () => void 0;
+  const aborted = new Promise((resolve) => {
+    onAbort = () => resolve(OWN_DEADLINE);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([run2, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+async function sharedRun(memo, kind, dir, args, options) {
+  const key = JSON.stringify([dir, args, options.input ?? ""]);
+  const signal = deadlineSignal();
+  for (; ; ) {
+    const held = memo.entries.get(key);
+    if (held === void 0) return await startShared(memo, key, kind, dir, args, options);
+    const r = signal?.aborted ? OWN_DEADLINE : await untilOwnDeadline(held.run, signal);
+    if (r === OWN_DEADLINE) {
+      markDeadlineExpired();
+      return { code: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: timedOut(args) };
+    }
+    if (!isCut(r)) return r;
+  }
+}
+async function gitSpawn(dir, args, options = {}) {
+  const memo = memos.getStore();
+  if (memo === void 0) return await spawnGit(dir, args, options);
+  const sharable = (options.env ?? process.env) === memo.env && (options.stderr ?? "ignore") === "ignore" && options.timeoutMs === void 0;
+  if (isProvablyReadOnly(args)) return sharable ? await sharedRun(memo, "read", dir, args, options) : await spawnGit(dir, args, options);
+  if (sharable && isFetch(args)) return await sharedRun(memo, "fetch", dir, args, options);
+  forget(memo, true);
+  try {
+    return await spawnGit(dir, args, options);
+  } finally {
+    forget(memo, true);
+  }
+}
+async function gitRun(dir, args, env = process.env, input = "", stderr = "ignore") {
+  const r = await gitSpawn(dir, args, { env, input, stderr });
+  return { code: r.code, stdout: r.stdout.toString("utf8") };
+}
+async function gitOut(dir, args, env = process.env, input = "") {
+  return (await gitRun(dir, args, env, input)).stdout.replace(/\n+$/, "");
+}
+function isDir3(path) {
+  if (path === "") return false;
+  try {
+    return statSync8(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function cdPwd(path, pwd) {
+  if (!isDir3(path === "" ? "." : path)) return "";
+  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
+  const out = [];
+  for (const part of abs.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") out.pop();
+    else out.push(part);
+  }
+  return `/${out.join("/")}`;
+}
+
+// src/hooks/lib/repo.ts
+import { statSync as statSync9 } from "node:fs";
+function isFile5(path) {
+  if (path === "") return false;
+  try {
+    return statSync9(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function firstLine(text) {
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text : text.slice(0, nl);
+}
+function readable(db, env) {
+  return isFile5(db) && haveSqlite(env);
+}
+async function repoGitRoot(target, env = process.env) {
+  if (target === "") return "";
+  while (!isDir3(target) && target !== "/" && target !== ".") target = posixDirname(target);
+  if (!isDir3(target)) return "";
+  const common = await gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
+  return await gitOut(target, ["rev-parse", "--show-toplevel"], env);
+}
+function repoSinglePath(db, env = process.env) {
+  if (!readable(db, env)) return "";
+  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
+  return firstLine(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+}
+function repoPathByName(db, name2, env = process.env) {
+  if (!readable(db, env) || name2 === "") return "";
+  return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name2)}' LIMIT 1;`, env));
+}
+
+// src/hooks/swe-verification-gate.ts
+import { spawn as spawn2, spawnSync as spawnSync3 } from "node:child_process";
+import { accessSync as accessSync5, closeSync as closeSync3, constants as constants6, mkdirSync as mkdirSync2, mkdtempSync as mkdtempSync3, openSync as openSync3, readFileSync as readFileSync6, rmSync as rmSync3, statSync as statSync10, writeFileSync } from "node:fs";
+import { constants as osConstants, tmpdir } from "node:os";
+
+// src/hooks/gate.ts
+var ALLOW = Object.freeze({ stdout: "", code: 0 });
+
+// src/hooks/lib/verification-carry.ts
+import { realpathSync as realpathSync3 } from "node:fs";
+import { basename, matchesGlob } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
+var VERIFICATION_INPUTS_VERSION = 1;
+var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+var PROBE_PREFIX = "[probe ";
+function refuse(reason, source = null) {
+  return { source_run: source?.id ?? null, source_sha: source?.sha ?? null, carry: [], refused: reason, commands: [] };
+}
+function parseCommands(json) {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) && parsed.every((c) => typeof c === "string" && c !== "") ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function parseInputsMap(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return "map_invalid";
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return "map_invalid";
+  const map = parsed;
+  if (map.version !== VERIFICATION_INPUTS_VERSION) return "map_unknown_version";
+  if (!Array.isArray(map.commands)) return "map_invalid";
+  const entries = [];
+  for (const entry of map.commands) {
+    if (entry === null || typeof entry !== "object") return "map_invalid";
+    const { match, inputs } = entry;
+    if (typeof match !== "string" || match === "") return "map_invalid";
+    if (!Array.isArray(inputs) || inputs.length === 0 || !inputs.every((g) => typeof g === "string" && g !== "")) return "map_invalid";
+    entries.push({ match, inputs });
+  }
+  return entries;
+}
+function sourceRun(db, taskId, head, env) {
+  const out = gateRead(
+    db,
+    `SELECT json_object('id', id, 'sha', lower(commit_sha)) FROM verification_runs
+      WHERE task_id = ${taskId} AND finished_at IS NOT NULL AND exit_code = 0 AND timed_out = 0
+        AND lower(commit_sha) <> '${sqlQuote(head)}'
+      ORDER BY finished_at DESC, id DESC LIMIT 1;`,
+    env
+  );
+  if (out === GATE_READ_ERROR) return "error";
+  if (out === "") return null;
+  const row = JSON.parse(out);
+  if (typeof row.id !== "number" || typeof row.sha !== "string" || !SHA_RE.test(row.sha)) return null;
+  return { id: row.id, sha: row.sha };
+}
+function passedInSource(db, runId, env) {
+  const out = gateRead(
+    db,
+    `SELECT COALESCE(json_group_array(command), '[]') FROM verification_run_commands WHERE run_id = ${runId} AND exit_code = 0;`,
+    env
+  );
+  if (out === GATE_READ_ERROR) return "error";
+  const commands = parseCommands(out === "" ? "[]" : out);
+  return commands === null ? "error" : new Set(commands);
+}
+async function changedPaths(worktree, from, to, env) {
+  const r = await gitRun(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to, "--"], env);
+  if (r.code !== 0) return null;
+  return r.stdout.split("\0").filter((p) => p !== "");
+}
+async function planCarry(req, env = process.env) {
+  const taskId = sqlInt(req.taskId);
+  const head = req.head.toLowerCase();
+  const commands = parseCommands(req.commandsJson);
+  if (req.db === "" || taskId === "" || req.worktree === "" || !SHA_RE.test(head) || commands === null) return refuse("bad_input");
+  const actualHead = await gitRun(req.worktree, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], env);
+  if (actualHead.code !== 0 || actualHead.stdout.trim().toLowerCase() !== head) return refuse("head_mismatch");
+  const source = sourceRun(req.db, taskId, head, env);
+  if (source === "error") return refuse("db_unreadable");
+  if (source === null) return refuse("no_source_run");
+  if ((await gitRun(req.worktree, ["merge-base", "--is-ancestor", source.sha, head], env)).code !== 0) return refuse("not_ancestor", source);
+  const merges = await gitRun(req.worktree, ["rev-list", "--merges", `${source.sha}..${head}`], env);
+  if (merges.code !== 0 || merges.stdout.trim() !== "") return refuse("merge_in_range", source);
+  const status = await gitRun(req.worktree, ["status", "--porcelain"], env);
+  if (status.code !== 0 || status.stdout.trim() !== "") return refuse("dirty_worktree", source);
+  const changed = await changedPaths(req.worktree, source.sha, head, env);
+  if (changed === null) return refuse("diff_failed", source);
+  if (changed.includes(VERIFICATION_INPUTS_PATH)) return refuse("map_changed", source);
+  const mapText = await gitRun(req.worktree, ["show", `${head}:${VERIFICATION_INPUTS_PATH}`], env);
+  if (mapText.code !== 0) return refuse("map_missing", source);
+  const entries = parseInputsMap(mapText.stdout);
+  if (typeof entries === "string") return refuse(entries, source);
+  const passed = passedInSource(req.db, source.id, env);
+  if (passed === "error") return refuse("db_unreadable", source);
+  const decisions = commands.map((command, i) => {
+    const decide = (reason) => ({ ordinal: i + 1, command, carried: reason === null, reason });
+    if (command.startsWith(PROBE_PREFIX)) return decide("probe");
+    if (!passed.has(command)) return decide("not_passed_in_source");
+    const declared = entries.filter((e) => e.match === command);
+    if (declared.length === 0) return decide("undeclared");
+    if (declared.length > 1) return decide("ambiguous_declaration");
+    const touched = declared[0].inputs.some((glob) => changed.some((path) => matchesGlob(path, glob)));
+    return decide(touched ? "inputs_changed" : null);
+  });
+  return {
+    source_run: source.id,
+    source_sha: source.sha,
+    carry: decisions.filter((d) => d.carried).map((d) => d.ordinal),
+    refused: null,
+    commands: decisions
+  };
+}
+async function planCarrySafe(req, env = process.env) {
+  try {
+    return await planCarry(req, env);
+  } catch {
+    return refuse("error");
+  }
+}
+function isMainModule() {
+  const entry = process.argv[1];
+  const self = fileURLToPath2(import.meta.url);
+  if (entry === void 0 || basename(self) !== "verification-carry.js") return false;
+  try {
+    return realpathSync3(entry) === realpathSync3(self);
+  } catch {
+    return false;
+  }
+}
+if (isMainModule()) {
+  const [db = "", taskId = "", worktree = "", head = "", commandsJson = ""] = process.argv.slice(2);
+  process.stdout.write(`${JSON.stringify(await planCarrySafe({ db, taskId, worktree, head, commandsJson }))}
+`);
+}
+
+// src/hooks/swe-verification-gate.ts
+var GATE_NAME = "swe-verification-gate";
+var VERIFICATION_DEFAULT_S = 900;
+var VERIFICATION_MAX_S = 1800;
+var signals = osConstants.signals;
+function shellLength(s, env) {
+  return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
+}
+function shellTail(s, n, env) {
+  if (ctypeUtf8(env)) return [...s].slice(-n).join("");
+  const bytes = Buffer.from(s);
+  return bytes.subarray(Math.max(0, bytes.length - n)).toString("utf8");
+}
+function parseBudget(raw) {
+  let timeoutS = VERIFICATION_DEFAULT_S;
+  if (raw !== "") {
+    if (!/^[0-9]+$/.test(raw)) timeoutS = null;
+    else if (raw.length > 9) timeoutS = VERIFICATION_MAX_S;
+    else timeoutS = Number(raw) >= 1 ? Number(raw) : null;
+  }
+  let warning = "";
+  if (timeoutS === null) {
+    warning = `${GATE_NAME}: verification_timeout_s '${raw.replaceAll("\n", " ")}' is not an integer from 1 to ${VERIFICATION_MAX_S}; using the default ${VERIFICATION_DEFAULT_S}s
+`;
+    timeoutS = VERIFICATION_DEFAULT_S;
+  }
+  return { timeoutS: Math.min(timeoutS, VERIFICATION_MAX_S), warning };
+}
+function executable(path) {
+  if (path === "") return false;
+  try {
+    accessSync5(path, constants6.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function capture(cmd, args, dir, env) {
+  const r = spawnSync3(cmd, args, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  return r.stdout ?? "";
+}
+function toolchainDirs(env, worktree) {
+  const home = env.HOME ?? "";
+  const out = [];
+  const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
+  if (isDir3(`${miseData}/shims`)) out.push(`${miseData}/shims`);
+  const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
+  if (mise !== void 0) out.push(...capture(mise, ["bin-paths"], worktree, env).split("\n"));
+  const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
+  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture(brew, ["--prefix"], worktree, env));
+  const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+  out.push(...brewDirs.filter(isDir3));
+  if (home !== "" && isDir3(`${home}/.local/bin`)) out.push(`${home}/.local/bin`);
+  if (home !== "") {
+    for (const dir of [`${home}/Library/Application Support/reflex/bun/bin`, `${home}/.bun/bin`]) {
+      if (isDir3(dir) && executable(`${dir}/bun`)) out.push(dir);
+    }
+  }
+  return out;
+}
+function joinToolchainPath(dirs, base) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const dir of [...dirs.filter((d) => d !== ""), ...base.split(":")]) {
+    if (dir !== "") seen.add(dir);
+  }
+  return [...seen].join(":");
+}
+
+// src/review-sql.ts
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/utils/worktree-deps.ts
+import { execFileSync } from "node:child_process";
+import { lstatSync, realpathSync as realpathSync4, statSync as statSync11, symlinkSync } from "node:fs";
+import { basename as basename2, dirname, join as join2 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+
+// src/utils/timeouts.ts
+var SUBPROCESS_TIMEOUT_MS = 5e3;
+
+// src/utils/worktree-deps.ts
+function isDirectory(path) {
+  try {
+    return statSync11(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function pathPresent(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function trackedPackageDirs(worktreePath) {
+  const out = execFileSync("git", ["-C", worktreePath, "ls-files", "-z", "--", "package.json", "*/package.json"], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: SUBPROCESS_TIMEOUT_MS
+  }).toString();
+  return [...new Set(out.split("\0").filter(Boolean).map((p) => dirname(p)))];
+}
+function linkWorktreeNodeModules(repoRoot, worktreePath) {
+  const result = { linked: [], skipped: [] };
+  let dirs;
+  try {
+    dirs = trackedPackageDirs(worktreePath);
+  } catch (error) {
+    result.skipped.push({ dir: ".", reason: `git ls-files failed: ${error.message}` });
+    return result;
+  }
+  for (const dir of dirs) {
+    const src = join2(repoRoot, dir, "node_modules");
+    const dest = join2(worktreePath, dir, "node_modules");
+    if (!isDirectory(src)) {
+      result.skipped.push({ dir, reason: `no install at ${src}` });
+      continue;
+    }
+    if (pathPresent(dest)) {
+      result.skipped.push({ dir, reason: `${dest} already exists` });
+      continue;
+    }
+    try {
+      symlinkSync(src, dest);
+      result.linked.push(dir);
+    } catch (error) {
+      result.skipped.push({ dir, reason: `could not link ${src}: ${error.message}` });
+    }
+  }
+  return result;
+}
+function isMainModule2() {
+  const entry = process.argv[1];
+  const self = fileURLToPath3(import.meta.url);
+  if (entry === void 0 || basename2(self) !== "worktree-deps.js") return false;
+  try {
+    return realpathSync4(entry) === realpathSync4(self);
+  } catch {
+    return false;
+  }
+}
+if (isMainModule2()) {
+  const [repoRoot, worktreePath] = process.argv.slice(2);
+  if (!repoRoot || !worktreePath) {
+    process.stderr.write("usage: node worktree-deps.js <repoRoot> <worktreePath>\n");
+  } else {
+    for (const s of linkWorktreeNodeModules(repoRoot, worktreePath).skipped) {
+      process.stderr.write(`worktree-deps: ${s.dir}: ${s.reason}
+`);
+    }
+  }
+  process.exit(0);
+}
+
+// src/cli/integrate.ts
+var FINISH_ATTEMPTS = 3;
+var TAIL_LINES = 20;
+var DEFAULT_TAIL_CHARS = 4e3;
+var TIMED_OUT_CODE = 124;
+var REGEN_ATTR = "attr:merge=tmb-regen";
+var REGEN_SCRIPTS = [
+  { name: "regen-generated.ts", run: ["node", "--experimental-strip-types", "--no-warnings"] },
+  { name: "regen-generated.sh", run: ["bash"] }
+];
+var RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10000" };
+var MAX_BUFFER2 = 256 * 1024 * 1024;
+var signals2 = osConstants2.signals;
+var Exit2 = class extends Error {
+  constructor(code) {
+    super(`exit ${code}`);
+    this.code = code;
+  }
+  code;
+};
+function nowS() {
+  return Math.floor(Date.now() / 1e3);
+}
+function sleepS(seconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1e3);
+}
+function verificationCommands(json) {
+  const { values, complete } = jsonStream(json);
+  if (!complete) return null;
+  const out = [];
+  for (const value of values) {
+    if (value === null || typeof value !== "object") continue;
+    const items = Array.isArray(value) ? value : keysInOrder(value).map((k) => value[k]);
+    for (const item of items) if (typeof item === "string" && item !== "") out.push(item);
+  }
+  return commandSubstitution(out.join("\n"));
+}
+function lastLines(text, n) {
+  return text === "" ? "" : text.split("\n").slice(-n).join("\n");
+}
+var Integration = class {
+  constructor(env, io2) {
+    this.env = env;
+    this.io = io2;
+  }
+  env;
+  io;
+  db = "";
+  taskId = "";
+  base = "";
+  branch = "";
+  commitSha = "";
+  baseSha = "";
+  repoRoot = "";
+  tip = "";
+  wt = "";
+  runId = "";
+  runOpen = false;
+  child = null;
+  scratch = "";
+  say(text) {
+    this.io.err(`integrate: ${text}
+`);
+  }
+  die(code, text) {
+    this.say(text);
+    throw new Exit2(code);
+  }
+  git(dir, args, opts = {}) {
+    const r = spawnSync4("git", ["-C", dir, ...args], {
+      encoding: "utf8",
+      env: opts.env ?? this.env,
+      input: opts.input,
+      stdio: [opts.input === void 0 ? "ignore" : "pipe", "pipe", "pipe"],
+      maxBuffer: MAX_BUFFER2
+    });
+    return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ""), err: r.stderr ?? "" };
+  }
+  /** A git command whose output goes to stderr, as the .sh's `>&2`. */
+  gitLoud(dir, args, env) {
+    const r = spawnSync4("git", ["-C", dir, ...args], { encoding: "utf8", env: env ?? this.env, stdio: ["ignore", "pipe", "pipe"] });
+    this.io.err(`${r.stdout ?? ""}${r.stderr ?? ""}`);
+    return r.status === 0;
+  }
+  g(args) {
+    return this.git(this.repoRoot, args);
+  }
+  revParse(dir, rev) {
+    const r = this.git(dir, ["rev-parse", "--verify", "-q", rev]);
+    return r.ok ? r.out : "";
+  }
+  record(sql) {
+    const r = dbWrite(this.db, sql, { caller: "integrate", env: { ...this.env, ...RECORD_ENV } });
+    if (!r.ok && r.error !== "") this.io.err(`${r.error}
+`);
+    return { ok: r.ok, stdout: r.stdout };
+  }
+  finish(rc, timedOut2) {
+    for (let attempt = 1; attempt <= FINISH_ATTEMPTS; attempt += 1) {
+      if (this.record(`UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut2} WHERE id = ${this.runId};`).ok) {
+        this.runOpen = false;
+        return true;
+      }
+      sleepS(attempt);
+    }
+    return false;
+  }
+  recordCommand(ordinal, command, rc, elapsed, output) {
+    const rawCap = this.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
+    const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
+    const tail = shellLength(output, this.env) > cap ? shellTail(output, cap, this.env) : output;
+    return this.record(
+      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`
+    ).ok;
+  }
+  /** Finishes a run left open, kills its command and removes the temporary worktree; safe to call twice. */
+  cleanup(code) {
+    if (this.child?.pid !== void 0 && this.child.exitCode === null && this.child.signalCode === null) {
+      try {
+        process.kill(-this.child.pid, "SIGKILL");
+      } catch {
+      }
+    }
+    if (this.runOpen) {
+      const rc = code === 0 ? 1 : code;
+      if (!this.finish(rc, 0)) this.say(`run #${this.runId} finish write failed on exit ${rc}`);
+    }
+    if (this.scratch !== "") rmSync4(this.scratch, { recursive: true, force: true });
+    this.scratch = "";
+    if (this.wt === "") return;
+    if (!this.g(["worktree", "remove", "--force", this.wt]).ok) {
+      rmSync4(this.wt, { recursive: true, force: true });
+      this.g(["worktree", "prune"]);
+    }
+    this.wt = "";
+  }
+  /** Runs <cmd> in the worktree, output captured, killed with its process group after <seconds>. */
+  execute(cmd, seconds, env) {
+    if (this.scratch === "") this.scratch = mkdtempSync4(join3(this.env.TMPDIR || tmpdir2(), "tmb-integrate-"));
+    const outPath = join3(this.scratch, "out");
+    return new Promise((done) => {
+      const fd = openSync4(outPath, "w");
+      let fired = false;
+      let settled = false;
+      const settle = (rc) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.child = null;
+        let out = "";
+        try {
+          out = commandSubstitution(readFileSync7(outPath, "utf8"));
+        } catch {
+        }
+        rmSync4(outPath, { force: true });
+        done({ rc, fired, out });
+      };
+      const child = spawn3(cmd[0], cmd.slice(1), { cwd: this.wt, env: { ...env, PWD: this.wt }, stdio: ["ignore", fd, fd], detached: true });
+      this.child = child;
+      closeSync4(fd);
+      const timer = setTimeout(() => {
+        fired = true;
+        try {
+          if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
+        } catch {
+        }
+      }, seconds * 1e3);
+      child.on("error", () => settle(127));
+      child.on("exit", (code, signal) => {
+        if (fired) settle(TIMED_OUT_CODE);
+        else settle(code ?? 128 + (signal !== null ? signals2[signal] ?? 0 : 0));
+      });
+    });
+  }
+  branchHolder() {
+    let wt = "";
+    for (const line of this.g(["worktree", "list", "--porcelain"]).out.split("\n")) {
+      if (line.startsWith("worktree ")) wt = line.slice("worktree ".length);
+      if (line === `branch refs/heads/${this.branch}`) return wt;
+    }
+    return "";
+  }
+  /** True when no worktree holds the branch and its tip is commit_sha, a verified rebase of it, or absent; sets tip. */
+  branchMovable() {
+    const holder = this.branchHolder();
+    if (holder !== "") {
+      this.say(`${this.branch} is checked out at ${holder}; remove that worktree (or switch it off the branch) and run cli.js integrate again`);
+      return false;
+    }
+    this.tip = this.revParse(this.repoRoot, `refs/heads/${this.branch}^{commit}`);
+    if (this.tip === "" || this.tip === this.commitSha) return true;
+    const runs = gateRead(
+      this.db,
+      `SELECT COUNT(*) FROM verification_runs
+    WHERE task_id = ${this.taskId} AND commit_sha = '${sqlQuote(this.tip)}' AND exit_code = 0 AND timed_out = 0;`,
+      this.env
+    );
+    if (runs === "" || runs === GATE_READ_ERROR || runs === "0") {
+      this.say(`${this.branch} is at ${this.tip}, which is neither task ${this.taskId}'s reviewed commit nor a verified integration of it; refusing to move it`);
+      return false;
+    }
+    return true;
+  }
+  rebasePicks(sha) {
+    return this.git(this.wt, ["rev-list", "--reverse", "--no-merges", "--cherry-pick", "--right-only", `${this.baseSha}...${sha}`]).out;
+  }
+  patchIds(sha) {
+    const picks = this.rebasePicks(sha);
+    const diff = spawnSync4("git", ["-C", this.wt, "diff-tree", "--stdin", "-p", "-r", "--root", "--", ".", `:(exclude,${REGEN_ATTR})`], {
+      encoding: "utf8",
+      env: this.env,
+      input: picks === "" ? "" : `${picks}
+`,
+      maxBuffer: MAX_BUFFER2
+    });
+    const ids = this.git(this.wt, ["patch-id", "--stable"], { input: diff.stdout ?? "" });
+    return commandSubstitution(
+      ids.out.split("\n").map((line) => line.split(" ")[0]).join("\n")
+    );
+  }
+  regenTouched() {
+    return [`${this.baseSha}...${this.commitSha}`, `${this.commitSha}...${this.baseSha}`].some(
+      (side) => this.git(this.wt, ["diff", "--name-only", side, "--", `:(${REGEN_ATTR})`]).out !== ""
+    );
+  }
+  async run(argv2) {
+    if (argv2.length !== 2) this.die(4, "usage: cli.js integrate <task_id> <base>");
+    this.taskId = sqlInt(argv2[0]);
+    this.base = argv2[1];
+    if (this.taskId === "") this.die(4, `task_id must be a number, got '${argv2[0]}'`);
+    if (this.base === "") this.die(4, "base is empty");
+    const db = dbPath(this.env);
+    if (db === null) this.die(4, "no trajectory DB resolved (set TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)");
+    this.db = db;
+    const row = gateRead(
+      db,
+      `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || ${HAS_PASS_SQL}
+  FROM tasks t WHERE t.id = ${this.taskId};`,
+      this.env
+    );
+    if (row === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${db}`);
+    if (row === "") this.die(4, `no task ${this.taskId}`);
+    const [, taskRepo = "", branch = "", commitSha = "", hasPass = ""] = row.split("\n");
+    this.branch = branch;
+    if (branch === "") this.die(4, `task ${this.taskId} has no branch_id`);
+    if (commitSha === "") this.die(3, `task ${this.taskId} has no commit_sha, so no reviewed commit`);
+    if (hasPass !== "1") this.die(3, `task ${this.taskId} has no passing code-reviewer verdict for commit ${commitSha}`);
+    const wsRoot = posixDirname(posixDirname(posixDirname(db)));
+    const repoDir = taskRepo !== "" ? repoPathByName(db, taskRepo, this.env) || `${wsRoot}/${taskRepo}` : repoSinglePath(db, this.env) || wsRoot;
+    this.repoRoot = await repoGitRoot(repoDir, this.env);
+    if (this.repoRoot === "" || !isDir3(repoDir)) this.die(4, `task ${this.taskId}'s repo is not a git checkout: ${repoDir || "<unresolved>"}`);
+    this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
+    if (this.commitSha === "") this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
+    this.baseSha = this.revParse(this.repoRoot, `${this.base}^{commit}`);
+    if (this.baseSha === "") this.die(4, `base '${this.base}' is not a commit in ${this.repoRoot}`);
+    if (this.g(["merge-base", "--is-ancestor", this.baseSha, this.commitSha]).ok) {
+      this.say(`${this.base} is already an ancestor of task ${this.taskId}'s commit; nothing to rebase`);
+      this.io.out(`${this.commitSha}
+`);
+      return 0;
+    }
+    const verification = gateRead(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${this.taskId};`, this.env);
+    if (verification === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${db}`);
+    const commands = verificationCommands(verification);
+    if (commands === null) this.die(4, `task ${this.taskId}'s verification[] is not a JSON array`);
+    if (commands === "") this.die(4, `task ${this.taskId} has no verification[]; there is nothing to re-verify the rebased commit with`);
+    if (!this.branchMovable()) throw new Exit2(4);
+    try {
+      mkdirSync3(`${this.repoRoot}/.claude/worktrees`, { recursive: true });
+    } catch {
+      this.die(4, `cannot create ${this.repoRoot}/.claude/worktrees`);
+    }
+    try {
+      this.wt = mkdtempSync4(`${this.repoRoot}/.claude/worktrees/integrate-${this.taskId}.`);
+    } catch {
+      this.die(4, "cannot create a temporary worktree dir");
+    }
+    if (!this.gitLoud(this.repoRoot, ["worktree", "add", "-q", "--detach", this.wt, this.commitSha])) {
+      try {
+        rmdirSync(this.wt);
+      } catch {
+      }
+      this.wt = "";
+      this.die(4, "git worktree add failed");
+    }
+    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.base} (${this.baseSha}) in ${this.wt}`);
+    if (!this.gitLoud(this.wt, ["rebase", "-q", this.baseSha], { ...this.env, GIT_EDITOR: "true" })) {
+      this.git(this.wt, ["rebase", "--abort"]);
+      this.die(2, `rebase of task ${this.taskId} onto ${this.base} conflicted; aborted, ${branch} and the DB are unchanged`);
+    }
+    let newSha = this.revParse(this.wt, "HEAD");
+    if (newSha === "") this.die(4, "cannot read the rebased HEAD");
+    try {
+      for (const s of linkWorktreeNodeModules(this.repoRoot, this.wt).skipped) this.io.err(`worktree-deps: ${s.dir}: ${s.reason}
+`);
+    } catch {
+      this.say("node_modules linking failed");
+    }
+    const budgetRaw = this.env.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
+    const timeoutS = parseBudget(budgetRaw).timeoutS;
+    const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? "");
+    const regen = REGEN_SCRIPTS.find((s) => existsSync6(`${this.wt}/scripts/maintenance/${s.name}`));
+    if (newSha !== this.baseSha && regen !== void 0 && this.regenTouched()) {
+      const script = `scripts/maintenance/${regen.name}`;
+      this.say(`regenerating generated files with ${script}`);
+      const r = await this.execute([...regen.run, script], timeoutS, { ...this.env, PATH: toolchainPath });
+      if (r.out !== "") this.io.err(`${r.out}
+`);
+      if (r.rc !== 0) this.die(2, `${script} exited ${r.rc} in the rebased worktree; ${branch} and the DB are unchanged`);
+      if (this.git(this.wt, ["status", "--porcelain", "--untracked-files=no"]).out !== "") {
+        if (!this.gitLoud(this.wt, ["add", "-u"]) || !this.gitLoud(this.wt, ["commit", "-q", "--amend", "--no-edit"])) {
+          this.die(4, `could not amend the regenerated files into the rebased commit; ${branch} and the DB are unchanged`);
+        }
+        newSha = this.revParse(this.wt, "HEAD");
+        if (newSha === "") this.die(4, "cannot read the amended HEAD");
+      }
+    }
+    if (this.rebasePicks(newSha) === "") {
+      this.die(2, `task ${this.taskId}'s patch is already in ${this.base}; nothing to integrate, ${branch} and the DB are unchanged`);
+    }
+    if (this.patchIds(this.commitSha) !== this.patchIds(newSha)) {
+      this.die(
+        2,
+        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.base}..reviewed differs from ${this.base}..rebased); ${branch} and the DB are unchanged`
+      );
+    }
+    const now = nowIso();
+    const started = this.record(
+      `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
+ WHERE finished_at IS NULL
+   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.taskId}, '${sqlQuote(newSha)}', 'manual', '${now}', ${timeoutS});
+SELECT last_insert_rowid();`
+    );
+    this.runId = started.ok ? commandSubstitution(started.stdout) : "";
+    if (this.runId === "") this.die(4, `could not record a verification run for ${newSha}; ${branch} unmoved`);
+    this.runOpen = true;
+    const commandEnv = { ...this.env, ...RECORD_ENV, PATH: toolchainPath };
+    const lines = commands.split("\n");
+    const total = lines.filter((line) => line !== "").length;
+    const startS = nowS();
+    for (const [i, cmd] of lines.entries()) {
+      const ordinal = i + 1;
+      const remaining = timeoutS - (nowS() - startS);
+      if (remaining <= 0) {
+        this.recordCommand(ordinal, cmd, TIMED_OUT_CODE, 0, "budget spent before the command started");
+        if (!this.finish(TIMED_OUT_CODE, 1)) this.say(`run #${this.runId} finish write failed`);
+        this.die(1, `verification budget (${timeoutS}s) spent before command ${ordinal}/${total}: ${cmd}; recorded as run #${this.runId}; ${branch} unmoved`);
+      }
+      const cmdStart = nowS();
+      const { rc, fired, out } = await this.execute(["bash", "-c", cmd], remaining, commandEnv);
+      const elapsed = nowS() - cmdStart;
+      const tail = lastLines(out, TAIL_LINES);
+      const timedOut2 = rc === TIMED_OUT_CODE && fired ? 1 : 0;
+      if (!this.recordCommand(ordinal, cmd, rc, elapsed, tail)) this.say(`run #${this.runId}: command ${ordinal} row not recorded`);
+      if (rc !== 0) {
+        if (!this.finish(rc, timedOut2)) this.say(`run #${this.runId} finish write failed`);
+        this.say(`verification failed on ${newSha}: command ${ordinal}/${total} exited ${rc} after ${elapsed}s: ${cmd}`);
+        this.io.err(`${tail}
+`);
+        this.die(1, `recorded as run #${this.runId}; ${branch} unmoved`);
+      }
+    }
+    if (!this.finish(0, 0)) {
+      this.die(4, `run #${this.runId} passed but its finish write failed, so the push guard will not count it; ${branch} unmoved`);
+    }
+    const oldTip = this.tip;
+    if (!this.branchMovable()) {
+      this.die(4, `verification passed (run #${this.runId}) but ${branch} cannot be moved; the rebased commit is ${newSha}`);
+    }
+    if (this.tip !== oldTip) this.die(4, `${branch} moved during integration (${oldTip} -> ${this.tip}); left as is`);
+    if (!this.g(["update-ref", "-m", `cli.js integrate: task ${this.taskId} onto ${this.base}`, `refs/heads/${branch}`, newSha, this.tip]).ok) {
+      this.die(4, `git update-ref of ${branch} failed; the rebased commit is ${newSha} (run #${this.runId})`);
+    }
+    this.say(`${branch} -> ${newSha} (verification run #${this.runId} passed)`);
+    this.io.out(`${newSha}
+`);
+    return 0;
+  }
+};
+async function integrate(argv2, env, io2) {
+  const integration = new Integration(env, io2);
+  const onExit = (code2) => integration.cleanup(code2);
+  process.on("exit", onExit);
+  let code = 1;
+  try {
+    code = await integration.run(argv2);
+  } catch (e) {
+    if (!(e instanceof Exit2)) throw e;
+    code = e.code;
+  } finally {
+    process.off("exit", onExit);
+    integration.cleanup(code);
+  }
+  return code;
+}
+
 // src/cli/validation-record-fallback.ts
-var USAGE = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
+var USAGE2 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed}";
 var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed')";
@@ -2349,7 +3475,7 @@ DROP TABLE fallback_last_finding;`;
 }
 function validationRecordFallback(argv2, env, io2) {
   if (argv2.length < 5 || argv2.length > 6) {
-    io2.out(USAGE);
+    io2.out(USAGE2);
     return 1;
   }
   const [taskId, attemptN, verdict, feedback, session] = argv2;
@@ -2373,8 +3499,8 @@ function validationRecordFallback(argv2, env, io2) {
   if (check !== "ok") {
     const bar = check.indexOf("|");
     const code = bar < 0 ? check : check.slice(0, bar);
-    const message = (bar < 0 ? check : check.slice(bar + 1)).replace(/\n/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    io2.out(`{"error":"${code}","message":"${message}"}
+    const message2 = (bar < 0 ? check : check.slice(bar + 1)).replace(/\n/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    io2.out(`{"error":"${code}","message":"${message2}"}
 `);
     return 1;
   }
@@ -2402,11 +3528,13 @@ function validationRecordFallback(argv2, env, io2) {
 
 // src/cli/index.ts
 var SUBCOMMANDS = {
+  "assert-sql": assertSql,
   "bro-sqlite-readonly": broSqliteReadonly,
   health,
+  integrate,
   "validation-record-fallback": validationRecordFallback
 };
-var USAGE2 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
+var USAGE3 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
 `;
 var io = {
   out: (text) => process.stdout.write(text),
@@ -2417,12 +3545,14 @@ process.on("SIGTERM", () => process.exit(143));
 var [name, ...argv] = process.argv.slice(2);
 var run = name !== void 0 && Object.hasOwn(SUBCOMMANDS, name) ? SUBCOMMANDS[name] : void 0;
 if (name === "--help" || name === "-h") {
-  io.out(USAGE2);
+  io.out(USAGE3);
 } else if (!run) {
-  io.err(name === void 0 ? USAGE2 : `cli.js: unknown subcommand '${name}'
-${USAGE2}`);
+  io.err(name === void 0 ? USAGE3 : `cli.js: unknown subcommand '${name}'
+${USAGE3}`);
   process.exitCode = 2;
 } else {
-  process.exitCode = run(argv, process.env, io);
+  void Promise.resolve(run(argv, process.env, io)).then((code) => {
+    process.exitCode = code;
+  });
 }
 //# sourceMappingURL=cli.js.map
