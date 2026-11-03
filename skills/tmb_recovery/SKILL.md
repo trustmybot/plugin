@@ -130,4 +130,4 @@ Each `gh` call goes through the normal Bash permission prompt. When `gh` is miss
 
 ### Record
 
-After filing, call `audit_append(agent='bro', issue_id=<in-flight issue>, event_type='bug_report_filed', summary=<title>, content_json={signature, url, mode})`, passing `content_json` as a JSON string, with `mode` `issue` (a new report), `comment` (added to a dedup match) or `link` (the Human got `prefill_url`; `url` is that link). A later draft of the same failure then reports it as `already_filed`.
+After filing, call `audit_append(agent='bro', from_node='bro', issue_id=<in-flight issue>, event_type='bug_report_filed', summary=<title>, content_json={signature, url, mode})`, passing `content_json` as a JSON string, with `mode` `issue` (a new report), `comment` (added to a dedup match) or `link` (the Human got `prefill_url`; `url` is that link). A later draft of the same failure then reports it as `already_filed`.

@@ -13,6 +13,7 @@ mcp/trajectory-server/src/tools/pr_monitor.ts	const result = spawnSync(cmd, args
 mcp/trajectory-server/src/tools/pr_monitor.ts	['auth', 'status']	not-location	gh / glab `auth status` availability probe; reads no repo
 mcp/trajectory-server/src/tools/cheatcode-reconcile.ts	const child = execFile(	anchored-cd	runClaude sets cwd: projectRoot four lines below the call
 mcp/trajectory-server/src/tools/cheatcode.ts	projectRootFromDbPath(db.dbPath) ?? process.cwd()	fallback	an in-memory DB (tests) names no project
+mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	an in-memory DB (tests) with no CLAUDE_PROJECT_DIR names no project
 mcp/trajectory-server/src/utils/repo-paths.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
 mcp/trajectory-server/src/tools/onboard.ts	process.cwd()	fallback	onboard probes before a DB exists: the sole repo, else the DB's project, else CLAUDE_PROJECT_DIR, else the server's start dir (GH 1553 WP1)
 mcp/trajectory-server/src/tools/onboard.ts	], opts);	anchored-cd	probeGit's opts carry cwd, set two lines above the call
