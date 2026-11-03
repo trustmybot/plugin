@@ -78,8 +78,9 @@ Adding, renaming or removing a label is a doctrine change: edit `labels.json` in
 | `scripts/maintenance/labels.mjs --check-live` | Diffs the GH labels against `labels.json`. Skips without `gh` or with `TMB_L1_OFFLINE=1`. |
 | `.github/workflows/label-sync.yml` | Runs `--sync` on a push to `dev` that changes `labels.json`, and on demand. |
 | `.github/ISSUE_TEMPLATE/` | Bug, Improvement, Feature and Research forms set the type and require an Area. Blank issues are disabled. |
-| `.github/workflows/issue-triage.yml` | Runs `--triage` on every issue open, edit, label and unlabel. It turns the form's Area answer into its label when the issue has no area, then adds `needs-triage` unless the issue has exactly one type, one priority and one area, and removes it once it does. |
+| `.github/workflows/issue-triage.yml` | Runs `--triage` on every issue open, edit, label and unlabel. It turns the form's Area answer into its label when the issue has no area. A report filed from the CLI carries a `<!-- tmb-report v1 sig=… -->` marker but no labels, so on a marked body it also adds `Bug` when the issue has no type, and the priority for the Impact answer when it has no priority (Blocks all TMB work → `Priority: High`, Blocks one task, has a workaround → `Priority: Medium`, Annoying or cosmetic → `Priority: Low`); an existing type or priority is never replaced. It then adds `needs-triage` unless the issue has exactly one type, one priority and one area, and removes it once it does. |
 | `tests/l1-lint/labels.test.mjs` | Unit tests for the triage rule plus the doc-sync check. |
+| `tests/l1-lint/bug-form.test.mjs` | Checks that `bug.yml` lists the same fields, labels, types and options as `FORM_FIELDS` in the bug-report module. |
 
 ## How agents use labels
 

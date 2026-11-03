@@ -1,0 +1,2 @@
+### Added
+- **`/onboard` asks once whether bro may offer TMB bug reports** (GH 2034): a new `Bug reports` round stores your answer in `bug_report_consent` (`no` by default). With `yes`, when TMB itself breaks bro can draft a report for github.com/trustmybot/plugin; you see each one in full and it is filed from your GitHub account only if you say yes. Re-onboarding offers `Keep`, and `onboard_apply` with `bug_report_consent` alone changes the answer later on an onboarded project.

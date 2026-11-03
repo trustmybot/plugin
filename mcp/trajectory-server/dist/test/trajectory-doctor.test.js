@@ -41,6 +41,10 @@ function seedTask(db, issueId, status, updatedAt = iso()) {
 function seedAudit(db, eventType, content = {}, createdAt = iso(), fromNode = 'bro') {
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, ?, ?, 's', ?, ?)`, [fromNode, eventType, JSON.stringify(content), createdAt]);
 }
+function seedRemoteClosedLocalOpen(db, issueId, blocking, remoteIid = 42) {
+    db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+     VALUES (?, 'bro', 'issue_remote_closed_local_open', 's', ?, ?)`, [issueId, JSON.stringify({ remote_kind: 'github', remote_iid: remoteIid, blocking_task_ids: blocking }), iso()]);
+}
 function seedCheatcode(db, name, kind, sourceUrl) {
     db.run(`INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, status, installed_at) VALUES (?, ?, 'external', ?, ?, 'active', ?)`, [name, kind, sourceUrl, kind === 'skill' ? `.claude/skills/${name}/SKILL.md` : null, iso()]);
 }
@@ -360,6 +364,17 @@ const FIXTURES = {
             seedTask(db, seedIssue(db, 'open'), 'running');
         },
     },
+    issues_open_after_remote_close: {
+        violate: (db) => {
+            const issue = seedIssue(db, 'open');
+            seedRemoteClosedLocalOpen(db, issue, [seedTask(db, issue, 'running')]);
+        },
+        pass: (db) => {
+            const closed = seedIssue(db, 'closed');
+            seedRemoteClosedLocalOpen(db, closed, [seedTask(db, closed, 'closed')]);
+            seedTask(db, seedIssue(db, 'open'), 'running');
+        },
+    },
     concepts_trusted: {
         violate: (db) => seedConcept(db, 'r', 'drifted flow', 'suspect'),
         pass: (db) => {
@@ -484,6 +499,25 @@ describe('data contracts', () => {
             assert.equal(violated(good, c.id), false, `${c.id} should hold`);
         });
     }
+    it('issues_open_after_remote_close counts 0 on a clean DB, 1 with an open issue carrying a row, 0 once it closes (GH 2228)', () => {
+        const db = tempDB();
+        const c = contract('issues_open_after_remote_close');
+        assert.equal(c.severity, 'warn');
+        assert.match(c.description, /issue_reconcile_remote/);
+        const count = () => runDataContracts(trajectoryDbReader(db), [c], { env: {} }).violations.find((v) => v.id === c.id)?.actual ?? 0;
+        assert.equal(count(), 0);
+        const issue = seedIssue(db, 'open');
+        const task = seedTask(db, issue, 'running');
+        seedRemoteClosedLocalOpen(db, issue, [task], 77);
+        seedRemoteClosedLocalOpen(db, issue, [task], 77);
+        const report = runDataContracts(trajectoryDbReader(db), [c], { env: {} });
+        assert.equal(report.healthy, true, 'warn severity leaves the report healthy');
+        const v = report.violations.find((x) => x.id === c.id);
+        assert.equal(v?.actual, 1);
+        assert.deepEqual(v?.sample.map((s) => ({ ...s })), [{ issue_id: issue, remote_iid: 77, blocking_task_ids: JSON.stringify([task]) }]);
+        db.run(`UPDATE issues SET status = 'closed' WHERE id = ?`, [issue]);
+        assert.equal(count(), 0);
+    });
     it('spec_shape_waived_rows_name_a_task warns on a row naming a real task without gate spec_shape', () => {
         const db = tempDB();
         const task = seedTask(db, seedIssue(db), 'pending');

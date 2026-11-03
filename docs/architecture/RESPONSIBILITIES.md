@@ -65,7 +65,7 @@ Bro is the only agent allowed to call:
 - `discussion_append` for `kind='intent'`
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
 - `pr_monitor_comments_get` (shared with code-reviewer)
-- `issue_sync_retry`
+- `issue_sync_retry`, `issue_reconcile_remote`
 - `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
 - `scan_run` (single scan-side tool)
 

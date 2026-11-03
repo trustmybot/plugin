@@ -1166,7 +1166,7 @@ describe('onboard tools', () => {
             assert.match(String(parse(result).error), /unknown round 'headless'/);
             const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
             const roundSchema = (def?.inputSchema.properties)['round'];
-            assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox']);
+            assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox', 'bug_report']);
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
@@ -2030,6 +2030,112 @@ describe('onboard reports policy per repo in a multi-repo workspace (GH 1589)', 
         const bench = current.repos.find((r) => r.repo === 'benchmarks');
         assert.deepEqual(bench.remotes, [{ name: 'origin', provider: 'gitlab', url: GL_BENCH, sync: false }]);
         db.close();
+    });
+});
+describe('bug_report_consent (GH 2034)', () => {
+    const QUESTION = 'When TMB itself breaks, bro can draft a bug report for github.com/trustmybot/plugin. You see each report in full and it is filed only if you say yes, from your GitHub account. Reports are public. Bro strips paths, tokens and your code from the draft.';
+    async function question(tools) {
+        const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'bug_report' }));
+        const questions = data.questions;
+        assert.equal(questions.length, 1);
+        return questions[0];
+    }
+    it('GH 2034 V1: the bug_report round carries the copy, defaults to No on a fresh project, and a fresh apply stores no', async () => {
+        const db = tempDB();
+        try {
+            const tools = onboardTools(db);
+            const q = await question(tools);
+            assert.equal(q.header, 'Bug reports');
+            assert.equal(q.question, QUESTION);
+            assert.deepEqual(q.options.map((o) => ({ label: o.label, description: o.description, wire: o.wire })), [
+                { label: 'No', description: 'Bro never offers to file a report.', wire: 'no' },
+                { label: 'Yes', description: 'Bro drafts each report and files it only after you approve.', wire: 'yes' },
+            ]);
+            assert.ok(!q.options.some((o) => o.recommended));
+            assert.equal(q.default_index, 0);
+            assert.equal(q.options[q.default_index].label, 'No');
+            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(data.applied.bug_report_consent, 'no');
+            assert.equal(db.get(`SELECT value_json FROM plugin_config WHERE key = 'bug_report_consent'`)?.value_json, '"no"');
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.bug_report_consent, 'no');
+        }
+        finally {
+            db.close();
+        }
+    });
+    it('GH 2034 V2: re-onboard offers Keep first, and bug_report_consent alone applies on an onboarded project', async () => {
+        const db = tempDB();
+        try {
+            const tools = onboardTools(db);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', bug_report_consent: 'Yes' });
+            const q = await question(tools);
+            assert.equal(q.options[0].label, 'Keep "yes"');
+            assert.equal(q.options[0].wire, '__keep__');
+            assert.equal(q.default_index, 0);
+            const kept = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', bug_report_consent: '__keep__' }));
+            assert.equal(kept.applied.bug_report_consent, 'yes');
+            const alone = parse(await call(tools.handlers, 'onboard_apply', { bug_report_consent: 'no' }));
+            assert.deepEqual(alone.applied, { bug_report_consent: 'no' });
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.bug_report_consent, 'no');
+            const extra = (await call(tools.handlers, 'onboard_apply', { bug_report_consent: 'yes', issue_sync: 'off' }));
+            assert.equal(extra.isError, true);
+            assert.match(String(parse(extra).error), /applied alone — drop issue_sync/);
+            const after = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(after.current.bug_report_consent, 'no');
+        }
+        finally {
+            db.close();
+        }
+    });
+    it('bug_report_consent alone before onboarding is refused, naming /onboard', async () => {
+        const db = tempDB();
+        try {
+            const result = (await call(onboardTools(db).handlers, 'onboard_apply', { bug_report_consent: 'yes' }));
+            assert.equal(result.isError, true);
+            assert.match(String(parse(result).error), /\/onboard/);
+            assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'bug_report_consent'`), undefined);
+        }
+        finally {
+            db.close();
+        }
+    });
+    it('full apply keeps the stored value when omitted, takes labels, and rejects anything else', async () => {
+        const db = tempDB();
+        try {
+            const tools = onboardTools(db);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', bug_report_consent: 'yes' });
+            const omitted = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(omitted.applied.bug_report_consent, 'yes');
+            const label = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', bug_report_consent: 'NO' }));
+            assert.equal(label.applied.bug_report_consent, 'no');
+            const bad = (await call(tools.handlers, 'onboard_apply', { shape: 'local', bug_report_consent: 'maybe' }));
+            assert.equal(bad.isError, true);
+            assert.match(String(parse(bad).error), /bug_report_consent must be 'yes' or 'no' \(got 'maybe'\)/);
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.bug_report_consent, 'no');
+        }
+        finally {
+            db.close();
+        }
+    });
+    it('headless_enforcement and bug_report_consent may be applied alone together', async () => {
+        const db = tempDB();
+        const base = mkdtempSync(join(tmpdir(), 'onboard-bug-report-'));
+        try {
+            const dbPath = join(base, 'proj', '.claude', 'tmb', 'trajectory.db');
+            const tools = onboardTools(db, dbPath, { pluginRoot: null });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            const data = parse(await call(tools.handlers, 'onboard_apply', { headless_enforcement: 'no', bug_report_consent: 'yes' }));
+            const applied = data.applied;
+            assert.equal(applied.headless_enforcement, 'no');
+            assert.equal(applied.bug_report_consent, 'yes');
+        }
+        finally {
+            db.close();
+            rmSync(base, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=onboard.test.js.map
