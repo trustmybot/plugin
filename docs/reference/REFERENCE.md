@@ -44,6 +44,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **audit**: `audit_append`, `audit_list`, `audit_search`
 - **metering backfill**: `agent_runs_backfill`
 - **data contracts**: `trajectory_doctor`
+- **bug report**: `bug_report_draft` (bro only; consent-gated, redacted draft; files nothing)
 
 ## Slash commands
 

@@ -81,6 +81,13 @@ export const KEYS = [
     effect: '`yes` writes Claude Code\'s Bash sandbox block into the project\'s `.claude/settings.local.json`; `no` removes what TMB wrote.',
   },
   {
+    name: 'bug_report_consent',
+    type: 'string: `yes` \\| `no`',
+    defaultText: 'unset (read as `no`)',
+    setBy: '`/onboard` (`onboard_apply`, the `bug_report` round); `onboard_apply` with `bug_report_consent` alone on an onboarded project',
+    effect: '`yes` lets bro offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; `no` means bro never offers.',
+  },
+  {
     name: 'sandbox_settings',
     type: 'object: `{enabled_set, allow_write, allowed_domains, weaker_network_isolation_set, env}`',
     defaultText: 'unset',
