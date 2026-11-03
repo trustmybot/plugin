@@ -7,7 +7,6 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 | Script | Purpose |
 |---|---|
 | `release.sh` | Cuts a release from `main` after `dev` is merged and the version bump has landed. |
-| `prompt-author-lint.sh` | Pre-write lint for agent + skill files — flags pink-elephant negations and other prompt anti-patterns before a prompt file is written. |
 
 ## Subdirectories
 

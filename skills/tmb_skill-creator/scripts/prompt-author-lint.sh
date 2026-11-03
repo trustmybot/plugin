@@ -1,1 +1,0 @@
-../../../scripts/prompt-author-lint.sh
