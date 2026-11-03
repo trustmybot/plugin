@@ -9,9 +9,93 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 // src/hooks/lib/jq-key-order.ts
+var INTEGER_LIKE_KEY = /"(?:\d|\\u003\d)+"\s*:/;
 var inputOrder = /* @__PURE__ */ new WeakMap();
 var anyReordered = false;
 var isRawJson = (value) => JSON.isRawJSON?.(value) ?? false;
+function valueEnd(text, start) {
+  const first = text[start];
+  if (first === '"') {
+    let i2 = start + 1;
+    while (i2 < text.length) {
+      if (text[i2] === "\\") i2 += 2;
+      else if (text[i2] === '"') return i2 + 1;
+      else i2 += 1;
+    }
+    return -1;
+  }
+  if (first === "{" || first === "[") {
+    let depth = 0;
+    let i2 = start;
+    while (i2 < text.length) {
+      const ch = text[i2];
+      if (ch === '"') {
+        const end = valueEnd(text, i2);
+        if (end < 0) return -1;
+        i2 = end;
+        continue;
+      }
+      if (ch === "{" || ch === "[") depth += 1;
+      else if (ch === "}" || ch === "]") {
+        depth -= 1;
+        if (depth === 0) return i2 + 1;
+      }
+      i2 += 1;
+    }
+    return -1;
+  }
+  let i = start;
+  while (i < text.length && !/[\s{}[\]",]/.test(text[i])) i += 1;
+  return i === start ? -1 : i;
+}
+function skipSpace(text, start) {
+  let i = start;
+  while (/\s/.test(text[i] ?? "")) i += 1;
+  return i;
+}
+function scan(text, start) {
+  const open = text[start];
+  if (open !== "{" && open !== "[") return { end: valueEnd(text, start) };
+  const fields = /* @__PURE__ */ new Map();
+  const items = [];
+  let i = skipSpace(text, start + 1);
+  while (text[i] !== "}" && text[i] !== "]") {
+    if (open === "{") {
+      const keyEnd = valueEnd(text, i);
+      const child = scan(text, skipSpace(text, skipSpace(text, keyEnd) + 1));
+      fields.set(JSON.parse(text.slice(i, keyEnd)), child);
+      i = child.end;
+    } else {
+      const child = scan(text, i);
+      items.push(child);
+      i = child.end;
+    }
+    i = skipSpace(text, i);
+    if (text[i] === ",") i = skipSpace(text, i + 1);
+  }
+  return open === "{" ? { end: i + 1, fields } : { end: i + 1, items };
+}
+function remember(value, shape) {
+  if (value === null || typeof value !== "object") return;
+  if (shape.items) shape.items.forEach((item, i) => remember(value[i], item));
+  if (!shape.fields) return;
+  const order = [...shape.fields.keys()];
+  for (const [key, field2] of shape.fields) remember(value[key], field2);
+  if (Object.keys(value).some((key, i) => key !== order[i])) {
+    inputOrder.set(value, order);
+    anyReordered = true;
+  }
+}
+function parseKeepingKeyOrder(text, reviver) {
+  const value = JSON.parse(text, reviver);
+  if (!INTEGER_LIKE_KEY.test(text)) return value;
+  try {
+    remember(value, scan(text, 0));
+  } catch (e) {
+    if (!(e instanceof RangeError)) throw e;
+  }
+  return value;
+}
 function keysInOrder(value) {
   return inputOrder.get(value) ?? Object.keys(value);
 }
@@ -94,8 +178,36 @@ function shellPwd(env = process.env) {
   const pwd = env.PWD ?? "";
   return pwd !== "" && isAbsolute(pwd) && sameDir(pwd, cwd) ? pwd : cwd;
 }
+function installRoot(fromDir) {
+  let dir = fromDir;
+  for (; ; ) {
+    try {
+      if (statSync(join(dir, ".claude-plugin", "plugin.json")).isFile()) return dir;
+    } catch {
+    }
+    const parent = posixDirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
 
 // src/hooks/lib/jq.ts
+function jsonStream(text) {
+  const values = [];
+  let i = 0;
+  for (; ; ) {
+    while (i < text.length && /[ \t\n\r]/.test(text[i])) i += 1;
+    if (i >= text.length) return { values, complete: true };
+    const end = valueEnd(text, i);
+    if (end < 0) return { values, complete: false };
+    try {
+      values.push(parseKeepingKeyOrder(text.slice(i, end)));
+    } catch {
+      return { values, complete: false };
+    }
+    i = end;
+  }
+}
 var rawJson = JSON.rawJSON;
 
 // src/hooks/lib/sqlite-shell.ts
@@ -784,6 +896,36 @@ function dbResolve(env = process.env) {
   }
   return { path: outermost === "" ? null : outermost, warning: "" };
 }
+var dbPathCache = /* @__PURE__ */ new WeakMap();
+function dbPath(env = process.env, onWarning) {
+  const cached = dbPathCache.get(env);
+  if (cached !== void 0) return cached;
+  const r = dbResolve(env);
+  if (r.warning !== "" && onWarning) onWarning(r.warning);
+  if (r.path !== null) dbPathCache.set(env, r.path);
+  return r.path;
+}
+function realdir(dir) {
+  if (dir === "") return "";
+  try {
+    if (statSync2(dir).isDirectory()) {
+      accessSync2(dir, constants2.X_OK);
+      return realpathSync2.native(dir);
+    }
+  } catch {
+  }
+  return stripTrailingNewlines(dir);
+}
+function dbProjectRoot(db) {
+  if (db === "") return "";
+  const host = posixDirname(posixDirname(db));
+  return posixBasename(host) === TMB_STATE_HOST_DIR ? posixDirname(host) : "";
+}
+function projectRoot(env = process.env) {
+  const db = dbPath(env);
+  const root = db !== null ? dbProjectRoot(db) : "";
+  return root || claudeProjectDir(env);
+}
 function sqlQuote(value = "") {
   return stripTrailingNewlines(value.replace(/'/g, "''"));
 }
@@ -1071,8 +1213,8 @@ function toPy(value) {
   return String(value);
 }
 var ReadSession = class {
-  constructor(dbPath, env) {
-    this.dbPath = dbPath;
+  constructor(dbPath2, env) {
+    this.dbPath = dbPath2;
     this.env = env;
   }
   dbPath;
@@ -1142,7 +1284,7 @@ var ReadSession = class {
     this.snapDir = "";
   }
 };
-function parseJsonField(args, field) {
+function parseJsonField(args, field2) {
   let parsed;
   try {
     parsed = pyLoads(args);
@@ -1150,7 +1292,7 @@ function parseJsonField(args, field) {
     return null;
   }
   if (!(parsed instanceof Map)) return null;
-  const v = parsed.get(field);
+  const v = parsed.get(field2);
   if (v === void 0 || v === null) return null;
   return pyStr(v).replace(/\n+$/, "");
 }
@@ -1165,9 +1307,9 @@ function loadsOr(value, fallback) {
   }
 }
 function runTool(tool, args, s) {
-  const required = (field) => {
-    const v = parseJsonField(args, field);
-    if (v === null) throw new ToolError(`Missing required arg: ${field}`);
+  const required = (field2) => {
+    const v = parseJsonField(args, field2);
+    if (v === null) throw new ToolError(`Missing required arg: ${field2}`);
     return v;
   };
   const first = (rows) => rows[0] ?? null;
@@ -1350,8 +1492,703 @@ function broSqliteReadonly(argv2, env, io2) {
   }
 }
 
+// src/cli/health.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { existsSync as existsSync4, readdirSync, readFileSync as readFileSync4, statSync as statSync6 } from "node:fs";
+import { constants as constants4 } from "node:os";
+import { fileURLToPath } from "node:url";
+
+// src/hooks/lib/host.ts
+import { accessSync as accessSync3, constants as constants3, statSync as statSync4 } from "node:fs";
+function commandOnPath(name2, env = process.env) {
+  for (const dir of (env.PATH ?? "").split(":")) {
+    const candidate = `${dir === "" ? "." : dir}/${name2}`;
+    try {
+      if (!statSync4(candidate).isFile()) continue;
+      accessSync3(candidate, constants3.X_OK);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+}
+function byteCompare(a, b) {
+  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+// src/hooks/lib/install.ts
+import { readFileSync as readFileSync3, statSync as statSync5 } from "node:fs";
+var DEFAULT_NAME = "tmb";
+var JqError = class extends Error {
+};
+function installPluginName(env = process.env) {
+  return stripTrailingNewlines(pluginName(env)) || DEFAULT_NAME;
+}
+function configDir(env) {
+  return env.CLAUDE_CONFIG_DIR || `${homeDir(env)}/.claude`;
+}
+function installedJson(env = process.env) {
+  return env.TMB_INSTALLED_JSON || `${configDir(env)}/plugins/installed_plugins.json`;
+}
+function canonicalDir(dir) {
+  return realdir(dir);
+}
+function isDir(path) {
+  try {
+    return statSync5(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function readText(path) {
+  try {
+    return readFileSync3(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+function index(value, key) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new JqError(`Cannot index with ${key}`);
+  const v = value[key];
+  return v === void 0 ? null : v;
+}
+function field(value, fallback) {
+  return typeof value === "string" && value !== "" ? value : fallback;
+}
+function tsvEscape(text) {
+  return text.replace(/[\\\t\n\r]/g, (c) => ({ "\\": "\\\\", "	": "\\t", "\n": "\\n", "\r": "\\r" })[c] ?? c);
+}
+function* pluginEntries(doc, prefix) {
+  let plugins = index(doc, "plugins");
+  if (plugins === null || plugins === false) plugins = {};
+  if (Array.isArray(plugins)) {
+    if (plugins.length > 0) throw new JqError("startswith on a number");
+    return;
+  }
+  if (typeof plugins !== "object") throw new JqError("has no keys");
+  for (const [key, value] of Object.entries(plugins)) {
+    if (key.startsWith(prefix)) yield [key, value];
+  }
+}
+function elements(value) {
+  if (Array.isArray(value)) return value;
+  if (value !== null && typeof value === "object") return Object.values(value);
+  return [];
+}
+function jqRows(path, rows) {
+  const text = readText(path);
+  if (text === null) return [];
+  const out = [];
+  for (const doc of jsonStream(text).values) {
+    try {
+      rows(doc, (row) => out.push(row));
+    } catch (e) {
+      if (!(e instanceof JqError)) throw e;
+    }
+  }
+  return out;
+}
+function isObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function enabledPlugins(here, env) {
+  const merged = {};
+  for (const file of [`${configDir(env)}/settings.json`, `${here}/.claude/settings.json`, `${here}/.claude/settings.local.json`]) {
+    for (const part of jqRows(file, (doc, push) => {
+      let v = index(doc, "enabledPlugins");
+      if (v === null || v === false) v = {};
+      push(isObject(v) ? v : {});
+    })) {
+      for (const [k, v] of Object.entries(part)) {
+        delete merged[k];
+        merged[k] = v;
+      }
+    }
+  }
+  return merged;
+}
+function duplicateInstalls(project, env = process.env) {
+  if (project === "") return [];
+  const name2 = installPluginName(env);
+  const here = canonicalDir(project);
+  const on = enabledPlugins(here, env);
+  const prefix = `${name2}@`;
+  const raw = jqRows(installedJson(env), (doc, push) => {
+    for (const [key, value] of pluginEntries(doc, prefix)) {
+      if (on[key] !== true) continue;
+      for (const e of elements(value)) {
+        push([
+          key,
+          field(index(e, "scope"), "user"),
+          field(index(e, "projectPath"), "-"),
+          field(index(e, "installPath"), "-"),
+          field(index(e, "version"), "-")
+        ].map(tsvEscape));
+      }
+    }
+  });
+  const ranked = [];
+  for (const [key, scope, proj, install, version] of raw) {
+    let rank = 1;
+    if (scope === "project" || scope === "local") {
+      if (proj === "-" || canonicalDir(proj) !== here) continue;
+      rank = 0;
+    }
+    const at = key.indexOf("@");
+    const mkt = at < 0 ? key : key.slice(at + 1);
+    ranked.push({
+      line: [mkt, String(rank), version, install, scope].join("	"),
+      mkt,
+      rank,
+      row: { marketplace: mkt, version, install, scope }
+    });
+  }
+  ranked.sort((a, b) => byteCompare(a.mkt, b.mkt) || a.rank - b.rank || byteCompare(a.line, b.line));
+  const seen = /* @__PURE__ */ new Set();
+  const rows = ranked.filter((r) => !seen.has(r.mkt) && seen.add(r.mkt)).map((r) => r.row);
+  return rows.length > 1 ? rows : [];
+}
+function duplicateNames(rows) {
+  return rows.map((r) => `${r.marketplace}@${r.version}`).join(", ");
+}
+function duplicateDisableCmds(rows, env = process.env) {
+  const name2 = installPluginName(env);
+  return rows.map((r) => `claude plugin disable ${name2}@${r.marketplace} --scope ${r.scope}`).join("; ");
+}
+function userSettingsJson(env = process.env) {
+  return `${configDir(env)}/settings.json`;
+}
+var LEGACY_USER_HOOKS_DOC = "docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks";
+var HOOK_NAME = /--hook[ \t]+([A-Za-z0-9._-]+)/;
+function leftover(hook) {
+  return hook._tmb_managed === true || typeof hook.command === "string" && hook.command.includes("resolve-hook.sh");
+}
+function hookName(command) {
+  if (typeof command !== "string") return "?";
+  const text = command.includes("resolve-hook.sh") ? command.split("resolve-hook.sh")[1] ?? "" : command;
+  return HOOK_NAME.exec(text)?.[1] ?? "?";
+}
+function leftoverPaths(doc) {
+  let hooks = index(doc, "hooks");
+  if (hooks === null || hooks === false) hooks = {};
+  if (!isObject(hooks)) return [];
+  const out = [];
+  for (const [ev, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
+    groups.forEach((group, i) => {
+      if (!isObject(group)) return;
+      const inner = group.hooks;
+      if (!Array.isArray(inner)) return;
+      inner.forEach((hook, j) => {
+        if (isObject(hook) && leftover(hook)) out.push(["hooks", ev, i, "hooks", j]);
+      });
+    });
+  }
+  return out;
+}
+function commandPaths(value, at = [], out = []) {
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => commandPaths(v, [...at, i], out));
+  } else if (isObject(value)) {
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "command") out.push([...at, k]);
+      commandPaths(v, [...at, k], out);
+    }
+  }
+  return out;
+}
+function getPath(value, path) {
+  let v = value;
+  for (const key of path) v = v[key];
+  return v;
+}
+function versionPart(text) {
+  const t = text.trim();
+  if (/^[+-]?inf(inity)?$/i.test(t)) return t.startsWith("-") ? -Number.MAX_VALUE : Number.MAX_VALUE;
+  return /^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$/.test(t) ? Number(t) : -1;
+}
+function belowV110(version) {
+  const parts = (version.split("-")[0] ?? "").split(".").map(versionPart);
+  const floor = [1, 1, 0];
+  for (let i = 0; i < Math.min(parts.length, floor.length); i += 1) {
+    if (parts[i] !== floor[i]) return parts[i] < floor[i];
+  }
+  return parts.length < floor.length;
+}
+function legacyHookRows(settings) {
+  let text;
+  try {
+    text = readFileSync3(settings, "utf8");
+  } catch {
+    return null;
+  }
+  const stream = jsonStream(text);
+  if (!stream.complete) return null;
+  const want = /* @__PURE__ */ new Map();
+  let n = 0;
+  let orphans = 0;
+  try {
+    for (const doc of stream.values) {
+      const left = leftoverPaths(doc);
+      if (left.length === 0) continue;
+      const keys = new Set(left.map((p) => JSON.stringify(p)));
+      for (const path of commandPaths(doc)) {
+        n += 1;
+        const owner = path.slice(0, -1);
+        if (keys.has(JSON.stringify(owner))) want.set(n, hookName(getPath(doc, owner).command));
+      }
+      for (const p of left) if (!Object.hasOwn(getPath(doc, p), "command")) orphans += 1;
+    }
+  } catch (e) {
+    if (e instanceof JqError) return null;
+    throw e;
+  }
+  if (n === 0 && orphans === 0) return [];
+  const rows = [];
+  let k = 0;
+  text.split("\n").forEach((line, i) => {
+    for (const _ of line.matchAll(/"command"[ \t]*:/g)) {
+      k += 1;
+      const name2 = want.get(k);
+      if (name2 !== void 0) rows.push({ line: String(i + 1), name: name2 });
+    }
+  });
+  for (let i = k + 1; i <= n; i += 1) {
+    const name2 = want.get(i);
+    if (name2 !== void 0) rows.push({ line: "?", name: name2 });
+  }
+  for (let i = 0; i < orphans; i += 1) rows.push({ line: "?", name: "?" });
+  return rows;
+}
+function legacyUserHooks(project, env = process.env) {
+  const none = { hooks: [], projects: [] };
+  const hooks = legacyHookRows(userSettingsJson(env));
+  if (hooks === null || hooks.length === 0) return none;
+  const here = project === "" ? "" : canonicalDir(project);
+  const prefix = `${installPluginName(env)}@`;
+  const raw = jqRows(installedJson(env), (doc, push) => {
+    for (const [, value] of pluginEntries(doc, prefix)) {
+      for (const e of elements(value)) {
+        const p = index(e, "projectPath");
+        const v = index(e, "version");
+        if (typeof p !== "string" || p === "" || typeof v !== "string") continue;
+        if (belowV110(v)) push([tsvEscape(p), tsvEscape(v)]);
+      }
+    }
+  });
+  const projects = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const [p, v] of raw) {
+    if (!isDir(p)) continue;
+    const path = canonicalDir(p);
+    if (path === here || seen.has(path)) continue;
+    seen.add(path);
+    projects.push({ path, version: v });
+  }
+  return { hooks, projects };
+}
+function legacyHookEntries(hooks) {
+  return hooks.map((h) => `line ${h.line} ${h.name}`).join(", ");
+}
+function legacyHookProjects(projects) {
+  return projects.map((p) => `${p.path} (${p.version})`).join(", ");
+}
+
+// src/cli/health.ts
+var SCOPE_DOC = "docs/reference/INSTALL.md#recommended-scope-project-or-local";
+var DB_READ_TIMEOUT_MS = "500";
+var MEMORY = ":memory:";
+function isFile3(path) {
+  try {
+    return statSync6(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function isDir2(path) {
+  try {
+    return statSync6(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync4(path, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function isObject2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function jqField(doc, key, fallback) {
+  if (!isObject2(doc)) return fallback;
+  const v = doc[key];
+  return v === void 0 || v === null || v === false ? fallback : jqRawText(v);
+}
+function jqInterp(v) {
+  if (typeof v === "string") return v;
+  if (v === void 0 || v === null) return "null";
+  return JSON.stringify(v);
+}
+function selfRoot(env) {
+  if ((env.CLAUDE_PLUGIN_ROOT ?? "") !== "") return env.CLAUDE_PLUGIN_ROOT;
+  return installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? "";
+}
+function manifestName2(root) {
+  const manifest = `${root}/.claude-plugin/plugin.json`;
+  if (!isFile3(manifest)) return "tmb";
+  return jqField(readJson(manifest), "name", "tmb");
+}
+function installEntry(installed, name2, root) {
+  if (!isFile3(installed)) return null;
+  const doc = readJson(installed);
+  if (!isObject2(doc) || !isObject2(doc.plugins)) return null;
+  const entries = [];
+  for (const [key, value] of Object.entries(doc.plugins)) {
+    if (!key.startsWith(`${name2}@`)) continue;
+    const first = Array.isArray(value) ? value[0] ?? null : value === null ? null : void 0;
+    if (first === void 0) return null;
+    if (first !== null && !isObject2(first)) return null;
+    entries.push({ ...first ?? {}, key });
+  }
+  const picked = entries.find((e) => e.installPath === root) ?? entries[0];
+  if (picked === void 0) return null;
+  return {
+    version: jqInterp(picked.version),
+    installPath: jqInterp(picked.installPath),
+    key: jqInterp(picked.key),
+    scope: jqField(picked, "scope", "")
+  };
+}
+function pgrepProbe(env) {
+  if (!commandOnPath("pgrep", env)) return { count: "-1", rc: 0 };
+  const root = env.CLAUDE_PLUGIN_ROOT ?? "";
+  const pattern = root !== "" ? `${root}/mcp/trajectory-server/dist/index.js` : "trajectory-server/dist/index.js";
+  const r = spawnSync2("pgrep", ["-f", pattern], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const signal = r.signal ? constants4.signals[r.signal] ?? 0 : 0;
+  const rc = r.status ?? (signal > 0 ? 128 + signal : 1);
+  const count = (r.stdout ?? "").split("\n").filter((line) => line !== "").length;
+  return { count: String(count), rc };
+}
+function bashInt(text) {
+  return /^\s*[+-]?[0-9]+\s*$/.test(text) ? Number(text) : null;
+}
+function targetSchema(cacheDir) {
+  if (cacheDir === "") return "";
+  for (const f of [`${cacheDir}/mcp/trajectory-server/src/db.ts`, `${cacheDir}/mcp/trajectory-server/dist/db.js`]) {
+    if (!isFile3(f)) continue;
+    let text;
+    try {
+      text = readFileSync4(f, "utf8");
+    } catch {
+      continue;
+    }
+    const m = /TARGET_SCHEMA_VERSION[ \t\v\f\r]*=[ \t\v\f\r]*([0-9]+)/.exec(text);
+    if (m) return m[1];
+  }
+  return "";
+}
+function labelCount(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? String(parsed.length) : "0";
+  } catch {
+    return "0";
+  }
+}
+function worktreeDirs(wsRoot) {
+  const dir = `${wsRoot}/.claude/worktrees`;
+  if (wsRoot === "" || !isDir2(dir)) return [];
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names.filter((n) => !n.startsWith(".") && isDir2(`${dir}/${n}`)).sort(byteCompare).map((n) => `${dir}/${n}/`);
+}
+var Report = class {
+  constructor(io2) {
+    this.io = io2;
+  }
+  io;
+  failed = 0;
+  degraded = 0;
+  line(text) {
+    this.io.out(`${text}
+`);
+  }
+  pass(text) {
+    this.line(`PASS  ${text}`);
+  }
+  fail(text) {
+    this.failed += 1;
+    this.line(`FAIL  ${text}`);
+  }
+  remediate(...lines) {
+    for (const l of lines) this.line(`      -> ${l}`);
+  }
+};
+function health(_argv, env, io2) {
+  const r = new Report(io2);
+  const self = selfRoot(env);
+  const name2 = manifestName2(self);
+  const projectDir = env.CLAUDE_PROJECT_DIR ?? "";
+  const sqliteOk = haveSqlite(env);
+  const roEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: DB_READ_TIMEOUT_MS };
+  const db = env.TRAJECTORY_DB_PATH === MEMORY ? MEMORY : dbPath(env) ?? "";
+  const dbRead = (sql) => {
+    const out = dbReadRo(db, sql, roEnv);
+    return out === GATE_READ_ERROR ? "" : out;
+  };
+  const installed = env.TMB_HEALTH_INSTALLED_JSON || `${env.HOME ?? ""}/.claude/plugins/installed_plugins.json`;
+  let intended = env.TMB_HEALTH_INTENDED_VERSION ?? "";
+  let cacheDir = env.TMB_HEALTH_CACHE_DIR ?? "";
+  let installKey = "";
+  let installScope = "";
+  const entry = installEntry(installed, name2, self);
+  if (entry) {
+    if (projectDir !== "" || entry.installPath === self) {
+      if (intended === "") intended = entry.version;
+      if (cacheDir === "") cacheDir = entry.installPath;
+    }
+    installKey = entry.key;
+    installScope = entry.scope;
+  }
+  if (cacheDir === "" && projectDir === "") cacheDir = self;
+  let updateCmd;
+  if (installKey !== "") {
+    if (installScope !== "project" && installScope !== "local") {
+      installScope = installKey.endsWith("@trustmybot") ? "project" : "local";
+    }
+    updateCmd = `claude plugin update ${installKey} --scope ${installScope}`;
+  } else {
+    updateCmd = `claude plugin update ${name2}@<marketplace> --scope project (stable) or --scope local (rc/dev)`;
+  }
+  let serverLog = env.TMB_HEALTH_SERVER_LOG ?? "";
+  if (serverLog === "") {
+    if (db === MEMORY) {
+      serverLog = `${(env.TMPDIR || "/tmp").replace(/\/+$/, "")}/${name2}-memory-logs/mcp-server.log`;
+    } else if (db !== "") {
+      serverLog = `${posixDirname(db)}/logs/mcp-server.log`;
+    }
+  }
+  r.line("== TMB health-check ==");
+  r.line(`db:        ${db || "<unresolved>"}`);
+  r.line(`cache:     ${cacheDir || "<unresolved>"}`);
+  r.line(`server-log:${serverLog || "<unresolved>"}`);
+  r.line("");
+  let pgrepCount = env.TMB_HEALTH_PGREP_COUNT ?? "";
+  let pgrepRc = 0;
+  if (pgrepCount === "") ({ count: pgrepCount, rc: pgrepRc } = pgrepProbe(env));
+  const alive = bashInt(pgrepCount);
+  if (pgrepRc >= 2) {
+    r.line(
+      `UNVERIFIED  server-reachable: pgrep exited ${pgrepRc} \u2014 the process table cannot be listed here (e.g. the Claude Code sandbox)`
+    );
+    r.remediate("Re-run outside the sandbox to probe the server, or check that trajectory-server MCP tools respond.");
+  } else if (pgrepCount === "-1") {
+    r.pass("server-reachable: pgrep unavailable \u2014 cannot probe (assuming reachable)");
+  } else if (alive !== null && alive > 0) {
+    r.pass(`server-reachable: trajectory-server process alive (${pgrepCount})`);
+  } else {
+    r.fail("server-reachable: NO trajectory-server process found");
+    r.remediate(
+      "Fully quit Claude Code (Cmd-Q) and relaunch \u2014 a dead MCP server needs a full restart.",
+      "If it does not come back after relaunch, see skills/tmb_recovery (CC plugin MCP-config cache bug).",
+      `Forensics: tail -n 50 ${serverLog || `<project>/.claude/${name2}/logs/mcp-server.log`}`
+    );
+  }
+  const dbPluginVersion = db !== "" && sqliteOk ? dbRead("SELECT plugin_version FROM plugin_meta WHERE id = 1;") : "";
+  if (intended === "") {
+    r.pass("cache-version: intended version unknown \u2014 skipping (no installed_plugins.json)");
+  } else if (dbPluginVersion === "") {
+    r.fail(`cache-version: DB plugin_version unreadable (intended=${intended})`);
+    r.remediate(`Cannot read plugin_meta \u2014 is the DB present/queryable? db=${db || "<unresolved>"}`);
+  } else if (dbPluginVersion === intended) {
+    r.pass(`cache-version: DB matches installed version (${intended})`);
+  } else {
+    r.fail(`cache-version: server booted ${dbPluginVersion} but ${intended} is installed`);
+    r.remediate(
+      `From the project root, run ${updateCmd}; then fully quit + relaunch Claude Code so the server reboots on the new cache.`,
+      `Scope rule: ${SCOPE_DOC}`,
+      "Only a full restart picks up the new server \u2014 the MCP process is long-lived."
+    );
+  }
+  const dbSchema = db !== "" && sqliteOk ? dbRead("SELECT schema_version FROM plugin_meta WHERE id = 1;") : "";
+  const target = targetSchema(cacheDir);
+  if (target === "") {
+    r.pass("schema-version: target schema unknown \u2014 skipping (no cache db source)");
+  } else if (dbSchema === "") {
+    r.fail(`schema-version: DB schema_version unreadable (target=${target})`);
+    r.remediate(`Cannot read plugin_meta.schema_version \u2014 is the DB present/queryable? db=${db || "<unresolved>"}`);
+  } else if (dbSchema === target) {
+    r.pass(`schema-version: DB at current schema (v${dbSchema})`);
+  } else {
+    r.fail(`schema-version: DB at v${dbSchema} but installed server targets v${target}`);
+    r.remediate("Fully quit + relaunch Claude Code \u2014 the migration runs on the next SERVER start.");
+  }
+  let wmTableCount = "";
+  let wmCounts = "";
+  if (db !== "" && db !== MEMORY && sqliteOk) {
+    wmTableCount = dbReadRo(
+      db,
+      "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('wm_directories','wm_files');",
+      env
+    );
+    if (wmTableCount === "2") {
+      wmCounts = dbReadRo(db, "SELECT (SELECT COUNT(*) FROM wm_directories) || ' ' || (SELECT COUNT(*) FROM wm_files);", env);
+    }
+  }
+  const space = wmCounts.indexOf(" ");
+  const wmDirs = space < 0 ? wmCounts : wmCounts.slice(0, space);
+  const wmFiles = wmCounts.slice(wmCounts.lastIndexOf(" ") + 1);
+  if (db === "") {
+    r.pass("world-model: trajectory DB unresolved \u2014 skipping");
+  } else if (db === MEMORY) {
+    r.pass("world-model: in-memory trajectory DB \u2014 nothing on disk to probe");
+  } else if (!sqliteOk) {
+    r.pass("world-model: sqlite3 unavailable \u2014 skipping");
+  } else if (wmTableCount === GATE_READ_ERROR || wmCounts === GATE_READ_ERROR || wmTableCount === "") {
+    r.fail("world-model: cannot read the world-model tables");
+    r.remediate(`Is the DB present/queryable? db=${db}`);
+  } else if (wmTableCount !== "2") {
+    r.fail("world-model: wm_directories / wm_files missing from the trajectory DB");
+    r.remediate(
+      "Fully quit + relaunch Claude Code \u2014 the server creates the tables when it migrates the DB on start.",
+      "Then build the world model: run /scan."
+    );
+  } else if (wmDirs === "0") {
+    r.pass("world-model: tables present");
+    r.line("WARN  world-model: empty \u2014 no directories scanned yet");
+    r.remediate("Build the world model: run /scan.");
+  } else {
+    r.pass(`world-model: ${wmDirs} directories, ${wmFiles} files`);
+  }
+  let legacyGraph = "";
+  if (db !== "" && db !== MEMORY) {
+    legacyGraph = db.slice(db.lastIndexOf("/") + 1) === TMB_DB_FILENAME ? `${db.slice(0, -TMB_DB_FILENAME.length)}world-model.kuzu` : `${db}.world-model.kuzu`;
+  }
+  if (legacyGraph !== "" && existsSync4(legacyGraph)) {
+    r.line(
+      `INFO  world-model: ${legacyGraph} is an unused leftover from the old graph store \u2014 TMB no longer reads it; you may delete it (and any ${legacyGraph.slice(legacyGraph.lastIndexOf("/") + 1)}.* files beside it).`
+    );
+  }
+  const labelsRaw = db !== "" && sqliteOk ? dbRead("SELECT value_json FROM plugin_config WHERE key = 'issue_classification_labels';") : "";
+  const labels = labelsRaw === "" ? "0" : labelCount(labelsRaw);
+  if (labelsRaw === "" || labels === "0") {
+    r.fail("label-config: issue_classification_labels is unset/empty");
+    r.remediate(
+      "Set it via /onboard, or with the config_set MCP tool (key=issue_classification_labels).",
+      "Until set, issue auto-classification falls back to the generic default."
+    );
+  } else {
+    r.pass(`label-config: issue_classification_labels set (${labels} labels)`);
+  }
+  const wsRoot = db === "" ? "" : posixDirname(posixDirname(posixDirname(db)));
+  const worktrees = worktreeDirs(wsRoot);
+  const pending = db !== "" && sqliteOk ? dbRead(
+    "SELECT id || ' [' || status || '] ' || COALESCE(branch_id,'') FROM tasks WHERE status IN ('pending','running');"
+  ) : "";
+  if (worktrees.length === 0 && pending === "") {
+    r.pass("stale-state: no orphaned worktrees or pending/running tasks");
+  } else {
+    r.fail("stale-state: orphaned worktrees and/or pending|running tasks present");
+    if (pending !== "") {
+      r.remediate("Pending/running tasks (recover or close):");
+      for (const t of pending.split("\n")) if (t !== "") r.remediate(`    task ${t}`);
+    }
+    if (worktrees.length > 0) {
+      r.remediate(`Worktrees under ${wsRoot}/.claude/worktrees/ (clean up once the task is done):`);
+      for (const w of worktrees) r.remediate(`    ${w}`);
+      r.remediate("Cleanup helper: scripts/maintenance/cleanup-stale-worktrees.sh");
+    }
+  }
+  const pluginRoot = env.CLAUDE_PLUGIN_ROOT ?? "";
+  const devManifest = `${pluginRoot}/.claude-plugin/plugin.json`;
+  const driftVersion = pluginRoot !== "" && isFile3(devManifest) ? jqField(readJson(devManifest), "version", "") : "";
+  if (driftVersion === "" || intended === "") {
+    r.pass("hook-cache-drift: no dev checkout vs cache comparison available");
+  } else if (pluginRoot === cacheDir) {
+    r.pass("hook-cache-drift: running directly from the cache (no drift)");
+  } else if (driftVersion === intended) {
+    r.pass(`hook-cache-drift: dev checkout version matches the installed cache (${intended})`);
+  } else {
+    r.fail(`hook-cache-drift: dev checkout is ${driftVersion} but the cache runs ${intended}`);
+    r.remediate(
+      "Your edits to hooks/skills/agents/commands are NOT live until the cache updates.",
+      `Once the cache is at your version (from the project root: ${updateCmd}), fully quit + relaunch Claude Code to load the new hook/skill/agent/command definitions.`
+    );
+  }
+  const onDisk = db !== "" && db !== MEMORY && sqliteOk;
+  const embDegraded = onDisk ? dbReadRo(
+    db,
+    `SELECT d.created_at || ' ' || COALESCE(json_extract(d.content_json, '$.reason'), '')
+      FROM audit d
+     WHERE d.event_type = 'embeddings_degraded'
+       AND strftime('%Y-%m-%dT%H:%M:%fZ', d.created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 days')
+       AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
+     ORDER BY d.id DESC LIMIT 1;`,
+    roEnv
+  ) : "";
+  if (!onDisk) {
+    r.pass("embeddings: no on-disk trajectory DB to read \u2014 skipping");
+  } else if (embDegraded === GATE_READ_ERROR) {
+    r.pass("embeddings: audit table unreadable \u2014 skipping");
+  } else if (embDegraded !== "") {
+    r.degraded += 1;
+    r.line(`WARN  embeddings: degraded since ${embDegraded} \u2014 semantic search is falling back to FTS`);
+    r.remediate(
+      "The embedding model failed to load or kept failing; the server re-attempts on its own (1 min, 5 min, then every 10 min).",
+      `Check the embeddings_state lines in ${serverLog || "mcp-server.log"}; trajectory_doctor reports the live state.`
+    );
+  } else {
+    r.pass("embeddings: no unrecovered embeddings_degraded event in the last 24 h");
+  }
+  const libEnv = { ...env, TMB_INSTALLED_JSON: installed };
+  const dupProject = projectDir !== "" || db !== MEMORY ? projectRoot(env) : "";
+  if (dupProject === "") {
+    r.line("WARN  duplicate-plugin: skipped \u2014 no project resolves (no CLAUDE_PROJECT_DIR and no trajectory DB)");
+    r.remediate("Run from a Claude Code session in the project, or set CLAUDE_PROJECT_DIR (or TRAJECTORY_DB_PATH) to it.");
+  }
+  const dups = dupProject === "" ? [] : duplicateInstalls(dupProject, libEnv);
+  if (dups.length > 0) {
+    r.line(`WARN  duplicate-plugin: ${dups.length} enabled ${name2} copies for ${dupProject}: ${duplicateNames(dups)}`);
+    r.remediate(
+      "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a plugin load error \u2014 TMB's gates may be missing while its MCP tools still work.",
+      `Keep one copy and disable the others from the project root, one of: ${duplicateDisableCmds(dups, libEnv)}`,
+      "Then fully quit + relaunch Claude Code."
+    );
+  }
+  const legacy = legacyUserHooks(dupProject, libEnv);
+  if (legacy.hooks.length > 0) {
+    r.line(
+      `WARN  legacy-user-hooks: ${userSettingsJson(env)} holds ${legacy.hooks.length} pre-1.1.0 TMB hook(s): ${legacyHookEntries(legacy.hooks)}`
+    );
+    r.remediate(
+      "They run in every project, so a pre-1.1.0 gate can deny what this version allows. TMB does not edit that file.",
+      `Remove them by hand: ${LEGACY_USER_HOOKS_DOC}`
+    );
+    if (legacy.projects.length > 0) r.remediate(`Projects on TMB < 1.1.0 lose them too: ${legacyHookProjects(legacy.projects)}`);
+  }
+  r.line("");
+  if (r.failed === 0 && r.degraded > 0) {
+    r.line(`== no check FAILED, ${r.degraded} degraded (see WARN above) ==`);
+    return 0;
+  }
+  if (r.failed === 0) {
+    r.line("== all checks passed ==");
+    return 0;
+  }
+  r.line(`== ${r.failed} check(s) FAILED ==`);
+  return 1;
+}
+
 // src/hooks/lib/audit.ts
-import { accessSync as accessSync3, constants as constants3, readFileSync as readFileSync3, statSync as statSync4 } from "node:fs";
+import { accessSync as accessSync4, constants as constants5, readFileSync as readFileSync5, statSync as statSync7 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 var WRITE_ATTEMPTS = 2;
 var BACKOFF_MS = 200;
@@ -1371,9 +2208,9 @@ function runBudgetMs(env) {
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
-function isFile3(path) {
+function isFile4(path) {
   try {
-    return statSync4(path).isFile();
+    return statSync7(path).isFile();
   } catch {
     return false;
   }
@@ -1389,7 +2226,7 @@ var BUSY_PATTERN = /database is locked|SQLITE_BUSY|database is busy/;
 function dbWrite(db, sql, opts = {}) {
   const env = opts.env ?? process.env;
   const caller = opts.caller ?? defaultCaller();
-  if (db === "" || !isFile3(db)) {
+  if (db === "" || !isFile4(db)) {
     return { ok: false, code: 1, stdout: "", error: `tmb_db_write: ${caller}: database not found: ${db || "<empty>"}` };
   }
   const script = `${stripTrailingNewlines(`PRAGMA foreign_keys = ON;
@@ -1432,8 +2269,8 @@ var USAGE = '{"error":"usage","message":"validation-record-fallback <task_id> <a
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed}";
 var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed')";
-function badText(field) {
-  return `WHEN json_type(e.value, '$.${field}') IS NOT 'text' OR trim(json_extract(e.value, '$.${field}'), ${WS}) = '' THEN 'findings[' || e.key || '].${field} must be a non-empty string'`;
+function badText(field2) {
+  return `WHEN json_type(e.value, '$.${field2}') IS NOT 'text' OR trim(json_extract(e.value, '$.${field2}'), ${WS}) = '' THEN 'findings[' || e.key || '].${field2} must be a non-empty string'`;
 }
 var FINDINGS_CHECK_SQL = `
 WITH f(v) AS (SELECT ?1),
@@ -1566,6 +2403,7 @@ function validationRecordFallback(argv2, env, io2) {
 // src/cli/index.ts
 var SUBCOMMANDS = {
   "bro-sqlite-readonly": broSqliteReadonly,
+  health,
   "validation-record-fallback": validationRecordFallback
 };
 var USAGE2 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
