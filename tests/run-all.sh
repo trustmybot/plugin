@@ -116,7 +116,6 @@ run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-c
 run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
-run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
 run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE/l1-lint/dist-bundles.sh" --self-test
 run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
@@ -234,6 +233,7 @@ run_step "L3 integration: hook script tests"                         bash "$HERE
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"
+run_step "L3 integration: release.ts + publish-rc-channel.ts (stubbed git/gh)"  node --test "$HERE/l3-integration/release-scripts.test.mjs"
 run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"
 run_step "L3 integration: dev-build-version"                          node --test "$HERE/l3-integration/dev-build-version.test.mjs"
 run_step "L3 integration: tmb-regen merge driver"                     node --test "$HERE/l3-integration/merge-driver.test.mjs"
