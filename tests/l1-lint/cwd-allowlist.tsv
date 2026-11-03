@@ -69,3 +69,5 @@ scripts/hooks/lib/cmd-analysis.sh	vplain = "^(cd|git|echo|true|false|ls|cat|pwd|
 scripts/hooks/lib/cmd-analysis.sh	printf 'UNRESOLVED:PWD:$PWD	not-location	_tmb_cmd_join prints the literal marker text UNRESOLVED:PWD:$PWD (single-quoted, never expanded) for an unknown dir
 scripts/hooks/lib/cmd-analysis.sh	p="\$PWD/$p"	not-location	an escaped literal $PWD in the UNRESOLVED marker for a path under an unknown dir; never expanded
 scripts/hooks/lib/query-task.sh	case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac	canonicalize	_tmb_db_immutable_uri makes a relative DB path absolute for its file: URI; the DB is already chosen
+mcp/trajectory-server/src/cli/health.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	the server-reachable check counts MCP server processes from the process table; reads no project or repo
+mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	the redaction root falls back to the server's start dir only when neither the DB nor CLAUDE_PROJECT_DIR names a project (an in-memory DB in tests)

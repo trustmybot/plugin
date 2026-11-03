@@ -70,7 +70,7 @@ Neither hook runs its injection when the project is the TMB source checkout itse
 
 ## Leftovers from older versions
 
-Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries stamped `"_tmb_managed": true`, or running `resolve-hook.sh`) and a resolver under `~/.claude/tmb-hooks/`. Those fire in every project. One warning names each such hook object once, by line and `--hook` name: a `Plugin:` line in the SessionStart inventory, and `WARN  legacy-user-hooks` from `scripts/health.sh`. [UPGRADE.md](./UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks) walks through removing them by hand. TMB does not edit that file itself.
+Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries stamped `"_tmb_managed": true`, or running `resolve-hook.sh`) and a resolver under `~/.claude/tmb-hooks/`. Those fire in every project. One warning names each such hook object once, by line and `--hook` name: a `Plugin:` line in the SessionStart inventory, and `WARN  legacy-user-hooks` from the health check (`node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" health`). [UPGRADE.md](./UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks) walks through removing them by hand. TMB does not edit that file itself.
 
 ## Sandbox support
 

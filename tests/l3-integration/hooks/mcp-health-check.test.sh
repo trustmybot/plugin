@@ -4,7 +4,7 @@
 #   2. server appears on the third sample        → silent
 #   3. server never appears                      → soft note, never "HALT"
 #   4. leftover TMB hooks in ~/.claude/settings.json → no warning here (the
-#      prescan and health.sh report them); the file is left byte-identical
+#      prescan and cli.js health report them); the file is left byte-identical
 #   5. settings.json without leftover hooks      → no warning
 #   6. unknown event                             → no JSON
 #   7. the forensic log lives in the project; nothing is written under HOME

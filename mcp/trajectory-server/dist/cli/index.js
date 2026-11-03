@@ -1,14 +1,16 @@
 /**
- * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks run with
+ * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks and the health check run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
  * They read and write the trajectory DB through node:sqlite and never need the
  * server process. SIGINT and SIGTERM wait for the synchronous run, which
  * removes its scratch files, then exit 130 and 143 as the shell traps did.
  */
 import { broSqliteReadonly } from './bro-sqlite-readonly.js';
+import { health } from './health.js';
 import { validationRecordFallback } from './validation-record-fallback.js';
 const SUBCOMMANDS = {
     'bro-sqlite-readonly': broSqliteReadonly,
+    health,
     'validation-record-fallback': validationRecordFallback,
 };
 const USAGE = `usage: cli.js <${Object.keys(SUBCOMMANDS).join('|')}> [args...]\n`;
