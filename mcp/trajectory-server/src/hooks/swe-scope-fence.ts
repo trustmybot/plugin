@@ -1,5 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/swe-scope-fence.sh: on
+ * PreToolUse gate (GH 1692): on
  * an Edit, Write, MultiEdit or NotebookEdit by a swe, a target inside the
  * task's worktree but outside its typed files[] gets an additionalContext
  * note, once per path per task. It never denies: bro_atomic_close judges

@@ -2,8 +2,8 @@
 # Keeps L3 hook tests bound to their fixture project, never the live one.
 #
 # Rule: every tests/l3-integration/hooks/*.test.sh that invokes a hook — names
-# a top-level scripts/hooks/<hook>.sh, the scripts/hooks dir itself,
-# dispatch.sh, or the DB resolver scripts/hooks/lib/query-task.sh — must, outside
+# a tests/lib/ts-hooks/<gate>.sh shim, the router mcp/trajectory-server/dist/
+# hooks.js, or the DB resolver scripts/hooks/lib/query-task.sh — must, outside
 # comments, set CLAUDE_PROJECT_DIR or TRAJECTORY_DB_PATH (`export X=...`,
 # `X=... bash "$HOOK"`, `env X=...`, an `envs+=(X=...)` entry). `unset X` or
 # `env -u X` alone is not a pin. Without one, a hook run outside the test flags
@@ -19,7 +19,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-INVOKES_HOOK='scripts/hooks/[A-Za-z0-9_.-]+\.sh|scripts/hooks/lib/query-task\.sh|scripts/hooks/?("|$|[[:space:]])|dispatch\.sh'
+INVOKES_HOOK='tests/lib/ts-hooks/|dist/hooks\.js|scripts/hooks/lib/query-task\.sh'
 PINS_PROJECT='(^|[^A-Za-z0-9_])(CLAUDE_PROJECT_DIR|TRAJECTORY_DB_PATH)='
 
 # code_only <file> — the file with comment lines removed.

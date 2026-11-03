@@ -1,5 +1,5 @@
 /**
- * Stop-time recorder (GH 1957), run fail-open by swe-atomic-close.sh (swe and
+ * Stop-time recorder (GH 1957), run fail-open by swe-atomic-close (swe and
  * code-reviewer, SubagentStop) and the bro-turn-usage gate (bro, Stop) after each
  * writes its agent_runs row: how much text each tool returned into that run,
  * one agent_run_tool_output row per tool (schema v53).

@@ -1,6 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/require-feature-branch-active.sh (GH 1692):
- * a swe spawn for task_id=<N> is denied until the task's branch_id exists in
+ * The require-feature-branch-active gate (GH 1692): a swe spawn for task_id=<N> is denied until the task's branch_id exists in
  * its repo. bro pre-creates the branch without checking it out; swe's
  * worktree owns it. TMB_ALLOW_BRANCH_MISMATCH=1 bypasses the gate. No
  * resolvable DB or no tasks row allows; a DB read failure denies.

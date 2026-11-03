@@ -1,5 +1,5 @@
 /**
- * Stop hook (GH 1692), the port of scripts/hooks/bro-turn-usage.sh: the
+ * Stop hook (GH 1692): the
  * session's one bro agent_runs row (task_id and issue_id NULL) rewritten with
  * the sums of the transcript's main-loop assistant usage, inserted when
  * absent, in one tmb_db_write transaction. The transcript reduction follows

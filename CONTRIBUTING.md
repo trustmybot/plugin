@@ -18,7 +18,7 @@ A pull request is a *request* — you're asking a maintainer to pull your commit
 
 **Collaborator / org-team Write access (trusted members).** Trusted contributors are granted Write access either by a GitHub collaborator invite or by membership in a GitHub Team on the org. With Write access you branch directly inside `trustmybot/plugin` off `dev` — no fork — then open the pull request from that branch. Org and company teammates typically work this way, since access is managed at the team level, rather than each keeping a personal fork.
 
-Either way you still don't push to `dev` or `main` directly — branch protection and `scripts/hooks/git-guards.sh` block that. The pull request is always the merge path.
+Either way you still don't push to `dev` or `main` directly — branch protection and `mcp/trajectory-server/src/hooks/git-guards.ts` block that. The pull request is always the merge path.
 
 **You don't need to run TMB itself to contribute** — plain git plus `bash tests/run-all.sh` (L1–L4) is all the local tooling a change requires.
 
@@ -44,7 +44,7 @@ Two things trip up first-time adapter PRs: the full Claude Code suite must stay 
 4. `bash tests/run-all.sh` — must be green (L1–L4).
 5. `gh pr create --base dev` — reference the issue (`Closes #N`); pick from the existing [labels](docs/contributing/LABELS.md).
 
-Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` + branch protection — always work on a branch and PR.
+Direct commits to `dev` and `main` are blocked by `mcp/trajectory-server/src/hooks/git-guards.ts` + branch protection — always work on a branch and PR.
 
 ## Branches & channels
 

@@ -1,6 +1,5 @@
 /**
- * UserPromptSubmit hook (GH 1692), the port of scripts/hooks/user-prompt-persona.sh:
- * the persona fallback for a session SessionStart did not cover (a resumed or
+ * UserPromptSubmit hook (GH 1692): the persona fallback for a session SessionStart did not cover (a resumed or
  * cleared session). It injects the persona once per session, or, when the
  * plugin's CLAUDE.md cannot be read, a one-time systemMessage. Never blocks.
  */

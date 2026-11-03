@@ -1,7 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1692), the port of
- * scripts/hooks/code-reviewer-no-worktree.sh, run by agent-spawn-dispatch.sh:
- * a code-reviewer spawn with isolation "worktree" is denied. code-reviewer is
+ * PreToolUse(Agent) gate (GH 1692), run by agent-spawn-dispatch: a code-reviewer spawn with isolation "worktree" is denied. code-reviewer is
  * the push gate and reviews the feature branch from the main checkout, not
  * from swe's per-task worktree. Other agent types, other tools and any other
  * isolation are allowed. Unlike the .sh, it needs no jq, so it denies on a

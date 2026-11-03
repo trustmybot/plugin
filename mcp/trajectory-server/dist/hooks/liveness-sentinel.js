@@ -1,7 +1,7 @@
 /**
  * Stop `asyncRewake` entry (GH 2205): watches the session while bro is idle and
  * wakes bro on a finding of liveness-probe. Run directly as `node dist/hooks.js
- * liveness-sentinel`, because its exit 2 is a wake and not a deny: dispatch.sh
+ * liveness-sentinel`, because its exit 2 is a wake and not a deny: the router
  * would replay it under its lock and audit a `hook_denied`.
  *
  * It writes the session's background task snapshot on every Stop. It arms only

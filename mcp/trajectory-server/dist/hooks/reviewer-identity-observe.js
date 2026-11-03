@@ -1,6 +1,5 @@
 /**
- * PreToolUse(validation_record) gate of the trajectory-gates chain (GH 1692),
- * the port of scripts/hooks/reviewer-identity-observe.sh: when a code-reviewer
+ * PreToolUse(validation_record) gate of the trajectory-gates chain (GH 1692): when a code-reviewer
  * subagent (agent_id present, agent_type normalizing to code-reviewer) calls
  * validation_record with an integer task_id and attempt_n, it writes one
  * reviewer_identity_observed audit row on the task's issue, which

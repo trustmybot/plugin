@@ -1,5 +1,5 @@
 /**
- * TypeScript port of scripts/hooks/record-swe-spawn.sh (GH 1692), the second
+ * The record-swe-spawn gate (GH 1692), the second
  * PREPARE step of agent-spawn-dispatch: a swe spawn for task_id=<N> opens
  * its agent_runs row in one transaction that first sweeps the task's open swe
  * rows older than 90 s with a NULL or tool_use spawn_id as swept_orphan, then

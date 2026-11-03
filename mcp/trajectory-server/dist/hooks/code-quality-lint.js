@@ -1,6 +1,5 @@
 /**
- * PreToolUse lint (GH 1692), the port of scripts/hooks/code-quality-lint.sh:
- * warns through additionalContext on the code-quality patterns a regex finds
+ * PreToolUse lint (GH 1692): warns through additionalContext on the code-quality patterns a regex finds
  * in the new content of a Python or TS/JS source file (bare except, an
  * unbounded subprocess.run, string-built SQL, `catch (e: any)`, a TODO
  * marker, …). Bypass: TMB_SKIP_CQ_LINT=1.

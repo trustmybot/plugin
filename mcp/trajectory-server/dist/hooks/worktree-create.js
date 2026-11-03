@@ -1,6 +1,5 @@
 /**
- * The WorktreeCreate hook (GH 1692), the port of scripts/hooks/worktree-create.sh:
- * creates (or reuses) `<repo>/.claude/worktrees/<slug>` for the payload's
+ * The WorktreeCreate hook (GH 1692): creates (or reuses) `<repo>/.claude/worktrees/<slug>` for the payload's
  * `.branch` and prints its bare absolute path on stdout, exit 0; a failure is
  * a stderr line and exit 1, never JSON. The repo is the one the task on that
  * branch names (tasks.repo's repos.path), else the sole registered repo, else

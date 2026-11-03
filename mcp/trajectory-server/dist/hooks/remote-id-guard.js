@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/remote-id-guard.sh:
- * a remote write carrying author text (gh pr create|edit, gh issue
+ * PreToolUse gate (GH 1692): a remote write carrying author text (gh pr create|edit, gh issue
  * create|edit|comment|close, glab mr create|update, glab issue
  * create|update|note|close, with a body, title or comment option or a heredoc)
  * is denied when a `#<n>` in it is a local trajectory issue id whose remote

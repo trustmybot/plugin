@@ -1,5 +1,5 @@
 /**
- * PreToolUse(Agent) gate (GH 1744), run by agent-spawn-dispatch.sh right
+ * PreToolUse(Agent) gate (GH 1744), run by agent-spawn-dispatch right
  * before code-reviewer-preflight: a code-reviewer spawn prompt carries the
  * name=value anchors (task_id, commit_sha, branch_id, repo, repo_path,
  * attempt_n, subagent_session_id) and at most SPAWN_NOTE_MAX_CHARS of other

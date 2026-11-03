@@ -1,7 +1,6 @@
 /**
- * PermissionDenied(Agent) hook (GH 1692), the port of
- * scripts/hooks/swe-spawn-rollback.sh: when auto mode refuses a swe spawn that
- * record-swe-spawn.sh already prepared, one transaction moves the task back to
+ * PermissionDenied(Agent) hook (GH 1692): when auto mode refuses a swe spawn that
+ * record-swe-spawn already prepared, one transaction moves the task back to
  * pending (when it is running and no other swe run of it is open) and closes
  * the open tool_use:<tool_use_id> row as swept_orphan, usage_source
  * unmeasured when unset and duration_ms its window when unmeasured. A row

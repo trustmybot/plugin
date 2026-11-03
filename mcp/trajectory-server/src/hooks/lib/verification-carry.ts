@@ -1,7 +1,8 @@
 /**
  * Verification carry-forward (GH 1950): which commands of a gate run on a
  * rework commit may be recorded as passed from an earlier passing run of the
- * same task instead of run again. swe-verification-gate.sh calls the CLI entry
+ * same task instead of run again. swe-verification-gate calls planCarrySafe,
+ * as does the CLI entry
  *
  *   node dist/hooks/lib/verification-carry.js <db> <task_id> <worktree> <head> <gate_cmds_json>
  *

@@ -1,6 +1,5 @@
 /**
- * SessionStart hook (GH 1692), the port of scripts/hooks/session-start-prescan.sh:
- * the deterministic project inventory (plugin version, top-level dirs,
+ * SessionStart hook (GH 1692): the deterministic project inventory (plugin version, top-level dirs,
  * stacks, world model state, trajectory DB contracts, git state, open
  * issues, pending tasks, last commits) as additionalContext, plus the cold
  * world model, version skew, duplicate install and leftover user-hook notes.
@@ -330,7 +329,7 @@ function paramValue(raw: string | undefined, fallback: unknown): string {
   return jqRawText(fallback);
 }
 
-/** The data-contract script session-start-prescan.sh builds with jq. */
+/** The data-contract script session-start-prescan builds with jq. */
 export function contractScript(contracts: readonly Contract[], env: NodeJS.ProcessEnv): string {
   const params = [
     ...new Set(contracts.flatMap((c) => (c.params ?? []).map((p) => `.parameter set :${p.name} ${paramValue(env[p.env], p.default)}`))),

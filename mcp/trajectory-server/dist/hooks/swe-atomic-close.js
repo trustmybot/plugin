@@ -1,6 +1,5 @@
 /**
- * SubagentStop hook (GH 1692), the port of scripts/hooks/swe-atomic-close.sh:
- * the atomic-close safety net and per-spawn metering for swe, and per-spawn
+ * SubagentStop hook (GH 1692): the atomic-close safety net and per-spawn metering for swe, and per-spawn
  * metering for code-reviewer. It never denies.
  *
  * Task binding: the `task_id=<N>` of the spawn transcript, for a task in any

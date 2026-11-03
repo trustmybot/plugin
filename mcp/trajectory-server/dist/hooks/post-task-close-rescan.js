@@ -1,6 +1,5 @@
 /**
- * PostToolUse hook on bro_atomic_close (GH 1692), the port of
- * scripts/hooks/post-task-close-rescan.sh: re-runs the scan
+ * PostToolUse hook on bro_atomic_close (GH 1692): re-runs the scan
  * (scripts/maintenance/run-scan.mjs) against the DB the hooks resolve, so the
  * world model catches up with what the close landed. The scan is a detached
  * child with its stdio ignored and unref'd, node's `& disown`: the hook

@@ -1,6 +1,5 @@
 /**
- * PreToolUse gate (GH 1692), the port of scripts/hooks/stay-on-base-guard.sh:
- * a `git checkout <branch>` / `git switch <branch>` in a main checkout is
+ * PreToolUse gate (GH 1692): a `git checkout <branch>` / `git switch <branch>` in a main checkout is
  * denied while <branch> belongs to an open task, pointing at the task's
  * worktree instead. A statement already inside .claude/worktrees/, one whose
  * dir is unknown, and one that creates a branch (-b/-B/-c/-C/--create) or
