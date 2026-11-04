@@ -21,8 +21,6 @@ SLOW_TIMEOUT_S=240
 SLOW_FILES=(
   git-guards.test.sh
   swe-boundary.test.sh
-  git-push-guard.test.sh
-  roundtable-slash-detect.test.sh
   cmd-analysis.test.sh
   containment-guard.test.sh
   merge-driver.test.sh

@@ -94,6 +94,11 @@ describe('roundtable and consultant hooks without jq or the sqlite3 CLI (decisio
     assert.deepEqual(JSON.parse(r.stdout), { decision: 'block', reason: recoveryMessage('pm', '2') });
   });
 
+  it('consultant-persistence-gate lets code-reviewer stop with no discussion row (a backbone role)', () => {
+    buildSandbox(s);
+    assert.deepEqual(consultantPersistenceGate('{"subagent_type":"code-reviewer"}', env()), { stdout: '', code: 0 });
+  });
+
   it('consultant-persistence-gate blocks on a corrupt DB, naming the DB it could not read', () => {
     buildSandbox(s);
     const bad = join(s, 'bad/.claude/tmb/trajectory.db');

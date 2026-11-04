@@ -12,7 +12,7 @@ import { cleanReadme } from '../readme-summary.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
-import { indexRepoSymbols } from '../symbol-index.js';
+import { bundleMaps, EXTRACTOR_VERSION, indexRepoSymbols } from '../symbol-index.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
 import { syncRepoMilestones } from './milestones.js';
@@ -606,7 +606,8 @@ async function persistScan(db, graph, out, sessionDir) {
     if (graph) {
         for (const r of persisted.repos) {
             try {
-                const repoStats = await indexRepoSymbols(db, r.name, r.path);
+                const maps = bundleMaps(out.files.filter((f) => f.repo === r.name));
+                const repoStats = await indexRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps);
                 for (const key of SYMBOL_STAT_KEYS)
                     symbols[key] += repoStats[key];
             }
