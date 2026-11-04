@@ -7,7 +7,6 @@
  * router's one exec-form entry.
  */
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -95,19 +94,6 @@ describe('hooks.json registration shape', () => {
     for (const matcher of ['AskUserQuestion', 'Read|Skill']) {
       const [entry] = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === matcher);
       assert.equal(entry.hooks[0].onFailure, undefined, matcher);
-    }
-  });
-
-  it('the trajectory-gates chain table is the router group minus its TypeScript-only gates: names, order, tool filter and budget floor', () => {
-    const table = execFileSync('bash', ['-c', '. "$0"; tmb_chain_table trajectory-gates', join(PLUGIN_ROOT, 'scripts/hooks/lib/registrations.sh')], { encoding: 'utf8' })
-      .trim()
-      .split('\n')
-      .map((line) => line.split(' '));
-    const group = ROUTER_GROUPS.find((g) => g.matcher === 'mcp__.*trajectory-server__.*');
-    assert.deepEqual(table.map(([name, , tool]) => [name, tool]), group?.gates.filter((g) => g.tsOnly !== true).map((g) => [g.name, g.toolSuffix ?? '*']));
-    for (const [name, timeoutS] of table) {
-      const budgetMs = group?.gates.find((g) => g.name === name)?.budgetMs ?? 0;
-      assert.ok(budgetMs >= Number(timeoutS) * 1000, `${name}: ${budgetMs} ms under its ${timeoutS} s`);
     }
   });
 

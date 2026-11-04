@@ -9,7 +9,7 @@ import { loadParsers, parserLoadCount } from '../parsing/loader.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine } from '../parsing/extract.js';
-import { dispatchChains, extractHooks } from '../parsing/hooks.js';
+import { extractHooks } from '../parsing/hooks.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -743,7 +743,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     const read = (path) => readFileSync(join(PLUGIN_ROOT, path), 'utf8');
     it('the shipped Write group has one runs edge per routed gate, in run order, named by its first gate', () => {
         const table = read('mcp/trajectory-server/dist/hooks-router.txt');
-        const x = extractHooks(read('hooks/hooks.json'), dispatchChains(read('scripts/hooks/lib/registrations.sh')), table);
+        const x = extractHooks(read('hooks/hooks.json'), table);
         const at = x.symbols.findIndex((s) => s.qualified_name.startsWith('PreToolUse#') && s.doc.includes('Write|Edit'));
         assert.ok(at >= 0);
         assert.equal(x.symbols[at].qualified_name, 'PreToolUse#1:containment-guard');
@@ -757,7 +757,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     });
     it('each part of a shipped event is its own hook symbol with only that part\'s gates', () => {
         const table = read('mcp/trajectory-server/dist/hooks-router.txt');
-        const x = extractHooks(read('hooks/hooks.json'), new Map(), table);
+        const x = extractHooks(read('hooks/hooks.json'), table);
         const names = x.symbols.filter((s) => s.kind === 'hook').map((s) => s.qualified_name);
         assert.deepEqual(names.filter((n) => n.startsWith('SessionStart#')), ['SessionStart#1:ensure-gitignore', 'SessionStart#2:session-start-persona', 'SessionStart#3:session-start-prescan']);
         assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
@@ -766,7 +766,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
         assert.deepEqual(x.edges.filter((e) => e.src === persona && e.kind === 'runs').map((e) => e.dst_name), ['mcp/trajectory-server/src/hooks/session-start-persona.ts']);
     });
     it('every runs edge of the shipped hooks.json names a gate\'s TypeScript module, never a bash script (GH 1692)', () => {
-        const x = extractHooks(read('hooks/hooks.json'), dispatchChains(read('scripts/hooks/lib/registrations.sh')), read('mcp/trajectory-server/dist/hooks-router.txt'));
+        const x = extractHooks(read('hooks/hooks.json'), read('mcp/trajectory-server/dist/hooks-router.txt'));
         const runs = x.edges.filter((e) => e.kind === 'runs').map((e) => e.dst_name);
         assert.ok(runs.length > 0);
         for (const dst of runs) {
@@ -775,13 +775,13 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
         }
     });
     it('every PreToolUse entry of the shipped hooks.json is named by a gate, not by its position', () => {
-        const x = extractHooks(read('hooks/hooks.json'), new Map(), read('mcp/trajectory-server/dist/hooks-router.txt'));
+        const x = extractHooks(read('hooks/hooks.json'), read('mcp/trajectory-server/dist/hooks-router.txt'));
         for (const s of x.symbols.filter((y) => y.qualified_name.startsWith('PreToolUse#'))) {
             assert.doesNotMatch(s.qualified_name, /:hook\d+$/);
         }
     });
     it('with no table a router entry stays a bare hook with no runs edge', () => {
-        const x = extractHooks(read('hooks/hooks.json'), new Map());
+        const x = extractHooks(read('hooks/hooks.json'));
         const at = x.symbols.findIndex((s) => s.qualified_name.startsWith('PreToolUse#'));
         assert.equal(x.symbols[at].qualified_name, 'PreToolUse#1:hook1');
         assert.equal(x.edges.filter((e) => e.src === at).length, 0);
