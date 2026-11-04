@@ -25513,7 +25513,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 55;
+var TARGET_SCHEMA_VERSION = 56;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26082,6 +26082,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 55 && toVersion >= 55) {
     migrateV54toV55(db);
+  }
+  if (fromVersion < 56 && toVersion >= 56) {
+    migrateV55toV56(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -27990,6 +27993,41 @@ function migrateV54toV55(db) {
           consumed_by_session TEXT
       );
     `);
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
+function migrateV55toV56(db) {
+  if (!tableExists(db, "wm_edges") || readTableSql(db, "wm_edges").includes("'bundles'")) return;
+  beginImmediate(db);
+  try {
+    rebuildTable(
+      db,
+      "wm_edges",
+      `
+        src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+        dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+        dst_name    TEXT    NOT NULL,
+        kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')),
+        resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+        line        INTEGER,
+        hint        TEXT
+      `,
+      [
+        ["src_id", "0"],
+        ["dst_id", "NULL"],
+        ["dst_name", "''"],
+        ["kind", "'calls'"],
+        ["resolution", "'unresolved'"],
+        ["line", "NULL"],
+        ["hint", "NULL"]
+      ]
+    );
     commitTransaction(db);
   } catch (err6) {
     try {
@@ -34754,7 +34792,9 @@ var EXTENSION_LANGUAGE = {
   jsx: "javascript",
   sh: "bash",
   bash: "bash",
-  sql: "sql"
+  sql: "sql",
+  pl: "perl",
+  pm: "perl"
 };
 var SH_BUILTINS = new Set(
   "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
@@ -34783,7 +34823,12 @@ function languageOf(relPath, head) {
   const name2 = basename5(relPath);
   const dot = name2.lastIndexOf(".");
   if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
-  return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
+  const shebang = head().slice(0, 120);
+  if (/^#!.*\bperl\b/.test(shebang)) return "perl";
+  return /^#!.*\b(bash|sh)\b/.test(shebang) ? "bash" : null;
+}
+function needsParser(lang) {
+  return lang !== "sql" && lang !== "perl";
 }
 function symbolTerms(kind, qualifiedName, relPath) {
   return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename5(relPath))}`;
@@ -35085,9 +35130,146 @@ function extractBash(root, out2, moduleSymbol) {
   };
   visit(root, moduleSymbol);
 }
+function hashCommentDoc(lines2, at) {
+  const block = [];
+  for (let i2 = at - 1; i2 >= 0 && /^\s*#/.test(lines2[i2]) && !/^#!/.test(lines2[i2]); i2--) block.unshift(lines2[i2]);
+  if (block.some(isRuleLine)) return "";
+  return clip(oneLine(block.map((l) => l.replace(/^\s*#+/, " ")).join(" ")), DOC_MAX);
+}
+function perlCodeLines(src) {
+  const lines2 = src.split("\n");
+  let pod = false;
+  let done = false;
+  return lines2.map((l) => {
+    if (done) return "";
+    if (/^__(END|DATA)__\s*$/.test(l)) {
+      done = true;
+      return "";
+    }
+    if (pod) {
+      if (/^=cut\b/.test(l)) pod = false;
+      return "";
+    }
+    if (/^=[a-zA-Z]/.test(l)) {
+      pod = !/^=cut\b/.test(l);
+      return "";
+    }
+    return l;
+  });
+}
+var PERL_SUB = /^(\s*)sub\s+([A-Za-z_][\w:]*)\b([^{]*)/;
+var PERL_CONST = /^\s*use\s+constant\s+(?:([A-Za-z_]\w*)\s*=>|(\{))/;
+var PERL_BLOCK_KEY = /\s*['"]?([A-Za-z_]\w*)['"]?\s*=>/y;
+function perlForwardDecl(line) {
+  return /^[^{#]*;\s*(#.*)?$/.test(line);
+}
+function perlSubEnd(lines2, start2, indent) {
+  const first = lines2[start2].replace(/#.*$/, "");
+  const opens = (first.match(/\{/g) ?? []).length;
+  if (opens > 0 && opens === (first.match(/\}/g) ?? []).length) return start2;
+  for (let i2 = start2 + 1; i2 < lines2.length; i2++) {
+    const m = /^(\s*)\}/.exec(lines2[i2]);
+    if (m && m[1].length <= indent) return i2;
+  }
+  return start2;
+}
+function perlConstantKeys(lines2, row, col) {
+  const keys = [];
+  let depth = 0;
+  let expectKey = false;
+  for (let i2 = row; i2 < lines2.length; i2++) {
+    const line = lines2[i2];
+    let quote = null;
+    for (let j = i2 === row ? col : 0; j < line.length; j++) {
+      const ch = line[j];
+      if (quote) {
+        if (ch === "\\") j++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "#") break;
+      if (depth === 1 && expectKey) {
+        PERL_BLOCK_KEY.lastIndex = j;
+        const m = PERL_BLOCK_KEY.exec(line);
+        if (m) {
+          keys.push([m[1], i2]);
+          j = PERL_BLOCK_KEY.lastIndex - 1;
+          expectKey = false;
+          continue;
+        }
+        if (!/\s/.test(ch)) expectKey = false;
+      }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === "{" || ch === "(" || ch === "[") {
+        depth++;
+        if (depth === 1) expectKey = true;
+      } else if (ch === "}" || ch === ")" || ch === "]") {
+        if (--depth === 0) return { keys, end: i2 };
+      } else if (ch === "," && depth === 1) expectKey = true;
+    }
+  }
+  return { keys, end: lines2.length - 1 };
+}
+function extractPerl(src, out2) {
+  const lines2 = perlCodeLines(src);
+  const body2 = (from, to) => md5(oneLine(lines2.slice(from, to + 1).filter((l) => !/^\s*#/.test(l)).join("\n")));
+  const exported = (name2) => /^_|::_/.test(name2) ? 0 : 1;
+  for (let i2 = 0; i2 < lines2.length; i2++) {
+    const line = lines2[i2];
+    const sub = PERL_SUB.exec(line);
+    if (sub) {
+      if (perlForwardDecl(line)) continue;
+      const name2 = sub[2];
+      const end = perlSubEnd(lines2, i2, sub[1].length);
+      out2.symbol({
+        kind: "function",
+        qualified_name: name2,
+        signature: clip(oneLine(`sub ${name2}${sub[3].replace(/;.*$/, "")}`), 200),
+        doc: hashCommentDoc(lines2, i2),
+        start_line: i2 + 1,
+        end_line: end + 1,
+        body_hash: body2(i2, end),
+        exported: exported(name2)
+      });
+      continue;
+    }
+    const constant = PERL_CONST.exec(line);
+    if (!constant) continue;
+    if (constant[1]) {
+      const name2 = constant[1];
+      let end = i2;
+      while (end < lines2.length - 1 && !/;\s*(#.*)?$/.test(lines2[end])) end++;
+      out2.symbol({
+        kind: "const",
+        qualified_name: name2,
+        signature: clip(oneLine(lines2.slice(i2, end + 1).join(" ").replace(/^\s*use\s+constant\s+/, "").replace(/;\s*(#.*)?$/, "")), 200),
+        doc: hashCommentDoc(lines2, i2),
+        start_line: i2 + 1,
+        end_line: end + 1,
+        body_hash: body2(i2, end),
+        exported: exported(name2)
+      });
+      continue;
+    }
+    const block = perlConstantKeys(lines2, i2, line.indexOf("{", constant.index + constant[0].length - 1));
+    for (const [name2, row] of block.keys) {
+      out2.symbol({
+        kind: "const",
+        qualified_name: name2,
+        signature: clip(oneLine(lines2[row]).replace(/,$/, ""), 200),
+        doc: hashCommentDoc(lines2, row) || hashCommentDoc(lines2, i2),
+        start_line: row + 1,
+        end_line: row + 1,
+        body_hash: md5(oneLine(lines2[row])),
+        exported: exported(name2)
+      });
+    }
+    i2 = block.end;
+  }
+}
 function moduleDoc(lang, src) {
   const out2 = [];
-  const comment = lang === "bash" || lang === "sql" ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
+  const comment = lang === "bash" || lang === "sql" || lang === "perl" ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
   for (const l of src.split("\n")) {
     if (/^#!/.test(l)) continue;
     const m = l.match(comment);
@@ -35113,6 +35295,10 @@ function extractFile(parsers, relPath, lang, src) {
     extractSqlDdl(src, out2, moduleSymbol);
     return out2;
   }
+  if (lang === "perl") {
+    extractPerl(src, out2);
+    return out2;
+  }
   if (!parsers) throw new Error(`no parser loaded for ${lang}`);
   const tree = parsers[lang].parse(src);
   if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
@@ -35136,7 +35322,6 @@ function rowHoldsPart(fields, part) {
 
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
-var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
 var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
 var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
 var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
@@ -35155,13 +35340,6 @@ var EVENT_ORDER = [
   "WorktreeRemove",
   "SessionEnd"
 ];
-function dispatchChains(registrations) {
-  const chains = /* @__PURE__ */ new Map();
-  for (const m of registrations.matchAll(/^\s*([\w-]+)\)\s*\n\s*printf '%s\\n' \\\n((?:\s*'[^']*'\s*\\?\n)+)/gm)) {
-    chains.set(m[1], [...m[2].matchAll(/'([\w-]+)\s/g)].map((x) => x[1]));
-  }
-  return chains;
-}
 function eventRanks(events) {
   const unknown2 = events.filter((e) => !EVENT_ORDER.includes(e));
   const stop2 = EVENT_ORDER.indexOf("Stop");
@@ -35173,7 +35351,7 @@ function routerGatesOf(table, event, matcher, part) {
   const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
   return [...new Set(rows)];
 }
-function extractHooks(src, chains, routerTable2 = "") {
+function extractHooks(src, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -35200,8 +35378,7 @@ function extractHooks(src, chains, routerTable2 = "") {
         const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
         const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
-        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -35215,8 +35392,8 @@ function extractHooks(src, chains, routerTable2 = "") {
           run_order: rank * 100 + pos
         });
         const at = out2.symbols.length - 1;
-        if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
+        if (isRouted) {
+          routed.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
           out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
@@ -35227,7 +35404,7 @@ function extractHooks(src, chains, routerTable2 = "") {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 4;
+var EXTRACTOR_VERSION = 5;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
@@ -35380,6 +35557,10 @@ var Resolver = class {
       const dst = hit?.id ?? this.modules.get(target);
       return dst === void 0 ? null : { dst, how: "exact" };
     }
+    if (edge.kind === "bundles") {
+      const dst = this.modules.get(edge.dst_name);
+      return dst === void 0 ? null : { dst, how: "exact" };
+    }
     if (edge.kind === "runs" || edge.kind === "sources") {
       const byPath = edge.dst_name.includes("/") ? this.modules.get(edge.dst_name) : void 0;
       if (byPath !== void 0) return { dst: byPath, how: "exact" };
@@ -35416,13 +35597,6 @@ function markOrphanedEdges(db) {
 }
 function deleteFileSymbols(db, repo, path) {
   db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path]);
-}
-function registrationChains(repoPath) {
-  try {
-    return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
-  } catch {
-    return /* @__PURE__ */ new Map();
-  }
 }
 function routerTable(repoPath) {
   try {
@@ -35462,7 +35636,71 @@ function reresolveEdges(db, repo, names, skip) {
   }
   return resolved;
 }
-async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
+var URL_SCHEME2 = /^[a-z][a-z0-9+.-]*:/i;
+function bundleMaps(files) {
+  const tracked = new Set(files.map((f) => f.path));
+  return files.filter((f) => {
+    const bundle = f.path.slice(0, -".map".length);
+    return f.path.endsWith(".map") && /\.[cm]?js$/.test(bundle) && isGeneratedPath(bundle) && tracked.has(bundle);
+  }).map((f) => ({ path: f.path, content_md5: f.content_md5 }));
+}
+function bundleSources(mapPath, mapText, repoPath) {
+  const map2 = JSON.parse(mapText);
+  if (!Array.isArray(map2.sources)) return [];
+  const root = typeof map2.sourceRoot === "string" ? map2.sourceRoot.replace(/^file:\/\//, "") : "";
+  if (URL_SCHEME2.test(root)) return [];
+  const repoRoot = posix2.resolve(repoPath);
+  const out2 = /* @__PURE__ */ new Set();
+  for (const source of map2.sources) {
+    if (typeof source !== "string" || !source) continue;
+    const s = source.replace(/^file:\/\//, "");
+    if (URL_SCHEME2.test(s)) continue;
+    const rel = posix2.relative(repoRoot, posix2.resolve(repoRoot, posix2.dirname(mapPath), root, s));
+    if (!rel || rel === ".." || rel.startsWith("../") || posix2.isAbsolute(rel) || /(^|\/)node_modules\//.test(rel)) continue;
+    out2.add(rel);
+  }
+  return [...out2];
+}
+function bundleExtraction(bundle, stamp, sources) {
+  return {
+    symbols: [
+      {
+        kind: "module",
+        qualified_name: bundle,
+        signature: bundle,
+        doc: `Generated bundle of ${sources.length} in-repo source(s), read from ${bundle}.map; rebuild it after editing one.`,
+        start_line: 1,
+        end_line: 1,
+        body_hash: stamp,
+        exported: 0
+      }
+    ],
+    edges: sources.map((s) => ({ src: 0, kind: "bundles", dst_name: s, line: 1, hint: null }))
+  };
+}
+function readBundles(db, repo, repoPath, maps, version2) {
+  const stamps = new Map(
+    db.all(`SELECT path, body_hash FROM wm_symbols WHERE repo = ? AND kind = 'module'`, [repo]).filter((r) => isGeneratedPath(r.path)).map((r) => [r.path, r.body_hash])
+  );
+  const pass = { write: [], gone: [], failed: [] };
+  const listed = /* @__PURE__ */ new Set();
+  for (const map2 of maps) {
+    const bundle = map2.path.slice(0, -".map".length);
+    const stamp = `${map2.content_md5}:${version2}`;
+    listed.add(bundle);
+    if (stamps.get(bundle) === stamp) continue;
+    try {
+      const sources = bundleSources(map2.path, readSource(repoPath, map2.path), repoPath);
+      pass.write.push({ path: bundle, extraction: sources.length > 0 ? bundleExtraction(bundle, stamp, sources) : null });
+    } catch (e) {
+      pass.failed.push({ path: map2.path, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
+      pass.write.push({ path: bundle, extraction: null });
+    }
+  }
+  pass.gone = [...stamps.keys()].filter((p) => !listed.has(p));
+  return pass;
+}
+async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION, maps) {
   const version2 = String(extractorVersion);
   const stale = db.all(
     `SELECT id, path, content_md5, size_bytes FROM wm_files
@@ -35470,7 +35708,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -35478,7 +35716,7 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     if (hooksFile) stale.push(hooksFile);
   }
   const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
-  const parsers = jobs.some((j) => j.lang !== null && j.lang !== "sql") ? await loadParsers() : null;
+  const parsers = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
   const failed = [];
   const parsed = [];
   for (const { file: file2, lang } of jobs) {
@@ -35489,12 +35727,13 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     }
     try {
       const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
       parsed.push({ file: file2, extraction });
     } catch (e) {
       failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
     }
   }
+  const bundles = maps ? readBundles(db, repo, repoPath, maps, version2) : { write: [], gone: [], failed: [] };
   return db.transaction(() => {
     const writer = new SymbolWriter(db, repo);
     const pending2 = [];
@@ -35512,6 +35751,15 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
       deleteFileSymbols(db, repo, file2.path);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version2, FAILED_SUFFIX, file2.id]);
     }
+    for (const { path, extraction } of bundles.write) {
+      if (extraction) {
+        pending2.push(...writer.writeFile(path, extraction));
+        symbols += extraction.symbols.length;
+      } else {
+        deleteFileSymbols(db, repo, path);
+      }
+    }
+    for (const path of bundles.gone) deleteFileSymbols(db, repo, path);
     let resolved = 0;
     if (pending2.length > 0) {
       const resolver = new Resolver(db, repo, pending2);
@@ -35526,11 +35774,11 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     markOrphanedEdges(db);
     return {
       files_parsed: parsed.filter((p) => p.extraction !== null).length,
-      files_failed: failed.length,
+      files_failed: failed.length + bundles.failed.length,
       symbols,
       edges: pending2.length,
       edges_resolved: resolved,
-      failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file: file2, error: error2 }) => ({ path: file2.path, error: error2 }))
+      failed_paths: [...failed.map(({ file: file2, error: error2 }) => ({ path: file2.path, error: error2 })), ...bundles.failed].slice(0, FAILED_PATHS_CAP)
     };
   });
 }
@@ -35614,6 +35862,13 @@ function symbolCard(db, symbol2) {
       ORDER BY e.line`,
     [symbol2.id]
   );
+  const bundlers = db.all(
+    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_symbols m JOIN wm_edges e ON e.dst_id = m.id AND e.kind = 'bundles' JOIN wm_symbols o ON o.id = e.src_id
+      WHERE m.repo = ? AND m.path = ? AND m.kind = 'module'
+      ORDER BY o.path`,
+    [symbol2.repo, symbol2.path]
+  );
   const isTable = symbol2.kind === "sql_table";
   const tableSide = isTable ? inbound : outbound;
   const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
@@ -35625,7 +35880,8 @@ function symbolCard(db, symbol2) {
     imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
     reads_table: refList(of(tableSide, ["reads_table"])),
     writes_table: refList(of(tableSide, ["writes_table"])),
-    tests: refList(inbound.filter((r) => r.path !== null && isTestPath(r.path)))
+    tests: refList(inbound.filter((r) => r.edge_kind !== "bundles" && r.path !== null && isTestPath(r.path))),
+    bundled_by: refList(bundlers)
   };
   if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
   return card;
@@ -35706,6 +35962,10 @@ function staleFiles(db, files) {
       [f.repo, f.path]
     );
     const disk = fileMd5(join14(root, f.path));
+    if (!row && isGeneratedPath(f.path)) {
+      checked.set(key, disk === null);
+      continue;
+    }
     checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
   }
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
@@ -37520,7 +37780,8 @@ async function persistScan(db, graph, out2, sessionDir) {
   if (graph) {
     for (const r of persisted.repos) {
       try {
-        const repoStats = await indexRepoSymbols(db, r.name, r.path);
+        const maps = bundleMaps(out2.files.filter((f) => f.repo === r.name));
+        const repoStats = await indexRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps);
         for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
       } catch (e) {
         symbols.error = `${r.name}: ${e.message}`;
@@ -38352,7 +38613,7 @@ function worldModelTools(db, graphHolder, cwd) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
