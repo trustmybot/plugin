@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sourced by the gate suites (require-task-spec, swe-verification-gate,
-# git-push-guard). A gate must read a healthy WAL trajectory DB that no process
+# Sourced by the gate suites (require-task-spec, swe-verification-gate).
+# A gate must read a healthy WAL trajectory DB that no process
 # holds open (its -shm/-wal absent), keep the -readonly fast path while a holder
 # exists, and fail closed when neither read can open the DB.
 #
