@@ -9095,7 +9095,7 @@ function healMcpCache(argv2, env, io2) {
   const readLine = stdinLines();
   const ask = (prompt) => {
     io2.out(prompt);
-    return readLine();
+    return readLine().replace(/^[ \t]+|[ \t]+$/g, "");
   };
   io2.out("=== TMB MCP-cache heal \u2014 issue #2888 ===\n\n");
   try {

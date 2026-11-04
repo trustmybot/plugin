@@ -209,6 +209,24 @@ describe('cli.js heal-mcp-cache: prompts and defaults', () => {
         assert.equal(disabledServers(h), '["plugin:tmb:trajectory-server","other"]');
         assert.equal(cachedVersions(h), '1.0.0 1.1.0 1.2.0');
     });
+    it('answers padded with spaces and tabs are trimmed like bash read -r: padded n skips Steps A and C', () => {
+        const h = versionsHome('padded-no', ['1.0.0', '1.1.0', '1.2.0'], '1.2.0');
+        const before = readFileSync(join(h, '.claude.json'), 'utf8');
+        const run = heal(h, [], 'n \n\t n\nn\n');
+        assert.equal(run.code, 0, run.out);
+        assert.ok(run.out.includes('Skipped Step A.'), run.out);
+        assert.ok(run.out.includes('Skipped Step C.'), run.out);
+        assert.equal(readFileSync(join(h, '.claude.json'), 'utf8'), before);
+        assert.equal(cachedVersions(h), '1.0.0 1.1.0 1.2.0');
+    });
+    it('padded y at Step B runs the cache nuke', () => {
+        const h = versionsHome('padded-yes', ['1.0.0', '1.1.0', '1.2.0'], '1.2.0');
+        const run = heal(h, [], 'n\nn\n y\t\n');
+        assert.equal(run.code, 0, run.out);
+        assert.ok(!run.out.includes('Skipped Step B.'), run.out);
+        assert.equal(cachesLeft(h), '');
+        assert.equal(entriesLeft(h), '');
+    });
     it('Step A backs up ~/.claude.json before editing it', () => {
         const h = versionsHome('backup', ['1.2.0'], '1.2.0');
         const run = heal(h, [], 'y\nn\n');

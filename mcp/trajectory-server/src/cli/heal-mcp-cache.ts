@@ -527,7 +527,7 @@ export function healMcpCache(argv: readonly string[], env: NodeJS.ProcessEnv, io
   const readLine = stdinLines();
   const ask = (prompt: string): string => {
     io.out(prompt);
-    return readLine();
+    return readLine().replace(/^[ \t]+|[ \t]+$/g, '');
   };
 
   io.out('=== TMB MCP-cache heal — issue #2888 ===\n\n');
