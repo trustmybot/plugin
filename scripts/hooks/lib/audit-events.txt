@@ -71,6 +71,7 @@ scope_gate_waived	bro
 skill_creator_blocked	bro
 spec_shape_gate_waived	bro
 stray_db_removed	bro
+subagent_return_oversize	hook
 swe_atomic_close_auto_completed	hook
 swe_brief_fetched	swe
 swe_resume_observed	hook

@@ -249,6 +249,12 @@ const BRO_TRANSITIONS: Record<string, Set<string>> = {
   closed: new Set(['escalated']),
 };
 
+/** The head of swe's final message (GH 1959), built from the row task_update_status just wrote. */
+export function sweReturnLine(task: Pick<Task, 'id' | 'status' | 'commit_sha'>): string {
+  const sha = task.commit_sha ? task.commit_sha.slice(0, 8) : '-';
+  return `status=${task.status} task=${task.id} sha=${sha}`;
+}
+
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -1350,7 +1356,7 @@ export function taskTools(db: TrajectoryDB): {
       });
 
       const updated = db.get<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
-      return ok(updated);
+      return ok({ ...updated, return_line: sweReturnLine(updated ?? task) });
     })),
 
     task_first_actionable: wrapHandler(async (args) => {

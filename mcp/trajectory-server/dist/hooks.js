@@ -23372,6 +23372,7 @@ var GATE_NAME62 = "swe-atomic-close";
 var FROM_NODE2 = "hook:swe-atomic-close";
 var LOG_ROTATE_BYTES2 = 1048576;
 var NO_STATS = "0|0|0|0|0|0||";
+var RETURN_BUDGET_CHARS = 600;
 var ISO2 = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z\n?$/;
 var STAMP_PARTS = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{3})Z$/;
 var MODEL_STRIP2 = /[^A-Za-z0-9._:@/[\]-]/gu;
@@ -23607,6 +23608,35 @@ function skipUnbound(db, transcript, spawnId, taskId, env, out2) {
   if (!r.ok) process.stderr.write(`${r.error}
 `);
 }
+function returnChars(input) {
+  if (input.values.length !== 1) return null;
+  const value = input.values[0];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const message = value["last_assistant_message"];
+  return typeof message === "string" ? [...message].length : null;
+}
+function flagOversizeReturn(db, input, agentType, taskRow, env) {
+  try {
+    const chars = returnChars(input);
+    if (chars === null || chars <= RETURN_BUDGET_CHARS) return;
+    const boundTask = taskRow === "" ? "" : sqlInt(cutField3(taskRow, 1));
+    const r = auditAppend(
+      db,
+      {
+        issueId: boundTask === "" ? "-1" : sqlInt(cutField3(taskRow, 6)) || "-1",
+        branchId: boundTask === "" ? "" : cutField3(taskRow, 3),
+        fromNode: FROM_NODE2,
+        eventType: "subagent_return_oversize",
+        summary: `${agentType} final message is ${chars} chars, over the ${RETURN_BUDGET_CHARS}-char return budget`,
+        contentJson: jqCompact({ task_id: boundTask === "" ? null : jqNumber(boundTask), agent_type: agentType, chars })
+      },
+      { caller: GATE_NAME62, env }
+    );
+    if (!r.ok) process.stderr.write(`${r.error}
+`);
+  } catch {
+  }
+}
 var sweAtomicClose = async (payload, env) => {
   const inputText = commandSubstitution2(payload);
   const input = jqInput(payload);
@@ -23632,6 +23662,7 @@ var sweAtomicClose = async (payload, env) => {
       WHERE id = ${transcriptTaskId} LIMIT 1;`,
     env
   );
+  flagOversizeReturn(db, input, agentType, row, env);
   if (row === "") {
     if (agentType === "swe") skipUnbound(db, transcriptPath, spawnId, transcriptTaskId, env, out2);
     return { stdout: out2.stdout, code: 0 };
