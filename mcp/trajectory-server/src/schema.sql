@@ -333,7 +333,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 55, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 56, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -701,6 +701,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     re-resolves non-exact edges whose dst_name it inserted or moved. hint
 --     (GH 1680) is the import specifier of an 'imports' edge or the receiver
 --     of a member call, kept so that re-resolution needs no re-parse.
+--     'bundles' (GH 2284; schema v56) runs from a generated bundle's 'module'
+--     row (its body_hash is the source map's md5 and the extractor version)
+--     to each in-repo source the bundle's sibling .map lists.
 --   hook rows (GH 1680): each hooks/hooks.json entry is a kind='hook' symbol,
 --     qualified_name '<Event>#<pos>:<gate>', with run_order = event rank * 100
 --     + position (NULL on every other kind) and a 'runs' edge to its gate.
@@ -774,7 +777,7 @@ CREATE TABLE IF NOT EXISTS wm_edges (
     src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
     dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
     dst_name    TEXT    NOT NULL,
-    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on')),
+    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')),
     resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
     line        INTEGER,
     hint        TEXT
