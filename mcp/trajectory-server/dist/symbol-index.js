@@ -16,7 +16,7 @@ import { basename, join, posix } from 'node:path';
 import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers } from './parsing/loader.js';
 import { extractFile, inSymbolScope, languageOf, splitWords, STOPWORDS, symbolTerms, clip, oneLine, } from './parsing/extract.js';
-import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
+import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 export const EXTRACTOR_VERSION = 4;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
@@ -221,14 +221,6 @@ export function markOrphanedEdges(db) {
 export function deleteFileSymbols(db, repo, path) {
     db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path]);
 }
-function registrationChains(repoPath) {
-    try {
-        return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
-    }
-    catch {
-        return new Map();
-    }
-}
 function routerTable(repoPath) {
     try {
         return readSource(repoPath, ROUTER_TABLE_PATH);
@@ -281,7 +273,7 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
         WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`, [repo, version, version, FAILED_SUFFIX])
         .filter((f) => inSymbolScope(f.path));
-    if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
+    if (stale.some((f) => f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
         const hooksFile = db.get(`SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`, [repo, HOOKS_PATH]);
         if (hooksFile)
             stale.push(hooksFile);
@@ -299,7 +291,7 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
         try {
             const src = readSource(repoPath, file.path);
             const extraction = isHooks
-                ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath))
+                ? extractHooks(src, routerTable(repoPath))
                 : extractFile(parsers, file.path, lang, src);
             parsed.push({ file, extraction });
         }

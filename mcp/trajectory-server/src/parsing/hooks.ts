@@ -2,16 +2,14 @@
 // registered hook, qualified '<Event>#<pos>:<gate>', with run_order = event
 // rank * 100 + position so the Claude Code lifecycle order is queryable, and a
 // 'runs' edge to the gate's TypeScript module, src/hooks/<gate>.ts (GH 1692:
-// never to the bash script it was ported from). A gate that is a
-// dispatch chain in registrations.sh gets one 'runs' edge per member instead,
-// edges.line holding the chain position. A router entry (`dist/hooks.js <Event>`)
-// takes its gates from dist/hooks-router.txt the same way, named by its first
-// gate (GH 2185). Ported from the GH 1680 MVP enrich.mjs.
+// never to the bash script it was ported from). A router entry
+// (`dist/hooks.js <Event>`) gets one 'runs' edge per gate dist/hooks-router.txt
+// lists for it, named by its first gate (GH 2185). Ported from the GH 1680 MVP
+// enrich.mjs.
 import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
 import { clip, md5, oneLine, type Extraction } from './extract.js';
 
 export const HOOKS_PATH = 'hooks/hooks.json';
-export const REGISTRATIONS_PATH = 'scripts/hooks/lib/registrations.sh';
 export const ROUTER_TABLE_PATH = 'mcp/trajectory-server/dist/hooks-router.txt';
 export const ROUTER_TABLE_SOURCE = 'mcp/trajectory-server/src/hooks/registry.ts';
 export const GATE_MODULE_DIR = 'mcp/trajectory-server/src/hooks';
@@ -41,15 +39,6 @@ interface HookGroup {
   hooks?: HookEntry[];
 }
 
-// The members of every `<name>) printf '%s\n' 'gate …' …` chain, in order.
-export function dispatchChains(registrations: string): Map<string, string[]> {
-  const chains = new Map<string, string[]>();
-  for (const m of registrations.matchAll(/^\s*([\w-]+)\)\s*\n\s*printf '%s\\n' \\\n((?:\s*'[^']*'\s*\\?\n)+)/gm)) {
-    chains.set(m[1]!, [...m[2]!.matchAll(/'([\w-]+)\s/g)].map((x) => x[1]!));
-  }
-  return chains;
-}
-
 // Lifecycle rank per event: EVENT_ORDER, with events it does not name placed
 // right after Stop in the order the file lists them.
 function eventRanks(events: string[]): Map<string, number> {
@@ -63,7 +52,7 @@ const gateModule = (gate: string): string => `${GATE_MODULE_DIR}/${gate}.ts`;
 
 // A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
 // <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*> [<part>].
-function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
+export function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
   const rows = table
     .split('\n')
     .map((line) => line.split(' '))
@@ -72,7 +61,7 @@ function routerGatesOf(table: string, event: string, matcher: string, part: stri
   return [...new Set(rows)];
 }
 
-export function extractHooks(src: string, chains: Map<string, string[]>, routerTable = ''): Extraction {
+export function extractHooks(src: string, routerTable = ''): Extraction {
   const out: Extraction = { symbols: [], edges: [] };
   const parsed = JSON.parse(src) as { hooks?: Record<string, HookGroup[]> };
   const hooks = parsed.hooks ?? {};
@@ -99,8 +88,7 @@ export function extractHooks(src: string, chains: Map<string, string[]>, routerT
         const name = gate ?? direct?.split('/').pop() ?? routed[0] ?? `hook${pos}`;
         const line = lineOf(gate ?? direct ?? (isRouted ? 'dist/hooks.js' : cmd), cursor);
         cursor = line || cursor;
-        const members = isRouted ? routed : gate ? chains.get(gate) : undefined;
-        const target = isRouted ? `router gates ${routed.join(', ')}` : members ? `chain ${members.join(', ')}` : gate ? gateModule(gate) : (direct ?? cmd);
+        const target = isRouted ? `router gates ${routed.join(', ')}` : gate ? gateModule(gate) : (direct ?? cmd);
         const qualifiedName = `${event}#${pos}:${name}`;
         out.symbols.push({
           kind: 'hook',
@@ -114,8 +102,8 @@ export function extractHooks(src: string, chains: Map<string, string[]>, routerT
           run_order: rank * 100 + pos,
         });
         const at = out.symbols.length - 1;
-        if (members) {
-          members.forEach((m, i) => out.edges.push({ src: at, kind: 'runs', dst_name: gateModule(m), line: i + 1, hint: null }));
+        if (isRouted) {
+          routed.forEach((m, i) => out.edges.push({ src: at, kind: 'runs', dst_name: gateModule(m), line: i + 1, hint: null }));
         } else if (gate || direct) {
           out.edges.push({ src: at, kind: 'runs', dst_name: gate ? gateModule(gate) : direct!, line, hint: null });
         }
