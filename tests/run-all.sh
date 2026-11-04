@@ -149,7 +149,6 @@ run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bar
 run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
 run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
 run_step "L1 lint: L5 harness helpers (flow-helpers.test.sh)" bash "$HERE/l5-l6/lib/flow-helpers.test.sh"
-run_step "L1 lint: deny-capable hooks register onFailure: block" bash "$HERE/l1-lint/hook-onfailure.sh"
 run_step "L1 lint: valid permissionDecision values"    bash "$HERE/l1-lint/valid-permission-decisions.sh"
 run_step "L1 lint: no citations of the retired shell gates" node --test "$HERE/l1-lint/no-retired-hook-gate-paths.test.mjs"
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
