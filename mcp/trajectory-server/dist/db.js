@@ -2767,7 +2767,7 @@ function migrateV53toV54(db) {
     }
 }
 // v54→v55: session handoffs (GH 2193). A new table, written by the
-// session-handoff Stop gate and consumed by session-start-persona; no backfill.
+// session-handoff PreCompact gate and consumed by session-start-persona; no backfill.
 function migrateV54toV55(db) {
     beginImmediate(db);
     try {

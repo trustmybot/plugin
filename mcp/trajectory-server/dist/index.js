@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve8.call(this, root, ref2);
+      let _sch = resolve9.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve8(root, ref2) {
+    function resolve9(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3593,7 +3593,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve8(baseURI, relativeURI, options) {
+    function resolve9(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve8,
+      resolve: resolve9,
       resolveComponent,
       equal,
       serialize,
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve8, reject) => {
-          readyPromiseResolve = resolve8;
+        var readyPromise = new Promise((resolve9, reject) => {
+          readyPromiseResolve = resolve9;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve8, reject) => {
+                return new Promise((resolve9, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve8(xhr.response);
+                      resolve9(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve8, reject) => {
+            return new Promise((resolve9, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve8(mod.exports);
+                resolve9(mod.exports);
               });
             });
           }
@@ -23561,7 +23561,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
+        await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23578,7 +23578,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve8, reject) => {
+    return new Promise((resolve9, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23656,7 +23656,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve8(parseResult.data);
+            resolve9(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23917,12 +23917,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve8, reject) => {
+    return new Promise((resolve9, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve8, interval);
+      const timeoutId = setTimeout(resolve9, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24792,12 +24792,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve8) => {
+    return new Promise((resolve9) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve8();
+        resolve9();
       } else {
-        this._stdout.once("drain", resolve8);
+        this._stdout.once("drain", resolve9);
       }
     });
   }
@@ -25260,7 +25260,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or its walker as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
   { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `linked_worktree`: a `git worktree add` checkout of another repo; `no_commits`: it has no commit)" },
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
@@ -39543,7 +39543,7 @@ function prMonitorTools(db2, _spawnFn) {
 // src/tools/composites.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
 import { existsSync as existsSync6, realpathSync as realpathSync6 } from "node:fs";
-import { resolve as resolve5 } from "node:path";
+import { resolve as resolve6 } from "node:path";
 
 // src/utils/worktree-deps.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
@@ -39975,7 +39975,7 @@ var GraphHolder = class _GraphHolder {
 // src/tools/world_model.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
 import { readFileSync as readFileSync7, realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute5, join as join14, relative as relative4, sep as sep5 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join14, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 
 // src/world-model/concepts.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
@@ -40930,7 +40930,34 @@ function framedStep(step, derived) {
   const description = derived && step.description ? frameUntrusted("symbol-doc", step.description) : step.description;
   return { ...step, description, symbol: symbol2 };
 }
-function worldModelTools(db2, graphHolder2) {
+var REPO_DEFAULT_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole'). With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.";
+function realOrResolved(path2) {
+  try {
+    return realpathSync5(path2);
+  } catch {
+    return resolve5(path2);
+  }
+}
+function containsPath(dir, path2) {
+  const rel = relative4(dir, path2);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute5(rel);
+}
+function resolveWorldModelRepo(db2, arg, cwd = process.cwd()) {
+  if (typeof arg === "string" && arg) return { name: arg, repo_source: "arg" };
+  const rows = db2.all(`SELECT name, path FROM repos ORDER BY name`);
+  const here = realOrResolved(cwd);
+  let best = null;
+  for (const row of rows) {
+    if (!row.path) continue;
+    const dir = realOrResolved(repoRowPath(db2, row.path));
+    if (containsPath(dir, here) && (!best || dir.length > best.length)) best = { name: row.name, length: dir.length };
+  }
+  if (best) return { name: best.name, repo_source: "cwd" };
+  if (rows.length >= 2) return { name: "", warning: "repo-unspecified", available_repos: rows.map((r) => r.name) };
+  if (rows.length === 1) return { name: rows[0].name, repo_source: "sole" };
+  return { name: "" };
+}
+function worldModelTools(db2, graphHolder2, cwd) {
   const definitions = [
     {
       name: "world_model_get",
@@ -40941,7 +40968,7 @@ function worldModelTools(db2, graphHolder2) {
           agent: { type: "string" },
           repo: {
             type: "string",
-            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
+            description: `Repo name (matches \`repos.name\`). ${REPO_DEFAULT_DOC}`
           },
           path: {
             type: "string",
@@ -40973,7 +41000,7 @@ function worldModelTools(db2, graphHolder2) {
           },
           repo: {
             type: "string",
-            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
+            description: `Repo to search. ${REPO_DEFAULT_DOC}`
           },
           k: {
             type: "number",
@@ -40993,7 +41020,7 @@ function worldModelTools(db2, graphHolder2) {
           id: { type: "number", description: "Symbol id from a world_model_search hit." },
           repo: {
             type: "string",
-            description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
+            description: `Repo name, used without id. ${REPO_DEFAULT_DOC}`
           },
           path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
           qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
@@ -41017,7 +41044,7 @@ function worldModelTools(db2, graphHolder2) {
         properties: {
           agent: { type: "string" },
           query: { type: "string" },
-          repo: { type: "string", description: "Defaults to the sole registered repo." }
+          repo: { type: "string", description: REPO_DEFAULT_DOC }
         },
         required: ["agent", "query"]
       }
@@ -41038,7 +41065,7 @@ function worldModelTools(db2, graphHolder2) {
         type: "object",
         properties: {
           agent: { type: "string" },
-          repo: { type: "string" },
+          repo: { type: "string", description: REPO_DEFAULT_DOC },
           name: { type: "string" },
           kind: { type: "string", enum: [...CONCEPT_KINDS] },
           body: { type: "string" },
@@ -41069,25 +41096,19 @@ function worldModelTools(db2, graphHolder2) {
       }
     }
   ];
-  const conceptRepo = (arg) => {
-    if (typeof arg === "string" && arg) return { name: arg };
-    const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-    if (available.length >= 2) return { name: "", warning: "repo-unspecified", available_repos: available };
-    return { name: resolveSoleRepo(db2)?.name ?? "" };
-  };
+  const resolveRepo = (arg) => resolveWorldModelRepo(db2, arg, cwd);
+  const sourceOf = (r) => r.repo_source ? { repo_source: r.repo_source } : {};
   const handlers = {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "code-reviewer", "consultant"],
       logged(db2, "world_model_get", wrap3(async (args2) => {
-        let repo = args2["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok15({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
+        const resolved = resolveRepo(args2["repo"]);
+        if (resolved.warning) {
+          return ok15({ repo: "", root: null, warning: resolved.warning, available_repos: resolved.available_repos });
         }
+        const repo = resolved.name;
+        const source = sourceOf(resolved);
         const path2 = args2["path"] ?? "";
         const depthArg = args2["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
@@ -41095,21 +41116,22 @@ function worldModelTools(db2, graphHolder2) {
         const lag = checkoutLag(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok15({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok15({ repo, ...source, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work, ...lag });
         }
         if (graph.directoryCount(repo) === 0) {
-          return ok15({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok15({ repo, ...source, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work, ...lag });
         }
         const rows = graph.subtree(repo, path2, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok15({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok15({ repo, ...source, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work, ...lag });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
         if (path2 !== "") tree.files = graph.filesForDirectory(repo, path2).map(fileView);
         return ok15({
           repo,
+          ...source,
           root: tree,
           ...path2 === "" ? { coverage: graph.fileCoverage(repo) } : {},
           ...truncated ? { truncated: true } : {},
@@ -41127,18 +41149,16 @@ function worldModelTools(db2, graphHolder2) {
         if (!query || typeof query !== "string") return err16("query is required");
         const mode = args2["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
-        let repo = args2["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok15({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
+        const resolved = resolveRepo(args2["repo"]);
+        if (resolved.warning) {
+          return ok15({ repo: "", results: [], total_matched: 0, warning: resolved.warning, available_repos: resolved.available_repos, mode });
         }
+        const repo = resolved.name;
+        const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
         const lag = checkoutLag(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok15({ results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
+          return ok15({ ...scope, results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
         }
         const { ranked, match, warning } = await rankWorldModel(db2, graph, repo, query, mode, k);
         const top = ranked.slice(0, k);
@@ -41147,7 +41167,7 @@ function worldModelTools(db2, graphHolder2) {
           top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
         );
         const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-        return ok15({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
+        return ok15({ ...scope, results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
       }))
     ),
     world_model_symbol: requireRoles(
@@ -41156,18 +41176,17 @@ function worldModelTools(db2, graphHolder2) {
       logged(db2, "world_model_symbol", wrap3(async (args2) => {
         const id = args2["id"];
         let symbol2 = null;
+        let source = {};
         if (typeof id === "number") {
           symbol2 = symbolById(db2, id);
           if (!symbol2) return err16(`symbol ${id} not found`);
         } else {
           const name2 = args2["qualified_name"];
           if (typeof name2 !== "string" || !name2) return err16("id or qualified_name is required");
-          let repo = args2["repo"] ?? "";
-          if (!repo) {
-            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-            if (available.length >= 2) return ok15({ symbol: null, warning: "repo-unspecified", available_repos: available });
-            repo = resolveSoleRepo(db2)?.name ?? "";
-          }
+          const resolved = resolveRepo(args2["repo"]);
+          if (resolved.warning) return ok15({ symbol: null, warning: resolved.warning, available_repos: resolved.available_repos });
+          const repo = resolved.name;
+          source = sourceOf(resolved);
           const path2 = args2["path"];
           const matches = symbolsByName(db2, repo, name2, typeof path2 === "string" && path2 ? path2 : void 0);
           if (matches.length === 0) return err16(`symbol ${name2} not found in repo ${repo || "(none)"}`);
@@ -41175,6 +41194,7 @@ function worldModelTools(db2, graphHolder2) {
           if (definitions2.length > 1) {
             return ok15({
               symbol: null,
+              ...source,
               warning: "ambiguous",
               matches: definitions2.map((m) => ({
                 id: m.id,
@@ -41203,6 +41223,7 @@ function worldModelTools(db2, graphHolder2) {
         const card = symbolCard(db2, symbol2);
         return ok15({
           ...card,
+          ...source,
           symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
           ...impactDepth !== null ? { impact: symbolImpact(db2, symbol2, impactDepth) } : {},
           ...args2["source"] === true ? symbolSource(db2, symbol2) : {},
@@ -41216,15 +41237,17 @@ function worldModelTools(db2, graphHolder2) {
       logged(db2, "world_model_concepts", wrap3(async (args2) => {
         const query = args2["query"];
         if (typeof query !== "string" || !query.trim()) return err16("query is required");
-        const repo = conceptRepo(args2["repo"]);
+        const repo = resolveRepo(args2["repo"]);
         if (repo.warning) return ok15({ available: false, concepts: [], derived: null, ...repo });
+        const source = sourceOf(repo);
         const available = db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== void 0;
-        if (!available) return ok15({ available, concepts: [], derived: null });
+        if (!available) return ok15({ available, ...source, concepts: [], derived: null });
         const concepts = searchConcepts(db2, repo.name, query, CONCEPT_LIMIT);
         const graph = concepts.length === 0 ? graphHolder2?.ensureGraph() ?? null : null;
         const derived = graph ? derivedChain(db2, repo.name, query, derivedSeeds((await rankWorldModel(db2, graph, repo.name, query, "hybrid", DERIVED_SEED_HITS)).ranked)) : null;
         return ok15({
           available,
+          ...source,
           concepts,
           derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null
         });
@@ -41245,7 +41268,7 @@ function worldModelTools(db2, graphHolder2) {
       "world_model_concept_upsert",
       ["bro", "consultant"],
       logged(db2, "world_model_concept_upsert", wrap3(async (args2) => {
-        const repo = conceptRepo(args2["repo"]);
+        const repo = resolveRepo(args2["repo"]);
         if (repo.warning) return ok15({ concept: null, ...repo });
         const input = { ...args2, repo: repo.name };
         const repoPath = resolveSoleRepo(db2, repo.name)?.path ?? null;
@@ -41581,7 +41604,7 @@ function canonicalPath2(path2) {
   try {
     return realpathSync6(path2);
   } catch {
-    return resolve5(path2);
+    return resolve6(path2);
   }
 }
 function worktreeHolder(db2, taskId, repoPath, realWorktree) {
@@ -45443,7 +45466,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync8, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
+import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync9, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
 import { dirname as dirname13, join as join22 } from "node:path";
 
 // src/file-purpose.ts
@@ -46171,10 +46194,10 @@ function cleanReadme(raw) {
 // src/tools/scan-walk.ts
 import { spawn } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
-import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, statSync as statSync7 } from "node:fs";
+import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename10, dirname as dirname12, join as join21, resolve as resolve6 } from "node:path";
+import { basename as basename10, dirname as dirname12, join as join21, resolve as resolve7 } from "node:path";
 
 // src/hooks/lib/host.ts
 import { accessSync as accessSync2, constants as constants3, statSync as statSync6 } from "node:fs";
@@ -46373,6 +46396,17 @@ function findGitParents(sessionDir) {
   walk(sessionDir, ".", 0);
   return parents;
 }
+async function isLinkedWorktree(repo, env, deadline) {
+  const out2 = await git4(["-C", repo, "rev-parse", "--git-dir", "--git-common-dir"], env, deadline);
+  if (out2.code !== 0) return false;
+  const [gitDir, commonDir] = captured(out2.stdout).split("\n");
+  if (!gitDir || !commonDir) return false;
+  try {
+    return realpathSync8(resolve7(repo, gitDir)) !== realpathSync8(resolve7(repo, commonDir));
+  } catch {
+    return false;
+  }
+}
 async function skipReason(repo, sessionDir, env, deadline) {
   const rel = repo.startsWith(`${sessionDir}/`) ? repo.slice(sessionDir.length + 1) : repo;
   if (`/${rel}`.includes("/.")) return "dot_dir";
@@ -46385,6 +46419,7 @@ async function skipReason(repo, sessionDir, env, deadline) {
     if (enclosing === sessionDir || dirname12(enclosing) === enclosing) break;
     enclosing = dirname12(enclosing);
   }
+  if (await isLinkedWorktree(repo, env, deadline)) return "linked_worktree";
   const head = await git4(["-C", repo, "rev-parse", "--verify", "-q", "HEAD"], env, deadline);
   return head.code === 0 ? null : "no_commits";
 }
@@ -46702,7 +46737,7 @@ async function discoverResources(db2, sessionDir, env, deadline) {
 async function walkProject(db2, sessionDir, opts) {
   const env = opts.env ?? process.env;
   const deadline = new Deadline(opts.timeoutMs);
-  const root = resolve6(sessionDir);
+  const root = resolve7(sessionDir);
   if (!isDir(root)) throw new Error("session_dir does not exist");
   deadline.check();
   const repos = [];
@@ -47024,7 +47059,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath3(p) {
   try {
-    return realpathSync8(p);
+    return realpathSync9(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -47620,7 +47655,7 @@ function probeChildEnv(projectRoot2 = null) {
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
 function runClaude(args2, timeoutSec, projectRoot2) {
-  return new Promise((resolve8) => {
+  return new Promise((resolve9) => {
     try {
       const child = execFile(
         "claude",
@@ -47633,11 +47668,11 @@ function runClaude(args2, timeoutSec, projectRoot2) {
           maxBuffer: MAX_LISTING_BYTES,
           encoding: "utf8"
         },
-        (error2, stdout) => resolve8(error2 ? null : stdout)
+        (error2, stdout) => resolve9(error2 ? null : stdout)
       );
       child.stdin?.end();
     } catch {
-      resolve8(null);
+      resolve9(null);
     }
   });
 }
@@ -47849,7 +47884,7 @@ async function reconcileAtStartup(db2) {
 import { spawn as spawn2 } from "node:child_process";
 import { accessSync as accessSync4, constants as constants5, readFileSync as readFileSync13, statSync as statSync8 } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { join as join24, resolve as resolve7 } from "node:path";
+import { join as join24, resolve as resolve8 } from "node:path";
 var CheatcodeInputError = class extends Error {
   constructor(payload) {
     super(JSON.stringify(payload));
@@ -47981,7 +48016,7 @@ function fixturePath(envVar, defaultName, opts) {
   return isRegularFile(fallback) ? fallback : null;
 }
 function readFixture(path2, projectRoot2) {
-  const abs = resolve7(projectRoot2, path2);
+  const abs = resolve8(projectRoot2, path2);
   if (!isRegularFile(abs)) throw new CheatcodeInputError({ error: `fixture not found: ${path2}` });
   try {
     return readFileSync13(abs, "utf8");
@@ -49960,7 +49995,7 @@ function isProseFile(path2) {
 }
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync16, realpathSync as realpathSync9 } from "node:fs";
+import { readFileSync as readFileSync16, realpathSync as realpathSync10 } from "node:fs";
 import { join as join27 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join27(env["HOME"] || "", ".claude");
@@ -49970,7 +50005,7 @@ function installedPluginsJsonPath(env = process.env) {
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync9(dir);
+    return realpathSync10(dir);
   } catch {
     return dir;
   }
