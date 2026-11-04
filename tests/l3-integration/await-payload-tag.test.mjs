@@ -1,5 +1,5 @@
 // L3: scripts/await-payload-tag.ts waits for payload/<tag> on the plugin remote
-// before publish-rc-channel.sh pins it (GH 1699). A local bare repo stands in
+// before publish-rc-channel.ts pins it (GH 1699). A local bare repo stands in
 // for origin. Asserts exit codes and output only, never elapsed time.
 
 import { test } from 'node:test';

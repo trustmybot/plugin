@@ -1,2 +1,0 @@
-### Fixed
-- **The usage warning and the session handoff clear once compaction shrinks the context** (GH 2239): both read lifetime totals from the session's usage row, so a session that once passed its limits stayed "past its limits" for good. They now measure the mean input context of the last 5 main-thread calls in the session transcript against 120000, so a compacted session back near its cold-start context sees no warning and is not handed off.

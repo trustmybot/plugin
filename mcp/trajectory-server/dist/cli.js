@@ -105,10 +105,10 @@ function render(value, indent, at) {
   const inner = at + indent;
   const record = value;
   const [open, close] = Array.isArray(value) ? "[]" : "{}";
-  const body = Array.isArray(value) ? value.map((v) => render(v, indent, inner)) : keysInOrder(value).filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${indent === "" ? "" : " "}${render(record[key], indent, inner)}`);
-  if (body.length === 0) return `${open}${close}`;
-  return indent === "" ? `${open}${body.join(",")}${close}` : `${open}
-${inner}${body.join(`,
+  const body2 = Array.isArray(value) ? value.map((v) => render(v, indent, inner)) : keysInOrder(value).filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${indent === "" ? "" : " "}${render(record[key], indent, inner)}`);
+  if (body2.length === 0) return `${open}${close}`;
+  return indent === "" ? `${open}${body2.join(",")}${close}` : `${open}
+${inner}${body2.join(`,
 ${inner}`)}
 ${at}${close}`;
 }
@@ -3390,8 +3390,50 @@ async function integrate(argv2, env, io2) {
   return code;
 }
 
+// src/cli/prompt-author-lint.ts
+import { readFileSync as readFileSync8 } from "node:fs";
+var USAGE2 = "usage: cli.js prompt-author-lint <path-to-md-file>\n";
+var COMMENT_LINE = /^[ \t\n\v\f\r]*(#|\/\/|--)/;
+var CHECKS = [
+  { name: "pink-elephant", match: /^(Don't|Never|Do not) / },
+  {
+    name: "pink-elephant-mid",
+    match: /MUST NOT|\bdo not\b|\bdon't\b|\bnever\b/,
+    skip: (text) => COMMENT_LINE.test(text) || text.includes("LOAD-BEARING-SAFETY")
+  },
+  { name: "issue-number", match: /#[0-9]{1,5}\b|\(#[A-Z]+[0-9]+\)|\[bro #[0-9]+\]/ },
+  { name: "memory-path", match: /feedback_[a-z_-]+\.md|~\/\.claude\/projects\// },
+  { name: "origin-attribution", match: /caught in|prior incident|regression during|2× during|2x during/i },
+  { name: "date", match: /\b20[0-9]{2}-[0-9]{2}-[0-9]{2}\b/ },
+  { name: "pr-url", match: /![0-9]+|gitlab\.com\/[^ \t\n\v\f\r]*\/merge_requests\// }
+];
+function body(text) {
+  const lines = text.split("\n");
+  const open = lines.indexOf("---");
+  if (open === -1) return [];
+  const close = lines.indexOf("---", open + 1);
+  return close === -1 ? [] : lines.slice(close + 1);
+}
+function promptAuthorLint(argv2, _env, io2) {
+  const file = argv2[0] ?? "";
+  if (!isFile2(file)) {
+    io2.err(USAGE2);
+    return 0;
+  }
+  const lines = body(readFileSync8(file, "utf8"));
+  let out = "";
+  for (const { name: name2, match, skip } of CHECKS) {
+    lines.forEach((text, i) => {
+      if (match.test(text) && !skip?.(text)) out += `[${name2}] ${i + 1}:${text}
+`;
+    });
+  }
+  io2.out(out);
+  return 0;
+}
+
 // src/cli/validation-record-fallback.ts
-var USAGE2 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
+var USAGE3 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed}";
 var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed')";
@@ -3475,7 +3517,7 @@ DROP TABLE fallback_last_finding;`;
 }
 function validationRecordFallback(argv2, env, io2) {
   if (argv2.length < 5 || argv2.length > 6) {
-    io2.out(USAGE2);
+    io2.out(USAGE3);
     return 1;
   }
   const [taskId, attemptN, verdict, feedback, session] = argv2;
@@ -3532,9 +3574,10 @@ var SUBCOMMANDS = {
   "bro-sqlite-readonly": broSqliteReadonly,
   health,
   integrate,
+  "prompt-author-lint": promptAuthorLint,
   "validation-record-fallback": validationRecordFallback
 };
-var USAGE3 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
+var USAGE4 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
 `;
 var io = {
   out: (text) => process.stdout.write(text),
@@ -3545,10 +3588,10 @@ process.on("SIGTERM", () => process.exit(143));
 var [name, ...argv] = process.argv.slice(2);
 var run = name !== void 0 && Object.hasOwn(SUBCOMMANDS, name) ? SUBCOMMANDS[name] : void 0;
 if (name === "--help" || name === "-h") {
-  io.out(USAGE3);
+  io.out(USAGE4);
 } else if (!run) {
-  io.err(name === void 0 ? USAGE3 : `cli.js: unknown subcommand '${name}'
-${USAGE3}`);
+  io.err(name === void 0 ? USAGE4 : `cli.js: unknown subcommand '${name}'
+${USAGE4}`);
   process.exitCode = 2;
 } else {
   void Promise.resolve(run(argv, process.env, io)).then((code) => {
