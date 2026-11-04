@@ -35,8 +35,14 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 
 command -v jq >/dev/null 2>&1 || { printf "hook-onfailure: jq required\n" >&2; exit 1; }
 
-# shellcheck source=scripts/hooks/lib/registrations.sh
-. "$ROOT/scripts/hooks/lib/registrations.sh"
+# router_gates <plugin root> <Event> <matcher> <part or -> — the gates
+# dist/hooks-router.txt lists for that group, one per line, once each in run
+# order (`<gate> <budget> <kind> <event> <matcher or -> <tool suffix|*> [<part>]`).
+router_gates() {
+  awk -v e="$2" -v m="$3" -v p="$4" '
+    $4 == e && (m == "" || $5 == m) && ($7 == "" ? "-" : $7) == p && !seen[$1]++ { print $1 }
+  ' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+}
 
 TS_DENY_RE="permissionDecision: *'deny'|decision: *'block'|denyDbUnavailable\\("
 
@@ -137,7 +143,7 @@ gates() {
       routed_event="${routed%%:*}"
       routed_part=-
       case "$routed_event" in *+*) routed_part="${routed_event#*+}"; routed_event="${routed_event%%+*}" ;; esac
-      tmb_router_gates "$1" "$routed_event" "${routed#*:}" "" "$routed_part"
+      router_gates "$1" "$routed_event" "${routed#*:}" "$routed_part"
       ;;
     '') ;;
     *) printf '%s\n' "$2" ;;
