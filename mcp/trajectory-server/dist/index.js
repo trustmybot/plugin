@@ -25265,6 +25265,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
+  { type: "subagent_return_oversize", writers: ["hook"], description: "`swe-atomic-close` saw a swe or code-reviewer SubagentStop whose `last_assistant_message` runs over 600 characters, the budget of a `return_line` head plus at most 4 short lines (GH 1959); advisory only, the stop is never blocked or changed; one row per such stop, on the task's issue (the system issue `-1` when the spawn is bound to no task); `content_json` carries `task_id` (null when unbound), `agent_type`, `chars`" },
   { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
   { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
   { type: "swe_resume_observed", writers: ["hook"], description: "`swe-brief-gate` saw a swe call `task_brief` with an `agent_id` whose `agent_runs` rows for the task are all closed: a swe resumed through SendMessage (GH 1742); one row per such call on the task's issue, from_node `hook:swe-brief-gate`; `content_json` carries `task_id`, `agent_id`, `observed_at`, `consumed` (0 until `task_brief`'s `openSweRun` opens the resumed run's row from it, with `resumed_from` its previous row, and sets 1; a row observed more than 600 s before the call is never consumed). `audit_append` refuses this event" },
@@ -36048,6 +36049,10 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
+function sweReturnLine(task) {
+  const sha = task.commit_sha ? task.commit_sha.slice(0, 8) : "-";
+  return `status=${task.status} task=${task.id} sha=${sha}`;
+}
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -36924,7 +36929,7 @@ function taskTools(db2) {
         }
       });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok7(updated);
+      return ok7({ ...updated, return_line: sweReturnLine(updated ?? task) });
     })),
     task_first_actionable: wrapHandler6(async (args2) => {
       requireArg4(args2, "agent");
@@ -37035,6 +37040,10 @@ function latestVerificationRun(db2, taskId, startedBy) {
 
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
+function reviewerReturnLine(row, commitSha, findings) {
+  const sha = commitSha ? commitSha.slice(0, 8) : "-";
+  return `verdict=${row.verdict} task=${row.task_id} sha=${sha} attempt=${row.attempt_n} row=${row.id} findings=${findings}`;
+}
 function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -37234,7 +37243,7 @@ function validationTools(db2) {
       }
       const findings = parseFindings(verdict, args2["findings"]);
       const taskExists = db2.get(
-        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
+        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`,
         [taskId]
@@ -37353,7 +37362,11 @@ function validationTools(db2) {
         [taskId, attemptN]
       );
       const recorded = findingIds.map((id) => ({ ...db2.get("SELECT * FROM review_findings WHERE id = ?", [id]) }));
-      return ok8({ ...row, findings: recorded });
+      return ok8({
+        ...row,
+        findings: recorded,
+        return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : void 0
+      });
     })),
     validation_history: wrapHandler7(async (args2) => {
       const agent = normalizeAgent(args2["agent"]);
