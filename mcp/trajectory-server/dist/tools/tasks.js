@@ -196,6 +196,11 @@ const BRO_TRANSITIONS = {
     escalated: new Set(['pending', 'running', 'failed', 'closed']),
     closed: new Set(['escalated']),
 };
+/** The head of swe's final message (GH 1959), built from the row task_update_status just wrote. */
+export function sweReturnLine(task) {
+    const sha = task.commit_sha ? task.commit_sha.slice(0, 8) : '-';
+    return `status=${task.status} task=${task.id} sha=${sha}`;
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -1154,7 +1159,7 @@ export function taskTools(db) {
                 }
             });
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
-            return ok(updated);
+            return ok({ ...updated, return_line: sweReturnLine(updated ?? task) });
         })),
         task_first_actionable: wrapHandler(async (args) => {
             requireArg(args, 'agent');

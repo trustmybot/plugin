@@ -2595,3 +2595,43 @@ describe('task_update_status report.concepts (GH 1680)', () => {
     db.close();
   });
 });
+
+describe('task_update_status return_line (GH 1959)', () => {
+  function seedTask(commitSha: string | null): { db: ReturnType<typeof tempDB>; id: number } {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`,
+    );
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, files, verification, commit_sha, created_at, updated_at)
+       VALUES (1, 'feat/1959-return', 't', 'd', 'running', '[]', '[]', ?, datetime('now'), datetime('now'))`,
+      [commitSha],
+    );
+    return { db, id: db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id };
+  }
+
+  for (const [status, extra, sha] of [
+    ['completed', { commit_sha: '0123456789abcdef0123456789abcdef01234567' }, '01234567'],
+    ['failed', {}, '-'],
+    ['running', { checkpoint: { done: 'half', left: 'rest', files: ['a.ts'] } }, '-'],
+  ] as const) {
+    it(`returns the swe return_line for a ${status} call`, async () => {
+      const { db, id } = seedTask(null);
+      const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status, ...extra });
+      assert.ok(!r.isError, r.content[0].text);
+      const line = parseResult(r).return_line as string;
+      assert.equal(line, `status=${status} task=${id} sha=${sha}`);
+      assert.match(line, new RegExp(`task=${id}`));
+      assert.match(line, /^[\x20-\x7e]+$/);
+      db.close();
+    });
+  }
+
+  it('cuts a stored commit_sha to its first 8 characters', async () => {
+    const { db, id } = seedTask('abcdef1234567');
+    const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'failed' });
+    assert.equal(parseResult(r).return_line, `status=failed task=${id} sha=abcdef12`);
+    db.close();
+  });
+});
