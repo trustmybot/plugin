@@ -602,3 +602,49 @@ describe('system issue -1 is reserved', () => {
     db.close();
   });
 });
+
+describe('validation_record return_line (GH 1959)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+
+  before(async () => {
+    db = tempDB();
+    taskId = await createTask(db, await createIssue(db));
+    db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', ['fedcba9876543210fedcba9876543210fedcba98', taskId]);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  function record(attemptN: number, extra: Record<string, unknown>): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-agent-1959-${attemptN}` });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer',
+      task_id: taskId,
+      attempt_n: attemptN,
+      feedback: '# Review',
+      mcp_available: true,
+      ...extra,
+    });
+  }
+
+  it('a pass returns findings=0 with the validation row id', async () => {
+    const result = await record(1, { verdict: 'pass' });
+    assert.ok(!result.isError, result.content[0].text);
+    const data = parseResult(result);
+    assert.equal(data.return_line, `verdict=pass task=${taskId} sha=fedcba98 attempt=1 row=${data.id} findings=0`);
+  });
+
+  it('a fail counts the findings it recorded', async () => {
+    const result = await record(2, {
+      verdict: 'fail',
+      findings: [FINDING, { probe_cmd: 'bash tests/l3.sh', expected: 'exit 0', observed: 'exit 2' }],
+    });
+    assert.ok(!result.isError, result.content[0].text);
+    const data = parseResult(result);
+    assert.equal(data.findings.length, 2);
+    assert.equal(data.return_line, `verdict=fail task=${taskId} sha=fedcba98 attempt=2 row=${data.id} findings=2`);
+    assert.match(data.return_line, /^[\x20-\x7e]+$/);
+  });
+});
