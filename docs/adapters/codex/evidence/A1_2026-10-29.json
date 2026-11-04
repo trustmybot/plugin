@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "issue": 2157,
+  "parentIssue": 2155,
+  "capturedAt": "2026-10-29T03:08:30.095051+00:00",
+  "nativeAcceptance": false,
+  "candidate": {
+    "sourceRevision": "9cc886e81bab51eb26ee83807f85e45caecd7c27",
+    "artifactSha256": "e1e98aa393509be5f7f9f12f12937e4726149e6a110c4b2c0b94ef98766220d5",
+    "identityScope": "Every tracked Git source entry, including modes and symlink text; ignored dependencies and active installed session are not attested.",
+    "trackedFiles": 4379
+  },
+  "harnessFiles": {
+    "tests/live/codex-native/acceptance.ts": "5fd3c707f07704fb576dccae858314fe0c319eeb3b5cba6a6ad340e8cb41b556",
+    "tests/live/codex-native/acceptance.test.ts": "490c399069373e13cd52ba3e8e557a2547f72b5c8e399efdb926aa3f84299d96",
+    "tests/live/codex-native/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a"
+  },
+  "evidenceRoot": "a1-local-2026-10-29",
+  "preliminaryAttempts": "desktop, interactive-cli and desktop-final are retained as preliminary collector attempts; use desktop-v3 and interactive-cli-v3 for the complete candidate identity.",
+  "hosts": {
+    "desktop": {
+      "surface": "desktop",
+      "binaryPath": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      "binarySha256": "d84a54b031085f01e3ad915ea7c72ebea4dcf69e90f0d1e0e4a637e8280991d2",
+      "frontendApp": "/Applications/ChatGPT.app",
+      "frontendVersion": "26.1023.50603",
+      "frontendBuild": "22391",
+      "version": "codex-cli 0.165.0-alpha.1.2"
+    },
+    "interactiveCli": {
+      "surface": "interactive-cli",
+      "binaryPath": "/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex",
+      "binarySha256": "98491713ffb196061003ee148636e743997cc31d76144ba7c53462269896891d",
+      "frontendApp": null,
+      "frontendVersion": null,
+      "frontendBuild": null,
+      "version": "codex-cli 0.151.0"
+    }
+  },
+  "desktopObservations": [
+    {
+      "question": "Q1",
+      "status": "blocked",
+      "expected": "SWE writes its task worktree and is denied the main checkout and governance state.",
+      "actual": "The native child wrote all three disposable canaries under inherited broad parent permissions.",
+      "reason": "The negative control establishes process write ability only. Candidate workflow and independent host/binary session attestation were not active; task/worktree/governance gates need a qualified native run."
+    },
+    {
+      "question": "Q2",
+      "status": "blocked",
+      "expected": "Reviewer inspects code and is denied code edits and delivery.",
+      "actual": "A separate native reviewer in a read-only parent was not exercised.",
+      "reason": "The current child inherits broad parent permissions; no code-edit/delivery denial for a candidate reviewer was observed. Test from a separate read-only parent after review/delivery gates exist."
+    },
+    {
+      "question": "Q3",
+      "status": "blocked",
+      "expected": "Actual caller is verified; reviewer impersonation and SWE self-review are rejected.",
+      "actual": "Controller task labels are available; no authenticated TMB workflow-caller or one-use reviewer authority was exercised.",
+      "reason": "The candidate exposes planning and standalone Agent management, not authenticated workflow authority. Retest caller impersonation and SWE self-review after the authority boundary lands."
+    },
+    {
+      "question": "Q4",
+      "status": "blocked",
+      "expected": "Real Human input is distinguished from Agent relay and injected text.",
+      "actual": "No trusted Human-input signal was captured in a qualified candidate workflow.",
+      "reason": "A real Human interaction and its host-origin receipt must be distinguished from Agent relay; no such native test was run."
+    },
+    {
+      "question": "Q5",
+      "status": "not-run",
+      "expected": "Cancel, interruption, exit and resume map to accurate task state.",
+      "actual": "No candidate task cancellation/interruption/exit/resume sequence was run.",
+      "reason": "A task-enabled fixed candidate and isolated native parent are required before lifecycle and late-write probes."
+    },
+    {
+      "question": "Q6",
+      "status": "blocked",
+      "expected": "Verification and review bind to a commit and become stale when it changes.",
+      "actual": "The fixture has an exact Git commit, but candidate verification/review authority is not exposed.",
+      "reason": "Retest commit binding and stale-evidence denial once verification and review gates exist."
+    }
+  ],
+  "interactiveCliObservations": [
+    {
+      "question": "Q1",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    },
+    {
+      "question": "Q2",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    },
+    {
+      "question": "Q3",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    },
+    {
+      "question": "Q4",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    },
+    {
+      "question": "Q5",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    },
+    {
+      "question": "Q6",
+      "status": "not-run",
+      "reason": "Installed executable was inventoried; no interactive CLI model session, native child or candidate workflow was run."
+    }
+  ],
+  "negativeControl": {
+    "nonce": "77429e32-757c-4fd4-9dad-d9b3a7686cf7",
+    "probe": "permission-negative-control",
+    "executionProvenance": "unverified-process",
+    "nativeAcceptance": false,
+    "results": [
+      {
+        "path": "task-worktree/native-write-control.txt",
+        "actual": "write-allowed",
+        "sha256": "b3c8b54f3669307d18528105d3dcdd3ea1866f2d61a4c3384302e294bd96e7f0"
+      },
+      {
+        "path": "main-checkout/native-write-control.txt",
+        "actual": "write-allowed",
+        "sha256": "b3c8b54f3669307d18528105d3dcdd3ea1866f2d61a4c3384302e294bd96e7f0"
+      },
+      {
+        "path": "main-checkout/.tmb/tmb/native-write-control.txt",
+        "actual": "write-allowed",
+        "sha256": "b3c8b54f3669307d18528105d3dcdd3ea1866f2d61a4c3384302e294bd96e7f0"
+      }
+    ]
+  },
+  "limits": [
+    "No real configuration, credentials or trust changes. No independent CLI process qualifies native acceptance.",
+    "The existing chat used native delegation, but candidate installation, exact active binary and authenticated native thread IDs were not attested.",
+    "The writable-parent control allowed task-worktree, main-checkout and disposable governance canary writes. No independent read-only reviewer or delivery denial was demonstrated.",
+    "Five Desktop gates are blocked and lifecycle gate Q5 is not-run. All interactive CLI gates are not-run. GH2157 remains open pending qualified host evidence."
+  ],
+  "evidenceStorage": "Logical evidence root; original receipts and the unredacted initial record are retained privately. The local filesystem path is intentionally omitted.",
+  "harnessIdentityScope": {
+    "capturedAt": "2026-10-29T03:08:30.095051+00:00",
+    "attempts": [
+      "desktop-v3",
+      "interactive-cli-v3"
+    ],
+    "note": "harnessFiles identifies the historical collector before the report-persistence fix; these hashes are not a claim that the updated collector ran the native control."
+  },
+  "rawEvidence": [
+    {
+      "path": "desktop-v3/plan.json",
+      "sha256": "410a6a0e92f22702f06aad7f00fb93c4ac660d3262a0d1521671fa0ff560c03c"
+    },
+    {
+      "path": "desktop-v3/prompts.json",
+      "sha256": "7c52f4c2f3685e46bf2182367cca1e6d6424223db9231aded118a3ac2a78ffcf"
+    },
+    {
+      "path": "desktop-v3/native-context.json",
+      "sha256": "48efe3fb19b053c1ea5671c28e2d1fb51482e35d86e552fa0aea44ab25992cbc"
+    },
+    {
+      "path": "desktop-v3/observations.json",
+      "sha256": "5c3d6166f49960d89ea0ac94f5d8b52350c3e81a7335434007cd1728ffc51dce"
+    },
+    {
+      "path": "desktop-v3/permission-control-f415b6e1-eb38-4a9a-91a4-3df402d3cfaf.json",
+      "sha256": "dcce031af84cb6966aa1611d85b7a475f93fa6fb9f63a2a8f324f1adeed30dd2"
+    },
+    {
+      "path": "desktop-v3/assessment.stdout.json",
+      "sha256": "816101f59482f52adc1bf5d304b4f432ba643bbdfdd9aff46ba2ede955cccf21"
+    },
+    {
+      "path": "interactive-cli-v3/plan.json",
+      "sha256": "722ce032e9d1ef15e2c4d164e44a2e0393d6298ff623e6238b4c1aaed98038be"
+    },
+    {
+      "path": "interactive-cli-v3/prompts.json",
+      "sha256": "6fc3510fe5050799d338a10b83d212e5f0a8e06cddaa23c03e5432e041b7ffac"
+    },
+    {
+      "path": "interactive-cli-v3/assessment.stdout.json",
+      "sha256": "c4e78e64a406dedc97959b973fc7ebf054a44f15645846b19cd73ec1d81babbf"
+    }
+  ],
+  "collectorChecks": {
+    "checkedAt": "2026-10-29T12:39:17.073341+00:00",
+    "nativeRun": false,
+    "note": "Report-persistence regression fix was checked only with deterministic local tests; historical native observations were not rerun.",
+    "harnessFiles": {
+      "tests/live/codex-native/acceptance.ts": "cccfa242adf0dd5e2254fae70ae50e0e55c3d58f6bc8b8bac6fe32e96ff3d991",
+      "tests/live/codex-native/acceptance.test.ts": "77f019f1d455499582197e48f1a028d578413caa74828d087d1d4b8c1378328d",
+      "tests/live/codex-native/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a"
+    },
+    "focusedTests": {
+      "passed": 16,
+      "failed": 0
+    },
+    "strictTypeScript": "passed",
+    "localDocumentationLinks": {
+      "checked": 2,
+      "broken": 0
+    }
+  }
+}
