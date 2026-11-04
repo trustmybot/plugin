@@ -20,7 +20,6 @@ SLOW_TIMEOUT_S=240
 # sibling's load they can exceed the default budget.
 SLOW_FILES=(
   swe-boundary.test.sh
-  git-push-guard.test.sh
   cmd-analysis.test.sh
   containment-guard.test.sh
   merge-driver.test.sh

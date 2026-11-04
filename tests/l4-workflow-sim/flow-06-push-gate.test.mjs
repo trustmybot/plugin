@@ -8,7 +8,7 @@
 // code-reviewer signs off via validation_record. Re-trying the push then succeeds.
 //
 // This test simulates the full sequence at the MCP level (the hook itself is
-// covered by tests/l3-integration/hooks/git-push-guard.test.sh).
+// covered by mcp/trajectory-server/src/test/git-push-guard-l3.test.ts).
 //
 // Asserts: code-reviewer is the ONLY role allowed to write validation_record;
 // the stored reviewer identity is the observed subagent, never bro or the
@@ -124,7 +124,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → code-reviewer si
   assertIndependentReviewer(histB2.data[0], dbPath, taskB, 'flow06-reviewer-b');
 
   // 6. After this, the push hook would see all commits signed and ALLOW.
-  // (The hook itself is covered by tests/l3-integration/hooks/git-push-guard.test.sh.)
+  // (The hook itself is covered by mcp/trajectory-server/src/test/git-push-guard-l3.test.ts.)
 });
 
 test('Flow 6 fail-path — code-reviewer FAIL verdict triggers retry signal in next attempt_n', async (t) => {
