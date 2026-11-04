@@ -13,7 +13,7 @@
 # tmb_db_write is summed across calls, each attempt waits at most what is left,
 # and once it is spent further writes fail fast. A hook that writes many rows
 # under a held lock therefore spends at most the run budget writing;
-# tests/l1-lint/hook-timeout-budget.sh floors every hooks.json wrapper at
+# mcp/trajectory-server/src/test/hook-timeout-budget.test.ts floors every gate budget at
 # run budget + 1 s.
 
 if ! command -v tmb_sql_quote >/dev/null 2>&1; then
