@@ -34910,7 +34910,6 @@ function rowHoldsPart(fields, part) {
 
 // src/parsing/hooks.ts
 var HOOKS_PATH = "hooks/hooks.json";
-var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
 var ROUTER_TABLE_PATH = "mcp/trajectory-server/dist/hooks-router.txt";
 var ROUTER_TABLE_SOURCE = "mcp/trajectory-server/src/hooks/registry.ts";
 var GATE_MODULE_DIR = "mcp/trajectory-server/src/hooks";
@@ -34929,13 +34928,6 @@ var EVENT_ORDER = [
   "WorktreeRemove",
   "SessionEnd"
 ];
-function dispatchChains(registrations) {
-  const chains = /* @__PURE__ */ new Map();
-  for (const m of registrations.matchAll(/^\s*([\w-]+)\)\s*\n\s*printf '%s\\n' \\\n((?:\s*'[^']*'\s*\\?\n)+)/gm)) {
-    chains.set(m[1], [...m[2].matchAll(/'([\w-]+)\s/g)].map((x) => x[1]));
-  }
-  return chains;
-}
 function eventRanks(events) {
   const unknown2 = events.filter((e) => !EVENT_ORDER.includes(e));
   const stop2 = EVENT_ORDER.indexOf("Stop");
@@ -34947,7 +34939,7 @@ function routerGatesOf(table, event, matcher, part) {
   const rows = table.split("\n").map((line) => line.split(" ")).filter((f) => f[3] === event && f[4] !== void 0 && matcherOfColumn(f[4]) === matcher && rowHoldsPart(f, part)).map((f) => f[0]);
   return [...new Set(rows)];
 }
-function extractHooks(src, chains, routerTable2 = "") {
+function extractHooks(src, routerTable2 = "") {
   const out2 = { symbols: [], edges: [] };
   const parsed = JSON.parse(src);
   const hooks = parsed.hooks ?? {};
@@ -34974,8 +34966,7 @@ function extractHooks(src, chains, routerTable2 = "") {
         const name2 = gate ?? direct?.split("/").pop() ?? routed[0] ?? `hook${pos}`;
         const line = lineOf(gate ?? direct ?? (isRouted ? "dist/hooks.js" : cmd), cursor);
         cursor = line || cursor;
-        const members = isRouted ? routed : gate ? chains.get(gate) : void 0;
-        const target = isRouted ? `router gates ${routed.join(", ")}` : members ? `chain ${members.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
+        const target = isRouted ? `router gates ${routed.join(", ")}` : gate ? gateModule(gate) : direct ?? cmd;
         const qualifiedName = `${event}#${pos}:${name2}`;
         out2.symbols.push({
           kind: "hook",
@@ -34989,8 +34980,8 @@ function extractHooks(src, chains, routerTable2 = "") {
           run_order: rank * 100 + pos
         });
         const at = out2.symbols.length - 1;
-        if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
+        if (isRouted) {
+          routed.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: gateModule(m), line: i2 + 1, hint: null }));
         } else if (gate || direct) {
           out2.edges.push({ src: at, kind: "runs", dst_name: gate ? gateModule(gate) : direct, line, hint: null });
         }
@@ -35195,13 +35186,6 @@ function markOrphanedEdges(db2) {
 function deleteFileSymbols(db2, repo, path2) {
   db2.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path2]);
 }
-function registrationChains(repoPath) {
-  try {
-    return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
-  } catch {
-    return /* @__PURE__ */ new Map();
-  }
-}
 function routerTable(repoPath) {
   try {
     return readSource(repoPath, ROUTER_TABLE_PATH);
@@ -35312,7 +35296,7 @@ async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTO
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
     [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
+  if (stale.some((f) => f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db2.get(
       `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
       [repo, HOOKS_PATH]
@@ -35331,7 +35315,7 @@ async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTO
     }
     try {
       const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      const extraction = isHooks ? extractHooks(src, routerTable(repoPath)) : extractFile(parsers, file2.path, lang, src);
       parsed.push({ file: file2, extraction });
     } catch (e) {
       failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
