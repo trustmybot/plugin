@@ -52,7 +52,7 @@ const gateModule = (gate: string): string => `${GATE_MODULE_DIR}/${gate}.ts`;
 
 // A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
 // <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*> [<part>].
-function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
+export function routerGatesOf(table: string, event: string, matcher: string, part: string | undefined): string[] {
   const rows = table
     .split('\n')
     .map((line) => line.split(' '))

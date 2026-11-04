@@ -38,7 +38,7 @@ function eventRanks(events) {
 const gateModule = (gate) => `${GATE_MODULE_DIR}/${gate}.ts`;
 // A router entry's gates in run order, each once, from dist/hooks-router.txt lines:
 // <gate> <budget ms> <kind> <event> <matcher or -> <tool suffix|*> [<part>].
-function routerGatesOf(table, event, matcher, part) {
+export function routerGatesOf(table, event, matcher, part) {
     const rows = table
         .split('\n')
         .map((line) => line.split(' '))
