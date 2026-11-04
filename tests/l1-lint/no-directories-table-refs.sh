@@ -11,6 +11,7 @@
 #  - mcp/trajectory-server/dist/index.js — esbuild bundle inlining the above
 #  - mcp/trajectory-server/dist/codex.js — Codex bundle inlining the same shared DB
 #  - mcp/trajectory-server/dist/run-scan.js — scan bundle inlining the same shared DB
+#  - mcp/trajectory-server/dist/cli.js — cli bundle inlining the same shared DB
 #  - dashboard/dist/server.mjs — dashboard bundle inlining the same shared DB
 #  - docs/architecture/WORLD_MODEL.md — 'What was replaced' context
 #  - CHANGELOG.md — accurate history
@@ -39,6 +40,7 @@ while IFS= read -r f; do
     mcp/trajectory-server/dist/index.js) continue;;
     mcp/trajectory-server/dist/codex.js) continue;;
     mcp/trajectory-server/dist/run-scan.js) continue;;
+    mcp/trajectory-server/dist/cli.js) continue;;
     dashboard/dist/server.mjs) continue;;
     docs/architecture/WORLD_MODEL.md) continue;;
     CHANGELOG.md) continue;;
