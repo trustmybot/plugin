@@ -9,15 +9,18 @@
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
 // rows (parsing/hooks.ts), and a pass re-resolves the non-exact edges of
-// unchanged files that name a symbol this pass inserted (ADR 0002).
+// unchanged files that name a symbol this pass inserted (ADR 0002). A
+// generated bundle with a sibling source map gets a 'module' row of its own,
+// re-read only when the map changes, with a 'bundles' edge to each in-repo
+// source the map lists (GH 2284).
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, join, posix } from 'node:path';
 import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers } from './parsing/loader.js';
-import { extractFile, inSymbolScope, languageOf, splitWords, STOPWORDS, symbolTerms, clip, oneLine, } from './parsing/extract.js';
-import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
-export const EXTRACTOR_VERSION = 4;
+import { extractFile, inSymbolScope, isGeneratedPath, languageOf, needsParser, splitWords, STOPWORDS, symbolTerms, clip, oneLine, } from './parsing/extract.js';
+import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
+export const EXTRACTOR_VERSION = 5;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 export const IMPACT_REF_CAP = 200;
@@ -174,6 +177,10 @@ class Resolver {
             const dst = hit?.id ?? this.modules.get(target);
             return dst === undefined ? null : { dst, how: 'exact' };
         }
+        if (edge.kind === 'bundles') {
+            const dst = this.modules.get(edge.dst_name);
+            return dst === undefined ? null : { dst, how: 'exact' };
+        }
         if (edge.kind === 'runs' || edge.kind === 'sources') {
             const byPath = edge.dst_name.includes('/') ? this.modules.get(edge.dst_name) : undefined;
             if (byPath !== undefined)
@@ -221,14 +228,6 @@ export function markOrphanedEdges(db) {
 export function deleteFileSymbols(db, repo, path) {
     db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path]);
 }
-function registrationChains(repoPath) {
-    try {
-        return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
-    }
-    catch {
-        return new Map();
-    }
-}
 function routerTable(repoPath) {
     try {
         return readSource(repoPath, ROUTER_TABLE_PATH);
@@ -272,22 +271,107 @@ function reresolveEdges(db, repo, names, skip) {
     }
     return resolved;
 }
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+// The tracked source maps whose bundle (the map's path less '.map') is a
+// tracked generated .js, .mjs or .cjs file.
+export function bundleMaps(files) {
+    const tracked = new Set(files.map((f) => f.path));
+    return files
+        .filter((f) => {
+        const bundle = f.path.slice(0, -'.map'.length);
+        return f.path.endsWith('.map') && /\.[cm]?js$/.test(bundle) && isGeneratedPath(bundle) && tracked.has(bundle);
+    })
+        .map((f) => ({ path: f.path, content_md5: f.content_md5 }));
+}
+// The repo-relative paths an ECMA-426 source map lists in `sources`, each
+// resolved against the map's directory plus its sourceRoot. A source under
+// node_modules, outside the repo or behind a non-file URL is skipped.
+export function bundleSources(mapPath, mapText, repoPath) {
+    const map = JSON.parse(mapText);
+    if (!Array.isArray(map.sources))
+        return [];
+    const root = typeof map.sourceRoot === 'string' ? map.sourceRoot.replace(/^file:\/\//, '') : '';
+    if (URL_SCHEME.test(root))
+        return [];
+    const repoRoot = posix.resolve(repoPath);
+    const out = new Set();
+    for (const source of map.sources) {
+        if (typeof source !== 'string' || !source)
+            continue;
+        const s = source.replace(/^file:\/\//, '');
+        if (URL_SCHEME.test(s))
+            continue;
+        const rel = posix.relative(repoRoot, posix.resolve(repoRoot, posix.dirname(mapPath), root, s));
+        if (!rel || rel === '..' || rel.startsWith('../') || posix.isAbsolute(rel) || /(^|\/)node_modules\//.test(rel))
+            continue;
+        out.add(rel);
+    }
+    return [...out];
+}
+function bundleExtraction(bundle, stamp, sources) {
+    return {
+        symbols: [
+            {
+                kind: 'module',
+                qualified_name: bundle,
+                signature: bundle,
+                doc: `Generated bundle of ${sources.length} in-repo source(s), read from ${bundle}.map; rebuild it after editing one.`,
+                start_line: 1,
+                end_line: 1,
+                body_hash: stamp,
+                exported: 0,
+            },
+        ],
+        edges: sources.map((s) => ({ src: 0, kind: 'bundles', dst_name: s, line: 1, hint: null })),
+    };
+}
+// The bundle rows to rewrite: a bundle whose module row is stamped with
+// another map md5 or extractor version is re-read, one with no in-repo
+// source (or an unreadable map) loses its row, and a bundle row whose map is
+// no longer listed is gone.
+function readBundles(db, repo, repoPath, maps, version) {
+    const stamps = new Map(db
+        .all(`SELECT path, body_hash FROM wm_symbols WHERE repo = ? AND kind = 'module'`, [repo])
+        .filter((r) => isGeneratedPath(r.path))
+        .map((r) => [r.path, r.body_hash]));
+    const pass = { write: [], gone: [], failed: [] };
+    const listed = new Set();
+    for (const map of maps) {
+        const bundle = map.path.slice(0, -'.map'.length);
+        const stamp = `${map.content_md5}:${version}`;
+        listed.add(bundle);
+        if (stamps.get(bundle) === stamp)
+            continue;
+        try {
+            const sources = bundleSources(map.path, readSource(repoPath, map.path), repoPath);
+            pass.write.push({ path: bundle, extraction: sources.length > 0 ? bundleExtraction(bundle, stamp, sources) : null });
+        }
+        catch (e) {
+            pass.failed.push({ path: map.path, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
+            pass.write.push({ path: bundle, extraction: null });
+        }
+    }
+    pass.gone = [...stamps.keys()].filter((p) => !listed.has(p));
+    return pass;
+}
 // Bring one repo's symbols up to date with its wm_files rows. The grammars
-// load on the first call that has a stale TS/JS or shell file to parse.
-export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
+// load on the first call that has a stale TS/JS or shell file to parse. With
+// bundleMaps (the scan's bundleMaps of the repo's tracked files) the bundle
+// rows are brought up to date too; without it they are left as they are.
+export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION, maps) {
     const version = String(extractorVersion);
     const stale = db
         .all(`SELECT id, path, content_md5, size_bytes FROM wm_files
         WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
           AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`, [repo, version, version, FAILED_SUFFIX])
         .filter((f) => inSymbolScope(f.path));
-    if (stale.some((f) => f.path === REGISTRATIONS_PATH || f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
+    if (stale.some((f) => f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
         const hooksFile = db.get(`SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`, [repo, HOOKS_PATH]);
         if (hooksFile)
             stale.push(hooksFile);
     }
     const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
-    const parsers = jobs.some((j) => j.lang !== null && j.lang !== 'sql') ? await loadParsers() : null;
+    const parsers = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
     const failed = [];
     const parsed = [];
     for (const { file, lang } of jobs) {
@@ -299,7 +383,7 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
         try {
             const src = readSource(repoPath, file.path);
             const extraction = isHooks
-                ? extractHooks(src, registrationChains(repoPath), routerTable(repoPath))
+                ? extractHooks(src, routerTable(repoPath))
                 : extractFile(parsers, file.path, lang, src);
             parsed.push({ file, extraction });
         }
@@ -307,6 +391,7 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
             failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
         }
     }
+    const bundles = maps ? readBundles(db, repo, repoPath, maps, version) : { write: [], gone: [], failed: [] };
     return db.transaction(() => {
         const writer = new SymbolWriter(db, repo);
         const pending = [];
@@ -325,6 +410,17 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
             deleteFileSymbols(db, repo, file.path);
             db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version, FAILED_SUFFIX, file.id]);
         }
+        for (const { path, extraction } of bundles.write) {
+            if (extraction) {
+                pending.push(...writer.writeFile(path, extraction));
+                symbols += extraction.symbols.length;
+            }
+            else {
+                deleteFileSymbols(db, repo, path);
+            }
+        }
+        for (const path of bundles.gone)
+            deleteFileSymbols(db, repo, path);
         let resolved = 0;
         if (pending.length > 0) {
             const resolver = new Resolver(db, repo, pending);
@@ -340,11 +436,11 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
         markOrphanedEdges(db);
         return {
             files_parsed: parsed.filter((p) => p.extraction !== null).length,
-            files_failed: failed.length,
+            files_failed: failed.length + bundles.failed.length,
             symbols,
             edges: pending.length,
             edges_resolved: resolved,
-            failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file, error }) => ({ path: file.path, error })),
+            failed_paths: [...failed.map(({ file, error }) => ({ path: file.path, error })), ...bundles.failed].slice(0, FAILED_PATHS_CAP),
         };
     });
 }
@@ -420,8 +516,8 @@ function refList(rows) {
     return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
 }
 // A symbol card: who calls it, what it calls and imports, the tables it reads
-// and writes (for a table, who reads and writes it) and the tests that
-// reference it.
+// and writes (for a table, who reads and writes it), the tests that reference
+// it and the bundles that inline its file.
 export function symbolCard(db, symbol) {
     const inbound = db.all(`SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
        FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
@@ -431,6 +527,10 @@ export function symbolCard(db, symbol) {
        FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
       WHERE e.src_id = ?
       ORDER BY e.line`, [symbol.id]);
+    const bundlers = db.all(`SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_symbols m JOIN wm_edges e ON e.dst_id = m.id AND e.kind = 'bundles' JOIN wm_symbols o ON o.id = e.src_id
+      WHERE m.repo = ? AND m.path = ? AND m.kind = 'module'
+      ORDER BY o.path`, [symbol.repo, symbol.path]);
     const isTable = symbol.kind === 'sql_table';
     const tableSide = isTable ? inbound : outbound;
     const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
@@ -442,7 +542,8 @@ export function symbolCard(db, symbol) {
         imports: refList(of(symbol.kind === 'module' ? outbound : inbound, ['imports'])),
         reads_table: refList(of(tableSide, ['reads_table'])),
         writes_table: refList(of(tableSide, ['writes_table'])),
-        tests: refList(inbound.filter((r) => r.path !== null && isTestPath(r.path))),
+        tests: refList(inbound.filter((r) => r.edge_kind !== 'bundles' && r.path !== null && isTestPath(r.path))),
+        bundled_by: refList(bundlers),
     };
     if ([...inbound, ...outbound].some((r) => r.resolution !== 'exact'))
         card.note = 'found by name; not all callers';
@@ -514,7 +615,8 @@ function fileMd5(absPath) {
 // The files, keyed by fileRefKey, whose indexed symbols no longer describe
 // the disk: the file's md5 differs from wm_files.content_md5, symbols_md5 is
 // not symbolsStamp(content_md5), or the file is gone. Each file is hashed once per call; a repo
-// with no resolvable root cannot be checked and counts as fresh.
+// with no resolvable root cannot be checked and counts as fresh. A generated
+// bundle has no wm_files row and is stale only when gone.
 export function staleFiles(db, files) {
     const roots = new Map();
     const checked = new Map();
@@ -531,6 +633,10 @@ export function staleFiles(db, files) {
         }
         const row = db.get(`SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`, [f.repo, f.path]);
         const disk = fileMd5(join(root, f.path));
+        if (!row && isGeneratedPath(f.path)) {
+            checked.set(key, disk === null);
+            continue;
+        }
         checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
     }
     return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));

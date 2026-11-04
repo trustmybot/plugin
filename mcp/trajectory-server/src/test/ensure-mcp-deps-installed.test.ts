@@ -931,6 +931,62 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
       assert.equal(r.out.code, 0);
       assert.match(context(r.out.stdout), /or run: cd ".*" && bun install --production --ignore-scripts --no-save$/);
       assert.deepEqual(r.rec, []);
+      assert.equal(existsSync(join(r.root, 'mcp/trajectory-server/.deps-install.lock')), false, 'no lock left behind');
+    });
+
+    const legacyLock = (root: string) => join(root, 'mcp/trajectory-server/.deps-install.lock');
+
+    it('unset CLAUDE_PLUGIN_DATA, transformers resolving from the MCP dir → no installer, no output', () => {
+      const root = fakeRoot(dir('edge/legacy-ready'));
+      const pkg = dir('edge/legacy-ready/node_modules', PKG);
+      writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: PKG, version: TRANSFORMERS_VERSION, exports: './index.js' }));
+      writeFileSync(join(pkg, 'index.js'), 'export const pipeline = 1;\n');
+      const rec = join(base, 'edge-legacy-ready.rec');
+      const out = runNode({ PATH: path, STUB_RECORD: rec, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PROJECT_DIR: dir('edge/legacy-ready-project'), TMB_FORBID_LIVE_SYNC: '1' });
+      assert.equal(out.code, 0);
+      assert.equal(out.stdout, '');
+      assert.deepEqual(records(rec), []);
+    });
+
+    it('unset CLAUDE_PLUGIN_DATA → one bun install in the MCP dir; its caches and log under the project state dir; the lock released', () => {
+      const project = dir('edge/legacy-state-project');
+      dir('edge/legacy-state-project/.claude/tmb');
+      writeFileSync(join(project, '.claude/tmb/trajectory.db'), '');
+      const r = gate(
+        'legacy-state',
+        { CLAUDE_PLUGIN_DATA: undefined, CLAUDE_PROJECT_DIR: project, TRAJECTORY_DB_PATH: join(project, '.claude/tmb/trajectory.db') },
+        legacyLock,
+      );
+      assert.equal(r.out.code, 0);
+      assert.equal(JSON.parse(r.out.stdout).hookSpecificOutput.hookEventName, 'SessionStart');
+      assert.ok(context(r.out.stdout).includes('next Claude Code restart'), r.out.stdout);
+      assert.equal(r.rec.length, 1);
+      const [cwd, name, args, bunCache, npmCache] = r.rec[0]!;
+      assert.equal(realpathSync(cwd!), realpathSync(join(r.root, 'mcp/trajectory-server')));
+      assert.deepEqual([name, args], ['bun', LEGACY_BUN_ARGS]);
+      assert.equal(bunCache, join(project, '.claude/tmb/cache/bun'));
+      assert.equal(npmCache, join(project, '.claude/tmb/cache/npm'));
+      assert.match(readFileSync(join(project, '.claude/tmb/logs/mcp-deps-install.log'), 'utf8'), /exit 0/);
+      assert.equal(existsSync(legacyLock(r.root)), false);
+    });
+
+    it('unset CLAUDE_PLUGIN_DATA, install already running (lock held) → no installer', () => {
+      const root = fakeRoot(dir('edge/legacy-locked'));
+      dir('edge/legacy-locked/mcp/trajectory-server/.deps-install.lock');
+      const rec = join(base, 'edge-legacy-locked.rec');
+      const out = runNode({ PATH: path, STUB_RECORD: rec, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PROJECT_DIR: dir('edge/legacy-locked-project'), TMB_FORBID_LIVE_SYNC: '1' });
+      assert.equal(out.code, 0);
+      sleepMs(500);
+      assert.deepEqual(records(rec), []);
+    });
+
+    it('unset CLAUDE_PLUGIN_DATA and no bun → one npm install in the MCP dir with the production, no-scripts, no-save flags', () => {
+      const tools = path.split(':')[1]!;
+      const r = gate('legacy-npm', { CLAUDE_PLUGIN_DATA: undefined, PATH: `${npmDir}:${tools}` }, legacyLock);
+      assert.equal(r.out.code, 0);
+      assert.equal(r.rec.length, 1);
+      assert.equal(realpathSync(r.rec[0]![0]!), realpathSync(join(r.root, 'mcp/trajectory-server')));
+      assert.deepEqual([r.rec[0]![1], r.rec[0]![2]], ['npm', 'install --omit=dev --ignore-scripts --no-save --no-audit --no-fund']);
     });
   });
 });

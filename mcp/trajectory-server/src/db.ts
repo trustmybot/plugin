@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 55;
+export const TARGET_SCHEMA_VERSION = 56;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -821,6 +821,9 @@ function runMigrations(
   }
   if (fromVersion < 55 && toVersion >= 55) {
     migrateV54toV55(db);
+  }
+  if (fromVersion < 56 && toVersion >= 56) {
+    migrateV55toV56(db);
   }
 }
 
@@ -3115,6 +3118,41 @@ function migrateV54toV55(db: DatabaseSync): void {
           consumed_by_session TEXT
       );
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v55→v56: 'bundles' edges (GH 2284). wm_edges is rebuilt, rows kept, so its
+// kind CHECK admits 'bundles'; its indexes drop with the old table and come
+// back in the schema.sql reapply.
+function migrateV55toV56(db: DatabaseSync): void {
+  if (!tableExists(db, 'wm_edges') || readTableSql(db, 'wm_edges').includes("'bundles'")) return;
+  beginImmediate(db);
+  try {
+    rebuildTable(
+      db,
+      'wm_edges',
+      `
+        src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+        dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+        dst_name    TEXT    NOT NULL,
+        kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')),
+        resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+        line        INTEGER,
+        hint        TEXT
+      `,
+      [
+        ['src_id', '0'], ['dst_id', 'NULL'], ['dst_name', "''"], ['kind', "'calls'"],
+        ['resolution', "'unresolved'"], ['line', 'NULL'], ['hint', 'NULL'],
+      ],
+    );
     commitTransaction(db);
   } catch (err) {
     try {
