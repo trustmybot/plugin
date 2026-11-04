@@ -4331,7 +4331,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or its walker as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
   { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scan_skipped", writers: ["hook"], description: "The scan walker left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `linked_worktree`: a `git worktree add` checkout of another repo; `no_commits`: it has no commit)" },
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
@@ -8286,7 +8286,7 @@ var WorldModelGraph2 = class extends WorldModelGraph {
 
 // src/tools/scan.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync7, realpathSync as realpathSync2, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync7, realpathSync as realpathSync3, writeFileSync, unlinkSync } from "node:fs";
 import { dirname as dirname7, join as join15 } from "node:path";
 
 // src/middleware/agent-scope.ts
@@ -10945,7 +10945,7 @@ function syncRepoMilestones(db, repo, repoPath, spawnFn) {
 // src/tools/scan-walk.ts
 import { spawn } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { accessSync as accessSync2, constants as constants3, createReadStream, existsSync as existsSync6, lstatSync as lstatSync3, readdirSync as readdirSync3, readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
+import { accessSync as accessSync2, constants as constants3, createReadStream, existsSync as existsSync6, lstatSync as lstatSync3, readdirSync as readdirSync3, readFileSync as readFileSync6, realpathSync as realpathSync2, statSync as statSync3 } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
 import { basename as basename7, dirname as dirname6, join as join14, resolve as resolve4 } from "node:path";
@@ -11147,6 +11147,17 @@ function findGitParents(sessionDir) {
   walk(sessionDir, ".", 0);
   return parents;
 }
+async function isLinkedWorktree(repo, env, deadline) {
+  const out2 = await git2(["-C", repo, "rev-parse", "--git-dir", "--git-common-dir"], env, deadline);
+  if (out2.code !== 0) return false;
+  const [gitDir, commonDir] = captured(out2.stdout).split("\n");
+  if (!gitDir || !commonDir) return false;
+  try {
+    return realpathSync2(resolve4(repo, gitDir)) !== realpathSync2(resolve4(repo, commonDir));
+  } catch {
+    return false;
+  }
+}
 async function skipReason(repo, sessionDir, env, deadline) {
   const rel = repo.startsWith(`${sessionDir}/`) ? repo.slice(sessionDir.length + 1) : repo;
   if (`/${rel}`.includes("/.")) return "dot_dir";
@@ -11159,6 +11170,7 @@ async function skipReason(repo, sessionDir, env, deadline) {
     if (enclosing === sessionDir || dirname6(enclosing) === enclosing) break;
     enclosing = dirname6(enclosing);
   }
+  if (await isLinkedWorktree(repo, env, deadline)) return "linked_worktree";
   const head = await git2(["-C", repo, "rev-parse", "--verify", "-q", "HEAD"], env, deadline);
   return head.code === 0 ? null : "no_commits";
 }
@@ -11798,7 +11810,7 @@ function readRepoRemotes(path) {
 }
 function canonicalPath(p) {
   try {
-    return realpathSync2(p);
+    return realpathSync3(p);
   } catch {
     return p.replace(/\/+$/, "");
   }

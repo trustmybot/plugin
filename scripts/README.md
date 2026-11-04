@@ -6,8 +6,7 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 
 | Script | Purpose |
 |---|---|
-| `release.sh` | Cuts a release from `main` after `dev` is merged and the version bump has landed. |
-| `prompt-author-lint.sh` | Pre-write lint for agent + skill files — flags pink-elephant negations and other prompt anti-patterns before a prompt file is written. |
+| `release.ts` | Run as `node --experimental-strip-types scripts/release.ts`. Cuts a release from `main` after `dev` is merged and the version bump has landed. |
 
 ## Subdirectories
 
@@ -17,4 +16,4 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 
 ## How it fits
 
-`release.sh` is Human-run release tooling; `scan_run` and the `cheatcode_*` MCP tools run in-process TypeScript under `mcp/trajectory-server/src/tools/`. Keeping this logic in deterministic scripts lets the same behavior be exercised from a hook, an MCP tool, and the test suite without re-implementation.
+`release.ts` is Human-run release tooling; `scan_run` and the `cheatcode_*` MCP tools run in-process TypeScript under `mcp/trajectory-server/src/tools/`. Keeping this logic in deterministic scripts lets the same behavior be exercised from a hook, an MCP tool, and the test suite without re-implementation.

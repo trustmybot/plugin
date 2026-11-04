@@ -28,10 +28,10 @@ scripts/hooks/lib/resolve-repo.sh	tmb_cmd_cwd() {	join-base	the definition: the 
 scripts/hooks/lib/resolve-repo.sh	declare -F tmb_payload_cwd	join-base	sources the helper tmb_cmd_cwd joins to
 scripts/hooks/lib/resolve-repo.sh	base=$(tmb_payload_cwd "$input")	join-base	tmb_cmd_cwd: the join base of a relative cd / git -C path
 scripts/hooks/lib/query-task.sh	start="$(pwd)"	fallback	_tmb_db_resolve: DB walk-up discovery, reached only when TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR are both unset and no test flag is set
-scripts/release.sh	git 	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
+scripts/release.ts	spawnSync(cmd, args	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
 scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
-scripts/publish-rc-channel.sh	git ls-remote --tags "$PLUGIN_REPO"	not-location	ls-remote names its remote URL; reads no checkout
-scripts/publish-rc-channel.sh	git clone --quiet --depth 1 "$CATALOG_REPO" "$WORK_DIR/marketplace-rc"	not-location	clone names its source URL and an absolute destination
+scripts/publish-rc-channel.ts	'ls-remote', '--tags', PLUGIN_REPO	not-location	ls-remote names its remote URL; reads no checkout
+scripts/publish-rc-channel.ts	'clone', '--quiet', '--depth', '1', CATALOG_REPO	not-location	clone names its source URL and an absolute destination
 tests/lib/assert.sh	git -C "$(pwd -P)" rev-parse --show-toplevel	test-harness	assert_not_in_plugin_repo refuses a test whose own cwd is the plugin checkout
 tests/lib/live-db-shim.sh	"\$PWD" "\$*"	test-harness	the generated sqlite3 shim logs the dir it was invoked in
 tests/lib/live-db-shim.sh	abs="\$PWD/\$arg"	test-harness	the generated sqlite3 shim joins a relative DB argument to the dir it was invoked in
