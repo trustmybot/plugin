@@ -19,7 +19,6 @@ SLOW_TIMEOUT_S=240
 # Files measured at 30s or more on an idle machine (`run.sh -v`); under a
 # sibling's load they can exceed the default budget.
 SLOW_FILES=(
-  git-guards.test.sh
   swe-boundary.test.sh
   git-push-guard.test.sh
   cmd-analysis.test.sh
