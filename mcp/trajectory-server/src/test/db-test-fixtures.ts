@@ -1,9 +1,8 @@
 /**
  * Shared fixtures for the DB-path suites (GH 1692): a sandbox dir, a child env
  * with no inherited Claude Code or TMB state, a DB created through the
- * trajectory-server's own migration path (the TS form of
- * tests/l3-integration/hooks/fixtures/migrated-db.sh), and one-statement reads
- * and writes through node:sqlite.
+ * trajectory-server's own migration path, and one-statement reads and writes
+ * through node:sqlite.
  */
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';

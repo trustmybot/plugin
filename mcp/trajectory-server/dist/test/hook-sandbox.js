@@ -1,8 +1,7 @@
 /**
  * A sandbox for the l3 hook ports (GH 1692): a temp dir with its own HOME and
  * TMPDIR, a child env that inherits no CLAUDE_* / TMB_* variable, the
- * `node dist/hooks.js <gate>` spawn, and the PATH without a command that
- * tests/l3-integration/hooks/fixtures/no-jq-path.sh builds in bash.
+ * `node dist/hooks.js <gate>` spawn, and a PATH without one command.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
