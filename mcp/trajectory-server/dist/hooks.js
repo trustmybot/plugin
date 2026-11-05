@@ -9149,6 +9149,7 @@ var VSPECIAL = /^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOC
 var KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 var NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 var BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+var LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 var FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 function norm(p) {
   let lead = "";
@@ -9224,6 +9225,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
   let lastdir = "";
   let piped = false;
   let pipesrc = "";
+  let cut4 = false;
   let i2 = 0;
   let s = base2.indexOf(SEP);
   if (s >= 0) {
@@ -9530,7 +9532,8 @@ function scan2(buf, base2, home, assign, frames, charge) {
       vkill = false;
     }
   }
-  function vplainexp(text) {
+  function vplainexp(text, whole) {
+    if (whole) text = text.replace(LITERAL_REDIRECT, "$1");
     const parts2 = text.split("<<");
     for (let k = 1; k < parts2.length; k++) {
       if (!parts2[k].startsWith(HD_DATA)) return false;
@@ -9545,7 +9548,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt.replaceAll(QM, ""))) vok = false;
+    const whole = !cut4;
+    cut4 = false;
+    if (!vplainexp(stmt.replaceAll(QM, ""), whole)) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
@@ -9794,6 +9799,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         if (assign && last === "$") stmt = stmt + ENC[8] + ENC[9] + forsrc(i2);
         else stmt = stmt.slice(0, -1);
       }
+      cut4 = true;
       flush();
       push();
       continue;
@@ -9807,6 +9813,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     if (c === "`") {
       vkill = true;
       if (assign && !bt) stmt += "$" + ENC[8] + ENC[9];
+      cut4 = true;
       flush();
       if (bt) {
         bt = false;

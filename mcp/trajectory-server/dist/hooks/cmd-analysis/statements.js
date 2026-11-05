@@ -39,6 +39,8 @@ const KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 const ENCODED = /[\x01-\x06\x0e-\x13]/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 const BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+/** A redirect whose target is a literal word or an fd duplication (GH 2404): it expands nothing, so it cannot reassign a variable. */
+const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 function norm(p) {
     let lead = '';
@@ -131,6 +133,7 @@ function scan(buf, base, home, assign, frames, charge) {
     let lastdir = '';
     let piped = false;
     let pipesrc = '';
+    let cut = false;
     let i = 0;
     let s = base.indexOf(SEP);
     if (s >= 0) {
@@ -512,8 +515,14 @@ function scan(buf, base, home, assign, frames, charge) {
             vkill = false;
         }
     }
-    /** Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA mark. */
-    function vplainexp(text) {
+    /**
+     * Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA
+     * mark. A literal redirect is plain unless a `(` or backtick cut the
+     * statement short, where its target runs on into the substitution.
+     */
+    function vplainexp(text, whole) {
+        if (whole)
+            text = text.replace(LITERAL_REDIRECT, '$1');
         const parts = text.split('<<');
         for (let k = 1; k < parts.length; k++) {
             if (!parts[k].startsWith(HD_DATA))
@@ -531,7 +540,9 @@ function scan(buf, base, home, assign, frames, charge) {
         const chained = fsep === '&&';
         fsep = '';
         vtop = sp === 0 && qsp === 0 && !bt;
-        if (!vplainexp(stmt.replaceAll(QM, '')))
+        const whole = !cut;
+        cut = false;
+        if (!vplainexp(stmt.replaceAll(QM, ''), whole))
             vok = false;
         stmt = unmark(stmt);
         const csure = !cond;
@@ -813,6 +824,7 @@ function scan(buf, base, home, assign, frames, charge) {
                 else
                     stmt = stmt.slice(0, -1);
             }
+            cut = true;
             flush();
             push();
             continue;
@@ -828,6 +840,7 @@ function scan(buf, base, home, assign, frames, charge) {
             vkill = true;
             if (assign && !bt)
                 stmt += '$' + ENC[8] + ENC[9];
+            cut = true;
             flush();
             if (bt) {
                 bt = false;

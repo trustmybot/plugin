@@ -665,6 +665,21 @@ describe('git-guards l3: target dir from the command, heredocs are data (GH 1196
     has(out, 'ambiguous_git_target', 'an unquoted heredoc body that assigns still kills the variable');
   });
 
+  it("GH 2404: 'W=<dir>; git -C $W commit … 2>&1' keeps its dir past a literal redirect, not past one that can reassign", () => {
+    let out = run('swe', repo, `W=${wt}; git -C $W commit -m x 2>&1`);
+    hasNot(out, 'ambiguous_git_target', 'an fd duplication cannot reassign the variable');
+    allow(out, 'the commit lands on fix/thing');
+    allow(run('swe', repo, `W=${wt}; git -C "$W" commit -m x 2>/dev/null | tail -3`), 'a literal redirect before a pipe resolves too');
+    out = run('swe', repo, `W=${repo}; git -C $W commit -m x 2>&1`);
+    hasNot(out, 'ambiguous_git_target', 'resolved to the main checkout');
+    has(out, 'dev is a shared workflow base', "judged on the main checkout's dev");
+    for (const redirect of ['>$(W=0)', '2>$((W=0))', '>"$W"/log']) {
+      out = run(undefined, repo, `W=${wt}; git -C $W merge x ${redirect}`);
+      deny(out, `${redirect} can reassign the variable`);
+      has(out, 'comes through a variable', `${redirect} leaves the dir unresolved`);
+    }
+  });
+
   it("GH 1595: 'cd $UNSET && git commit' with worktrees present: unresolvable-dir deny, not 'names no directory'", () => {
     const out = run('swe', repo, 'cd $UNSET && git commit -m x');
     has(out, 'ambiguous_git_target', 'the deny keeps its token');
