@@ -4,7 +4,9 @@
  * gates at origin/dev 619ce711, the post-tool and stop gates at 54f9731c, the
  * session, prompt and worktree gates at 76ec206d, the rest at 9cc886e8). Every
  * gate was its own registration, so its share is that whole timeout; a
- * trajectory-gates chain member's is its chain-table budget. A gate born in
+ * trajectory-gates chain member's is its chain-table budget, but
+ * swe-verification-gate's is 3627 s, so its group's router timeout is the
+ * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
  * the router (bash-output-trim, swe-downstream-context) never had a registration; it takes the 4 s of
  * the lightest advisory one, and reviewer-downstream-context, which runs git, the 6 s of a git-reading one.
  */
@@ -30,7 +32,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'agent-spawn-dispatch': 16,
   'swe-resume-gate': 6,
   'agent-arg-matches-caller': 6,
-  'swe-verification-gate': 1830,
+  'swe-verification-gate': 3627,
   'reviewer-identity-observe': 6,
   'cheatcode-install-approval': 6,
   'askuserquestion-length-lint': 6,
