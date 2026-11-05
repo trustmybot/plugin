@@ -244,8 +244,8 @@ describe('enums-stable lint and extractor l3', () => {
   it('the lint rejects an undocumented event', () => {
     const dir = newTree('undocumented', 'undocumented');
     mkdirSync(join(dir, 'scripts/maintenance'), { recursive: true });
-    cpSync(join(dir, 'scripts/hooks/extra.sh'), join(dir, 'scripts/maintenance/extra.sh'));
-    rmSync(join(dir, 'scripts/hooks/extra.sh'));
+    cpSync(join(dir, 'scripts', 'hooks', 'extra.sh'), join(dir, 'scripts/maintenance/extra.sh'));
+    rmSync(join(dir, 'scripts', 'hooks', 'extra.sh'));
     const { exit, output } = runLint('undocumented');
     assert.equal(exit, 1, 'undocumented event');
     has(output, "audit.event_type 'ghost_event' used in scripts/maintenance/extra.sh but missing from ENUMS.md", 'output');
