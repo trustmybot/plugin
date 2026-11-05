@@ -63,3 +63,5 @@ mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? p
 mcp/trajectory-server/src/hooks/resolve-hook.ts	const result = spawnSync(process.execPath, [router	not-location	the headless-shim resolver finds nothing from the cwd: it runs the router in the hook runner's directory, as the plugin's own hooks.json entry does and resolve-hook.sh's exec did (GH 1692)
 tests/lib/live-db-shim.mjs	const here = process.cwd();	test-harness	the generated sqlite3 shim logs the dir it was invoked in and joins a relative DB argument to it
 tests/lib/live-db-shim.mjs	spawnSync(REAL, args, { stdio: 'inherit' })	test-harness	the generated sqlite3 shim runs the real sqlite3 in its caller's dir, as the exec it replaces did
+mcp/trajectory-server/src/cli/stale-docs.ts	git(process.cwd(), ['rev-parse', '--show-toplevel'])	join-base	a git-style CLI: it diffs the repo it runs in against <base>, like git itself; the reviewer runs it at the worktree root (GH 1955)
+scripts/maintenance/reviewer-eval.ts	gitRunner(values.repo ?? process.cwd())	fallback	the repo to evaluate comes from --repo; the cwd is used only when --repo is absent, like git itself (GH 1955)
