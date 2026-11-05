@@ -225,6 +225,7 @@ live_cli_check "L2" || FAIL=1
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  node "$HERE/l3-integration/mcp/run.mjs"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
+run_step "L3 integration: generated payload parity (dev-build)"       node --test "$HERE/l3-integration/payload-parity.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"
 run_step "L3 integration: release.ts + publish-rc-channel.ts (stubbed git/gh)"  node --test "$HERE/l3-integration/release-scripts.test.mjs"
 run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"
