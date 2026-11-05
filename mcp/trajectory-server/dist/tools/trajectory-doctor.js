@@ -5,6 +5,13 @@ import { insertAudit } from './audit.js';
 import { embeddingStatus } from '../embeddings/model.js';
 import { DATA_CONTRACTS, contractHolds, schemaTooOldReason, contractParamValues, } from '../data-contracts.js';
 export const STATEMENT_TIMEOUT_MS_DEFAULT = 2000;
+export function wmFeedbackCounts(db) {
+    const row = db.get(`SELECT COUNT(*) AS reports,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.missed'), '')) <> ''), 0) AS missed,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.wrong'), '')) <> ''), 0) AS wrong
+       FROM audit WHERE event_type = 'wm_feedback' AND json_valid(content_json)`);
+    return { reports: Number(row?.reports ?? 0), missed: Number(row?.missed ?? 0), wrong: Number(row?.wrong ?? 0) };
+}
 const bind = (params) => (Object.keys(params).length > 0 ? [params] : []);
 export function trajectoryDbReader(db) {
     return {
@@ -202,7 +209,7 @@ export function trajectoryDoctorTools(db) {
     const definitions = [
         {
             name: 'trajectory_doctor',
-            description: 'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.',
+            description: 'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings, wm_feedback}, wm_feedback being {reports, missed, wrong}: the count of wm_feedback audit rows and of those with a non-empty missed / wrong; record:true logs one trajectory_doctor_run audit row.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -235,6 +242,7 @@ export function trajectoryDoctorTools(db) {
             ro?.close();
         }
         report.embeddings = embeddingStatus();
+        report.wm_feedback = wmFeedbackCounts(db);
         if (!record)
             return ok(report);
         const auditId = insertAudit(db, {

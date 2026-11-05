@@ -5,6 +5,30 @@ export const MAX_CONCEPT_PROPOSALS = 5;
 export const CRITERION_STATUSES = ['met', 'not_met', 'not_applicable'];
 /** The longest spawn_note bro_atomic_close / task_reopen store, and the reviewer-prompt prose cap. */
 export const SPAWN_NOTE_MAX_CHARS = 300;
+export const WM_FEEDBACK_KEYS = ['answered', 'missed', 'wrong'];
+/** Why `raw` is not a WmFeedback, named at `at`, or null when it is. */
+export function wmFeedbackProblem(raw, at) {
+    const shape = `{${WM_FEEDBACK_KEYS.map((k) => `${k}?: string`).join(', ')}}`;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return `${at} must be an object ${shape}.`;
+    const entry = raw;
+    const unknown = Object.keys(entry).filter((k) => !WM_FEEDBACK_KEYS.includes(k));
+    if (unknown.length > 0)
+        return `${at} has unknown field(s) ${unknown.join(', ')}; allowed: ${WM_FEEDBACK_KEYS.join(', ')}.`;
+    const bad = WM_FEEDBACK_KEYS.find((k) => entry[k] !== undefined && entry[k] !== null && typeof entry[k] !== 'string');
+    return bad === undefined ? null : `${at}.${bad} must be a string.`;
+}
+/** `raw` as a WmFeedback without its null fields; check it with wmFeedbackProblem first. */
+export function toWmFeedback(raw) {
+    const entry = raw;
+    const out = {};
+    for (const k of WM_FEEDBACK_KEYS) {
+        const v = entry[k];
+        if (typeof v === 'string')
+            out[k] = v;
+    }
+    return out;
+}
 const SECTION_RE = /^## Success Criteria\s*$/i;
 const SECTION_END_RE = /^#{1,2}\s/;
 const FENCE_RE = /^(```|~~~)/;
@@ -177,6 +201,12 @@ export function parseCompletionReport(raw, ids) {
     }
     if (r['concepts'] !== undefined && r['concepts'] !== null) {
         report.concepts = parseConceptProposals(r['concepts'], ids);
+    }
+    if (r['wm_feedback'] !== undefined && r['wm_feedback'] !== null) {
+        const problem = wmFeedbackProblem(r['wm_feedback'], 'report.wm_feedback');
+        if (problem)
+            throw shapeError(ids, problem);
+        report.wm_feedback = toWmFeedback(r['wm_feedback']);
     }
     return report;
 }

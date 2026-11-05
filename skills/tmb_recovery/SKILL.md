@@ -27,6 +27,7 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 |---|---|---|
 | `forbidden` | Bro called a tool scoped to another role. | Reconsider whether the action is bro's responsibility. Change the call signature before retrying. |
 | `validation` | Input didn't match the schema (e.g. malformed branch_id). | Fix the input. Retry with the corrected payload. |
+| `missing_argument` | The call omitted or misspelled a required argument such as `agent`. | Fix the call and retry. |
 | Constraint failure | DB integrity violation (foreign key, unique). | Surface to Human; usually means a stale or duplicate write attempt. When the write was correct for the data, offer a bug report (§D). |
 | Internal error | The server threw on input that matches its schema. | Surface to Human, then offer a bug report (§D). |
 | `no matching deferred tools` | The MCP child process is dead. | Switch to degraded mode (§B). |

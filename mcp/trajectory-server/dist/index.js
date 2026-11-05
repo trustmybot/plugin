@@ -25290,6 +25290,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
+  { type: "wm_feedback", writers: ["swe", "code-reviewer"], description: "An agent said what the world model answered, missed or got wrong during a task (GH 2417): `task_update_status(status='completed')` writes one row when swe's `report.wm_feedback` is present, and `validation_record` one when code-reviewer passes `wm_feedback`; on the task's issue, from_node the `agent` argument; `content_json` carries `task_id`, `agent`, `answered`, `missed`, `wrong` (null when absent). `trajectory_doctor` counts the rows and those with a non-empty `missed` / `wrong`" },
   { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -35955,6 +35956,25 @@ var CLAIMS = ["exists", "calls", "only_writers_of", "tested_by"];
 var MAX_CONCEPT_PROPOSALS = 5;
 var CRITERION_STATUSES = ["met", "not_met", "not_applicable"];
 var SPAWN_NOTE_MAX_CHARS = 300;
+var WM_FEEDBACK_KEYS = ["answered", "missed", "wrong"];
+function wmFeedbackProblem(raw, at) {
+  const shape = `{${WM_FEEDBACK_KEYS.map((k) => `${k}?: string`).join(", ")}}`;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return `${at} must be an object ${shape}.`;
+  const entry = raw;
+  const unknown2 = Object.keys(entry).filter((k) => !WM_FEEDBACK_KEYS.includes(k));
+  if (unknown2.length > 0) return `${at} has unknown field(s) ${unknown2.join(", ")}; allowed: ${WM_FEEDBACK_KEYS.join(", ")}.`;
+  const bad = WM_FEEDBACK_KEYS.find((k) => entry[k] !== void 0 && entry[k] !== null && typeof entry[k] !== "string");
+  return bad === void 0 ? null : `${at}.${bad} must be a string.`;
+}
+function toWmFeedback(raw) {
+  const entry = raw;
+  const out2 = {};
+  for (const k of WM_FEEDBACK_KEYS) {
+    const v = entry[k];
+    if (typeof v === "string") out2[k] = v;
+  }
+  return out2;
+}
 var SECTION_RE = /^## Success Criteria\s*$/i;
 var SECTION_END_RE = /^#{1,2}\s/;
 var FENCE_RE = /^(```|~~~)/;
@@ -36104,6 +36124,11 @@ function parseCompletionReport(raw, ids) {
   }
   if (r["concepts"] !== void 0 && r["concepts"] !== null) {
     report.concepts = parseConceptProposals(r["concepts"], ids);
+  }
+  if (r["wm_feedback"] !== void 0 && r["wm_feedback"] !== null) {
+    const problem = wmFeedbackProblem(r["wm_feedback"], "report.wm_feedback");
+    if (problem) throw shapeError(ids, problem);
+    report.wm_feedback = toWmFeedback(r["wm_feedback"]);
   }
   return report;
 }
@@ -36266,6 +36291,543 @@ function parseStoredCheckpoint(stored) {
   }
 }
 
+// src/tools/verification-runs.ts
+function probeCommand(probe) {
+  return `[probe ${probe.id}] ${probe.probe_cmd}`;
+}
+var FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
+function carryOpenFindings(db2, fromTaskId, toTaskId, now2) {
+  const open = db2.all(
+    `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
+      WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
+    [fromTaskId]
+  );
+  return open.map((f, i2) => {
+    const id = `F${toTaskId}-${i2 + 1}`;
+    db2.run(
+      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
+    );
+    return { from: f.id, id };
+  });
+}
+function activeFindingProbes(db2, taskId) {
+  const table = db2.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
+  if (!table) return [];
+  const severity = db2.get("SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = 'severity'");
+  const blockingOnly = severity?.n === 1 ? " AND severity = 'blocking'" : "";
+  return db2.all(
+    `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix'${blockingOnly} ORDER BY ${FINDING_ORDER_SQL}`,
+    [taskId]
+  ).map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));
+}
+function gateCommands(verification, probes = []) {
+  return [
+    ...verification.flatMap((entry) => entry.split("\n")).filter((line) => line !== ""),
+    ...probes.map(probeCommand)
+  ];
+}
+var shaMatches = (col) => `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
+function passingRunForCommit(db2, taskId, commitSha, commands) {
+  const sha = commitSha.toLowerCase();
+  const expected = JSON.stringify(commands);
+  const row = db2.get(
+    `SELECT r.id FROM verification_runs r
+      WHERE r.task_id = ? AND r.commit_sha <> '' AND ${shaMatches("r.commit_sha")}
+        AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
+        AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM json_each(?) e
+            LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
+           WHERE c.command IS NOT e.value)
+      ORDER BY r.finished_at DESC, r.id DESC LIMIT 1`,
+    [taskId, sha, sha, sha, expected, expected]
+  );
+  return row ? row.id : null;
+}
+function verificationWaivedForCommit(db2, taskId, commitSha) {
+  const sha = commitSha.toLowerCase();
+  const row = db2.get(
+    `SELECT COUNT(*) AS c FROM (
+       SELECT json_extract(content_json, '$.commit_sha') AS commit_sha FROM audit
+        WHERE event_type = 'verification_gate_waived' AND json_valid(content_json)
+          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?)
+      WHERE commit_sha IS NOT NULL AND commit_sha <> '' AND ${shaMatches("commit_sha")}`,
+    [taskId, sha, sha, sha]
+  );
+  return (row?.c ?? 0) > 0;
+}
+function latestVerificationRun(db2, taskId, startedBy) {
+  const run3 = db2.get(
+    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
+       FROM verification_runs
+      WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
+      ORDER BY started_at DESC, id DESC LIMIT 1`,
+    startedBy ? [taskId, startedBy] : [taskId]
+  );
+  if (!run3) return null;
+  const commands = db2.all(
+    `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
+    [run3.id]
+  ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
+  return {
+    run_id: run3.id,
+    commit_sha: run3.commit_sha,
+    source: run3.source,
+    started_at: run3.started_at,
+    finished_at: run3.finished_at,
+    exit_code: run3.exit_code,
+    timed_out: run3.timed_out === 1,
+    budget_s: run3.budget_s,
+    commands
+  };
+}
+
+// src/tools/validation.ts
+var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
+var WM_FEEDBACK_SCHEMA = {
+  type: "object",
+  description: "Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row; trajectory_doctor counts them.",
+  properties: {
+    answered: { type: "string", description: "What a world_model_* call answered that saved a Grep, Glob or Read." },
+    missed: { type: "string", description: "What it had no answer for, so Grep or a Read found it instead." },
+    wrong: { type: "string", description: "What it returned that the code contradicts." }
+  },
+  additionalProperties: false
+};
+function insertWmFeedback(db2, task, agent, feedback, createdAt) {
+  const flagged = ["missed", "wrong"].filter((k) => (feedback[k] ?? "").trim() !== "");
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id ?? null,
+    from_node: agent,
+    event_type: "wm_feedback",
+    summary: `${agent} world-model feedback on task ${task.id}${flagged.length > 0 ? ` (${flagged.join(", ")})` : ""}`,
+    content_json: JSON.stringify({
+      task_id: task.id,
+      agent,
+      answered: feedback.answered ?? null,
+      missed: feedback.missed ?? null,
+      wrong: feedback.wrong ?? null
+    }),
+    created_at: createdAt
+  });
+}
+function reviewerReturnLine(row, commitSha, findings) {
+  const sha = commitSha ? commitSha.slice(0, 8) : "-";
+  return `verdict=${row.verdict} task=${row.task_id} sha=${sha} attempt=${row.attempt_n} row=${row.id} findings=${findings}`;
+}
+function ok7(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err8(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function requireArg4(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
+  }
+  return args2[name2];
+}
+function wrapHandler6(fn) {
+  return async (args2) => {
+    try {
+      return await fn(args2);
+    } catch (e) {
+      return err8(e.message);
+    }
+  };
+}
+var REVIEWER_OBSERVE_FROM_NODE = "hook:reviewer-identity-observe";
+var REVIEWER_OBSERVATION_TTL_S = 600;
+var AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+function latestObservation(db2, taskId, attemptN) {
+  return db2.get(
+    `SELECT id,
+            json_extract(content_json, '$.session_id') AS session_id,
+            json_extract(content_json, '$.agent_id') AS agent_id,
+            COALESCE(json_extract(content_json, '$.observed_at'), created_at) AS observed_at
+       FROM audit
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0
+      ORDER BY id DESC
+      LIMIT 1`,
+    [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
+  );
+}
+function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now2) {
+  db2.run(
+    `UPDATE audit
+        SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND id < ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`,
+    [consumedId, now2, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
+  );
+}
+function observationAgeS(observation, nowMs) {
+  const observedMs = Date.parse(String(observation.observed_at ?? ""));
+  return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1e3) : Number.POSITIVE_INFINITY;
+}
+var FINDING_SEVERITIES = ["blocking", "nit", "pre_existing"];
+var FINDING_KEYS = /* @__PURE__ */ new Set(["criterion_id", "probe_cmd", "expected", "observed", "severity", "class"]);
+var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed, severity?, class?}";
+function parseFindings(verdict, raw) {
+  const list = raw === void 0 || raw === null ? [] : raw;
+  if (!Array.isArray(list)) {
+    throw new Error(`findings must be an array of ${FINDING_SHAPE}; got ${typeof raw}`);
+  }
+  if (verdict !== "pass" && list.length === 0) {
+    throw new Error(
+      `findings_required: a ${verdict} verdict needs a non-empty findings[] \u2014 one ${FINDING_SHAPE} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`
+    );
+  }
+  const findings = list.map((item, i2) => parseFinding(item, i2));
+  if (verdict === "pass") {
+    const blocking = findings.findIndex((f) => f.severity === "blocking");
+    if (blocking >= 0) {
+      throw new Error(
+        `findings_refused: a pass verdict records only nit or pre_existing findings; findings[${blocking}] is blocking (an omitted severity is blocking). Send a blocking finding with verdict fail or escalate.`
+      );
+    }
+  }
+  if (verdict === "fail" && !findings.some((f) => f.severity === "blocking")) {
+    throw new Error(
+      "findings_required: a fail verdict needs at least one finding with severity blocking (an omitted severity is blocking); nit and pre_existing findings alone ride on a pass."
+    );
+  }
+  return findings;
+}
+function parseFinding(item, i2) {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) {
+    throw new Error(`findings[${i2}] must be an object ${FINDING_SHAPE}`);
+  }
+  const entry = item;
+  const unknown2 = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
+  if (unknown2.length > 0) {
+    throw new Error(`findings[${i2}] has unknown field(s) ${unknown2.join(", ")}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(", ")}`);
+  }
+  const text = (field2) => {
+    const v = entry[field2];
+    if (typeof v !== "string" || v.trim() === "") {
+      throw new Error(`findings[${i2}].${field2} must be a non-empty string`);
+    }
+    return v.trim();
+  };
+  const criterion = entry["criterion_id"];
+  if (criterion !== void 0 && criterion !== null && (typeof criterion !== "string" || criterion.trim() === "")) {
+    throw new Error(`findings[${i2}].criterion_id must be a non-empty string or null`);
+  }
+  const severity = entry["severity"] ?? "blocking";
+  if (!FINDING_SEVERITIES.includes(severity)) {
+    throw new Error(`findings[${i2}].severity must be one of ${FINDING_SEVERITIES.join(", ")}; got ${JSON.stringify(severity)}`);
+  }
+  const cls = entry["class"];
+  if (cls !== void 0 && cls !== null && (typeof cls !== "string" || cls.trim() === "")) {
+    throw new Error(`findings[${i2}].class must be a non-empty string or null`);
+  }
+  return {
+    criterion_id: typeof criterion === "string" ? criterion.trim() : null,
+    probe_cmd: text("probe_cmd"),
+    expected: text("expected"),
+    observed: text("observed"),
+    severity,
+    class: typeof cls === "string" ? cls.trim() : null
+  };
+}
+function coerceTaskId(raw) {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `task_id must be a positive integer; got: ${JSON.stringify(raw)}`
+    );
+  }
+  return n;
+}
+function validationTools(db2) {
+  const definitions = [
+    {
+      name: "validation_record",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task's issue.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "string" },
+          attempt_n: { type: "number" },
+          verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
+          feedback: { type: "string" },
+          mcp_available: { type: "boolean", description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
+          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." },
+          findings: {
+            type: "array",
+            description: "One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted. On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding's probe_cmd after verification[]: a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.",
+            items: {
+              type: "object",
+              properties: {
+                criterion_id: { type: ["string", "null"], description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
+                probe_cmd: {
+                  type: "string",
+                  description: 'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. Inline node -e, bash -c or a heredoc is fine; it must not depend on files only the reviewer has. Example: grep -q "findings" mcp/trajectory-server/src/tools/validation.ts'
+                },
+                expected: { type: "string", description: "What correct behaviour looks like (what the probe checks for)." },
+                observed: { type: "string", description: "What the reviewer saw instead, with the file:line or output that shows it." },
+                severity: {
+                  type: "string",
+                  enum: [...FINDING_SEVERITIES],
+                  description: "blocking (default) fails the verdict and gates the close; nit is a non-blocking style or polish note; pre_existing is a defect the task did not introduce."
+                },
+                class: { type: ["string", "null"], description: "The bug class this finding belongs to, so its siblings can be swept together. Omit or null when none." }
+              },
+              required: ["probe_cmd", "expected", "observed"],
+              additionalProperties: false
+            }
+          },
+          wm_feedback: WM_FEEDBACK_SCHEMA
+        },
+        required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
+      }
+    },
+    {
+      name: "validation_history",
+      description: "Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none), and findings, the review_findings rows of that attempt ({id, criterion_id, status, probe_cmd, expected, observed, severity, class}; withheld wherever feedback is). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "string" },
+          own_task_id: { type: "string", description: "The calling agent's own task ID (used to gate feedback access for swe)" },
+          limit: { type: "number", description: "Optional \u2014 max rows to return. When provided, response includes next_cursor." },
+          cursor: { type: "string", description: "Opaque cursor from a previous response." },
+          fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns."
+          }
+        },
+        required: ["agent", "task_id"]
+      }
+    }
+  ];
+  const handlers = {
+    validation_record: requireRoles("validation_record", ["code-reviewer"], wrapHandler6(async (args2) => {
+      const agent = requireArg4(args2, "agent");
+      const taskId = coerceTaskId(requireArg4(args2, "task_id"));
+      requireArg4(args2, "attempt_n");
+      const verdict = requireArg4(args2, "verdict");
+      requireArg4(args2, "feedback");
+      const role = normalizeAgent(agent);
+      const mcpAvailableArg = args2["mcp_available"];
+      if (role === "code-reviewer" && typeof mcpAvailableArg !== "boolean") {
+        throw new Error(
+          'precondition_failed: validation_record with agent="code-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
+        );
+      }
+      const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
+      if (!VALID_VERDICTS.has(verdict)) {
+        throw new Error(
+          `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(", ")}`
+        );
+      }
+      const findings = parseFindings(verdict, args2["findings"]);
+      const wmFeedbackArg = args2["wm_feedback"];
+      let wmFeedback = null;
+      if (wmFeedbackArg !== void 0 && wmFeedbackArg !== null) {
+        const problem = wmFeedbackProblem(wmFeedbackArg, "wm_feedback");
+        if (problem) throw new Error(`wm_feedback_invalid: ${problem}`);
+        wmFeedback = toWmFeedback(wmFeedbackArg);
+      }
+      const taskExists = db2.get(
+        `SELECT t.id, t.issue_id, t.branch_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
+           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+          WHERE t.id = ?`,
+        [taskId]
+      );
+      if (!taskExists) {
+        throw new Error(`task_id=${taskId} not found in tasks table`);
+      }
+      const attemptN = args2["attempt_n"];
+      const feedback = args2["feedback"];
+      const now2 = nowISO();
+      const callerSessionId = typeof args2["subagent_session_id"] === "string" ? args2["subagent_session_id"] : null;
+      const findingIds = [];
+      let storedAttempt = attemptN;
+      let rowId = 0;
+      db2.transaction(() => {
+        const latest = latestObservation(db2, taskId, attemptN);
+        const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
+        const staleRow = latest !== void 0 && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : void 0;
+        const observed = staleRow ? void 0 : latest;
+        let subagentSessionId;
+        let reviewerAgentId;
+        if (observed) {
+          const observedAgentId = typeof observed.agent_id === "string" ? observed.agent_id : "";
+          if (observedAgentId === "") {
+            throw new Error(
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a code-reviewer subagent.`
+            );
+          }
+          if (!AGENT_ID_RE.test(observedAgentId)) {
+            throw new Error(
+              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`
+            );
+          }
+          const sweRun = db2.get(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
+            [taskId, observedAgentId]
+          );
+          if (sweRun) {
+            throw new Error(
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`
+            );
+          }
+          subagentSessionId = typeof observed.session_id === "string" && observed.session_id !== "" ? observed.session_id : null;
+          reviewerAgentId = observedAgentId;
+          db2.run(
+            `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
+            [observed.id]
+          );
+          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now2);
+        } else if (mcpAvailable === 0) {
+          subagentSessionId = callerSessionId;
+          reviewerAgentId = null;
+          insertAudit(db2, {
+            issue_id: taskExists.issue_id,
+            from_node: "trajectory-server",
+            event_type: "validation_session_unverified",
+            summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
+            content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
+            created_at: now2
+          });
+        } else if (staleRow) {
+          const age = Number.isFinite(ageS) ? `${ageS}s old` : "of unknown age";
+          throw new Error(
+            `subagent_session_unavailable: the newest unconsumed reviewer_identity_observed row for task ${taskId} attempt ${attemptN} (audit id ${staleRow.id}) is ${age}, past the ${REVIEWER_OBSERVATION_TTL_S}s freshness window; call validation_record again so the reviewer-identity-observe hook records a fresh row.`
+          );
+        } else {
+          throw new Error(
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
+          );
+        }
+        storedAttempt = db2.get(
+          `SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ?1 AND attempt_n = ?2)
+                  THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ?1)
+                  ELSE ?2 END AS n`,
+          [taskId, attemptN]
+        )?.n ?? attemptN;
+        rowId = db2.run(
+          `INSERT INTO validation_attempts
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now2, taskExists.repo]
+        ).lastInsertRowid;
+        const lastN = db2.get(
+          `SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`,
+          [taskId]
+        )?.n ?? 0;
+        findings.forEach((f, i2) => {
+          const id = `F${taskId}-${lastN + i2 + 1}`;
+          db2.run(
+            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+            [id, taskId, storedAttempt, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
+          );
+          findingIds.push(id);
+        });
+        if (wmFeedback) insertWmFeedback(db2, taskExists, agent, wmFeedback, now2);
+      });
+      const row = db2.get(
+        `SELECT * FROM validation_attempts WHERE rowid = ?`,
+        [rowId]
+      );
+      const recorded = findingIds.map((id) => ({ ...db2.get("SELECT * FROM review_findings WHERE id = ?", [id]) }));
+      return ok7({
+        ...row,
+        findings: recorded,
+        return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : void 0
+      });
+    })),
+    validation_history: wrapHandler6(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const taskId = coerceTaskId(requireArg4(args2, "task_id"));
+      const ownTaskIdRaw = args2["own_task_id"];
+      const ownTaskId = ownTaskIdRaw !== void 0 && ownTaskIdRaw !== null ? coerceTaskId(ownTaskIdRaw) : void 0;
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
+      const fieldsArg = args2["fields"];
+      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at", "verification_run", "findings"]);
+      if (fieldsArg !== void 0) {
+        const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
+        if (unknown2.length > 0) {
+          return err8(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+        }
+      }
+      const findingCols = ["id", "criterion_id", "status", "probe_cmd", "expected", "observed", "severity", "class"].filter(
+        (c) => (db2.get(`SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = ?`, [c])?.n ?? 0) > 0
+      );
+      function attemptFindings(attemptN) {
+        return db2.all(
+          `SELECT ${findingCols.join(", ")} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`,
+          [taskId, attemptN]
+        );
+      }
+      function projectRow(redacted) {
+        const row = { ...redacted, verification_run: latestVerificationRun(db2, taskId, String(redacted["created_at"])) };
+        if ("feedback" in redacted) row["findings"] = attemptFindings(Number(redacted["attempt_n"]));
+        if (!fieldsArg) return row;
+        const out2 = {};
+        for (const f of fieldsArg) out2[f] = row[f];
+        return out2;
+      }
+      if (limitArg === void 0 || limitArg === null) {
+        const rows2 = db2.all(
+          `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
+          [taskId]
+        );
+        return ok7(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
+      }
+      const limit = Math.min(Math.max(1, limitArg), 500);
+      let cursorFilter = "";
+      let cursorParams = [];
+      if (cursorArg) {
+        try {
+          const decoded = JSON.parse(Buffer.from(cursorArg, "base64").toString("utf8"));
+          if (typeof decoded.attempt_n === "number") {
+            cursorFilter = "AND attempt_n > ?";
+            cursorParams = [decoded.attempt_n];
+          }
+        } catch {
+        }
+      }
+      const sql = "SELECT * FROM validation_attempts WHERE task_id = ? " + cursorFilter + " ORDER BY attempt_n ASC LIMIT ?";
+      const fetchedRows = db2.all(sql, [taskId, ...cursorParams, limit + 1]);
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1];
+      const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
+      return ok7({
+        rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
+        next_cursor
+      });
+    })
+  };
+  return { definitions, handlers };
+}
+
 // src/tools/tasks.ts
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
@@ -36419,27 +36981,27 @@ function sweReturnLine(task) {
   const sha = task.commit_sha ? task.commit_sha.slice(0, 8) : "-";
   return `status=${task.status} task=${task.id} sha=${sha}`;
 }
-function ok7(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message2) {
+function err9(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg4(args2, name2) {
+function requireArg5(args2, name2) {
   if (args2[name2] === void 0 || args2[name2] === null) {
     throw new Error(`Missing required arg: ${name2}`);
   }
   return args2[name2];
 }
-function wrapHandler6(fn) {
+function wrapHandler7(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err8(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -36583,7 +37145,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. `report.wm_feedback` {answered?, missed?, wrong?} (optional) says what the world model answered, missed or got wrong, and also writes one wm_feedback audit row. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36676,7 +37238,8 @@ function taskTools(db2) {
                   },
                   required: ["name", "steps"]
                 }
-              }
+              },
+              wm_feedback: WM_FEEDBACK_SCHEMA
             },
             required: ["criteria"]
           },
@@ -36714,17 +37277,17 @@ function taskTools(db2) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler6(async (args2) => {
-      requireArg4(args2, "agent");
-      const issueId = requireArg4(args2, "issue_id");
-      requireArg4(args2, "tasks");
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler7(async (args2) => {
+      requireArg5(args2, "agent");
+      const issueId = requireArg5(args2, "issue_id");
+      requireArg5(args2, "tasks");
       if (Number(issueId) === -1) {
-        return err8("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+        return err9("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
       }
       const taskInputs = args2["tasks"];
       parseRunSessionId(args2["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok7([]);
+        return ok8([]);
       }
       const waived = args2["waive_scope_gate"] === true;
       const waiverReason = args2["waive_scope_gate_reason"] ?? "";
@@ -36732,7 +37295,7 @@ function taskTools(db2) {
       const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err8("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err9("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -36762,7 +37325,7 @@ function taskTools(db2) {
           }
           const criteriaProblem = specCriteriaProblem(t.spec_body);
           if (criteriaProblem) {
-            return err8(
+            return err9(
               `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${criteriaProblem} Or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`
             );
           }
@@ -36809,7 +37372,7 @@ function taskTools(db2) {
       const branchGateWaiverReason = args2["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err8("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err9("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -36836,7 +37399,7 @@ function taskTools(db2) {
       const registryGateWaiverReason = args2["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err8("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err9("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -36861,7 +37424,7 @@ function taskTools(db2) {
       const intentGateWaiverReason = args2["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err8("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err9("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -36888,7 +37451,7 @@ function taskTools(db2) {
       const decisionGateWaiverReason = args2["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err8("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err9("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -37191,7 +37754,7 @@ function taskTools(db2) {
           }
         }
       }
-      return ok7({
+      return ok8({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -37208,25 +37771,25 @@ function taskTools(db2) {
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler6(async (args2) => {
-      requireArg4(args2, "agent");
-      const taskId = requireArg4(args2, "task_id");
+    task_get: wrapHandler7(async (args2) => {
+      requireArg5(args2, "agent");
+      const taskId = requireArg5(args2, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       if (!task) {
         throw new Error(`Not found: ${taskId}`);
       }
       const includeSpec = args2["include_spec_body"] === true;
       if (includeSpec) {
-        return ok7(task);
+        return ok8(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok7(thin);
+      return ok8(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler6(async (args2) => {
-      requireArg4(args2, "agent");
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler7(async (args2) => {
+      requireArg5(args2, "agent");
       const agent = normalizeAgent(args2["agent"]);
-      const taskId = requireArg4(args2, "task_id");
-      const status = requireArg4(args2, "status");
+      const taskId = requireArg5(args2, "task_id");
+      const status = requireArg5(args2, "status");
       const rawCommitSha = args2["commit_sha"] !== void 0 ? args2["commit_sha"].toLowerCase() : void 0;
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
@@ -37305,13 +37868,14 @@ function taskTools(db2) {
         if (TERMINAL_TASK_STATUSES.has(status)) {
           closeOpenRunsForTask(db2, task.id, now2, exitReasonForStatus(status));
         }
+        if (report?.wm_feedback) insertWmFeedback(db2, task, agent, report.wm_feedback, now2);
       });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok7({ ...updated, return_line: sweReturnLine(updated ?? task) });
+      return ok8({ ...updated, return_line: sweReturnLine(updated ?? task) });
     })),
-    task_first_actionable: wrapHandler6(async (args2) => {
-      requireArg4(args2, "agent");
-      const issueId = requireArg4(args2, "issue_id");
+    task_first_actionable: wrapHandler7(async (args2) => {
+      requireArg5(args2, "agent");
+      const issueId = requireArg5(args2, "issue_id");
       const task = db2.get(
         `SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
@@ -37319,507 +37883,7 @@ function taskTools(db2) {
          LIMIT 1`,
         [issueId]
       );
-      return ok7(task ?? null);
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/verification-runs.ts
-function probeCommand(probe) {
-  return `[probe ${probe.id}] ${probe.probe_cmd}`;
-}
-var FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
-function carryOpenFindings(db2, fromTaskId, toTaskId, now2) {
-  const open = db2.all(
-    `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
-      WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
-    [fromTaskId]
-  );
-  return open.map((f, i2) => {
-    const id = `F${toTaskId}-${i2 + 1}`;
-    db2.run(
-      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
-       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)`,
-      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
-    );
-    return { from: f.id, id };
-  });
-}
-function activeFindingProbes(db2, taskId) {
-  const table = db2.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
-  if (!table) return [];
-  const severity = db2.get("SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = 'severity'");
-  const blockingOnly = severity?.n === 1 ? " AND severity = 'blocking'" : "";
-  return db2.all(
-    `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix'${blockingOnly} ORDER BY ${FINDING_ORDER_SQL}`,
-    [taskId]
-  ).map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));
-}
-function gateCommands(verification, probes = []) {
-  return [
-    ...verification.flatMap((entry) => entry.split("\n")).filter((line) => line !== ""),
-    ...probes.map(probeCommand)
-  ];
-}
-var shaMatches = (col) => `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
-function passingRunForCommit(db2, taskId, commitSha, commands) {
-  const sha = commitSha.toLowerCase();
-  const expected = JSON.stringify(commands);
-  const row = db2.get(
-    `SELECT r.id FROM verification_runs r
-      WHERE r.task_id = ? AND r.commit_sha <> '' AND ${shaMatches("r.commit_sha")}
-        AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
-        AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length(?)
-        AND NOT EXISTS (
-          SELECT 1 FROM json_each(?) e
-            LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
-           WHERE c.command IS NOT e.value)
-      ORDER BY r.finished_at DESC, r.id DESC LIMIT 1`,
-    [taskId, sha, sha, sha, expected, expected]
-  );
-  return row ? row.id : null;
-}
-function verificationWaivedForCommit(db2, taskId, commitSha) {
-  const sha = commitSha.toLowerCase();
-  const row = db2.get(
-    `SELECT COUNT(*) AS c FROM (
-       SELECT json_extract(content_json, '$.commit_sha') AS commit_sha FROM audit
-        WHERE event_type = 'verification_gate_waived' AND json_valid(content_json)
-          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?)
-      WHERE commit_sha IS NOT NULL AND commit_sha <> '' AND ${shaMatches("commit_sha")}`,
-    [taskId, sha, sha, sha]
-  );
-  return (row?.c ?? 0) > 0;
-}
-function latestVerificationRun(db2, taskId, startedBy) {
-  const run3 = db2.get(
-    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
-       FROM verification_runs
-      WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
-      ORDER BY started_at DESC, id DESC LIMIT 1`,
-    startedBy ? [taskId, startedBy] : [taskId]
-  );
-  if (!run3) return null;
-  const commands = db2.all(
-    `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
-    [run3.id]
-  ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
-  return {
-    run_id: run3.id,
-    commit_sha: run3.commit_sha,
-    source: run3.source,
-    started_at: run3.started_at,
-    finished_at: run3.finished_at,
-    exit_code: run3.exit_code,
-    timed_out: run3.timed_out === 1,
-    budget_s: run3.budget_s,
-    commands
-  };
-}
-
-// src/tools/validation.ts
-var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function reviewerReturnLine(row, commitSha, findings) {
-  const sha = commitSha ? commitSha.slice(0, 8) : "-";
-  return `verdict=${row.verdict} task=${row.task_id} sha=${sha} attempt=${row.attempt_n} row=${row.id} findings=${findings}`;
-}
-function ok8(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err9(message2) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
-    isError: true
-  };
-}
-function requireArg5(args2, name2) {
-  if (args2[name2] === void 0 || args2[name2] === null) {
-    throw new Error(`Missing required arg: ${name2}`);
-  }
-  return args2[name2];
-}
-function wrapHandler7(fn) {
-  return async (args2) => {
-    try {
-      return await fn(args2);
-    } catch (e) {
-      return err9(e.message);
-    }
-  };
-}
-var REVIEWER_OBSERVE_FROM_NODE = "hook:reviewer-identity-observe";
-var REVIEWER_OBSERVATION_TTL_S = 600;
-var AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
-function latestObservation(db2, taskId, attemptN) {
-  return db2.get(
-    `SELECT id,
-            json_extract(content_json, '$.session_id') AS session_id,
-            json_extract(content_json, '$.agent_id') AS agent_id,
-            COALESCE(json_extract(content_json, '$.observed_at'), created_at) AS observed_at
-       FROM audit
-      WHERE event_type = 'reviewer_identity_observed'
-        AND from_node = ?
-        AND json_valid(content_json)
-        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
-        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
-        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
-        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0
-      ORDER BY id DESC
-      LIMIT 1`,
-    [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
-  );
-}
-function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now2) {
-  db2.run(
-    `UPDATE audit
-        SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
-      WHERE event_type = 'reviewer_identity_observed'
-        AND from_node = ?
-        AND id < ?
-        AND json_valid(content_json)
-        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
-        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
-        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
-        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`,
-    [consumedId, now2, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
-  );
-}
-function observationAgeS(observation, nowMs) {
-  const observedMs = Date.parse(String(observation.observed_at ?? ""));
-  return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1e3) : Number.POSITIVE_INFINITY;
-}
-var FINDING_SEVERITIES = ["blocking", "nit", "pre_existing"];
-var FINDING_KEYS = /* @__PURE__ */ new Set(["criterion_id", "probe_cmd", "expected", "observed", "severity", "class"]);
-var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed, severity?, class?}";
-function parseFindings(verdict, raw) {
-  const list = raw === void 0 || raw === null ? [] : raw;
-  if (!Array.isArray(list)) {
-    throw new Error(`findings must be an array of ${FINDING_SHAPE}; got ${typeof raw}`);
-  }
-  if (verdict !== "pass" && list.length === 0) {
-    throw new Error(
-      `findings_required: a ${verdict} verdict needs a non-empty findings[] \u2014 one ${FINDING_SHAPE} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`
-    );
-  }
-  const findings = list.map((item, i2) => parseFinding(item, i2));
-  if (verdict === "pass") {
-    const blocking = findings.findIndex((f) => f.severity === "blocking");
-    if (blocking >= 0) {
-      throw new Error(
-        `findings_refused: a pass verdict records only nit or pre_existing findings; findings[${blocking}] is blocking (an omitted severity is blocking). Send a blocking finding with verdict fail or escalate.`
-      );
-    }
-  }
-  if (verdict === "fail" && !findings.some((f) => f.severity === "blocking")) {
-    throw new Error(
-      "findings_required: a fail verdict needs at least one finding with severity blocking (an omitted severity is blocking); nit and pre_existing findings alone ride on a pass."
-    );
-  }
-  return findings;
-}
-function parseFinding(item, i2) {
-  if (typeof item !== "object" || item === null || Array.isArray(item)) {
-    throw new Error(`findings[${i2}] must be an object ${FINDING_SHAPE}`);
-  }
-  const entry = item;
-  const unknown2 = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
-  if (unknown2.length > 0) {
-    throw new Error(`findings[${i2}] has unknown field(s) ${unknown2.join(", ")}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(", ")}`);
-  }
-  const text = (field2) => {
-    const v = entry[field2];
-    if (typeof v !== "string" || v.trim() === "") {
-      throw new Error(`findings[${i2}].${field2} must be a non-empty string`);
-    }
-    return v.trim();
-  };
-  const criterion = entry["criterion_id"];
-  if (criterion !== void 0 && criterion !== null && (typeof criterion !== "string" || criterion.trim() === "")) {
-    throw new Error(`findings[${i2}].criterion_id must be a non-empty string or null`);
-  }
-  const severity = entry["severity"] ?? "blocking";
-  if (!FINDING_SEVERITIES.includes(severity)) {
-    throw new Error(`findings[${i2}].severity must be one of ${FINDING_SEVERITIES.join(", ")}; got ${JSON.stringify(severity)}`);
-  }
-  const cls = entry["class"];
-  if (cls !== void 0 && cls !== null && (typeof cls !== "string" || cls.trim() === "")) {
-    throw new Error(`findings[${i2}].class must be a non-empty string or null`);
-  }
-  return {
-    criterion_id: typeof criterion === "string" ? criterion.trim() : null,
-    probe_cmd: text("probe_cmd"),
-    expected: text("expected"),
-    observed: text("observed"),
-    severity,
-    class: typeof cls === "string" ? cls.trim() : null
-  };
-}
-function coerceTaskId(raw) {
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw new Error(
-      `task_id must be a positive integer; got: ${JSON.stringify(raw)}`
-    );
-  }
-  return n;
-}
-function validationTools(db2) {
-  const definitions = [
-    {
-      name: "validation_record",
-      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          attempt_n: { type: "number" },
-          verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
-          feedback: { type: "string" },
-          mcp_available: { type: "boolean", description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." },
-          findings: {
-            type: "array",
-            description: "One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted.On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding's probe_cmd after verification[]: a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.",
-            items: {
-              type: "object",
-              properties: {
-                criterion_id: { type: ["string", "null"], description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
-                probe_cmd: {
-                  type: "string",
-                  description: 'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. Inline node -e, bash -c or a heredoc is fine; it must not depend on files only the reviewer has. Example: grep -q "findings" mcp/trajectory-server/src/tools/validation.ts'
-                },
-                expected: { type: "string", description: "What correct behaviour looks like (what the probe checks for)." },
-                observed: { type: "string", description: "What the reviewer saw instead, with the file:line or output that shows it." },
-                severity: {
-                  type: "string",
-                  enum: [...FINDING_SEVERITIES],
-                  description: "blocking (default) fails the verdict and gates the close; nit is a non-blocking style or polish note; pre_existing is a defect the task did not introduce."
-                },
-                class: { type: ["string", "null"], description: "The bug class this finding belongs to, so its siblings can be swept together. Omit or null when none." }
-              },
-              required: ["probe_cmd", "expected", "observed"],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
-      }
-    },
-    {
-      name: "validation_history",
-      description: "Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none), and findings, the review_findings rows of that attempt ({id, criterion_id, status, probe_cmd, expected, observed, severity, class}; withheld wherever feedback is). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          own_task_id: { type: "string", description: "The calling agent's own task ID (used to gate feedback access for swe)" },
-          limit: { type: "number", description: "Optional \u2014 max rows to return. When provided, response includes next_cursor." },
-          cursor: { type: "string", description: "Opaque cursor from a previous response." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns."
-          }
-        },
-        required: ["agent", "task_id"]
-      }
-    }
-  ];
-  const handlers = {
-    validation_record: requireRoles("validation_record", ["code-reviewer"], wrapHandler7(async (args2) => {
-      const agent = requireArg5(args2, "agent");
-      const taskId = coerceTaskId(requireArg5(args2, "task_id"));
-      requireArg5(args2, "attempt_n");
-      const verdict = requireArg5(args2, "verdict");
-      requireArg5(args2, "feedback");
-      const role = normalizeAgent(agent);
-      const mcpAvailableArg = args2["mcp_available"];
-      if (role === "code-reviewer" && typeof mcpAvailableArg !== "boolean") {
-        throw new Error(
-          'precondition_failed: validation_record with agent="code-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
-        );
-      }
-      const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
-      if (!VALID_VERDICTS.has(verdict)) {
-        throw new Error(
-          `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(", ")}`
-        );
-      }
-      const findings = parseFindings(verdict, args2["findings"]);
-      const taskExists = db2.get(
-        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
-           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
-          WHERE t.id = ?`,
-        [taskId]
-      );
-      if (!taskExists) {
-        throw new Error(`task_id=${taskId} not found in tasks table`);
-      }
-      const attemptN = args2["attempt_n"];
-      const feedback = args2["feedback"];
-      const now2 = nowISO();
-      const callerSessionId = typeof args2["subagent_session_id"] === "string" ? args2["subagent_session_id"] : null;
-      const findingIds = [];
-      let storedAttempt = attemptN;
-      let rowId = 0;
-      db2.transaction(() => {
-        const latest = latestObservation(db2, taskId, attemptN);
-        const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
-        const staleRow = latest !== void 0 && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : void 0;
-        const observed = staleRow ? void 0 : latest;
-        let subagentSessionId;
-        let reviewerAgentId;
-        if (observed) {
-          const observedAgentId = typeof observed.agent_id === "string" ? observed.agent_id : "";
-          if (observedAgentId === "") {
-            throw new Error(
-              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a code-reviewer subagent.`
-            );
-          }
-          if (!AGENT_ID_RE.test(observedAgentId)) {
-            throw new Error(
-              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`
-            );
-          }
-          const sweRun = db2.get(
-            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
-            [taskId, observedAgentId]
-          );
-          if (sweRun) {
-            throw new Error(
-              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`
-            );
-          }
-          subagentSessionId = typeof observed.session_id === "string" && observed.session_id !== "" ? observed.session_id : null;
-          reviewerAgentId = observedAgentId;
-          db2.run(
-            `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
-            [observed.id]
-          );
-          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now2);
-        } else if (mcpAvailable === 0) {
-          subagentSessionId = callerSessionId;
-          reviewerAgentId = null;
-          insertAudit(db2, {
-            issue_id: taskExists.issue_id,
-            from_node: "trajectory-server",
-            event_type: "validation_session_unverified",
-            summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
-            content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
-            created_at: now2
-          });
-        } else if (staleRow) {
-          const age = Number.isFinite(ageS) ? `${ageS}s old` : "of unknown age";
-          throw new Error(
-            `subagent_session_unavailable: the newest unconsumed reviewer_identity_observed row for task ${taskId} attempt ${attemptN} (audit id ${staleRow.id}) is ${age}, past the ${REVIEWER_OBSERVATION_TTL_S}s freshness window; call validation_record again so the reviewer-identity-observe hook records a fresh row.`
-          );
-        } else {
-          throw new Error(
-            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
-          );
-        }
-        storedAttempt = db2.get(
-          `SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ?1 AND attempt_n = ?2)
-                  THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ?1)
-                  ELSE ?2 END AS n`,
-          [taskId, attemptN]
-        )?.n ?? attemptN;
-        rowId = db2.run(
-          `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now2, taskExists.repo]
-        ).lastInsertRowid;
-        const lastN = db2.get(
-          `SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`,
-          [taskId]
-        )?.n ?? 0;
-        findings.forEach((f, i2) => {
-          const id = `F${taskId}-${lastN + i2 + 1}`;
-          db2.run(
-            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
-            [id, taskId, storedAttempt, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
-          );
-          findingIds.push(id);
-        });
-      });
-      const row = db2.get(
-        `SELECT * FROM validation_attempts WHERE rowid = ?`,
-        [rowId]
-      );
-      const recorded = findingIds.map((id) => ({ ...db2.get("SELECT * FROM review_findings WHERE id = ?", [id]) }));
-      return ok8({
-        ...row,
-        findings: recorded,
-        return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : void 0
-      });
-    })),
-    validation_history: wrapHandler7(async (args2) => {
-      const agent = normalizeAgent(args2["agent"]);
-      const taskId = coerceTaskId(requireArg5(args2, "task_id"));
-      const ownTaskIdRaw = args2["own_task_id"];
-      const ownTaskId = ownTaskIdRaw !== void 0 && ownTaskIdRaw !== null ? coerceTaskId(ownTaskIdRaw) : void 0;
-      const limitArg = args2["limit"];
-      const cursorArg = args2["cursor"];
-      const fieldsArg = args2["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at", "verification_run", "findings"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err9(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
-        }
-      }
-      const findingCols = ["id", "criterion_id", "status", "probe_cmd", "expected", "observed", "severity", "class"].filter(
-        (c) => (db2.get(`SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = ?`, [c])?.n ?? 0) > 0
-      );
-      function attemptFindings(attemptN) {
-        return db2.all(
-          `SELECT ${findingCols.join(", ")} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`,
-          [taskId, attemptN]
-        );
-      }
-      function projectRow(redacted) {
-        const row = { ...redacted, verification_run: latestVerificationRun(db2, taskId, String(redacted["created_at"])) };
-        if ("feedback" in redacted) row["findings"] = attemptFindings(Number(redacted["attempt_n"]));
-        if (!fieldsArg) return row;
-        const out2 = {};
-        for (const f of fieldsArg) out2[f] = row[f];
-        return out2;
-      }
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = db2.all(
-          `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
-          [taskId]
-        );
-        return ok8(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        try {
-          const decoded = JSON.parse(Buffer.from(cursorArg, "base64").toString("utf8"));
-          if (typeof decoded.attempt_n === "number") {
-            cursorFilter = "AND attempt_n > ?";
-            cursorParams = [decoded.attempt_n];
-          }
-        } catch {
-        }
-      }
-      const sql = "SELECT * FROM validation_attempts WHERE task_id = ? " + cursorFilter + " ORDER BY attempt_n ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [taskId, ...cursorParams, limit + 1]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok8({
-        rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
-        next_cursor
-      });
+      return ok8(task ?? null);
     })
   };
   return { definitions, handlers };
@@ -51953,6 +52017,15 @@ function contractParamValues(contract, env = process.env) {
 
 // src/tools/trajectory-doctor.ts
 var STATEMENT_TIMEOUT_MS_DEFAULT = 2e3;
+function wmFeedbackCounts(db2) {
+  const row = db2.get(
+    `SELECT COUNT(*) AS reports,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.missed'), '')) <> ''), 0) AS missed,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.wrong'), '')) <> ''), 0) AS wrong
+       FROM audit WHERE event_type = 'wm_feedback' AND json_valid(content_json)`
+  );
+  return { reports: Number(row?.reports ?? 0), missed: Number(row?.missed ?? 0), wrong: Number(row?.wrong ?? 0) };
+}
 var bind = (params) => Object.keys(params).length > 0 ? [params] : [];
 function trajectoryDbReader(db2) {
   return {
@@ -52098,7 +52171,7 @@ function trajectoryDoctorTools(db2) {
   const definitions = [
     {
       name: "trajectory_doctor",
-      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.",
+      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings, wm_feedback}, wm_feedback being {reports, missed, wrong}: the count of wm_feedback audit rows and of those with a non-empty missed / wrong; record:true logs one trajectory_doctor_run audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -52130,6 +52203,7 @@ function trajectoryDoctorTools(db2) {
       ro?.close();
     }
     report.embeddings = embeddingStatus();
+    report.wm_feedback = wmFeedbackCounts(db2);
     if (!record2) return ok21(report);
     const auditId = insertAudit(db2, {
       issue_id: -1,

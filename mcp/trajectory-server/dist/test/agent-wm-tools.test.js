@@ -29,5 +29,20 @@ describe('GH 1990: the world-model tools on the agents', () => {
             assert.match(readFileSync(join(PLUGIN_ROOT, file), 'utf8'), /world_model_symbol\([^)]*impact: 2\)/, file);
         }
     });
+    it('GH 2417: swe.md and tmb_review search the world model before Grep and report wm_feedback', () => {
+        for (const file of ['agents/swe.md', 'skills/tmb_review/SKILL.md']) {
+            const text = readFileSync(join(PLUGIN_ROOT, file), 'utf8');
+            assert.match(text, /`world_model_search` before Grep/, file);
+            assert.match(text, /wm_feedback/, file);
+        }
+        assert.match(readFileSync(join(PLUGIN_ROOT, 'agents/swe.md'), 'utf8'), /After `task_brief`, run `world_model_symbol\(agent='swe'/);
+    });
+    it("GH 2417: tmb_review's allowed-tools admits the three world-model tools", () => {
+        const text = readFileSync(join(PLUGIN_ROOT, 'skills/tmb_review/SKILL.md'), 'utf8');
+        const line = (/^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? '').split('\n').find((l) => l.startsWith('allowed-tools:')) ?? '';
+        const allowed = line.slice('allowed-tools:'.length).split(',').map((t) => t.trim());
+        for (const t of WM_TOOLS)
+            assert.ok(allowed.includes(t), `tmb_review allows ${t}`);
+    });
 });
 //# sourceMappingURL=agent-wm-tools.test.js.map
