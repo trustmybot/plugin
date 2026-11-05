@@ -9567,7 +9567,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     for (const ch of VBAD) if (t.includes(ch)) return false;
     return plainDollars(text);
   }
-  function flush() {
+  function flush(sub = false) {
     const args2 = tail2;
     tail2 = false;
     owns = args2;
@@ -9648,7 +9648,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       return;
     }
     let a0 = w[first];
-    if (!args2) owns = w.slice(first + 1).some((x) => x !== "");
+    if (!args2) owns = w.slice(first + 1).some((x) => x !== "") || sub && w[n3 - 1] === "";
     if (assign && !wq[first] && (a0 === "for" || a0 === "select")) forhead(w, first);
     else if (assign && !wq[first] && (a0 === "coproc" || a0 === "function")) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -9829,9 +9829,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
         else stmt = stmt.slice(0, -1);
       }
       cut4 = true;
-      flush();
+      flush(!assign && last === "$");
       push();
-      sstack[sp] = assign && last === "$" && owns;
+      sstack[sp] = last === "$" && owns;
       continue;
     }
     if (c === ")") {
@@ -9846,7 +9846,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       vkill = true;
       if (assign && !bt) stmt += "$" + ENC[8] + ENC[9];
       cut4 = true;
-      flush();
+      flush(!assign && !bt);
       if (bt) {
         bt = false;
         const closes = sp > 0 && sstack[sp];
@@ -9855,7 +9855,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       } else {
         bt = true;
         push();
-        sstack[sp] = assign && owns;
+        sstack[sp] = owns;
       }
       continue;
     }
@@ -9997,7 +9997,7 @@ function statements(parser2, cmd, base2, depth, home) {
     if (stmt === "") continue;
     const body2 = depth < MAX_DEPTH2 && !record.dir.startsWith("=") ? inner2(stmt) : "";
     if (body2 === "") {
-      out2.push(stmt);
+      out2.push({ stmt, tail: record.tail === true });
       continue;
     }
     const nested = statements(parser2, decode(body2).replace(/\n+$/, ""), record.dir, depth + 1, home);
@@ -10021,14 +10021,12 @@ async function gitCommitMessage(command, env = process.env) {
   const parser2 = await bashParser();
   const listed2 = statements(parser2, command, "-", 0, env.HOME ?? "");
   if (listed2 === null) return { ok: false };
-  for (const stmt of listed2) {
-    const subcommand = gitSubcommand(stmt);
-    if (subcommand !== "commit" && !subcommand.startsWith("commit ")) continue;
-    const message = decode(messageArg(subcommand)).replace(/\n+$/, "");
-    const built = message.includes("$(") || message.includes("`");
-    return { ok: true, subcommand, message: built ? "" : message };
-  }
-  return { ok: true, subcommand: "", message: "" };
+  const commits = listed2.map(({ stmt, tail: tail2 }) => ({ subcommand: gitSubcommand(stmt), tail: tail2 })).filter(({ subcommand }) => subcommand === "commit" || subcommand.startsWith("commit "));
+  const first = commits.find(({ tail: tail2 }) => !tail2) ?? commits[0];
+  if (first === void 0) return { ok: true, subcommand: "", message: "" };
+  const message = decode(messageArg(first.subcommand)).replace(/\n+$/, "");
+  const built = message.includes("$(") || message.includes("`");
+  return { ok: true, subcommand: first.subcommand, message: built ? "" : message };
 }
 
 // src/hooks/git-guards.ts
