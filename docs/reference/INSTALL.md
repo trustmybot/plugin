@@ -34,9 +34,9 @@ Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the projec
 | `.claude/tmb/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, per-session CC logs |
 | `.claude/tmb/sessions/<session_id>.plugin-hooks` | SessionStart hook | 0-byte marker: this session runs the plugin's own hooks (pruned after 24 h) |
 | `.claude/tmb/sessions/<session_id>.install-notice` | SessionStart hook | 0-byte marker: the install-scope notice was shown this session (pruned after 24 h) |
-| `.claude/tmb/sessions/<session_id>.persona` (+ `.persona-notice`) | `session-start-persona.sh`, `user-prompt-persona.sh` | 0-byte marker: bro's persona reached this session (or the notice that it could not); pruned after 24 h |
+| `.claude/tmb/sessions/<session_id>.persona` (+ `.persona-notice`) | `session-start-persona`, `user-prompt-persona` | 0-byte marker: bro's persona reached this session (or the notice that it could not); pruned after 24 h |
 | `.claude/tmb/locks/events/` (+ `events.sweep`) | the router (`mcp/trajectory-server/src/hooks/router/dedupe.ts`), the headless shim's included | One run per call; results pruned after 10 min, a dead holder's lock at its `deadline` file; `events.sweep` holds the last sweep's time, so the sweep runs at most once per `TMB_DISPATCH_SWEEP_S` (default 60 s) |
-| `.claude/tmb/locks/verify-*` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
+| `.claude/tmb/locks/verify-*` | `swe-verification-gate` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
 | `.claude/settings.local.json` (PreToolUse entries) | `onboard_apply`, on **Yes** to the headless-enforcement consent | The opt-in headless shim (below) |
 | `.claude/settings.local.json` (`sandbox` block and `env` entries) | `/onboard`, on **Yes** to the Bash sandbox | The opt-in Bash sandbox (below) |
 | `.claude/tmb/cache/` (`npm/`, `bun/`) | npm and bun, under the Bash sandbox | Their caches, moved into the project by the sandbox `env` entries |
@@ -63,8 +63,8 @@ Nothing is written under `~/.claude` or anywhere else in your home directory. Th
 
 bro's persona and routing table live in the plugin's own `CLAUDE.md`, which Claude Code never loads for a plugin, so two hooks deliver it as session context:
 
-- `session-start-persona.sh` (SessionStart) injects it on startup, resume, `/clear` and compaction, and writes the session's `.persona` marker. After a compaction it also appends bro's state from the DB: the issue, its live tasks and its newest decision, which the PreCompact hook `session-handoff` recorded for that session.
-- `user-prompt-persona.sh` (UserPromptSubmit) covers a session that started before the plugin's hooks were loaded: on the first prompt with no marker it injects the persona once. Installed TMB mid-session? Fully quit and relaunch Claude Code; your next prompt brings bro in. If the plugin's `CLAUDE.md` cannot be read, it shows a one-time notice to start a new session instead.
+- `session-start-persona` (SessionStart) injects it on startup, resume, `/clear` and compaction, and writes the session's `.persona` marker. After a compaction it also appends bro's state from the DB: the issue, its live tasks and its newest decision, which the PreCompact hook `session-handoff` recorded for that session.
+- `user-prompt-persona` (UserPromptSubmit) covers a session that started before the plugin's hooks were loaded: on the first prompt with no marker it injects the persona once. Installed TMB mid-session? Fully quit and relaunch Claude Code; your next prompt brings bro in. If the plugin's `CLAUDE.md` cannot be read, it shows a one-time notice to start a new session instead.
 
 Neither hook runs its injection when the project is the TMB source checkout itself, where Claude Code already loads that `CLAUDE.md`. A `<!-- tmb:persona start … -->` … `<!-- tmb:persona end -->` block an older `/onboard` copied into your `CLAUDE.md` is not needed: the injected context carries a one-line note saying so, and you may delete the marked lines whenever you like.
 
