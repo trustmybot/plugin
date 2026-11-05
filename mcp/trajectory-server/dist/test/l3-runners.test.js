@@ -1,5 +1,5 @@
 /**
- * The L3 MCP runner (tests/l3-integration/mcp/run.sh) in node:test (GH 1692),
+ * The L3 MCP runner (tests/l3-integration/mcp/run.mjs) in node:test (GH 1692),
  * spawned unchanged on planted test files: the summary names each failing file
  * with its last lines, the TMPDIR footprint assertion fires on a file a test
  * leaves behind, another session's /tmp entries are only a warning, and the
@@ -13,7 +13,7 @@ import { after, before, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { makeSandbox, PLUGIN_ROOT } from './hook-sandbox.js';
 import { has } from './git-push-guard-l3.js';
-const MCP_RUNNER = join(PLUGIN_ROOT, 'tests/l3-integration/mcp/run.sh');
+const MCP_RUNNER = join(PLUGIN_ROOT, 'tests/l3-integration/mcp/run.mjs');
 const CHECKOUT = realpathSync(PLUGIN_ROOT);
 const PID = process.pid;
 const FOREIGN = `/tmp/tmb-foreign-${PID}`;
@@ -42,14 +42,14 @@ describe('l3 runners', () => {
         return dir;
     }
     function run(runner, extra) {
-        const r = spawnSync('bash', [runner], { env: { ...env, ...extra }, cwd: PLUGIN_ROOT, encoding: 'utf8', timeout: 300_000 });
+        const r = spawnSync('node', [runner], { env: { ...env, ...extra }, cwd: PLUGIN_ROOT, encoding: 'utf8', timeout: 300_000 });
         if (r.error)
             throw r.error;
         return { out: out(r.stdout, r.stderr), rc: r.status };
     }
     /** Runs <runner> in the background, plants a foreign /tmp entry a second in, and waits for it. */
     async function runWithForeign(runner, extra) {
-        const child = spawn('bash', [runner], { env: { ...env, ...extra }, cwd: PLUGIN_ROOT });
+        const child = spawn('node', [runner], { env: { ...env, ...extra }, cwd: PLUGIN_ROOT });
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (d) => (stdout += d));
