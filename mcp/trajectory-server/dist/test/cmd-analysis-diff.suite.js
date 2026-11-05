@@ -1,15 +1,20 @@
 /**
- * The TypeScript write-path analyzer against tmb_cmd_write_paths (GH 1692):
- * every corpus row of tests/fixtures/cmd-analysis/write-paths.jsonl runs
- * through one bash process that sources cmd-analysis.sh once, and through
- * writePaths. Every row prints the same lines, except a row in
- * divergences.jsonl, which still differs exactly as recorded; no row prints a
- * `$(deferred)` line. Layout rows also compare tmb_path_canonical with
- * pathCanonical on every absolute line. Computed targets print
+ * Golden test of the TypeScript write-path analyzer (GH 1692): every corpus row
+ * of tests/fixtures/cmd-analysis/write-paths.jsonl runs through writePaths and
+ * must print the lines in tests/fixtures/cmd-analysis/expected.jsonl, the
+ * frozen output of tmb_cmd_write_paths in the shell lib it replaces, recorded
+ * once. A row in divergences.jsonl still differs exactly as recorded there;
+ * no row prints a `$(deferred)` line.
+ * Layout rows also compare pathCanonical on every absolute line with the
+ * frozen tmb_path_canonical lines. Computed targets print
  * `UNRESOLVED:$(computed):…` and read-only programs stay empty.
+ * The fixture holds one line {cmd, cwd?, raw?, root?, lines, canonical?} per
+ * corpus row, keyed by the row's cmd, cwd, raw and root. The per-shard tmp
+ * root is stored as <R>, its parent as <R_PARENT>, the plugin root as
+ * <PLUGIN_ROOT>, and the resolved /tmp of a canonical /tmp line as <TMP_REAL>.
  * The corpus rows split across cmd-analysis-diff.shard-<k>of<n>.test.ts
- * (GH 1947), each shard with its own bash process; shard 1 also runs the
- * whole-corpus checks and the hand-written cases.
+ * (GH 1947); shard 1 also runs the whole-corpus and fixture checks and the
+ * hand-written cases.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,23 +27,18 @@ import { pathCanonical, writePaths } from '../hooks/cmd-analysis/index.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const FIXTURES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis');
-const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
+const EXPECTED = 'expected.jsonl';
 const MIN_ROWS = 1100;
 const PARSE = 'UNRESOLVED:$(parse):';
 const COMPUTED = 'UNRESOLVED:$(computed):';
 const UNPROVEN = 'UNRESOLVED:$(unproven):';
 const LAYOUT = 'repo-worktree-symlink';
+const rowKey = (r) => JSON.stringify([r.cmd, r.cwd ?? '', r.raw === true, r.root ?? '']);
 function jsonl(file) {
     return readFileSync(join(FIXTURES, file), 'utf8')
         .split('\n')
         .filter((l) => l !== '')
         .map((l) => JSON.parse(l));
-}
-function lines(text) {
-    const out = text.split('\n');
-    if (out[out.length - 1] === '')
-        out.pop();
-    return out;
 }
 function git(cwd, ...args) {
     const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -58,28 +58,24 @@ function makeLayout(tmp) {
         mkdirSync(join(surf, d), { recursive: true });
     writeFileSync(join(surf, 'CLAUDE.md'), 'surface\n');
 }
-const SCRIPT = `. "$1"
-while IFS= read -r -d '' c && IFS= read -r -d '' w && IFS= read -r -d '' r && IFS= read -r -d '' t && IFS= read -r -d '' k; do
-  ( tmb_cmd_write_paths "$c" "$w" "$r" "$t" ) </dev/null
-  printf '\\0'
-  if [ -n "$k" ]; then
-    ( tmb_cmd_write_paths "$c" "$w" "$r" "$t" ) </dev/null | while IFS= read -r l; do
-      case "$l" in /*) tmb_path_canonical "$l" ;; esac
-    done
-  fi
-  printf '\\0'
-done`;
 export function cmdAnalysisDiffShard(k, n) {
-    describe(`TS write-path analyzer vs cmd-analysis.sh (GH 1692, shard ${k} of ${n})`, () => {
+    describe(`TS write-path analyzer vs the frozen shell-lib output (GH 1692, shard ${k} of ${n})`, () => {
         const corpus = jsonl('write-paths.jsonl');
         const divergences = new Map(jsonl('divergences.jsonl').map((d) => [d.cmd, d]));
         const owned = shardOf(corpus.map((_, i) => i), k, n);
         const rows = owned.map((i) => corpus[i]);
+        const expected = jsonl(EXPECTED);
+        const byKey = new Map(expected.map((e) => [rowKey(e), e]));
         let tmp = '';
         let env = {};
         let sh = [];
         const sub = (s) => (s ?? '').replace(/\$TMP(?![A-Za-z0-9_])/g, tmp);
         const back = (l) => l.split(tmp).join('$TMP');
+        const real = (l) => {
+            const v = l.startsWith('<R_PARENT>') ? dirname(tmp) + l.slice('<R_PARENT>'.length) : l;
+            const w = v.startsWith('<TMP_REAL>') ? realpathSync('/tmp') + v.slice('<TMP_REAL>'.length) : v;
+            return w.split('<R>').join(tmp).split('<PLUGIN_ROOT>').join(PLUGIN_ROOT);
+        };
         const ts = (r) => writePaths(sub(r.cmd), { cwd: sub(r.cwd), raw: r.raw === true, root: sub(r.root), env });
         before(() => {
             tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmd-analysis-diff-')));
@@ -94,18 +90,16 @@ export function cmdAnalysisDiffShard(k, n) {
                 TMB_MODEL_CACHE_DIR: join(tmp, 'models'),
                 LC_ALL: 'C',
             };
-            const input = rows
-                .map((r) => [sub(r.cmd), sub(r.cwd), r.raw ? 'raw' : '', sub(r.root), r.layout ? 'canon' : ''].join('\0') + '\0')
-                .join('');
-            const res = spawnSync('bash', ['-c', SCRIPT, 'bash', LIB], { input, env, maxBuffer: 1 << 28 });
-            assert.equal(res.status, 0, res.stderr.toString());
-            const chunks = res.stdout.toString('utf8').split('\0');
-            sh = rows.map((_, i) => ({ lines: lines(chunks[2 * i]), canonical: lines(chunks[2 * i + 1]) }));
+            sh = rows.map((r) => {
+                const e = byKey.get(rowKey(r));
+                assert.ok(e, `no fixture line for ${JSON.stringify(r)}`);
+                return { lines: e.lines.map(real), canonical: (e.canonical ?? []).map(real) };
+            });
         });
         after(() => rmSync(tmp, { recursive: true, force: true }));
         if (k === 1) {
             it(`has at least ${MIN_ROWS} rows, each in the corpus once`, () => {
-                const keys = corpus.map((r) => JSON.stringify([r.cmd, r.cwd ?? '', r.raw === true, r.root ?? '']));
+                const keys = corpus.map(rowKey);
                 assert.equal(new Set(keys).size, corpus.length);
                 assert.ok(corpus.length >= MIN_ROWS);
             });
@@ -121,8 +115,22 @@ export function cmdAnalysisDiffShard(k, n) {
             it('holds layout rows', () => {
                 assert.ok(corpus.some((r) => r.layout === LAYOUT));
             });
+            it('the fixture holds exactly one line per corpus row, in corpus order', () => {
+                assert.equal(byKey.size, expected.length, 'duplicate fixture keys');
+                assert.deepEqual(expected.map(rowKey), corpus.map(rowKey));
+                for (const [i, r] of corpus.entries())
+                    assert.equal(expected[i].canonical !== undefined, r.layout === LAYOUT, rowKey(r));
+            });
+            it('the fixture holds no absolute path from the recording machine', () => {
+                const machine = /(^|[^>])\/(Users|home)\/|\/var\/folders\/|\/private\/var\/|\/private\/tmp\/claude-|\/cmd-analysis-diff-/;
+                for (const e of expected) {
+                    const out = JSON.stringify([e.lines, e.canonical ?? []]);
+                    assert.doesNotMatch(out, machine, rowKey(e));
+                    assert.ok(!out.includes(PLUGIN_ROOT), `fixture names this checkout; store it as <PLUGIN_ROOT>: ${rowKey(e)}`);
+                }
+            });
         }
-        it('prints the same lines as tmb_cmd_write_paths on every row', async () => {
+        it('prints the frozen tmb_cmd_write_paths lines on every row', async () => {
             const mismatches = [];
             let same = 0;
             for (const [i, r] of rows.entries()) {
@@ -153,7 +161,7 @@ export function cmdAnalysisDiffShard(k, n) {
                     deferred.push(r.cmd);
             assert.deepEqual(deferred, []);
         });
-        it('canonicalizes every absolute line of a layout row as tmb_path_canonical does', async () => {
+        it('canonicalizes every absolute line of a layout row as the frozen tmb_path_canonical lines', async () => {
             const layoutRows = rows.flatMap((r, i) => (r.layout === LAYOUT ? [i] : []));
             for (const i of layoutRows) {
                 const got = (await ts(rows[i])).filter((l) => l.startsWith('/')).map(pathCanonical);
