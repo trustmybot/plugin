@@ -5,11 +5,14 @@
  *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>
  *
  * Run by bro from the main checkout, after bro's own verify and the code-reviewer
- * pass. The task's repo, branch_id, commit_sha and verification[] come from
- * the trajectory DB (TRAJECTORY_DB_PATH, else CLAUDE_PROJECT_DIR, else a walk
+ * pass; on exit 0 bro spawns code-reviewer on the printed SHA, then pushes it.
+ * The task's repo, branch_id, commit_sha and verification[] come from the
+ * trajectory DB (TRAJECTORY_DB_PATH, else CLAUDE_PROJECT_DIR, else a walk
  * up from cwd).
  *   1. No passing review for the task's commit_sha (a pass verdict at or after
- *      the first bro_verification_pass naming the task and that commit) → exit 3.
+ *      the first bro_verification_pass or task_integrated row naming the task
+ *      and that commit) → exit 3, so an integrated head needs its own review
+ *      before a second integrate.
  *   2. <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
@@ -34,7 +37,14 @@
  *      verification[] runs in the temporary worktree and is recorded as a
  *      verification_runs row (source manual, commit_sha = the rebased SHA).
  *      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
- *      to the rebased SHA and prints it.
+ *      to the rebased SHA, then, in one transaction, sets tasks.commit_sha to
+ *      it (only while it still names the reviewed SHA) and writes a
+ *      task_integrated audit row (task_id, reviewed_sha, commit_sha, base,
+ *      run_id), the review anchor HAS_PASS_SQL reads, so the integrated head
+ *      needs a fresh code-reviewer pass; then it prints the SHA. When that
+ *      write fails the branch has moved but the task row still names the
+ *      reviewed SHA → exit 4, and code-reviewer-preflight denies a review of
+ *      the rebased SHA (sha_mismatch).
  *   6. The temporary worktree is removed on every exit. A run still open when
  *      the command exits (INT → 130, TERM → 143, or the failure it exits with)
  *      is finished with that exit code and its running command is killed; a
@@ -56,7 +66,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dbWrite, nowIso } from '../hooks/lib/audit.js';
+import { auditSql, dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { dbPath, GATE_READ_ERROR, gateRead, sqliteRo, sqlInt, sqlQuote } from '../hooks/lib/db.js';
 import { isDir } from '../hooks/lib/git.js';
 import { keysInOrder } from '../hooks/lib/jq-key-order.js';
@@ -115,8 +125,10 @@ class Integration {
     io;
     db = '';
     taskId = '';
+    issueId = '';
     base = '';
     branch = '';
+    reviewedSha = '';
     commitSha = '';
     baseSha = '';
     repoRoot = '';
@@ -165,6 +177,33 @@ class Integration {
         if (!r.ok && r.error !== '')
             this.io.err(`${r.error}\n`);
         return { ok: r.ok, stdout: r.stdout };
+    }
+    /** Points tasks.commit_sha at <newSha> and writes its task_integrated anchor, both or neither; false when the task moved off the reviewed SHA. */
+    recordIntegrated(newSha) {
+        const now = nowIso();
+        const content = JSON.stringify({
+            task_id: Number(this.taskId),
+            reviewed_sha: this.reviewedSha,
+            commit_sha: newSha,
+            base: this.base,
+            run_id: Number(this.runId),
+        });
+        const audit = auditSql({
+            issueId: this.issueId,
+            branchId: this.branch,
+            fromNode: 'hook:integrate',
+            eventType: 'task_integrated',
+            summary: `task ${this.taskId} integrated onto ${this.base}: ${this.reviewedSha} -> ${newSha}`,
+            contentJson: content,
+        }, 'changes() = 1', { caller: 'integrate', env: this.env, now });
+        if (audit.code !== 0) {
+            this.io.err(`${audit.error}\n`);
+            return false;
+        }
+        const r = this.record(`UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';
+${audit.sql}
+SELECT changes();`);
+        return r.ok && commandSubstitution(r.stdout) === '1';
     }
     finish(rc, timedOut) {
         for (let attempt = 1; attempt <= FINISH_ATTEMPTS; attempt += 1) {
@@ -316,14 +355,16 @@ class Integration {
         if (db === null)
             this.die(4, 'no trajectory DB resolved (set TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)');
         this.db = db;
-        const row = gateRead(db, `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || ${HAS_PASS_SQL}
+        const row = gateRead(db, `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || issue_id || char(10) || ${HAS_PASS_SQL}
   FROM tasks t WHERE t.id = ${this.taskId};`, this.env);
         if (row === GATE_READ_ERROR)
             this.die(4, `trajectory DB read failed: ${db}`);
         if (row === '')
             this.die(4, `no task ${this.taskId}`);
-        const [, taskRepo = '', branch = '', commitSha = '', hasPass = ''] = row.split('\n');
+        const [, taskRepo = '', branch = '', commitSha = '', issueId = '', hasPass = ''] = row.split('\n');
         this.branch = branch;
+        this.issueId = issueId;
+        this.reviewedSha = commitSha;
         if (branch === '')
             this.die(4, `task ${this.taskId} has no branch_id`);
         if (commitSha === '')
@@ -470,6 +511,9 @@ SELECT last_insert_rowid();`);
             this.die(4, `${branch} moved during integration (${oldTip} -> ${this.tip}); left as is`);
         if (!this.g(['update-ref', '-m', `cli.js integrate: task ${this.taskId} onto ${this.base}`, `refs/heads/${branch}`, newSha, this.tip]).ok) {
             this.die(4, `git update-ref of ${branch} failed; the rebased commit is ${newSha} (run #${this.runId})`);
+        }
+        if (!this.recordIntegrated(newSha)) {
+            this.die(4, `${branch} moved to ${newSha} (run #${this.runId} passed), but recording it on task ${this.taskId} failed; tasks.commit_sha still names the reviewed ${this.reviewedSha}, so code-reviewer-preflight denies a review of ${newSha} until it is recorded`);
         }
         this.say(`${branch} -> ${newSha} (verification run #${this.runId} passed)`);
         this.io.out(`${newSha}\n`);

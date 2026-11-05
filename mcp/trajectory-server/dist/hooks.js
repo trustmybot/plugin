@@ -23241,7 +23241,7 @@ import { statSync as statSync31 } from "node:fs";
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+      WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
 var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
