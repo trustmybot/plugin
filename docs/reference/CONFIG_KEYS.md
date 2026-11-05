@@ -48,7 +48,7 @@ Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`,
 | `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` |
 | `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary`, `sync` (the onboard Remote choice) | `origin`, else the first remote, is primary; a new row starts at `sync = is_primary` | issue-scoped and milestone sync (`sync = 1` rows only), `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes, never `sync`); `onboard_apply` (git remotes, and `sync` from its `remote` answer) |
 
-Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`tmb_repo_git_root` + `tmb_repo_resolve` / `tmb_repo_remotes`) and read the matching `repos` row. An unset `branching_model` / `target_branch` / `protected_branches` means the repo is not onboarded — run `/onboard` — never a silent global default.
+Hooks resolve the current repo via `mcp/trajectory-server/src/hooks/lib/repo.ts` (`repoGitRoot` + `repoResolve` / `repoRemotes`) and read the matching `repos` row. An unset `branching_model` / `target_branch` / `protected_branches` means the repo is not onboarded — run `/onboard` — never a silent global default.
 
 `branching_model` derives the defaults `onboard_apply` writes, and never overrides an explicit value:
 

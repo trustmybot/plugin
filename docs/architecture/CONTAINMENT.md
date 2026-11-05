@@ -25,7 +25,7 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 
 | Path | Written by | What |
 |---|---|---|
-| `<state>/trajectory.db` | MCP server, hooks via `scripts/hooks/lib/db-write.sh` | Workflow state and the world model. The DB runs in WAL mode; its `-shm` and `-wal` files always sit beside it in `<state>/`, including the ones a gate read creates when no process holds the DB open (`tmb_gate_read`) |
+| `<state>/trajectory.db` | MCP server, hooks via `dbWrite` / `auditAppend` in `mcp/trajectory-server/src/hooks/lib/audit.ts` | Workflow state and the world model. The DB runs in WAL mode; its `-shm` and `-wal` files always sit beside it in `<state>/`, including the ones a gate read creates when no process holds the DB open (`tmb_gate_read`) |
 | `<state>/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, `mcp-deps-install.log`, per-session logs |
 | `<state>/sessions/<session_id>.plugin-hooks` | `plugin-hooks-marker` (SessionStart) | 0-byte marker: this session runs the plugin's own hooks; pruned after 24 h |
 | `<state>/sessions/<session_id>.install-notice` | `mcp-health-check` (SessionStart) | 0-byte marker: the install-scope notice was shown this session; pruned after 24 h |

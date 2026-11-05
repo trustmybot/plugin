@@ -68,7 +68,6 @@ check_tree() {
   local root="$1"
   local doc="$root/docs/contributing/ENUMS.md"
   local schema="$root/mcp/trajectory-server/src/schema.sql"
-  local lib="$root/scripts/hooks/lib/db-write.sh"
   local failed=0 section documented reserved found value file files
   if [ ! -f "$doc" ]; then
     echo "  ✗ ENUMS.md missing at $doc" >&2
@@ -86,11 +85,6 @@ check_tree() {
       continue
     fi
     found=$(extract "$section" "$schema" "${files[@]}")
-    if [ "$section" = audit.from_node ] && [ -f "$lib" ]; then
-      for value in $(grep -E '^[[:space:]]+[a-z|-]+\) return 0 ;;' "$lib" | head -1 | sed -E 's/^[[:space:]]+//; s/\).*//' | tr '|' ' '); do
-        found=$(printf '%s\n%s\t%s' "$found" "$value" "$lib")
-      done
-    fi
 
     while IFS=$'\t' read -r value file; do
       [ -n "$value" ] || continue
