@@ -31464,6 +31464,7 @@ import { spawnSync } from "node:child_process";
 
 // src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
+var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
 
 // src/utils/live-cli-guard.ts
 function liveCliBlockReason(env = process.env) {

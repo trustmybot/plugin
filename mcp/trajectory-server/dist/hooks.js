@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync25 } from "node:fs";
+import { readFileSync as readFileSync26 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -5406,17 +5406,17 @@ function trimOutput(stdout) {
     headChars += lines2[head].length + 1;
     head++;
   }
-  let tail = 0;
+  let tail2 = 0;
   let tailChars = 0;
-  while (head + tail < lines2.length && tailChars + lines2[lines2.length - 1 - tail].length + 1 <= TAIL_CHARS) {
-    tailChars += lines2[lines2.length - 1 - tail].length + 1;
-    tail++;
+  while (head + tail2 < lines2.length && tailChars + lines2[lines2.length - 1 - tail2].length + 1 <= TAIL_CHARS) {
+    tailChars += lines2[lines2.length - 1 - tail2].length + 1;
+    tail2++;
   }
-  if (head === 0 || tail === 0 || head + tail >= lines2.length) return null;
-  const cut4 = lines2.slice(head, lines2.length - tail);
+  if (head === 0 || tail2 === 0 || head + tail2 >= lines2.length) return null;
+  const cut4 = lines2.slice(head, lines2.length - tail2);
   const cutChars = cut4.reduce((n3, l) => n3 + l.length + 1, 0);
   const total = lines2.length - (stdout.endsWith("\n") ? 1 : 0);
-  return [...lines2.slice(0, head), trimMarker(cut4.length, cutChars, total), ...lines2.slice(lines2.length - tail)].join("\n");
+  return [...lines2.slice(0, head), trimMarker(cut4.length, cutChars, total), ...lines2.slice(lines2.length - tail2)].join("\n");
 }
 var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 var bashOutputTrim = (payload) => {
@@ -6557,7 +6557,7 @@ function agentContext(input = "", db = "", env = process.env) {
 function pathCanonical(path = "") {
   if (!path.startsWith("/")) return path;
   let cur = "";
-  let tail = "";
+  let tail2 = "";
   let rest = path;
   let hops = 0;
   while (rest !== "") {
@@ -6566,8 +6566,8 @@ function pathCanonical(path = "") {
     const part = slash < 0 ? rest : rest.slice(0, slash);
     rest = slash < 0 ? "" : rest.slice(slash + 1);
     if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.slice(0, Math.max(0, tail.lastIndexOf("/"))) : `${tail}/${part}`;
+    if (tail2 !== "") {
+      tail2 = part === ".." ? tail2.slice(0, Math.max(0, tail2.lastIndexOf("/"))) : `${tail2}/${part}`;
       continue;
     }
     if (part === "..") {
@@ -6583,10 +6583,10 @@ function pathCanonical(path = "") {
       continue;
     }
     if (existsSync4(here)) cur = here;
-    else tail = `/${part}`;
+    else tail2 = `/${part}`;
   }
-  if (cur + tail === "") cur = "/";
-  return `${cur}${tail}`;
+  if (cur + tail2 === "") cur = "/";
+  return `${cur}${tail2}`;
 }
 function ctxInWorktree(path, worktree) {
   if (worktree === "" || path === "") return false;
@@ -8503,7 +8503,7 @@ function isLink(p) {
 function pathCanonical2(path) {
   if (!path.startsWith("/")) return path;
   let cur = "";
-  let tail = "";
+  let tail2 = "";
   let rest = path;
   let hops = 0;
   while (rest !== "") {
@@ -8512,8 +8512,8 @@ function pathCanonical2(path) {
     const part = slash < 0 ? rest : rest.slice(0, slash);
     rest = slash < 0 ? "" : rest.slice(slash + 1);
     if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
+    if (tail2 !== "") {
+      tail2 = part === ".." ? tail2.replace(/\/[^/]*$/, "") : `${tail2}/${part}`;
       continue;
     }
     if (part === "..") {
@@ -8529,9 +8529,9 @@ function pathCanonical2(path) {
       continue;
     }
     if (existsSync7(next)) cur = next;
-    else tail = `/${part}`;
+    else tail2 = `/${part}`;
   }
-  return cur + tail || "/";
+  return cur + tail2 || "/";
 }
 function payloadCwd(json, env = process.env) {
   try {
@@ -9263,7 +9263,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
   let sp = 0;
   let bt = false;
   let stmt = "";
-  let tail = false;
+  let tail2 = false;
   let owns = false;
   let qsp = 0;
   const stack = [];
@@ -9568,8 +9568,8 @@ function scan2(buf, base2, home, assign, frames, charge) {
     return plainDollars(text);
   }
   function flush(sub = false) {
-    const args2 = tail;
-    tail = false;
+    const args2 = tail2;
+    tail2 = false;
     owns = args2;
     const chained = fsep === "&&";
     fsep = "";
@@ -9764,10 +9764,10 @@ function scan2(buf, base2, home, assign, frames, charge) {
     const prev = i2 > 0 ? buf[i2 - 1] : "";
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, tail, cur, old, start: i2 + 1, sp, why: cwhy, owhy, alts, oalts };
+      q[qsp] = { stmt, tail: tail2, cur, old, start: i2 + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = "";
-      tail = false;
+      tail2 = false;
       continue;
     }
     if (c === QC) {
@@ -9775,7 +9775,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       flush();
       const f = q[qsp];
       stmt = f.stmt + "$" + ENC[8] + rawword(buf.slice(f.start, i2)) + ENC[9];
-      tail = f.tail;
+      tail2 = f.tail;
       cur = f.cur;
       old = f.old;
       sp = f.sp;
@@ -9839,7 +9839,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       if (sp === 0) vok = false;
       const closes = sp > 0 && sstack[sp];
       pop();
-      tail = closes;
+      tail2 = closes;
       continue;
     }
     if (c === "`") {
@@ -9851,7 +9851,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         bt = false;
         const closes = sp > 0 && sstack[sp];
         pop();
-        tail = closes;
+        tail2 = closes;
       } else {
         bt = true;
         push();
@@ -10021,8 +10021,8 @@ async function gitCommitMessage(command, env = process.env) {
   const parser2 = await bashParser();
   const listed2 = statements(parser2, command, "-", 0, env.HOME ?? "");
   if (listed2 === null) return { ok: false };
-  const commits = listed2.map(({ stmt, tail }) => ({ subcommand: gitSubcommand(stmt), tail })).filter(({ subcommand }) => subcommand === "commit" || subcommand.startsWith("commit "));
-  const first = commits.find(({ tail }) => !tail) ?? commits[0];
+  const commits = listed2.map(({ stmt, tail: tail2 }) => ({ subcommand: gitSubcommand(stmt), tail: tail2 })).filter(({ subcommand }) => subcommand === "commit" || subcommand.startsWith("commit "));
+  const first = commits.find(({ tail: tail2 }) => !tail2) ?? commits[0];
   if (first === void 0) return { ok: true, subcommand: "", message: "" };
   const message = decode(messageArg(first.subcommand)).replace(/\n+$/, "");
   const built = message.includes("$(") || message.includes("`");
@@ -15627,8 +15627,8 @@ var GitGuards = class {
     const needle = `${stmt} && ${this.stmts[i2 + 1] ?? ""}`;
     const at2 = flat.indexOf(needle);
     if (at2 < 0) return "";
-    const tail = flat.slice(at2 + needle.length);
-    if (tail.includes(needle) || !SWITCH_TAIL.has(tail.slice(0, 1))) return "";
+    const tail2 = flat.slice(at2 + needle.length);
+    if (tail2.includes(needle) || !SWITCH_TAIL.has(tail2.slice(0, 1))) return "";
     const head = flat.slice(0, at2).replace(/ +$/, "");
     return head === "" || head.endsWith(";") || head.endsWith("&&") ? name3 : "";
   }
@@ -16142,9 +16142,9 @@ async function guard(input, env, analyze2) {
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
   g.harnessTmpC = harnessTmp(g.uid);
-  const tmpdir2 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
-  if (tmpdir2 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir2 };
-  if (/^\/./s.test(tmpdir2)) g.hostTmpC = canonical(tmpdir2);
+  const tmpdir3 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
+  if (tmpdir3 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir3 };
+  if (/^\/./s.test(tmpdir3)) g.hostTmpC = canonical(tmpdir3);
   if (agentType === "" || agentType === "bro") {
     const ccHome = env.CLAUDE_CONFIG_DIR || `${g.home()}/.claude`;
     g.ccProjectC = ccProjectDir(ccHome, g.root, env);
@@ -16256,12 +16256,12 @@ function etimeSeconds(raw) {
   const days = dash < 0 ? "0" : raw.slice(0, dash);
   const rest = dash < 0 ? raw : raw.slice(dash + 1);
   const head = (s) => s.includes(":") ? s.slice(0, s.indexOf(":")) : s;
-  const tail = (s) => s.includes(":") ? s.slice(s.indexOf(":") + 1) : s;
+  const tail2 = (s) => s.includes(":") ? s.slice(s.indexOf(":") + 1) : s;
   if ((rest.match(/:/g) ?? []).length === 2) {
-    const rest2 = tail(rest);
-    return base10(days) * 86400n + base10(head(rest)) * 3600n + base10(head(rest2)) * 60n + base10(tail(rest2));
+    const rest2 = tail2(rest);
+    return base10(days) * 86400n + base10(head(rest)) * 3600n + base10(head(rest2)) * 60n + base10(tail2(rest2));
   }
-  return base10(days) * 86400n + base10(head(rest)) * 60n + base10(tail(rest));
+  return base10(days) * 86400n + base10(head(rest)) * 60n + base10(tail2(rest));
 }
 function serverStart(pid, env) {
   const now = BigInt(Math.floor(Date.now() / 1e3));
@@ -18999,8 +18999,8 @@ var DEFAULT_POLL_S = 60;
 var TOKEN_SUFFIX = ".liveness-token";
 function pollMs(env) {
   const raw = env[POLL_ENV] ?? "";
-  const seconds2 = /^[0-9]+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_POLL_S;
-  return seconds2 * 1e3;
+  const seconds3 = /^[0-9]+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_POLL_S;
+  return seconds3 * 1e3;
 }
 function payloadFields(payload) {
   const [value] = jsonValues(payload);
@@ -19903,15 +19903,15 @@ function hasWord(word, text, utf8) {
   return false;
 }
 var awkWord = (c) => /^[a-z0-9_]$/.test(c);
-function hasTarget(tail, agent) {
+function hasTarget(tail2, agent) {
   for (const prep of ["for", "to", "onto"]) {
     const needle = `${prep} ${agent}`;
-    let k = tail.indexOf(needle);
+    let k = tail2.indexOf(needle);
     while (k >= 0) {
-      const before2 = k === 0 ? "" : tail[k - 1];
-      const after2 = tail.charAt(k + needle.length);
+      const before2 = k === 0 ? "" : tail2[k - 1];
+      const after2 = tail2.charAt(k + needle.length);
       if (!awkWord(before2) && !awkWord(after2) && after2 !== "-") return true;
-      k = tail.indexOf(needle, k + 1);
+      k = tail2.indexOf(needle, k + 1);
     }
   }
   return false;
@@ -19925,8 +19925,8 @@ function capabilityOnAgent(lower, agents) {
       const v = m.index;
       const e = v + m[0].length;
       if ((v === 0 || !awkWord(s[v - 1])) && !awkWord(s.charAt(e))) {
-        const tail = s.slice(e);
-        for (const agent of agents) if (hasTarget(tail, agent)) return agent;
+        const tail2 = s.slice(e);
+        for (const agent of agents) if (hasTarget(tail2, agent)) return agent;
       }
       verb.lastIndex = v + 1;
     }
@@ -20609,9 +20609,9 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 };
 
 // src/hooks/swe-verification-gate.ts
-import { spawn as spawn3, spawnSync as spawnSync9 } from "node:child_process";
-import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync9, mkdtempSync, openSync as openSync3, readFileSync as readFileSync17, rmSync as rmSync5, statSync as statSync26, writeFileSync as writeFileSync7 } from "node:fs";
-import { constants as osConstants, tmpdir } from "node:os";
+import { spawn as spawn4, spawnSync as spawnSync9 } from "node:child_process";
+import { accessSync as accessSync9, closeSync as closeSync4, constants as constants9, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, openSync as openSync4, readFileSync as readFileSync18, rmSync as rmSync6, statSync as statSync26, writeFileSync as writeFileSync7 } from "node:fs";
+import { constants as osConstants2, tmpdir as tmpdir2 } from "node:os";
 import { resolve as resolve3 } from "node:path";
 
 // src/hooks/lib/verification-carry.ts
@@ -20773,10 +20773,10 @@ function runCommandSql(caller, runId, ordinal, command, rc, elapsed, output, env
   if (!/^[0-9]+$/.test(runId)) return invalid(caller, `invalid run_id '${runId}'`);
   const rawCap = env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
   const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-  const tail = cap > 0 && shellLength(output, env) > cap ? shellTail(output, cap, env) : output;
+  const tail2 = cap > 0 && shellLength(output, env) > cap ? shellTail(output, cap, env) : output;
   return {
     code: 0,
-    sql: `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`,
+    sql: `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail2)}');`,
     error: ""
   };
 }
@@ -21193,6 +21193,143 @@ async function acquireSuiteSlot(opts) {
   }
 }
 
+// src/utils/worktree-setup.ts
+import { spawn as spawn3 } from "node:child_process";
+import { closeSync as closeSync3, mkdtempSync, openSync as openSync3, readFileSync as readFileSync17, rmSync as rmSync5 } from "node:fs";
+import { constants as osConstants, tmpdir } from "node:os";
+import { join as join7 } from "node:path";
+
+// src/utils/timeouts.ts
+var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
+
+// src/utils/worktree-setup.ts
+var WORKTREE_SETUP_FILE = ".config/tmb/worktree-setup.json";
+var TAIL_LINES = 20;
+var TAIL_CHARS2 = 4e3;
+var TIMED_OUT_CODE = 124;
+var signals = osConstants.signals;
+function readSetupFile(worktreePath) {
+  let raw;
+  try {
+    raw = readFileSync17(join7(worktreePath, WORKTREE_SETUP_FILE), "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    return { error: `${WORKTREE_SETUP_FILE}: cannot read: ${e.message}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { error: `${WORKTREE_SETUP_FILE}: not valid JSON: ${e.message}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { error: `${WORKTREE_SETUP_FILE}: must be a JSON object {"version":1,"commands":[...]}` };
+  }
+  const { version, commands } = parsed;
+  if (version !== 1) return { error: `${WORKTREE_SETUP_FILE}: version must be 1, got ${JSON.stringify(version) ?? "none"}` };
+  if (!Array.isArray(commands) || commands.length === 0 || !commands.every((c) => typeof c === "string" && c.trim() !== "")) {
+    return { error: `${WORKTREE_SETUP_FILE}: commands must be a non-empty array of non-empty strings` };
+  }
+  return { commands };
+}
+function seconds(ms) {
+  return Math.round(ms / 1e3);
+}
+function tail(text) {
+  return text.replace(/\n+$/, "").split("\n").slice(-TAIL_LINES).join("\n").slice(-TAIL_CHARS2);
+}
+function runCommand(command, cwd, env, timeoutMs, outPath) {
+  return new Promise((done) => {
+    const fd = openSync3(outPath, "w");
+    let timedOut2 = false;
+    let settled = false;
+    const finish = (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done({ exitCode, timedOut: timedOut2 });
+    };
+    const child = spawn3("bash", ["-c", command], { cwd, env: { ...env, PWD: cwd }, stdio: ["ignore", fd, fd], detached: true });
+    closeSync3(fd);
+    const timer = setTimeout(() => {
+      timedOut2 = true;
+      try {
+        if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
+      } catch {
+      }
+    }, timeoutMs);
+    child.on("error", () => finish(127));
+    child.on("exit", (code, signal2) => {
+      if (timedOut2) finish(TIMED_OUT_CODE);
+      else finish(code ?? 128 + (signal2 !== null ? signals[signal2] ?? 0 : 0));
+    });
+  });
+}
+async function runWorktreeSetup(worktreePath, opts = {}) {
+  let parsed;
+  try {
+    parsed = readSetupFile(worktreePath);
+  } catch (e) {
+    parsed = { error: `${WORKTREE_SETUP_FILE}: ${e.message}` };
+  }
+  if (parsed === null) return { ran: false, commands: [] };
+  if ("error" in parsed) return { ran: false, commands: [], error: parsed.error };
+  const env = opts.env ?? process.env;
+  const timeoutMs = opts.timeoutMs ?? WORKTREE_SETUP_COMMAND_TIMEOUT_MS;
+  const total = opts.totalTimeoutMs;
+  const totalStart = Date.now();
+  const result = { ran: false, commands: [] };
+  let scratch;
+  try {
+    scratch = mkdtempSync(join7(tmpdir(), "tmb-worktree-setup-"));
+  } catch (e) {
+    return { ran: false, commands: [], error: `worktree setup: cannot create a scratch dir: ${e.message}` };
+  }
+  try {
+    for (const [i2, command] of parsed.commands.entries()) {
+      const outPath = join7(scratch, `out-${i2 + 1}`);
+      const left = total === void 0 ? Infinity : total - (Date.now() - totalStart);
+      if (left <= 0) {
+        result.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
+        result.error = `worktree setup ran out of its ${seconds(total ?? 0)}s budget before command ${i2 + 1}/${parsed.commands.length}: ${command}`;
+        return result;
+      }
+      const budgetBound = left < timeoutMs;
+      const started = Date.now();
+      let run5;
+      try {
+        run5 = await runCommand(command, worktreePath, env, budgetBound ? left : timeoutMs, outPath);
+      } catch (e) {
+        result.commands.push({ command, exit_code: 127, timed_out: false, elapsed_ms: Date.now() - started });
+        result.error = `worktree setup command failed to start: ${command}: ${e.message}`;
+        return result;
+      }
+      result.ran = true;
+      result.commands.push({ command, exit_code: run5.exitCode, timed_out: run5.timedOut, elapsed_ms: Date.now() - started });
+      if (run5.exitCode === 0) continue;
+      let out2 = "";
+      try {
+        out2 = readFileSync17(outPath, "utf8");
+      } catch {
+      }
+      if (!run5.timedOut) result.error = `worktree setup command exited ${run5.exitCode}: ${command}`;
+      else if (budgetBound) result.error = `worktree setup command timed out: its ${seconds(total ?? 0)}s budget ran out: ${command}`;
+      else result.error = `worktree setup command timed out after ${seconds(timeoutMs)}s: ${command}`;
+      result.output_tail = tail(out2);
+      return result;
+    }
+    return result;
+  } finally {
+    rmSync5(scratch, { recursive: true, force: true });
+  }
+}
+function describeSetupFailure(r) {
+  const lines2 = [r.error ?? "worktree setup failed"];
+  if (r.output_tail) lines2.push(`Output (last ${TAIL_LINES} lines):
+${r.output_tail}`);
+  return lines2.join("\n");
+}
+
 // src/hooks/swe-verification-gate.ts
 var GATE_NAME48 = "swe-verification-gate";
 var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 3630;
@@ -21207,9 +21344,9 @@ var RECORD_POOL_MS = 9e3;
 var FINISH_ATTEMPTS = 3;
 var FINISH_BACKOFF_MS = 500;
 var LOCK_POLL_MS = 500;
-var TAIL_LINES = 20;
+var TAIL_LINES2 = 20;
 var FAILURE_LINES = 15;
-var signals = osConstants.signals;
+var signals2 = osConstants2.signals;
 var DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
 var WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
 var NO_VERIFICATION_CONTEXT = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] \u2014 verification gate skipped. Ask bro to set the task's verification[] field (Typed Rails #673) to enforce verification commands."}}
@@ -21431,7 +21568,7 @@ var VerificationRun = class {
   timeoutReason(ordinal, command, elapsed, cumulative) {
     const ran = elapsed !== "" ? ` after ${elapsed}s` : "";
     return commandSubstitution(
-      `BLOCKED: verification timed out \u2014 the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:
+      `BLOCKED: verification timed out \u2014 the ${this.c.timeoutS}s budget${this.c.setupS !== void 0 ? ` left after ${this.c.setupS}s of worktree setup` : ""} ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:
 ${command}
 
 Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`
@@ -21452,9 +21589,9 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
     this.carrySha = plan.source_sha;
     this.carryOrdinals = new Set(plan.carry);
   }
-  execute(command, seconds2, outPath) {
+  execute(command, seconds3, outPath) {
     return new Promise((done) => {
-      const fd = openSync3(outPath, "w");
+      const fd = openSync4(outPath, "w");
       let fired = false;
       let settled = false;
       const finish = (rc) => {
@@ -21463,24 +21600,24 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
         clearTimeout(timer);
         done({ rc, fired });
       };
-      const child = spawn3("bash", ["-c", command], {
+      const child = spawn4("bash", ["-c", command], {
         cwd: this.c.worktree,
         env: { ...this.c.env, PATH: this.c.toolchainPath, PWD: this.c.worktree },
         stdio: ["ignore", fd, fd],
         detached: true
       });
-      closeSync3(fd);
+      closeSync4(fd);
       const timer = setTimeout(() => {
         fired = true;
         try {
           if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
         } catch {
         }
-      }, seconds2 * 1e3);
+      }, seconds3 * 1e3);
       child.on("error", () => finish(127));
       child.on("exit", (code, signal2) => {
         if (fired) finish(124);
-        else finish(code ?? 128 + (signal2 !== null ? signals[signal2] ?? 0 : 0));
+        else finish(code ?? 128 + (signal2 !== null ? signals2[signal2] ?? 0 : 0));
       });
     });
   }
@@ -21499,19 +21636,19 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
     const cmdMs = Date.now() - cmdStart;
     let out2 = "";
     try {
-      out2 = commandSubstitution(readFileSync17(outPath, "utf8"));
-      rmSync5(outPath, { force: true });
+      out2 = commandSubstitution(readFileSync18(outPath, "utf8"));
+      rmSync6(outPath, { force: true });
     } catch {
     }
     const elapsed = msToS(cmdMs);
     const total = msToS(this.activeMs());
-    const tail = lastLines(out2, TAIL_LINES);
-    this.recordCommand(ordinal, recordedCmd, rc, elapsed, tail);
+    const tail2 = lastLines(out2, TAIL_LINES2);
+    this.recordCommand(ordinal, recordedCmd, rc, elapsed, tail2);
     if (rc === 124 && fired) {
       await this.recordFinish(124, 1);
       return deny7(this.timeoutReason(ordinal, recordedCmd, elapsed, total));
     }
-    return { rc, out: out2, elapsed, total, tail };
+    return { rc, out: out2, elapsed, total, tail: tail2 };
   }
   /** run_verification: the deny decision, the pass context, or "" when every command passed. */
   async run() {
@@ -21548,7 +21685,7 @@ ${hits}` : "";
 Failing command (${this.ordinal}/${c.cmdTotal}): ${cmd}
 Exit ${r.rc} after ${r.elapsed}s; ${r.total}s cumulative.${this.recordNote()}${hitsBlock}
 
-Output (last ${TAIL_LINES} lines):
+Output (last ${TAIL_LINES2} lines):
 ${r.tail}`
           )
         );
@@ -21584,7 +21721,7 @@ ${r.tail}`
 
 Finding ${fid} (probe ${this.ordinal}/${c.cmdTotal})${regressed}: ${pcmd}
 Exit ${r.rc} after ${r.elapsed}s.
-Output (last ${TAIL_LINES} lines):
+Output (last ${TAIL_LINES2} lines):
 ${r.tail}`
       );
     }
@@ -21612,7 +21749,7 @@ function nowS() {
 }
 function lockHeldSince(lock) {
   try {
-    const since = commandSubstitution(readFileSync17(`${lock}/started`, "utf8"));
+    const since = commandSubstitution(readFileSync18(`${lock}/started`, "utf8"));
     if (/^[0-9]+$/.test(since)) return Number(since);
   } catch {
   }
@@ -21632,7 +21769,7 @@ function tryMkdir2(dir) {
 }
 function removeQuietly(path) {
   try {
-    rmSync5(path, { recursive: true, force: true });
+    rmSync6(path, { recursive: true, force: true });
   } catch {
   }
 }
@@ -21653,9 +21790,9 @@ async function acquireLock(lock, staleS) {
 }
 function makeScratch(db) {
   try {
-    return resolve3(mkdtempSync(`${posixDirname(db)}/verify-run.`));
+    return resolve3(mkdtempSync2(`${posixDirname(db)}/verify-run.`));
   } catch {
-    return mkdtempSync(`${tmpdir()}/verify-run.`);
+    return mkdtempSync2(`${tmpdir2()}/verify-run.`);
   }
 }
 function waive(db, taskId, reason, field7, env) {
@@ -21760,9 +21897,32 @@ var sweVerificationGate = async (payload, env) => {
         `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) \u2014 verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`
       );
     };
+    const setupThenRun = async (runCtx) => {
+      const setupStart = Date.now();
+      const setup = await runWorktreeSetup(worktree, { env: { ...runCtx.env, PATH: toolchainPath }, totalTimeoutMs: runCtx.timeoutS * 1e3 });
+      const setupS = Math.ceil((Date.now() - setupStart) / 1e3);
+      const raise = `Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up setup.`;
+      if (setup.error !== void 0) {
+        const timedOut2 = setup.commands.some((c) => c.timed_out);
+        return deny7(
+          `BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.
+${describeSetupFailure(setup)}
+
+${timedOut2 ? `Worktree setup counts against the ${runCtx.timeoutS}s verification budget. ${raise}` : `Fix the command or ${WORKTREE_SETUP_FILE} and retry.`}`
+        );
+      }
+      if (!setup.ran) return new VerificationRun(runCtx).run();
+      const leftS = runCtx.timeoutS - setupS;
+      if (leftS <= 0) {
+        return deny7(
+          `BLOCKED: worktree setup used up the ${runCtx.timeoutS}s verification budget (${setupS}s), so verification[] did not run and no verification run was recorded. ${raise}`
+        );
+      }
+      return new VerificationRun({ ...runCtx, timeoutS: leftS, setupS }).run();
+    };
     const suiteCommand = [...commands, ...findings.map((f) => typeof f.probe_cmd === "string" ? f.probe_cmd : "")].find(isFullSuite);
     const verify = async () => {
-      if (suiteCommand === void 0) return new VerificationRun(ctx).run();
+      if (suiteCommand === void 0) return setupThenRun(ctx);
       const fullCapS = suiteWaitCapS(budget.timeoutS);
       const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? "";
       const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
@@ -21777,7 +21937,7 @@ var sweVerificationGate = async (payload, env) => {
         const reusedAfterSlot = reuse();
         if (reusedAfterSlot !== null) return reusedAfterSlot;
         const env2 = slot.kind === "held" ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
-        return await new VerificationRun({ ...ctx, env: env2 }).run();
+        return await setupThenRun({ ...ctx, env: env2 });
       } finally {
         if (slot.kind === "held") slot.release();
       }
@@ -22371,7 +22531,7 @@ var noRemoteAuthGuard = async (payload, env) => {
 
 // src/hooks/orphan-scan.ts
 import { spawnSync as spawnSync10 } from "node:child_process";
-import { existsSync as existsSync12, lstatSync as lstatSync9, opendirSync, readFileSync as readFileSync18, rmSync as rmSync6, statSync as statSync28 } from "node:fs";
+import { existsSync as existsSync12, lstatSync as lstatSync9, opendirSync, readFileSync as readFileSync19, rmSync as rmSync7, statSync as statSync28 } from "node:fs";
 var GATE_NAME58 = "orphan-scan";
 var DEADLINE_S = 4;
 var ANCESTRY_GUARD2 = 40;
@@ -22486,7 +22646,7 @@ function children(value) {
 function pinnedPaths(json) {
   let text;
   try {
-    text = readFileSync18(json, "utf8");
+    text = readFileSync19(json, "utf8");
   } catch {
     return [];
   }
@@ -22629,7 +22789,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const db of staleDbs) {
       if (db === liveDb) continue;
       try {
-        rmSync6(db, { force: true });
+        rmSync7(db, { force: true });
         cleaned.push(`removed stale DB: ${db}`);
       } catch {
       }
@@ -22637,7 +22797,7 @@ function orphanScanRun(env, ops, stderr2) {
     for (const vdir of unusedCache) {
       if (!vdir.startsWith(`${cacheRoot}/`)) continue;
       try {
-        rmSync6(vdir, { recursive: true, force: true });
+        rmSync7(vdir, { recursive: true, force: true });
         cleaned.push(`removed unused cache version: ${vdir}`);
       } catch {
       }
@@ -22671,8 +22831,8 @@ var orphanScan = (_payload, env) => {
 };
 
 // src/hooks/session-start-prescan.ts
-import { spawn as spawn4 } from "node:child_process";
-import { readdirSync as readdirSync8, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
+import { spawn as spawn5 } from "node:child_process";
+import { readdirSync as readdirSync8, readFileSync as readFileSync20, statSync as statSync29 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME59 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
@@ -22791,7 +22951,7 @@ function globNames(dir, env, suffix = "") {
 function jqVersion(manifest) {
   let text;
   try {
-    text = readFileSync19(manifest, "utf8");
+    text = readFileSync20(manifest, "utf8");
   } catch {
     return "";
   }
@@ -22933,7 +23093,7 @@ function doctorBudget(raw) {
 function doctorState(root, db, env) {
   let doc;
   try {
-    doc = JSON.parse(readFileSync19(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
+    doc = JSON.parse(readFileSync20(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
   } catch {
     return "unchecked (no contract list)";
   }
@@ -22965,7 +23125,7 @@ function doctorState(root, db, env) {
   return "healthy";
 }
 function startInitialScan(invoker, db, env) {
-  const child = spawn4("node", ["--experimental-sqlite", invoker], {
+  const child = spawn5("node", ["--experimental-sqlite", invoker], {
     env: { ...env, TRAJECTORY_DB_PATH: db },
     detached: true,
     stdio: "ignore"
@@ -23080,7 +23240,7 @@ var sessionStartPrescan = async (_payload, env) => {
 };
 
 // src/hooks/clean-merged-branch.ts
-import { spawn as spawn5 } from "node:child_process";
+import { spawn as spawn6 } from "node:child_process";
 import { statSync as statSync30 } from "node:fs";
 
 // src/hooks/lib/merge.ts
@@ -23178,7 +23338,7 @@ async function worktreeForBranch(root, branch, env = process.env) {
 }
 function fetchPrune(root, env) {
   try {
-    const child = spawn5("git", ["-C", root, "fetch", "--prune", "--quiet"], {
+    const child = spawn6("git", ["-C", root, "fetch", "--prune", "--quiet"], {
       detached: true,
       stdio: "ignore",
       env: { ...env, GIT_TERMINAL_PROMPT: "0" }
@@ -23568,7 +23728,7 @@ var closeIssueOnMerge = async (payload, env) => {
 };
 
 // src/hooks/swe-atomic-close.ts
-import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync10, readFileSync as readFileSync20, realpathSync as realpathSync7, renameSync as renameSync5, statSync as statSync32 } from "node:fs";
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync10, readFileSync as readFileSync21, realpathSync as realpathSync7, renameSync as renameSync5, statSync as statSync32 } from "node:fs";
 var GATE_NAME62 = "swe-atomic-close";
 var FROM_NODE2 = "hook:swe-atomic-close";
 var LOG_ROTATE_BYTES2 = 1048576;
@@ -23682,7 +23842,7 @@ function transcriptStats(path, since = "") {
   if (path === "" || !isFile17(path)) return NO_STATS;
   let text;
   try {
-    text = readFileSync20(path, "utf8");
+    text = readFileSync21(path, "utf8");
   } catch {
     return NO_STATS;
   }
@@ -24145,7 +24305,7 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 };
 
 // src/hooks/post-task-close-rescan.ts
-import { spawn as spawn6 } from "node:child_process";
+import { spawn as spawn7 } from "node:child_process";
 import { statSync as statSync33 } from "node:fs";
 import { fileURLToPath as fileURLToPath9 } from "node:url";
 var GATE_NAME63 = "post-task-close-rescan";
@@ -24169,7 +24329,7 @@ function launchDetached(spawner, invoker, db, env) {
   child.on("error", () => void 0);
   child.unref();
 }
-function rescan(payload, env, spawner = spawn6, root = pluginRoot3()) {
+function rescan(payload, env, spawner = spawn7, root = pluginRoot3()) {
   const toolName2 = jqCapture(jqInput(payload), ["tool_name"]);
   if (!CLOSE_TOOL.test(toolName2)) return ALLOW;
   if ((env.TMB_SKIP_AUTO_RESCAN || "0") === "1") return ALLOW;
@@ -24589,7 +24749,7 @@ async function cleanupWorktree(payload, env, stderr2) {
 var cleanupWorktreeOnTaskClose = async (payload, env) => await cleanupWorktree(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/worktree-create.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync11, readFileSync as readFileSync21, statSync as statSync36 } from "node:fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync11, readFileSync as readFileSync22, statSync as statSync36 } from "node:fs";
 var GATE_NAME69 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
@@ -24610,7 +24770,7 @@ async function installMergeDriver2(dir, env, stderr2) {
   const root = top.stdout.replace(/\n+$/, "");
   let attributes;
   try {
-    attributes = readFileSync21(`${root}/.gitattributes`, "latin1");
+    attributes = readFileSync22(`${root}/.gitattributes`, "latin1");
   } catch {
     return;
   }
@@ -24877,7 +25037,7 @@ function auditOverrun(deadline, elapsed, env) {
     { caller: GATE_NAME70, env }
   );
 }
-function seconds(ms) {
+function seconds2(ms) {
   const whole = Math.max(0, Math.round(ms));
   return `${Math.floor(whole / 1e3)}.${String(whole % 1e3).padStart(3, "0")}`;
 }
@@ -24901,7 +25061,7 @@ var remoteIdGuard = async (payload, processEnv) => {
     clearTimeout(timer);
   }
   if (result !== OVERRUN && !overran()) return result;
-  const elapsed = seconds(elapsedMs2());
+  const elapsed = seconds2(elapsedMs2());
   process.stderr.write(`${GATE_NAME70}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
@@ -24909,7 +25069,7 @@ var remoteIdGuard = async (payload, processEnv) => {
 };
 
 // src/hooks/no-source-edit-from-main.ts
-import { readFileSync as readFileSync22, statSync as statSync38 } from "node:fs";
+import { readFileSync as readFileSync23, statSync as statSync38 } from "node:fs";
 import { fileURLToPath as fileURLToPath10 } from "node:url";
 var GATE_NAME71 = "no-source-edit-from-main";
 var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
@@ -24977,7 +25137,7 @@ function isFile23(path) {
 }
 function manifestName2(manifest) {
   try {
-    return field5(readFileSync22(manifest, "utf8"), ["name"]);
+    return field5(readFileSync23(manifest, "utf8"), ["name"]);
   } catch {
     return "";
   }
@@ -25136,17 +25296,17 @@ function under4(path, dir) {
 function inScratchFolder(canonical3, env) {
   return canonical3.includes(`/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch/`);
 }
-function tmpRoots(tmpdir2) {
+function tmpRoots(tmpdir3) {
   const roots = [capture6(pathCanonical("/tmp"))];
-  if (!/^\/./s.test(tmpdir2)) return roots;
-  const canonical3 = capture6(pathCanonical(tmpdir2));
+  if (!/^\/./s.test(tmpdir3)) return roots;
+  const canonical3 = capture6(pathCanonical(tmpdir3));
   return canonical3 === "/" ? roots : [...roots, canonical3];
 }
-async function deniedProse(path, tmpdir2, env) {
+async function deniedProse(path, tmpdir3, env) {
   if (!isProseFile(path)) return false;
   const canonical3 = capture6(pathCanonical(path));
   if (inScratchFolder(canonical3, env)) return true;
-  if (!tmpRoots(tmpdir2).some((root) => under4(canonical3, root))) return false;
+  if (!tmpRoots(tmpdir3).some((root) => under4(canonical3, root))) return false;
   return await repoGitRoot(posixDirname(canonical3), env) === "";
 }
 function effectiveTmpdir(input, toolName2, env) {
@@ -25274,8 +25434,8 @@ function proseTargets(lines2) {
 async function bashRule2(input, env) {
   const command = await joinContinuations(field6(input, ["tool_input", "command"]));
   if (command === "") return ALLOW;
-  const tmpdir2 = effectiveTmpdir(input, "Bash", env);
-  const runEnv = tmpdir2 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir2 };
+  const tmpdir3 = effectiveTmpdir(input, "Bash", env);
+  const runEnv = tmpdir3 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir3 };
   const cwd = payloadCwd(input, env);
   const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
   if (lines2.some(isCapLine)) return ALLOW;
@@ -25288,7 +25448,7 @@ async function bashRule2(input, env) {
   const blanked = capture6((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join("\n")).split("\n");
   const authored = blanked.some((line) => isCapLine(line) || line.startsWith("UNRESOLVED:$(parse)")) ? prose : proseTargets(blanked);
   for (const path of await withoutRmTargets(authored, listed2.statements, cwd, runEnv)) {
-    if (await deniedProse(path, tmpdir2, env)) return deny11(proseReason(path));
+    if (await deniedProse(path, tmpdir3, env)) return deny11(proseReason(path));
   }
   return ALLOW;
 }
@@ -26649,7 +26809,7 @@ function routerTimeoutS(group) {
 
 // src/hooks/router/main.ts
 import { spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync16, mkdirSync as mkdirSync14, readFileSync as readFileSync24 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync14, readFileSync as readFileSync25 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
 
@@ -26965,7 +27125,7 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync9, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync9, readFileSync as readFileSync24, renameSync as renameSync6, rmSync as rmSync8, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
 import { setTimeout as sleep4 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -27000,7 +27160,7 @@ function nowS2() {
 }
 function stamp(file) {
   try {
-    const line = readFileSync23(file, "utf8").split("\n")[0];
+    const line = readFileSync24(file, "utf8").split("\n")[0];
     return /^[0-9]+$/.test(line) ? Number(line) : null;
   } catch {
     return null;
@@ -27067,7 +27227,7 @@ var Dedupe = class {
       const done = existsSync15(`${d}/rc`);
       const deadline = done ? null : stamp(`${d}/deadline`);
       const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now > deadline;
-      if (gone) rmSync7(d, { recursive: true, force: true });
+      if (gone) rmSync8(d, { recursive: true, force: true });
     }
   }
   take(lock) {
@@ -27086,7 +27246,7 @@ var Dedupe = class {
   replay(lock) {
     let rc;
     try {
-      const text = readFileSync23(`${lock}/rc`, "utf8").trim();
+      const text = readFileSync24(`${lock}/rc`, "utf8").trim();
       if (!/^[0-9]+$/.test(text)) return null;
       rc = Number(text);
     } catch {
@@ -27094,7 +27254,7 @@ var Dedupe = class {
     }
     const read = (f) => {
       try {
-        return readFileSync23(`${lock}/${f}`, "utf8");
+        return readFileSync24(`${lock}/${f}`, "utf8");
       } catch {
         return "";
       }
@@ -27117,17 +27277,17 @@ var Dedupe = class {
       mkdirSync12(mutex);
     } catch {
       const age = ageS2(mutex);
-      if (age !== null && age > 30) rmSync7(mutex, { recursive: true, force: true });
+      if (age !== null && age > 30) rmSync8(mutex, { recursive: true, force: true });
       return false;
     }
     try {
       if (!existsSync15(lock) || this.expired(lock)) {
-        rmSync7(lock, { recursive: true, force: true });
+        rmSync8(lock, { recursive: true, force: true });
         return this.take(lock);
       }
       return false;
     } finally {
-      rmSync7(mutex, { recursive: true, force: true });
+      rmSync8(mutex, { recursive: true, force: true });
     }
   }
   /** hold: this call decides and stores; replay: a duplicate's answer; none: a duplicate that gave up. */
@@ -27325,7 +27485,7 @@ function hopTo(root, event, part, payload, env) {
 function servesCall(root, event, part, tool) {
   let table;
   try {
-    table = readFileSync24(`${root}/${ROUTER_MANIFEST}`, "utf8");
+    table = readFileSync25(`${root}/${ROUTER_MANIFEST}`, "utf8");
   } catch {
     return false;
   }
@@ -27456,7 +27616,7 @@ if (routerEvents().has(name2)) {
     name2,
     process.env,
     {
-      readStdin: () => readFileSync25(0, "utf8"),
+      readStdin: () => readFileSync26(0, "utf8"),
       writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
       writeStderr: (text) => {
         if (text !== "") process.stderr.write(text);
@@ -27470,7 +27630,7 @@ if (routerEvents().has(name2)) {
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync25(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync26(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

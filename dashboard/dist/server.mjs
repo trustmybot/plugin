@@ -4195,6 +4195,7 @@ function symbolById(db, id) {
 
 // ../mcp/trajectory-server/src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
+var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
 
 // ../mcp/trajectory-server/src/review-sql.ts
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va

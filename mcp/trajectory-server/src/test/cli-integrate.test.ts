@@ -493,6 +493,39 @@ describe('cli.js integrate', () => {
     });
   });
 
+  // Worktree setup (GH 2054): main commits .config/tmb/worktree-setup.json, so the
+  // rebased worktree runs it after node_modules is linked and before verification[].
+  describe('worktree setup', () => {
+    function setupWithSetupFile(commands: string[]): void {
+      setup('clean', '["test -f setup-ran"]');
+      mkdirSync(join(repo, '.config/tmb'), { recursive: true });
+      writeFileSync(join(repo, '.config/tmb/worktree-setup.json'), JSON.stringify({ version: 1, commands }));
+      git('add', '.config/tmb/worktree-setup.json');
+      git('commit', '-qm', 'chore: worktree setup');
+    }
+
+    it('a failing setup exits 1, prints the failing command and its output tail, records nothing', () => {
+      setupWithSetupFile(['echo integrate-setup-broke; exit 8']);
+      const r = integrate('main');
+      assert.equal(r.code, 1, r.err);
+      assert.equal(r.out, '', 'nothing on stdout');
+      assert.match(r.err, /worktree setup command exited 8: echo integrate-setup-broke; exit 8/);
+      assert.match(r.err, /Output \(last 20 lines\):\nintegrate-setup-broke/);
+      assert.match(r.err, /worktree setup failed on [0-9a-f]{40}; no verification run recorded, feat\/x-1 unmoved/);
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+      assertNoTempWorktree();
+    });
+
+    it('a passing setup runs before verification[] and is not recorded as a command', () => {
+      setupWithSetupFile(['touch setup-ran']);
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(q('SELECT group_concat(command, char(10)) FROM verification_run_commands'), 'test -f setup-ran');
+      assertNoTempWorktree();
+    });
+  });
+
   // Generated files (GH 1652). .gitattributes routes gen/** to the tmb-regen
   // merge driver (keeps ours); scripts/maintenance/regen-generated.ts rebuilds
   // gen/out.txt from src/*.txt. src/s.txt holds l1..l7; the task changes l4 and
