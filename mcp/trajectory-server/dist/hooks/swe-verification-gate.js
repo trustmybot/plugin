@@ -42,12 +42,14 @@ import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveS
 import { gitRun, isDir } from './lib/git.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
-import { commandSubstitution, ctypeUtf8, jqRawText, posixDirname } from './lib/project-env.js';
+import { commandSubstitution, jqRawText, posixDirname } from './lib/project-env.js';
 import { repoSinglePath } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
 import { planCarrySafe } from './lib/verification-carry.js';
+import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } from './lib/verification-runs.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
+export { shellLength, shellTail } from './lib/verification-runs.js';
 export const GATE_NAME = 'swe-verification-gate';
 /** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
 export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
@@ -61,7 +63,6 @@ const FINISH_BACKOFF_MS = 500;
 const LOCK_POLL_MS = 500;
 const TAIL_LINES = 20;
 const FAILURE_LINES = 15;
-const DEFAULT_TAIL_CHARS = 4000;
 const signals = osConstants.signals;
 const DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
 const WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
@@ -86,17 +87,6 @@ function deny(reason) {
 }
 function context(text) {
     return `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } })}\n`;
-}
-/** bash's `${#s}`: code points under a UTF-8 LC_CTYPE, bytes under C. */
-export function shellLength(s, env) {
-    return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
-}
-/** bash's `${s: -n}` for n > 0, in the units shellLength counts. */
-export function shellTail(s, n, env) {
-    if (ctypeUtf8(env))
-        return [...s].slice(-n).join('');
-    const bytes = Buffer.from(s);
-    return bytes.subarray(Math.max(0, bytes.length - n)).toString('utf8');
 }
 /** awk's `printf "%.1f", ms / 1000`: the exact binary value rounded, an exact tie to even. */
 export function msToS(ms) {
@@ -223,19 +213,6 @@ function failureLines(text) {
         .slice(0, FAILURE_LINES)
         .join('\n');
 }
-function reusableRun(db, taskId, sha, commandsJson, env) {
-    const cmds = sqlQuote(commandsJson);
-    return sqliteRo(db, `SELECT r.id || '|' || r.finished_at FROM verification_runs r
-     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
-       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
-       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
-       AND json_valid('${cmds}')
-       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
-       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
-             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
-            WHERE c.command IS NOT e.value)
-     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`, env);
-}
 /** One verification run of the worktree, recorded in verification_runs as it goes. */
 class VerificationRun {
     c;
@@ -268,28 +245,24 @@ class VerificationRun {
         return { ok: false, code: 2, stdout: '', error: '' };
     }
     start(ms) {
-        const now = nowIso();
-        const r = this.write(ms, `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
- WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now}', ${this.c.timeoutS});
-SELECT last_insert_rowid();`);
+        const r = this.write(ms, runStartSql(this.c.taskId, this.c.wtSha, this.c.timeoutS));
         return r.ok ? commandSubstitution(r.stdout) : '';
     }
     commandWrite(ms, ordinal, command, rc, elapsed, output) {
-        if (!/^[0-9]+$/.test(this.runId)) {
-            this.invalid(`invalid run_id '${this.runId}'`);
+        const s = runCommandSql(GATE_NAME, this.runId, ordinal, command, rc, elapsed, output, this.c.env);
+        if (s.code !== 0) {
+            stderr(`${s.error}\n`);
             return;
         }
-        const rawCap = this.c.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-        const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-        const tail = cap > 0 && shellLength(output, this.c.env) > cap ? shellTail(output, cap, this.c.env) : output;
-        this.write(ms, `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`);
+        this.write(ms, s.sql);
     }
     finishWrite(rc, timedOut) {
-        if (!/^[0-9]+$/.test(this.runId))
-            return this.invalid(`invalid run_id '${this.runId}'`);
-        return this.write(RECORD_BUDGET_MS, `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`);
+        const s = runFinishSql(GATE_NAME, this.runId, rc, timedOut);
+        if (s.code !== 0) {
+            stderr(`${s.error}\n`);
+            return { ok: false, code: 2, stdout: '', error: '' };
+        }
+        return this.write(RECORD_BUDGET_MS, s.sql);
     }
     fixedWrite(ms, id) {
         if (!/^F[0-9]+-[0-9]+$/.test(id))

@@ -1,10 +1,9 @@
 /**
- * The TS form of tests/l3-integration/hooks/fixtures/wal-no-holder.sh (GH 1692):
- * a gate must read a healthy WAL trajectory DB that no process holds open (its
- * -shm/-wal absent), keep the -readonly fast path while a holder exists, and
- * fail closed when neither read can open the DB. The gate reads through the
- * sqlite3 CLI (TMB_HOOKS_SQLITE=cli), behind a wrapper that logs each call's
- * first argument.
+ * The gate WAL cases (GH 1692): a gate must read a healthy WAL trajectory DB
+ * that no process holds open (its -shm/-wal absent), keep the -readonly fast
+ * path while a holder exists, and fail closed when neither read can open the
+ * DB. The gate reads through the sqlite3 CLI (TMB_HOOKS_SQLITE=cli), behind a
+ * wrapper (sqliteLogWrapper) that logs each call's first argument.
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -27,7 +26,8 @@ export function walDetach(db) {
     rmSync(`${db}-shm`, { force: true });
     rmSync(`${db}-wal`, { force: true });
 }
-function wrapper(bin, log) {
+/** A sqlite3 in <bin> that appends its first argument to <log>, then runs the real one. */
+export function sqliteLogWrapper(bin, log) {
     mkdirSync(bin, { recursive: true });
     const script = `#!${process.execPath}
 const { appendFileSync } = require('node:fs');
@@ -80,7 +80,7 @@ export function walGateCases(c) {
         const p = paths();
         mkdirSync(p.home, { recursive: true });
         mkdirSync(p.tmp, { recursive: true });
-        wrapper(p.bin, p.log);
+        sqliteLogWrapper(p.bin, p.log);
         walDetach(c.db);
         const readonlyOpens = spawnSync(REAL_SQLITE3, ['-readonly', c.db, 'SELECT 1;'], { stdio: 'ignore' }).status === 0;
         writeFileSync(p.log, '');

@@ -9622,14 +9622,7 @@ if (isMainModule2()) {
 `);
 }
 
-// src/hooks/swe-brief-gate.ts
-init_gate();
-
-// src/hooks/swe-verification-gate.ts
-var GATE_NAME = "swe-verification-gate";
-var VERIFICATION_DEFAULT_S = 900;
-var VERIFICATION_MAX_S = 1800;
-var signals = osConstants.signals;
+// src/hooks/lib/verification-runs.ts
 function shellLength(s, env) {
   return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
 }
@@ -9638,6 +9631,15 @@ function shellTail(s, n, env) {
   const bytes = Buffer.from(s);
   return bytes.subarray(Math.max(0, bytes.length - n)).toString("utf8");
 }
+
+// src/hooks/swe-brief-gate.ts
+init_gate();
+
+// src/hooks/swe-verification-gate.ts
+var GATE_NAME = "swe-verification-gate";
+var VERIFICATION_DEFAULT_S = 900;
+var VERIFICATION_MAX_S = 1800;
+var signals = osConstants.signals;
 function parseBudget(raw) {
   let timeoutS = VERIFICATION_DEFAULT_S;
   if (raw !== "") {
