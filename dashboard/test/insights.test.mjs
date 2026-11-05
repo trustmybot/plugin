@@ -1453,8 +1453,8 @@ describe('build and bundle', () => {
     assert.match(readFileSync(join(WEB, 'index.html'), 'utf8'), /<script type="module" src="\/app\.js"><\/script>/);
   });
 
-  test('size-budget.sh passes on the build and fails on a 61 KiB chunk', () => {
-    const ok = spawnSync('bash', [join(DASH, 'test/size-budget.sh')], { encoding: 'utf8' });
+  test('size-budget.mjs passes on the build and fails on a 61 KiB chunk', () => {
+    const ok = spawnSync(process.execPath, [join(DASH, 'test/size-budget.mjs')], { encoding: 'utf8' });
     assert.equal(ok.status, 0, ok.stderr);
     assert.match(ok.stdout, /app\.js\s+\d+ B gz/);
     const copy = join(tmp, 'web');
@@ -1462,7 +1462,7 @@ describe('build and bundle', () => {
     let body = randomBytes(46 * 1024).toString('base64');
     while (gzipSync(body, { level: 9 }).length < 61 * 1024) body += randomBytes(256).toString('base64');
     writeFileSync(join(copy, 'chunks/synthetic.js'), body);
-    const bad = spawnSync('bash', [join(DASH, 'test/size-budget.sh'), copy], { encoding: 'utf8' });
+    const bad = spawnSync(process.execPath, [join(DASH, 'test/size-budget.mjs'), copy], { encoding: 'utf8' });
     assert.equal(bad.status, 1);
     assert.match(bad.stdout, /chunks\/synthetic\.js/);
     assert.match(bad.stderr, /chunks\/synthetic\.js is \d+ B gzipped, over the 61440 B per-chunk budget/);
