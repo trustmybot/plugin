@@ -187,11 +187,15 @@ else
   else
     # Walk every hook and verify referenced script paths exist
     missing=0
+    plugin_path_re='\$\{?CLAUDE_PLUGIN_ROOT\}?/([^" ]+)'
     while IFS= read -r script; do
-      # Strip ${CLAUDE_PLUGIN_ROOT} prefix for local resolution
-      local_path="${script//\$\{CLAUDE_PLUGIN_ROOT\}/.}"
-      local_path="${local_path//\$CLAUDE_PLUGIN_ROOT/.}"
-      local_path="${local_path#node }"
+      # A guard prefix (`command -v node … ||`) may precede the script, so take
+      # the first ${CLAUDE_PLUGIN_ROOT} path wherever it sits in the command.
+      if [[ "$script" =~ $plugin_path_re ]]; then
+        local_path="./${BASH_REMATCH[1]}"
+      else
+        local_path="${script#node }"
+      fi
       if [ "${local_path:0:1}" = '"' ]; then
         local_path="${local_path#\"}"
         local_path="${local_path%%\"*}"

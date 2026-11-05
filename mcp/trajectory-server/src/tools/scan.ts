@@ -15,7 +15,7 @@ import { cleanReadme } from '../readme-summary.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
-import { bundleMaps, EXTRACTOR_VERSION, indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
+import { builtBundleMaps, bundleMaps, EXTRACTOR_VERSION, indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
@@ -711,7 +711,7 @@ async function persistScan(
   if (graph) {
     for (const r of persisted.repos) {
       try {
-        const maps = bundleMaps(out.files.filter((f) => f.repo === r.name));
+        const maps = [...bundleMaps(out.files.filter((f) => f.repo === r.name)), ...(await builtBundleMaps(r.path))];
         const repoStats = await indexRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps);
         for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
       } catch (e) {

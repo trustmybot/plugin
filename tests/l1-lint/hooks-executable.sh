@@ -2,7 +2,8 @@
 # Lint: every script referenced by a hooks.json command must be executable
 # (git mode 100755). CC execs hook commands directly — a 644 hook fails
 # with Permission denied and the hook silently never fires. A router command
-# execs node, so its bundle only has to be tracked.
+# execs node: a built (git-ignored) bundle must be on disk after the build, a
+# hand-written one only has to be tracked.
 
 set -euo pipefail
 
@@ -11,14 +12,18 @@ cd "$ROOT"
 
 FAIL=0
 CHECKED=0
+router_re='(^|[;&|[:space:]])node "\$\{CLAUDE_PLUGIN_ROOT\}/([^"]+)"'
 
 while IFS= read -r cmd; do
-  router="${cmd#node }"
-  if [ "$router" != "$cmd" ]; then
-    rel="${router#\"\${CLAUDE_PLUGIN_ROOT\}/}"
-    rel="${rel%%\"*}"
+  if [[ "$cmd" =~ $router_re ]]; then
+    rel="${BASH_REMATCH[2]}"
     CHECKED=$((CHECKED + 1))
-    if [ -z "$(git ls-files -s -- "$rel")" ]; then
+    if git check-ignore -q -- "$rel"; then
+      if [ ! -f "$rel" ]; then
+        printf "hooks-executable: MISSING built bundle (run bun run build:payload): %s\n" "$rel" >&2
+        FAIL=$((FAIL + 1))
+      fi
+    elif [ -z "$(git ls-files -s -- "$rel")" ]; then
       printf "hooks-executable: MISSING from git: %s\n" "$rel" >&2
       FAIL=$((FAIL + 1))
     fi

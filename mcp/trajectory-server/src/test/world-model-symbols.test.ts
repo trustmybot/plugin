@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { loadParsers, parserLoadCount } from '../parsing/loader.js';
-import { bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
 import { extractHooks } from '../parsing/hooks.js';
@@ -1165,6 +1165,30 @@ describe("'bundles' edges from a bundle's source map (GH 2284)", () => {
       ]),
       [{ path: 'dist/a.js.map', content_md5: '2' }],
     );
+  });
+
+  it('builtBundleMaps lists an ignored built map whose bundle is on disk, and skips node_modules, non-generated and orphan maps (GH 2054)', async (t) => {
+    const repo = mkdtempSync(join(tmpdir(), 'wm-built-'));
+    t.after(() => rmSync(repo, { recursive: true, force: true }));
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    const files: Record<string, string> = {
+      '.gitignore': 'dist/\nout/\nnode_modules/\n',
+      'dist/b.mjs': 'export {};\n',
+      'dist/b.mjs.map': MAP(['../src/b.ts']),
+      'dist/orphan.js.map': MAP(['../src/b.ts']),
+      'out/c.js': '',
+      'out/c.js.map': MAP(['../src/b.ts']),
+      'node_modules/p/dist/i.js': '',
+      'node_modules/p/dist/i.js.map': MAP([]),
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(repo, p, '..'), { recursive: true });
+      writeFileSync(join(repo, p), body);
+    }
+    const maps = await builtBundleMaps(repo);
+    assert.deepEqual(maps.map((m) => m.path), ['dist/b.mjs.map']);
+    assert.match(maps[0]!.content_md5, /^[0-9a-f]{32}$/);
+    assert.deepEqual(await builtBundleMaps(join(repo, 'no-such-dir')), []);
   });
 
   it('an unchanged map is not re-read, a changed one rewrites the edges, and a removed map drops the bundle row', async () => {
