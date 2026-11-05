@@ -14,9 +14,15 @@
  * verification_runs under a per-(task, HEAD) mkdir lock, commands the task's
  * last passing ancestor run carries forward are recorded, not run (GH 1950),
  * and the rest run through `bash -c` with the user's toolchain PATH.
+ * Before a run that is not reused, the worktree's opt-in
+ * .config/tmb/worktree-setup.json commands run with that same env (GH 2054);
+ * a setup failure denies with the failing command and its output tail, and
+ * setup is never recorded as a verification command.
  *
  * Budget: plugin_config.verification_timeout_s or TMB_VERIFICATION_TIMEOUT_S,
- * default 900 s, clamped to [1, 1800]; it counts command time only. The record
+ * default 900 s, clamped to [1, 1800]; it counts command time only, worktree
+ * setup included: verification[] gets what setup leaves, and a setup that
+ * spends it denies. The record
  * writes have their own per-write and pooled budgets, and the finish write is
  * tried three times. timed_out is 1 only when the gate's own timer fired or
  * the budget was spent before a command started; a timed-out command's
@@ -51,6 +57,7 @@ import { planCarrySafe } from './lib/verification-carry.js';
 import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } from './lib/verification-runs.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
+import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 export { shellLength, shellTail } from './lib/verification-runs.js';
 export const GATE_NAME = 'swe-verification-gate';
 /** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
@@ -312,7 +319,7 @@ class VerificationRun {
     }
     timeoutReason(ordinal, command, elapsed, cumulative) {
         const ran = elapsed !== '' ? ` after ${elapsed}s` : '';
-        return commandSubstitution(`BLOCKED: verification timed out — the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:\n${command}\n\nRaise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`);
+        return commandSubstitution(`BLOCKED: verification timed out — the ${this.c.timeoutS}s budget${this.c.setupS !== undefined ? ` left after ${this.c.setupS}s of worktree setup` : ''} ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:\n${command}\n\nRaise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`);
     }
     async planCarry() {
         const plan = await planCarrySafe({ db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson }, { ...this.c.env, PATH: this.c.toolchainPath });
@@ -637,10 +644,27 @@ export const sweVerificationGate = async (payload, env) => {
                 return null;
             return context(`TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) — verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`);
         };
+        const setupThenRun = async (runCtx) => {
+            const setupStart = Date.now();
+            const setup = await runWorktreeSetup(worktree, { env: { ...runCtx.env, PATH: toolchainPath }, totalTimeoutMs: runCtx.timeoutS * 1000 });
+            const setupS = Math.ceil((Date.now() - setupStart) / 1000);
+            const raise = `Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up setup.`;
+            if (setup.error !== undefined) {
+                const timedOut = setup.commands.some((c) => c.timed_out);
+                return deny(`BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.\n${describeSetupFailure(setup)}\n\n${timedOut ? `Worktree setup counts against the ${runCtx.timeoutS}s verification budget. ${raise}` : `Fix the command or ${WORKTREE_SETUP_FILE} and retry.`}`);
+            }
+            if (!setup.ran)
+                return new VerificationRun(runCtx).run();
+            const leftS = runCtx.timeoutS - setupS;
+            if (leftS <= 0) {
+                return deny(`BLOCKED: worktree setup used up the ${runCtx.timeoutS}s verification budget (${setupS}s), so verification[] did not run and no verification run was recorded. ${raise}`);
+            }
+            return new VerificationRun({ ...runCtx, timeoutS: leftS, setupS }).run();
+        };
         const suiteCommand = [...commands, ...findings.map((f) => (typeof f.probe_cmd === 'string' ? f.probe_cmd : ''))].find(isFullSuite);
         const verify = async () => {
             if (suiteCommand === undefined)
-                return new VerificationRun(ctx).run();
+                return setupThenRun(ctx);
             const fullCapS = suiteWaitCapS(budget.timeoutS);
             const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? '';
             const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
@@ -656,7 +680,7 @@ export const sweVerificationGate = async (payload, env) => {
                 if (reusedAfterSlot !== null)
                     return reusedAfterSlot;
                 const env = slot.kind === 'held' ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
-                return await new VerificationRun({ ...ctx, env }).run();
+                return await setupThenRun({ ...ctx, env });
             }
             finally {
                 if (slot.kind === 'held')

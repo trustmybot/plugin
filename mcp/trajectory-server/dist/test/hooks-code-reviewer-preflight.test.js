@@ -134,6 +134,36 @@ describe('code-reviewer-preflight', () => {
             f.record();
             await assertAllowed(f);
         });
+        describe('after cli.js integrate rebases the reviewed commit (GH 2411)', () => {
+            function integrated(f) {
+                featureCommit(f);
+                const reviewed = f.record();
+                f.git('checkout', '-q', 'dev');
+                f.write('src/dev.txt', 'dev moved\n');
+                f.commit('dev moves');
+                f.git('checkout', '-q', BRANCH);
+                f.git('rebase', '-q', 'dev');
+                const rebased = f.git('rev-parse', BRANCH);
+                const w = new DatabaseSync(f.db);
+                w.prepare("INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'manual', ?, ?, 0, 600, 0)").run(TASK_ID, rebased, NOW, NOW);
+                w.close();
+                return { reviewed, rebased };
+            }
+            it('allows the spawn once tasks.commit_sha names the rebased tip', async () => {
+                const f = fixture();
+                const { reviewed, rebased } = integrated(f);
+                assert.notEqual(rebased, reviewed);
+                const w = new DatabaseSync(f.db);
+                w.prepare('UPDATE tasks SET commit_sha = ? WHERE id = ?').run(rebased, TASK_ID);
+                w.close();
+                await assertAllowed(f);
+            });
+            it('denies sha_mismatch while tasks.commit_sha still names the reviewed commit', async () => {
+                const f = fixture();
+                const { reviewed, rebased } = integrated(f);
+                assert.deepEqual(denial((await run(f)).stdout), { check: 'sha_mismatch', expected: reviewed, actual: rebased });
+            });
+        });
     });
     describe('no_passing_run', () => {
         it('denies when the only run for the commit failed', async () => {
