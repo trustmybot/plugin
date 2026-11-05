@@ -5071,13 +5071,15 @@ function forbidden(toolName, agent, allowedRoles, received) {
     content: [
       {
         type: "text",
-        text: JSON.stringify({
-          error: "forbidden",
-          tool: toolName,
-          caller_role: agent,
-          allowed_roles: [...allowedRoles],
-          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
-        })
+        text: JSON.stringify(
+          agent === "unknown" ? {
+            error: "missing_argument",
+            argument: "agent",
+            tool: toolName,
+            allowed_roles: [...allowedRoles],
+            ...missingAgentDiagnostics(toolName, allowedRoles, received)
+          } : { error: "forbidden", tool: toolName, caller_role: agent, allowed_roles: [...allowedRoles] }
+        )
       }
     ]
   };
@@ -6816,7 +6818,7 @@ var init_concepts = __esm({
 });
 
 // src/tools/world_model.ts
-var PATCH_ID_MAX_BUFFER;
+var PATCH_ID_MAX_BUFFER, REPO_RESOLUTION_DOC, REPO_DEFAULT_DOC, REPO_ALL_DOC;
 var init_world_model = __esm({
   "src/tools/world_model.ts"() {
     "use strict";
@@ -6832,6 +6834,9 @@ var init_world_model = __esm({
     init_symbol_index();
     init_concepts();
     PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
+    REPO_RESOLUTION_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole').";
+    REPO_DEFAULT_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.`;
+    REPO_ALL_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, it searches every repo, with repo_source 'all'.`;
   }
 });
 

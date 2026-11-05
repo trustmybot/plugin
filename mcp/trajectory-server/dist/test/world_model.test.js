@@ -128,15 +128,16 @@ describe('world_model_get/search — repo-unspecified (#15)', () => {
         assert.equal(out['root'], null);
         db.close();
     });
-    it('world_model_search returns repo-unspecified + available_repos in multi-repo with no repo arg', async () => {
+    it('world_model_search searches every repo in multi-repo with no repo arg (GH 2417)', async () => {
         const db = tempDB();
         db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
         db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
         const tools = worldModelTools(db, null);
         const r = (await tools.handlers['world_model_search']({ agent: 'bro', query: 'parser' }));
         const out = wmParse(r);
-        assert.equal(out['warning'], 'repo-unspecified', 'multi-repo no-arg must warn repo-unspecified');
-        assert.deepEqual(out['available_repos'], ['backend', 'frontend']);
+        assert.equal(out['repo_source'], 'all');
+        assert.deepEqual(out['repos_searched'], ['backend', 'frontend']);
+        assert.equal(out['warning'], 'world-model-unavailable');
         assert.deepEqual(out['results'], []);
         db.close();
     });
@@ -210,6 +211,63 @@ describe('world_model tools — repo defaults to the cwd repo (GH 1968)', () => 
             assert.deepEqual(out['available_repos'], ['a', 'b']);
             assert.equal(out['repo_source'], undefined);
         }
+        db.close();
+    });
+    function symbol(db, repo, name, kind = 'function') {
+        db.run(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, terms, start_line, end_line, body_hash) VALUES (?, 'f.ts', ?, ?, ?, 1, 2, 'h')`, [repo, kind, name, name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()]);
+    }
+    it('search with no resolvable repo merges every repo by score, capped at k (GH 2417)', async () => {
+        const db = twoRepos();
+        symbol(db, 'a', 'quokkaAlpha');
+        symbol(db, 'a', 'quokkaBeta');
+        symbol(db, 'b', 'quokkaGamma');
+        const tools = worldModelTools(db, GraphHolder.fixed(new WorldModelGraph(db)), join(root, 'a-old'));
+        const out = await call(tools, 'world_model_search', { query: 'quokka', mode: 'keyword' });
+        assert.equal(out['repo_source'], 'all');
+        assert.deepEqual(out['repos_searched'], ['a', 'b']);
+        assert.equal(out['repo'], undefined);
+        const results = out['results'];
+        assert.deepEqual(new Set(results.map((r) => r['repo'])), new Set(['a', 'b']));
+        assert.equal(results.length, 3);
+        const scores = results.map((r) => Number(r['score']));
+        assert.deepEqual(scores, [...scores].sort((x, y) => y - x), 'ranked by score descending');
+        const capped = await call(tools, 'world_model_search', { query: 'quokka', mode: 'keyword', k: 2 });
+        assert.equal(capped['results'].length, 2);
+        assert.equal(capped['total_matched'], 2);
+        const scoped = await call(tools, 'world_model_search', { query: 'quokka', mode: 'keyword', repo: 'b' });
+        assert.equal(scoped['repo_source'], 'arg');
+        assert.deepEqual(scoped['results'].map((r) => r['repo']), ['b']);
+        db.close();
+    });
+    it('symbol by name with no resolvable repo looks in every repo (GH 2417)', async () => {
+        const db = twoRepos();
+        symbol(db, 'b', 'onlyInB');
+        symbol(db, 'a', 'shared');
+        symbol(db, 'b', 'shared');
+        const tools = worldModelTools(db, null, join(root, 'a-old'));
+        const found = await call(tools, 'world_model_symbol', { qualified_name: 'onlyInB' });
+        assert.equal(found['repo_source'], 'all');
+        assert.equal(found['symbol']['repo'], 'b');
+        const both = await call(tools, 'world_model_symbol', { qualified_name: 'shared' });
+        assert.equal(both['warning'], 'ambiguous');
+        assert.equal(both['repo_source'], 'all');
+        assert.deepEqual(both['matches'].map((m) => m['repo']), ['a', 'b']);
+        const missing = (await tools.handlers['world_model_symbol']({ agent: 'bro', qualified_name: 'nowhere' }));
+        assert.ok(missing.isError);
+        assert.match(missing.content[0].text, /not found in any repo/);
+        db.close();
+    });
+    it('symbol accepts name as an alias of qualified_name, qualified_name winning (GH 2417)', async () => {
+        const db = twoRepos();
+        symbol(db, 'a', 'foo');
+        symbol(db, 'a', 'bar');
+        const tools = worldModelTools(db, null, join(root, 'a', 'sub'));
+        const byQualified = await call(tools, 'world_model_symbol', { qualified_name: 'foo' });
+        const byName = await call(tools, 'world_model_symbol', { name: 'foo' });
+        assert.deepEqual(byName, byQualified);
+        assert.equal(byName['symbol']['qualified_name'], 'foo');
+        const both = await call(tools, 'world_model_symbol', { qualified_name: 'foo', name: 'bar' });
+        assert.equal(both['symbol']['qualified_name'], 'foo');
         db.close();
     });
     it('the deepest repo containing the cwd wins', () => {

@@ -46,13 +46,17 @@ function forbidden(toolName: string, agent: AgentRole, allowedRoles: AgentRole[]
     content: [
       {
         type: 'text' as const,
-        text: JSON.stringify({
-          error: 'forbidden',
-          tool: toolName,
-          caller_role: agent,
-          allowed_roles: [...allowedRoles],
-          ...(agent === 'unknown' ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}),
-        }),
+        text: JSON.stringify(
+          agent === 'unknown'
+            ? {
+                error: 'missing_argument',
+                argument: 'agent',
+                tool: toolName,
+                allowed_roles: [...allowedRoles],
+                ...missingAgentDiagnostics(toolName, allowedRoles, received),
+              }
+            : { error: 'forbidden', tool: toolName, caller_role: agent, allowed_roles: [...allowedRoles] },
+        ),
       },
     ],
   };

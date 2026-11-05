@@ -258,7 +258,7 @@ describe('branchReportMdTools', () => {
 
     assert.ok(result.isError, 'Expected error result for malformed agent');
     const data = parseResult(result);
-    assert.equal(data.error, 'forbidden', `Expected forbidden error: ${JSON.stringify(data)}`);
+    assert.equal(data.error, 'missing_argument', `Expected missing_argument error: ${JSON.stringify(data)}`);
 
     db.close();
   });
