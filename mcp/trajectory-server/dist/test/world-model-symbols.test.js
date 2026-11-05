@@ -51,7 +51,7 @@ const EVAL = [
     [
         'H2',
         'Python hidden-write guard: aliasing a write builtin (o = open; o(...)) is denied with the wrong "process call" message',
-        ['mcp/trajectory-server/src/hooks/containment-guard.ts', 'scripts/hooks/lib/cmd-analysis.sh'],
+        ['mcp/trajectory-server/src/hooks/containment-guard.ts', 'mcp/trajectory-server/src/hooks/cmd-analysis/prog-calls.ts'],
     ],
     [
         'H4',

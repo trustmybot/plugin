@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# L1 lint: every trajectory-DB write under scripts/ goes through
-# scripts/hooks/lib/db-write.sh (tmb_db_write / tmb_audit_append).
+# L1 lint: no trajectory-DB write under scripts/ bypasses the hooks' write
+# library, dbWrite / auditAppend in mcp/trajectory-server/src/hooks/lib/audit.ts.
 #
 # A direct `sqlite3` write runs with foreign keys OFF, no busy timeout, outside
 # a transaction, and usually behind `2>/dev/null || true` — a dropped write
@@ -9,7 +9,6 @@
 # string, `\` continuations, or heredoc body) and fails when that SQL contains
 # INSERT, UPDATE, or DELETE. A non-readonly invocation whose SQL is a bare
 # shell variable ("$SQL") is flagged too — its statement cannot be inspected.
-# The write library itself is the only exemption.
 #
 # Exits 0 (PASS) when no direct write is found, 1 (FAIL) listing each site.
 
@@ -18,11 +17,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXEMPT="scripts/hooks/lib/db-write.sh"
-
 VIOLATIONS=""
 while IFS= read -r file; do
-  [ "$file" = "$EXEMPT" ] && continue
   hits=$(awk '
     function quotes(s,   t) { t = s; gsub(/\\"/, "", t); return gsub(/"/, "", t) }
     function flush() {
@@ -78,7 +74,7 @@ if [ -z "$VIOLATIONS" ]; then
 fi
 
 COUNT=$(printf '%s\n' "$VIOLATIONS" | grep -c .)
-echo "No-direct-sqlite-write: FAIL — ${COUNT} direct sqlite3 write(s) outside ${EXEMPT}:" >&2
+echo "No-direct-sqlite-write: FAIL — ${COUNT} direct sqlite3 write(s):" >&2
 printf '%s\n' "$VIOLATIONS" | sed 's/^/  /' >&2
-echo "  Route writes through tmb_db_write / tmb_audit_append (scripts/hooks/lib/db-write.sh)." >&2
+echo "  Route writes through dbWrite / auditAppend (mcp/trajectory-server/src/hooks/lib/audit.ts)." >&2
 exit 1

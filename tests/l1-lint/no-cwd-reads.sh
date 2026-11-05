@@ -179,7 +179,7 @@ for i in "${!entries[@]}"; do
 done
 
 if [ "$hits" -gt 0 ] || [ "$failed" -ne 0 ]; then
-  echo "no-cwd-reads: FAIL — find the project from the trajectory DB (tmb_project_root), a repo from its repos row (git -C <path>, spawn with cwd), an agent from its spawn transcript (lib/agent-context.sh); the cwd only joins a command's relative paths (GH 1553). A legitimate read takes a cwd-allowlist.tsv entry with its category and reason." >&2
+  echo "no-cwd-reads: FAIL — find the project from the trajectory DB (tmb_project_root), a repo from its repos row (git -C <path>, spawn with cwd), an agent from its spawn transcript (src/hooks/lib/agent-context.ts); the cwd only joins a command's relative paths (GH 1553). A legitimate read takes a cwd-allowlist.tsv entry with its category and reason." >&2
   exit 1
 fi
 echo "no-cwd-reads: OK"
