@@ -121,11 +121,11 @@ run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-c
 run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
-run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
 run_step "L1 lint: dist entrypoints are esbuild bundles (self-test)" bash "$HERE/l1-lint/dist-bundles.sh" --self-test
 run_step "L1 lint: dist entrypoints are esbuild bundles" bash "$HERE/l1-lint/dist-bundles.sh"
 run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
 run_step "L1 lint: labels.json triage rule + LABELS.md generated fresh"  node --test "$HERE/l1-lint/labels.test.mjs"
+run_step "L1 lint: no generated output tracked in git"  node --test "$HERE/l1-lint/no-tracked-generated.test.mjs"
 run_step "L1 lint: bug.yml matches the bug-report FORM_FIELDS"  node --test "$HERE/l1-lint/bug-form.test.mjs"
 run_step "L1 lint: new ts/tsx/sh files open with a purpose header"  node --test "$HERE/l1-lint/purpose-header.test.mjs"
 run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"

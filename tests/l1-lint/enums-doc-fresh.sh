@@ -2,8 +2,8 @@
 # Lint: the artifacts generated from mcp/trajectory-server/src/audit-events.ts
 # are current — the audit.event_type table in docs/contributing/ENUMS.md
 # (between its generated markers) and scripts/hooks/lib/audit-events.txt, the
-# `event<TAB>writers` list hooks validate against. Reads the compiled dist/audit-events.js, which
-# dist-fresh.sh keeps in step with src/.
+# `event<TAB>writers` list hooks validate against. Reads the compiled dist/audit-events.js, so
+# build the server first.
 #
 # Every run first self-tests: a copy with one doc row dropped, and a copy with
 # one txt line dropped, must each fail naming the stale file.

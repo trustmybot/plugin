@@ -1,0 +1,2 @@
+### Changed
+- **The repo no longer commits generated build output** (GH 2054): `mcp/trajectory-server/dist/`, `dashboard/dist/`, `scripts/hooks/lib/audit-events.txt` and `scripts/hooks/lib/data-contracts.json` are untracked and ignored, since CI builds the published payload and worktrees and `tests/run-all.sh` build first. `.gitattributes` and the `dist-fresh.sh` lint are gone; a new L1 lint, `no-tracked-generated.test.mjs`, fails when any of those paths is tracked and names the `git rm -r --cached <path>` fix. Nothing changes for installs.
