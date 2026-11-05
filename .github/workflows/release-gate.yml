@@ -110,10 +110,12 @@ jobs:
           restore-keys: hf-bge-small-
 
       - name: Install deps
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
 
-      - name: Build dist
-        run: bun run build
+      - name: Build the generated payload
+        run: bun run build:payload
 
       - name: Fetch bge-small q8 model (CI-assets release, huggingface.co fallback)
         env:
@@ -198,10 +200,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Install deps
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
 
-      - name: Build dist
-        run: bun run build
+      - name: Build the generated payload
+        run: bun run build:payload
 
       - name: Install Claude Code CLI
         run: |
