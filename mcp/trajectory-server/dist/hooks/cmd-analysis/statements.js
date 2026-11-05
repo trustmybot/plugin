@@ -539,8 +539,13 @@ function scan(buf, base, home, assign, frames, charge) {
                 return false;
         return plainDollars(text);
     }
-    /** Sets `owns`: the statement's command word comes before its last word, or it is itself a tail. */
-    function flush() {
+    /**
+     * Sets `owns`: the statement's command word comes before its last word, or
+     * it is itself a tail. `sub`: without `assign`, an unquoted $( ) or backtick
+     * follows without leaving a word of its own, so a blank right before it
+     * makes it a word after the command word (GH 2381).
+     */
+    function flush(sub = false) {
         const args = tail;
         tail = false;
         owns = args;
@@ -629,7 +634,7 @@ function scan(buf, base, home, assign, frames, charge) {
         }
         let a0 = w[first];
         if (!args)
-            owns = w.slice(first + 1).some((x) => x !== '');
+            owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
         if (assign && !wq[first] && (a0 === 'for' || a0 === 'select'))
             forhead(w, first);
         else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function'))
@@ -836,9 +841,9 @@ function scan(buf, base, home, assign, frames, charge) {
                     stmt = stmt.slice(0, -1);
             }
             cut = true;
-            flush();
+            flush(!assign && last === '$');
             push();
-            sstack[sp] = assign && last === '$' && owns;
+            sstack[sp] = last === '$' && owns;
             continue;
         }
         if (c === ')') {
@@ -855,7 +860,7 @@ function scan(buf, base, home, assign, frames, charge) {
             if (assign && !bt)
                 stmt += '$' + ENC[8] + ENC[9];
             cut = true;
-            flush();
+            flush(!assign && !bt);
             if (bt) {
                 bt = false;
                 const closes = sp > 0 && sstack[sp];
@@ -865,7 +870,7 @@ function scan(buf, base, home, assign, frames, charge) {
             else {
                 bt = true;
                 push();
-                sstack[sp] = assign && owns;
+                sstack[sp] = owns;
             }
             continue;
         }
