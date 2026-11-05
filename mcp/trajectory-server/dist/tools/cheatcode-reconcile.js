@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { nowISO } from '../db.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { selectProjectInstalls } from './cheatcode-runtime.js';
 import { projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 const DEFAULT_TIMEOUT_SEC = 4;
 const MAX_LISTING_BYTES = 8 * 1024 * 1024;
@@ -56,7 +57,8 @@ function claudeJsonMcpKeys() {
     }
     return new Set();
 }
-function parsePluginListing(text) {
+/** Evidence per listed plugin id, from the install in effect for `projectRoot`; an id with none is disabled and unversioned. */
+function parsePluginListing(text, projectRoot) {
     let parsed;
     try {
         parsed = JSON.parse(text);
@@ -67,13 +69,12 @@ function parsePluginListing(text) {
     if (!Array.isArray(parsed))
         return null;
     const plugins = new Map();
-    for (const entry of parsed) {
-        if (!entry || typeof entry !== 'object')
-            continue;
-        const { id, enabled, mcpServers } = entry;
-        plugins.set(typeof id === 'string' ? id : '', {
+    for (const [id, entry] of selectProjectInstalls(parsed, projectRoot)) {
+        const { enabled, mcpServers, version } = entry ?? {};
+        plugins.set(id, {
             enabled: enabled === true,
             mcpServers: new Set(mcpServers && typeof mcpServers === 'object' ? Object.keys(mcpServers) : []),
+            version: typeof version === 'string' && version !== '' ? version : null,
         });
     }
     return plugins;
@@ -84,7 +85,7 @@ async function probeListings(timeoutSec, projectRoot) {
         runClaude(['plugin', 'list', '--json'], timeoutSec, projectRoot),
     ]);
     const mcpNames = new Set([...(mcpText === null ? [] : parseMcpListing(mcpText)), ...claudeJsonMcpKeys()]);
-    const plugins = pluginText === null ? null : parsePluginListing(pluginText);
+    const plugins = pluginText === null ? null : parsePluginListing(pluginText, projectRoot);
     return {
         evidence: { mcpServers: mcpNames.size > 0 ? mcpNames : null, plugins },
         listed: mcpText !== null || plugins !== null,
@@ -210,11 +211,32 @@ function computeStatus(row, evidence, pluginRoot) {
             return null;
     }
 }
+/** The listed version of a plugin row, preferring the enabled entry, then the row's own `<name>@<marketplace>` id. */
+function livePluginVersion(row, evidence) {
+    let best = null;
+    let bestRank = -1;
+    for (const [id, entry] of evidence.plugins ?? []) {
+        if (pluginName(id) !== row.name || !entry.version)
+            continue;
+        const rank = (entry.enabled ? 2 : 0) + (id === row.source_url ? 1 : 0);
+        if (rank > bestRank) {
+            best = entry.version;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
 export function reconcileCheatcodes(db, evidence, opts) {
     const pluginRoot = opts.pluginRoot ?? process.env['CLAUDE_PLUGIN_ROOT'];
-    const rows = db.all(`SELECT id, name, kind, status, source_url, file_path FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
+    const rows = db.all(`SELECT id, name, kind, status, source_url, file_path, version FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
     const transitions = [];
     for (const row of rows) {
+        if (row.kind === 'plugin') {
+            const live = livePluginVersion(row, evidence);
+            if (live !== null && live !== row.version) {
+                db.run('UPDATE cheatcodes SET version = ?, updated_at = ? WHERE id = ?', [live, opts.now, row.id]);
+            }
+        }
         const next = computeStatus(row, evidence, pluginRoot);
         if (next === null || next === row.status)
             continue;

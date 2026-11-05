@@ -975,6 +975,52 @@ describe('upsertDiscoveredCheatcode — the (name, kind) discovery writer', () =
     assert.equal(discoveredCount(db), 0);
     db.close();
   });
+
+  const OLD = '2000-01-01T00:00:00.000Z';
+  const seedStale = (db: ReturnType<typeof tempDB>, name: string, kind: 'plugin' | 'mcp', sourceUrl: string): void => {
+    db.run(
+      `INSERT INTO cheatcodes (name, kind, origin, description, source_url, version, scope, status, installed_at, created_at, updated_at)
+       VALUES (?, ?, 'marketplace', 'seeded', ?, '1.1.0-rc.4', 'project-local', 'active', ?, ?, ?)`,
+      [name, kind, sourceUrl, OLD, OLD, OLD],
+    );
+  };
+  const versionRow = (db: ReturnType<typeof tempDB>, name: string, kind: string) => ({
+    ...db.get<{ version: string | null; updated_at: string }>(
+      'SELECT version, updated_at FROM cheatcodes WHERE name = ? AND kind = ?', [name, kind],
+    )!,
+  });
+
+  it('GH 2136: a different live version rewrites a stored version and bumps updated_at; an equal one writes nothing', () => {
+    const db = tempDB();
+    seedStale(db, 'tmb', 'plugin', 'tmb@trustmybot');
+    const live = {
+      name: 'tmb', kind: 'plugin', origin: 'marketplace', source_url: 'tmb@trustmybot', status: 'active',
+      description: 'seeded', version: '1.2.0-dev.215.gh2130',
+    } as const;
+    upsertDiscoveredCheatcode(db, live);
+    const refreshed = versionRow(db, 'tmb', 'plugin');
+    assert.equal(refreshed.version, '1.2.0-dev.215.gh2130');
+    assert.ok(refreshed.updated_at > OLD, `updated_at not bumped: ${refreshed.updated_at}`);
+
+    db.run("UPDATE cheatcodes SET updated_at = ? WHERE name = 'tmb'", [OLD]);
+    upsertDiscoveredCheatcode(db, live);
+    assert.deepEqual(versionRow(db, 'tmb', 'plugin'), { version: '1.2.0-dev.215.gh2130', updated_at: OLD });
+    assert.equal(discoveredCount(db), 0);
+    db.close();
+  });
+
+  it('GH 2136: an empty or absent live version leaves a stored version intact', () => {
+    const db = tempDB();
+    seedStale(db, 'tmb', 'plugin', 'tmb@trustmybot');
+    for (const version of ['', null, undefined]) {
+      upsertDiscoveredCheatcode(db, {
+        name: 'tmb', kind: 'plugin', origin: 'marketplace', source_url: 'tmb@trustmybot', status: 'active',
+        description: 'seeded', version,
+      });
+      assert.deepEqual(versionRow(db, 'tmb', 'plugin'), { version: '1.1.0-rc.4', updated_at: OLD });
+    }
+    db.close();
+  });
 });
 
 
@@ -1008,6 +1054,52 @@ describe('scan_run plugin inventory under TMB_FORBID_LIVE_SYNC=1', () => {
       assert.deepEqual(servers, [{ name: 'alpha-server', source_url: 'mcp:alpha/alpha-server' }]);
     } finally {
       process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('GH 2136: refreshes a stale plugin and bundled MCP version from the fixture; an empty version keeps the stored one', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-plugin-version-ws-');
+    const OLD = '2000-01-01T00:00:00.000Z';
+    const seed = (name: string, kind: string, sourceUrl: string): void => {
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, description, source_url, version, scope, status, installed_at, created_at, updated_at)
+         VALUES (?, ?, 'marketplace', 'seeded', ?, '1.1.0-rc.4', 'project-local', 'active', ?, ?, ?)`,
+        [name, kind, sourceUrl, OLD, OLD, OLD],
+      );
+    };
+    seed('tmb', 'plugin', 'tmb@trustmybot');
+    seed('trajectory-server', 'mcp', 'mcp:tmb/trajectory-server');
+    seed('blank', 'plugin', 'blank@m');
+    seed('blank-server', 'mcp', 'mcp:blank/blank-server');
+    const fixture = join(ws, 'plugins.json');
+    writeFileSync(fixture, JSON.stringify([
+      {
+        id: 'tmb@trustmybot', version: '1.2.0-dev.215.gh2130', enabled: true, description: 'seeded',
+        mcpServers: { 'trajectory-server': { command: 'node' } },
+      },
+      { id: 'blank@m', version: '', enabled: true, description: 'seeded', mcpServers: { 'blank-server': {} } },
+    ]));
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    process.env['TMB_SCAN_PLUGIN_JSON'] = fixture;
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const rows = db.all<{ name: string; kind: string; version: string; updated_at: string }>(
+        "SELECT name, kind, version, updated_at FROM cheatcodes WHERE kind IN ('plugin', 'mcp') ORDER BY name, kind",
+      );
+      const byName = new Map(rows.map((row) => [`${row.name}/${row.kind}`, row]));
+      for (const key of ['tmb/plugin', 'trajectory-server/mcp']) {
+        assert.equal(byName.get(key)?.version, '1.2.0-dev.215.gh2130', key);
+        assert.ok((byName.get(key)?.updated_at ?? '') > OLD, `${key} updated_at not bumped`);
+      }
+      for (const key of ['blank/plugin', 'blank-server/mcp']) {
+        assert.deepEqual({ version: byName.get(key)?.version, updated_at: byName.get(key)?.updated_at }, { version: '1.1.0-rc.4', updated_at: OLD }, key);
+      }
+    } finally {
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['TMB_SCAN_PLUGIN_JSON'] = pluginListFixture;
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }

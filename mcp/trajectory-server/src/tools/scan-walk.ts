@@ -32,6 +32,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
 import { insertAudit } from './audit.js';
+import { selectProjectInstalls } from './cheatcode-runtime.js';
 
 export interface ScanFile {
   repo: string;
@@ -83,15 +84,17 @@ export interface DiscoveredCheatcode {
 /**
  * The one writer for a discovered resource, keyed on (name, kind). A new row is
  * inserted with a scan_discovered audit row; an existing row only gets a blank
- * description / NULL version filled and a legacy 'mcp:<server>' source_url
- * rewritten to the bundled 'mcp:<plugin>/<server>' form, without an audit row.
+ * description filled, its version set to a non-empty live version that differs
+ * from the stored one, and a legacy 'mcp:<server>' source_url rewritten to the
+ * bundled 'mcp:<plugin>/<server>' form, without an audit row. An empty or absent
+ * live version never changes the stored one.
  */
 export function upsertDiscoveredCheatcode(
   db: TrajectoryDB,
   r: DiscoveredCheatcode,
 ): { id: number; inserted: boolean } {
   const description = r.description ?? '';
-  const version = r.version ?? null;
+  const version = r.version || null;
   return db.transaction(() => {
     const now = nowISO();
     const res = db.run(
@@ -119,17 +122,17 @@ export function upsertDiscoveredCheatcode(
     db.run(
       `UPDATE cheatcodes
           SET description = CASE WHEN description = '' THEN ? ELSE description END,
-              version = COALESCE(version, ?),
+              version = COALESCE(?, version),
               source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
                                 THEN ? ELSE source_url END,
               updated_at = ?
         WHERE name = ? AND kind = ?
           AND ((description = '' AND ? <> '')
-               OR (version IS NULL AND ? IS NOT NULL)
+               OR (? IS NOT NULL AND version IS NOT ?)
                OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`,
       [
         description, version, r.source_url, r.source_url, now, r.name, r.kind,
-        description, version, r.source_url,
+        description, version, version, r.source_url,
       ],
     );
     const row = db.get<{ id: number }>('SELECT id FROM cheatcodes WHERE name = ? AND kind = ?', [r.name, r.kind]);
@@ -543,23 +546,37 @@ function manifestDescription(installPath: string): string {
   }
 }
 
-function registerPlugins(db: TrajectoryDB, list: unknown[]): void {
-  const entries = list.filter(isObject).map((p) => {
+/**
+ * One plugin row per listed id, plus one row per MCP server it bundles. Version,
+ * enabled and mcpServers come from the install in effect for `projectRoot`
+ * (selectProjectInstalls); an id with no such install registers as 'installed'
+ * with no version and no bundled servers.
+ */
+function registerPlugins(db: TrajectoryDB, list: unknown[], projectRoot: string): void {
+  const firstListed = new Map<string, Record<string, unknown>>();
+  for (const p of list.filter(isObject)) {
     const id = typeof p['id'] === 'string' ? p['id'] : '';
-    return { p, id, name: id.split('@')[0] ?? '', version: scalar(p['version']) };
-  });
-  for (const { p, id, name, version } of entries) {
+    if (!firstListed.has(id)) firstListed.set(id, p);
+  }
+  const entries = [...selectProjectInstalls(list, projectRoot)].map(([id, selected]) => ({
+    id,
+    name: id.split('@')[0] ?? '',
+    p: selected ?? firstListed.get(id) ?? {},
+    selected,
+    version: selected ? scalar(selected['version']) : '',
+  }));
+  for (const { p, id, name, selected, version } of entries) {
     if (name === '') continue;
     const listed = typeof p['description'] === 'string' ? p['description'].replace(/[\t\n\r]/g, ' ') : '';
     const installPath = scalar(p['installPath']);
     const description = listed === '' && installPath !== '' ? manifestDescription(installPath) : listed;
     register(db, {
       kind: 'plugin', name, origin: 'marketplace', source_url: id,
-      status: p['enabled'] === true ? 'active' : 'installed', description, version,
+      status: selected?.['enabled'] === true ? 'active' : 'installed', description, version,
     });
   }
-  for (const { p, name: plugin, version } of entries) {
-    const servers = p['mcpServers'];
+  for (const { selected, name: plugin, version } of entries) {
+    const servers = selected?.['mcpServers'];
     if (!isObject(servers) || !VALID_NAME.test(plugin)) continue;
     for (const server of Object.keys(servers).sort()) {
       if (server === '') continue;
@@ -634,7 +651,7 @@ async function discoverResources(
     registerSkills(db, sessionDir);
     const plugins = await pluginList(sessionDir, env, deadline);
     result.plugin = plugins.inventory;
-    if (plugins.list) registerPlugins(db, plugins.list);
+    if (plugins.list) registerPlugins(db, plugins.list, sessionDir);
     const mcp = mcpServers(env);
     result.mcp = mcp.inventory;
     for (const key of Object.keys(mcp.servers ?? {}).sort()) {
