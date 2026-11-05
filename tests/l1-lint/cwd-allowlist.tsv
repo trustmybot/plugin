@@ -61,5 +61,7 @@ scripts/hooks/lib/query-task.sh	case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac	c
 mcp/trajectory-server/src/cli/health.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	the server-reachable check counts MCP server processes from the process table; reads no project or repo
 mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	the redaction root falls back to the server's start dir only when neither the DB nor CLAUDE_PROJECT_DIR names a project (an in-memory DB in tests)
 mcp/trajectory-server/src/hooks/resolve-hook.ts	const result = spawnSync(process.execPath, [router	not-location	the headless-shim resolver finds nothing from the cwd: it runs the router in the hook runner's directory, as the plugin's own hooks.json entry does and resolve-hook.sh's exec did (GH 1692)
+mcp/trajectory-server/src/cli/stale-docs.ts	git(process.cwd(), ['rev-parse', '--show-toplevel'])	join-base	the stale-docs CLI checks the repo it is invoked in: the toplevel of the dir the command runs in (GH 2368)
+scripts/maintenance/reviewer-eval.ts	values.repo ?? process.cwd()	fallback	the reviewer-eval developer CLI reads the dir it runs in only when --repo names no repo (GH 2368)
 tests/lib/live-db-shim.mjs	const here = process.cwd();	test-harness	the generated sqlite3 shim logs the dir it was invoked in and joins a relative DB argument to it
 tests/lib/live-db-shim.mjs	spawnSync(REAL, args, { stdio: 'inherit' })	test-harness	the generated sqlite3 shim runs the real sqlite3 in its caller's dir, as the exec it replaces did

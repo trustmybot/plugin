@@ -11,7 +11,8 @@
  *   3. One row per spawn: the task_brief row is UPDATEd, a re-fire never
  *      duplicates.
  *   4. Measures: every token column is a per-message sum.
- *   5. Effort: swe rows copy tasks.effort; code-reviewer rows carry
+ *   5. Effort: swe rows copy tasks.effort; code-reviewer rows carry the
+ *      task's assigned reviewer effort (GH 1955), else
  *      plugin_config.reviewer_effort (medium when unset).
  *   6. No usage: closes the row unmeasured and keeps earlier metering.
  *   7. Plugin version (GH 1884): the insert writes the manifest version, an
@@ -254,6 +255,16 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
             sql(db, `INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '"high"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
             hook(prStopInput(tr1, 'agent-rev-2'));
             assert.equal(q(db, "SELECT effort FROM agent_runs WHERE task_id=144 AND agent_type='code-reviewer' ORDER BY id"), 'medium\nhigh', 'the earlier row keeps medium, the new one carries high');
+        });
+        it("the task's assigned reviewer effort lands on the code-reviewer row over the config (GH 1955)", () => {
+            sql(db, "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (1, 'fix/task-144', 'bro', 'reviewer_effort_assigned', 's', ?, ?)", JSON.stringify({ task_id: 144, commit_sha: 'abc1234', effort: 'low', reason: 'docs_tests' }), NOW);
+            try {
+                hook(prStopInput(tr1, 'agent-rev-3'));
+                assert.equal(q(db, "SELECT effort FROM agent_runs WHERE spawn_id='agent-rev-3'"), 'low', 'effort = the assigned low, not the configured high');
+            }
+            finally {
+                sql(db, "DELETE FROM audit WHERE event_type='reviewer_effort_assigned'");
+            }
         });
         it('an unbound code-reviewer spawn writes nothing', () => {
             const total = q(db, 'SELECT COUNT(*) FROM agent_runs');
