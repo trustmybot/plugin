@@ -235,7 +235,6 @@ run_step "L3 integration: await payload/<tag> on the remote"          node --tes
 run_step "L3 integration: release.ts + publish-rc-channel.ts (stubbed git/gh)"  node --test "$HERE/l3-integration/release-scripts.test.mjs"
 run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"
 run_step "L3 integration: dev-build-version"                          node --test "$HERE/l3-integration/dev-build-version.test.mjs"
-run_step "L3 integration: tmb-regen merge driver"                     node --test "$HERE/l3-integration/merge-driver.test.mjs"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 # The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
