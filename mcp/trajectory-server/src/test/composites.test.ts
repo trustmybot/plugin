@@ -743,6 +743,49 @@ describe('scopeCheckCommit (#157)', () => {
     }
   });
 
+  it('baseMoved: false for a stacked base, true for a strictly older or unresolvable recorded base (GH 2384)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scopecheck-base-'));
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-C', ws, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    const commit = (file: string): string => {
+      writeFileSync(join(ws, file), `${file}\n`);
+      git('add', '.');
+      git('commit', '-q', '-m', file);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q', '-b', 'dev');
+      git('config', 'user.email', 't@t.t');
+      git('config', 'user.name', 't');
+      const base = commit('seed.txt');
+      git('checkout', '-q', '-b', 'stack');
+      const stackTip = commit('stack.txt');
+      git('checkout', '-q', '-b', 'work');
+      const sha = commit('work.txt');
+      git('checkout', '-q', '-b', 'other', base);
+      commit('other.txt');
+      git('checkout', '-q', 'dev');
+      commit('dev.txt');
+
+      const stacked = scopeCheckCommit(ws, 'dev', sha, ['work.txt'], 'stack');
+      assert.equal(stacked.recordedBase, stackTip);
+      assert.equal(stacked.mergeBase, base);
+      assert.equal(stacked.baseMoved, false, 'a recorded base strictly descending from the merge-base is a live stack');
+      assert.deepEqual(stacked.outOfScope, []);
+
+      const older = scopeCheckCommit(ws, 'stack', sha, ['work.txt', 'stack.txt'], 'other');
+      assert.equal(older.recordedBase, base);
+      assert.equal(older.mergeBase, stackTip);
+      assert.equal(older.baseMoved, true, 'a recorded base older than the merge-base is a move');
+
+      const unresolved = scopeCheckCommit(ws, 'dev', sha, ['work.txt', 'stack.txt'], 'origin/gone');
+      assert.equal(unresolved.recordedBase, null);
+      assert.equal(unresolved.baseMoved, true);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('returns checked:false with a reason when the repo/commit is unresolvable', () => {
     const ws = mkdtempSync(join(tmpdir(), 'scopecheck-nogit-'));
     try {
@@ -762,7 +805,14 @@ describe('bro_atomic_close — scope gate (#157)', () => {
   async function setup(
     taskFiles: string[],
     changedFiles: string[],
-    opts: { withRemote?: boolean; devAdvance?: string[]; sibling?: string[]; localAhead?: string[] } = {},
+    opts: {
+      withRemote?: boolean;
+      devAdvance?: string[];
+      sibling?: string[];
+      localAhead?: string[];
+      staleParent?: string[];
+      orphanParent?: boolean;
+    } = {},
   ): Promise<{
     db: TrajectoryDB;
     composites: ReturnType<typeof compositeTools>;
@@ -815,6 +865,27 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/sibling', siblingSha);
     }
 
+    // The parent ref stays at the old base while dev gains commits the task
+    // is cut on top of: the recorded base is strictly older than the target.
+    let parent = opts.sibling ? 'feat/sibling' : 'dev';
+    if (opts.staleParent) {
+      git(repoRoot, 'branch', 'feat/stale', baseSha);
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/stale', baseSha);
+      const devTip = commitFiles(opts.staleParent, 'dev newer');
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', devTip);
+      parent = 'feat/stale';
+    }
+
+    // A parent ref sharing no history with the task: its merge-base does not resolve.
+    if (opts.orphanParent) {
+      git(repoRoot, 'checkout', '-q', '--orphan', 'feat/orphan');
+      git(repoRoot, 'rm', '-rqf', '.');
+      const orphanSha = commitFiles(['orphan.md'], 'orphan');
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/orphan', orphanSha);
+      git(repoRoot, 'checkout', '-q', 'dev');
+      parent = 'feat/orphan';
+    }
+
     // Put the work commit on a feature branch so the local `dev` ref stays at
     // the base — the remoteless fallback then diffs a real parent...work range.
     git(repoRoot, 'checkout', '-q', '-b', 'feat/work');
@@ -856,7 +927,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     }));
     const taskId = String(created[0]!.id);
     db.run(`UPDATE tasks SET parent_branch_id=?, files=? WHERE id=?`, [
-      opts.sibling ? 'feat/sibling' : 'dev',
+      parent,
       JSON.stringify(taskFiles),
       taskId,
     ]);
@@ -990,7 +1061,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     }
   });
 
-  it('a waiver records the accepted paths, reason, base_moved, recorded_base and merge_base; task_brief exposes scope', async () => {
+  it('a waiver on a live stacked base records the accepted paths, reason, base_moved:false, recorded_base and merge_base; task_brief exposes scope (GH 2384)', async () => {
     const { db, composites, taskId, issueId, sha, baseSha, siblingSha, cleanup } = await setup(
       ['src/a.ts'],
       ['src/a.ts', 'tests/rogue.test.ts'],
@@ -1003,9 +1074,9 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
       const out = parse(r);
-      assert.equal(out['base_moved'], true);
-      assert.equal(out['recorded_base'], siblingSha);
-      assert.equal(out['merge_base'], baseSha);
+      assert.equal(out['base_moved'], false, 'a recorded base strictly descending from the merge-base is not a move');
+      assert.equal(out['recorded_base'], undefined);
+      assert.equal(out['merge_base'], undefined);
       assert.deepEqual(out['extras_accepted'], ['tests/rogue.test.ts'], 'the sibling base commits are not the task\'s own');
 
       const waive = db.get<{ summary: string; content_json: string }>(
@@ -1015,7 +1086,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       const payload = JSON.parse(waive!.content_json) as Record<string, unknown>;
       assert.deepEqual(payload['accepted_paths'], ['tests/rogue.test.ts']);
       assert.equal(payload['reason'], 'sibling docs land with the stack; test needed');
-      assert.equal(payload['base_moved'], true);
+      assert.equal(payload['base_moved'], false);
       assert.equal(payload['recorded_base'], siblingSha);
       assert.equal(payload['merge_base'], baseSha);
 
@@ -1023,23 +1094,62 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       assert.deepEqual(brief['scope'], {
         files: ['src/a.ts'],
         extras_accepted: ['tests/rogue.test.ts'],
-        base_moved: true,
+        base_moved: false,
       });
     } finally {
       cleanup();
     }
   });
 
-  it('base_moved is reported without extras when the recorded base differs from the merge-base', async () => {
+  it('a task stacked on a live sibling branch closes with base_moved:false and task_brief scope.base_moved false (GH 2384)', async () => {
     const { composites, taskId, sha, cleanup } = await setup(['src/', 'docs/'], ['src/a.ts'], { sibling: ['docs/sibling.md'] });
     try {
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(parse(r)['base_moved'], true);
+      assert.equal(parse(r)['base_moved'], false);
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
-      assert.deepEqual(brief['scope'], { files: ['src/', 'docs/'], extras_accepted: [], base_moved: true });
+      assert.deepEqual(brief['scope'], { files: ['src/', 'docs/'], extras_accepted: [], base_moved: false });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a recorded base strictly older than the target merge-base closes with base_moved:true plus recorded_base and merge_base (GH 2384)', async () => {
+    const { db, composites, taskId, sha, baseSha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], {
+      staleParent: ['docs/newer-dev.md'],
+    });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `newer dev commits must not be extras, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r);
+      assert.equal(out['base_moved'], true);
+      assert.equal(out['recorded_base'], baseSha);
+      const repoPath = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = 'app'`)!.path;
+      const devTip = execFileSync('git', ['-C', repoPath, 'rev-parse', 'origin/dev']).toString().trim();
+      assert.equal(out['merge_base'], devTip);
+      const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
+      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras_accepted: [], base_moved: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a parent ref whose merge-base does not resolve closes with base_moved:true, recorded_base null and merge_base (GH 2384)', async () => {
+    const { composites, taskId, sha, baseSha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], { orphanParent: true });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r);
+      assert.equal(out['base_moved'], true);
+      assert.ok('recorded_base' in out);
+      assert.equal(out['recorded_base'], null);
+      assert.equal(out['merge_base'], baseSha);
     } finally {
       cleanup();
     }

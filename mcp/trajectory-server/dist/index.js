@@ -41554,7 +41554,8 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
   }
   const changed = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
   const outOfScope = changed.filter((l) => !pathInFiles(l, files));
-  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+  const baseMoved = recordedBase === null || recordedBase !== mergeBase && !isAncestor(repoPath, mergeBase, recordedBase);
+  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved };
 }
 function scopeUnchecked(e) {
   return {
