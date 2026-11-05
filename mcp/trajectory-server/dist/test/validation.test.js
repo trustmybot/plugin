@@ -130,14 +130,18 @@ describe('validation_record review findings (GH 1737)', () => {
         ]);
         assert.match(String(rows[0]['created_at']), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
-    it('re-recording an attempt replaces its open findings, keeps fixed ones, and numbers on from the highest id', async () => {
+    it('re-recording an attempt appends at the next attempt, keeps every earlier finding, and numbers on from the highest id', async () => {
         db.run("UPDATE review_findings SET status = 'fixed', resolved_at = ? WHERE id = ?", [new Date().toISOString(), `F${taskId}-1`]);
         const result = await record(1, { verdict: 'fail', findings: [{ probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1' }] });
         assert.ok(!result.isError, JSON.stringify(parseResult(result)));
-        assert.deepEqual(findingRows().map((r) => [r['id'], r['status'], r['probe_cmd']]), [
-            [`F${taskId}-1`, 'fixed', 'npm test'],
-            [`F${taskId}-3`, 'open', 'npm run lint'],
-        ], 'the open F-2 of attempt 1 is replaced by F-3; the fixed F-1 stays');
+        assert.equal(parseResult(result).attempt_n, 2);
+        assert.equal(attempts(1), 1);
+        assert.equal(attempts(2), 1);
+        assert.deepEqual(findingRows().map((r) => [r['id'], r['attempt_n'], r['status'], r['probe_cmd']]), [
+            [`F${taskId}-1`, 1, 'fixed', 'npm test'],
+            [`F${taskId}-2`, 1, 'open', 'bash tests/l3.sh'],
+            [`F${taskId}-3`, 2, 'open', 'npm run lint'],
+        ], 'attempt 1 keeps F-1 and F-2; F-3 attaches to the stored attempt 2');
     });
     it('task_brief.open_findings lists only open findings with id, criterion_id, probe_cmd, expected and observed', async () => {
         const second = await record(2, { verdict: 'escalate', findings: [{ ...FINDING, criterion_id: 'SC2', probe_cmd: 'exit 3' }] });
@@ -146,6 +150,7 @@ describe('validation_record review findings (GH 1737)', () => {
        VALUES (?, ?, 2, 'exit 9', 'exit 0', 'exit 9', 'wontfix', ?)`, [`F${taskId}-5`, taskId, new Date().toISOString()]);
         const brief = parseResult((await call(compositeTools(db, '').handlers, 'task_brief', { agent: 'swe', task_id: taskId })));
         assert.deepEqual(brief.open_findings, [
+            { id: `F${taskId}-2`, criterion_id: null, probe_cmd: 'bash tests/l3.sh', expected: 'exit 0', observed: 'exit 2', severity: 'blocking', class: null },
             { id: `F${taskId}-3`, criterion_id: null, probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: null },
             { id: `F${taskId}-4`, criterion_id: 'SC2', probe_cmd: 'exit 3', expected: 'exit 0', observed: 'exit 1: 2 failing', severity: 'blocking', class: null },
         ]);
@@ -367,28 +372,32 @@ describe('validation_record reviewer identity', () => {
         assert.equal(consumed(older), 0);
         assert.equal(db.get(`SELECT json_extract(content_json, '$.superseded_by') AS s FROM audit WHERE id = ?`, [older]).s, newer);
     });
-    it('a verified pass is never overwritten by an honor-system call (verified_verdict_exists)', async () => {
+    it('an honor-system call at a verified attempt appends at the next attempt and leaves the verified row unchanged', async () => {
         seedReviewerObservation(db, taskId, 13, { agentId: 'reviewer-agent-0013' });
         const verified = await record(13);
         assert.ok(!verified.isError, JSON.stringify(parseResult(verified)));
         const before = db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]);
         const honor = await record(13, { mcp_available: false, verdict: 'fail', subagent_session_id: 'sess-honor', findings: [FINDING] });
-        assert.ok(honor.isError);
-        const error = parseResult(honor).error;
-        assert.match(error, /^verified_verdict_exists/);
-        assert.match(error, /verified pass verdict/);
+        assert.ok(!honor.isError, JSON.stringify(parseResult(honor)));
+        const row = parseResult(honor);
+        assert.equal(row.attempt_n, 14);
+        assert.equal(row.verdict, 'fail');
+        assert.equal(row.mcp_available, 0);
         assert.deepEqual({ ...db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]) }, { ...before }, 'the verified row is unchanged');
     });
-    it('a verified verdict replaces a verified verdict', async () => {
-        seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
-        assert.ok(!(await record(14)).isError);
-        seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
-        const replaced = await record(14, { verdict: 'fail', feedback: '# re-recorded', findings: [FINDING] });
-        assert.ok(!replaced.isError, JSON.stringify(parseResult(replaced)));
-        const row = parseResult(replaced);
+    it('a verified verdict at a recorded attempt appends after the verified one', async () => {
+        seedReviewerObservation(db, taskId, 21, { agentId: 'reviewer-agent-0021' });
+        assert.ok(!(await record(21)).isError);
+        const before = db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 21', [taskId]);
+        seedReviewerObservation(db, taskId, 21, { agentId: 'reviewer-agent-0021' });
+        const appended = await record(21, { verdict: 'fail', feedback: '# re-recorded', findings: [FINDING] });
+        assert.ok(!appended.isError, JSON.stringify(parseResult(appended)));
+        const row = parseResult(appended);
+        assert.equal(row.attempt_n, 22);
         assert.equal(row.verdict, 'fail');
         assert.equal(row.mcp_available, 1);
-        assert.equal(row.reviewer_agent_id, 'reviewer-agent-0014');
+        assert.equal(row.reviewer_agent_id, 'reviewer-agent-0021');
+        assert.deepEqual({ ...db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 21', [taskId]) }, { ...before });
     });
     it('honor-system path (mcp_available:false, no row) records caller values and audits validation_session_unverified', async () => {
         const result = await record(5, { mcp_available: false, subagent_session_id: 'sess-honor' });
@@ -647,6 +656,27 @@ describe('validation_record return_line (GH 1959)', () => {
         assert.equal(data.findings.length, 2);
         assert.equal(data.return_line, `verdict=fail task=${taskId} sha=fedcba98 attempt=2 row=${data.id} findings=2`);
         assert.match(data.return_line, /^[\x20-\x7e]+$/);
+    });
+    it('GH 2412: a PASS at the attempt_n of an earlier FAIL appends at MAX+1 and leaves the FAIL and its open findings as they were', async () => {
+        const fail = await record(7, { verdict: 'fail', findings: [FINDING] });
+        assert.ok(!fail.isError, fail.content[0].text);
+        const failRow = { ...db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 7', [taskId]) };
+        assert.equal(failRow['reviewer_agent_id'], 'reviewer-agent-1959-7');
+        const failFindings = db.all('SELECT * FROM review_findings WHERE task_id = ? AND attempt_n = 7', [taskId]).map((r) => ({ ...r }));
+        assert.equal(failFindings.length, 1);
+        const pass = await record(7, { verdict: 'pass' });
+        assert.ok(!pass.isError, pass.content[0].text);
+        const data = parseResult(pass);
+        assert.equal(data.attempt_n, 8);
+        assert.equal(data.verdict, 'pass');
+        assert.equal(data.return_line, `verdict=pass task=${taskId} sha=fedcba98 attempt=8 row=${data.id} findings=0`);
+        const rows = db.all('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n IN (7, 8) ORDER BY id', [taskId]).map((r) => ({ ...r }));
+        assert.equal(rows.length, 2);
+        assert.deepEqual(rows[0], failRow, 'the FAIL row is unchanged: verdict, feedback, created_at, reviewer ids');
+        assert.equal(rows[1]['verdict'], 'pass');
+        assert.equal(rows[1]['id'], data.id);
+        assert.deepEqual(db.all('SELECT * FROM review_findings WHERE task_id = ? AND attempt_n = 7', [taskId]).map((r) => ({ ...r })), failFindings, 'the FAIL findings stay open');
+        assert.equal(failFindings[0]['status'], 'open');
     });
 });
 describe('validation_history findings per attempt (GH 1955)', () => {
