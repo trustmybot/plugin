@@ -9227,6 +9227,7 @@ import { join as join8, posix } from "node:path";
 
 // src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
+var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
 
 // src/readme-drift.ts
 var HISTORY_TIMEOUT_MS = 3e4;

@@ -31,6 +31,9 @@
  *      squash-merged parent branch's, is skipped), both over source paths only
  *      (every merge=tmb-regen path excluded), must match, else exit 2. No
  *      rebased commit left means the task's patch is already in <base> → exit 2.
+ *      When the worktree holds .config/tmb/worktree-setup.json (GH 2054), its
+ *      commands run first; a failure → exit 1 with the failing command and its
+ *      output tail on stderr, nothing recorded, branch unmoved.
  *      verification[] runs in the temporary worktree and is recorded as a
  *      verification_runs row (source manual, commit_sha = the rebased SHA).
  *      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
@@ -66,6 +69,7 @@ import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.j
 import { joinToolchainPath, parseBudget, shellLength, shellTail, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL } from '../review-sql.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
 const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
 const DEFAULT_TAIL_CHARS = 4000;
@@ -420,6 +424,11 @@ class Integration {
         }
         if (this.patchIds(this.commitSha) !== this.patchIds(newSha)) {
             this.die(2, `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.base}..reviewed differs from ${this.base}..rebased); ${branch} and the DB are unchanged`);
+        }
+        const setup = await runWorktreeSetup(this.wt, { env: { ...this.env, PATH: toolchainPath } });
+        if (setup.error !== undefined) {
+            this.io.err(`${describeSetupFailure(setup)}\n`);
+            this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
         }
         const now = nowIso();
         const started = this.record(`UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0

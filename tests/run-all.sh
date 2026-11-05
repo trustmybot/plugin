@@ -87,6 +87,11 @@ live_cli_check() {
   printf "→ sentinel 0-byte: no live CLI calls during %s. PASS\n" "$1"
 }
 
+# ----- Build the generated payload --------------------------------------
+# Server dist, dashboard dist, audit-events.txt and data-contracts.json, which
+# the L1 lints below read (GH 2054).
+run_step "Build: generated payload (bun run build:payload)" bun run --cwd "$PLUGIN_ROOT" build:payload
+
 # ----- L1 — Static / lint -----------------------------------------------
 # Offline: lints that would query a forge (TMB_L1_OFFLINE=1) skip, and the
 # stubs above shadow gh/glab/claude.

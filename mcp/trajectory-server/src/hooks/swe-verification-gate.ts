@@ -14,6 +14,10 @@
  * verification_runs under a per-(task, HEAD) mkdir lock, commands the task's
  * last passing ancestor run carries forward are recorded, not run (GH 1950),
  * and the rest run through `bash -c` with the user's toolchain PATH.
+ * Before a run that is not reused, the worktree's opt-in
+ * .config/tmb/worktree-setup.json commands run with that same env (GH 2054);
+ * a setup failure denies with the failing command and its output tail, and
+ * setup is never recorded as a verification command.
  *
  * Budget: plugin_config.verification_timeout_s or TMB_VERIFICATION_TIMEOUT_S,
  * default 900 s, clamped to [1, 1800]; it counts command time only. The record
@@ -51,6 +55,7 @@ import { planCarrySafe } from './lib/verification-carry.js';
 import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } from './lib/verification-runs.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
+import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 
 export { shellLength, shellTail } from './lib/verification-runs.js';
 
@@ -703,9 +708,18 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
         `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) — verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`,
       );
     };
+    const setupThenRun = async (runCtx: RunContext): Promise<string> => {
+      const setup = await runWorktreeSetup(worktree, { env: { ...runCtx.env, PATH: toolchainPath } });
+      if (setup.error !== undefined) {
+        return deny(
+          `BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.\n${describeSetupFailure(setup)}\n\nFix the command or ${WORKTREE_SETUP_FILE} and retry.`,
+        );
+      }
+      return new VerificationRun(runCtx).run();
+    };
     const suiteCommand = [...commands, ...findings.map((f) => (typeof f.probe_cmd === 'string' ? f.probe_cmd : ''))].find(isFullSuite);
     const verify = async (): Promise<string> => {
-      if (suiteCommand === undefined) return new VerificationRun(ctx).run();
+      if (suiteCommand === undefined) return setupThenRun(ctx);
       const fullCapS = suiteWaitCapS(budget.timeoutS);
       const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? '';
       const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
@@ -723,7 +737,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
         const reusedAfterSlot = reuse();
         if (reusedAfterSlot !== null) return reusedAfterSlot;
         const env = slot.kind === 'held' ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
-        return await new VerificationRun({ ...ctx, env }).run();
+        return await setupThenRun({ ...ctx, env });
       } finally {
         if (slot.kind === 'held') slot.release();
       }

@@ -23,6 +23,23 @@ The Codex entry does not import the Claude tool registry, write `.claude/`, crea
 See the [Codex MCP tool reference](../../docs/adapters/codex/TOOLS.md) for the
 exact materialization schemas, states, results, and recovery errors.
 
+## Worktree setup
+
+A repo opts in to a build step for every worktree TMB makes with `.config/tmb/worktree-setup.json` (GH 2054):
+
+```json
+{ "version": 1, "commands": ["bun run build:payload"] }
+```
+
+`src/utils/worktree-setup.ts` reads the file from the worktree's own checkout and runs each command in order through `bash -c` in the worktree, with the user's toolchain PATH, stopping at the first failure; each command has a 10-minute timeout. No file is a no-op. A malformed file (bad JSON, `version` not 1, `commands` not a non-empty array of non-empty strings) is a setup failure, never skipped. The commands carry the same trust as `verification[]`. Setup runs right after the main checkout's `node_modules` is linked in:
+
+- `task_provision`, `task_reopen`, `task_retry`: fail-soft; the result carries `worktree_setup` (`ran`, `commands[]` with `exit_code` / `timed_out` / `elapsed_ms`, `error`, `output_tail`) and provisioning still succeeds.
+- `cli.js integrate`: before `verification[]`; a failure exits 1 with the failing command and its output tail on stderr.
+- `pr_monitor_worktree`: before the reviewer's command; a failure returns an error naming the command, and the worktree is still removed.
+- `swe-verification-gate`: before a run that is not reused; a failure denies the close with the command and its output tail. Setup is not recorded as a verification command.
+
+This repo's own file runs `bun run build:payload`.
+
 ## Test
 
 ```sh
