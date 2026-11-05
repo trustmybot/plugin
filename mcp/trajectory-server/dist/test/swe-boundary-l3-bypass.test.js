@@ -11,10 +11,11 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
+import { dbSchemaCurrent } from '../hooks/lib/db.js';
 import { pathDigest } from '../hooks/lib/target-task.js';
 import { PLUGIN_ROOT, runGate, without } from './hook-sandbox.js';
 import { DENY, editWithTranscript, has, hasNot, makeFixture, runSwe } from './swe-boundary-l3.js';
-const QUERY_TASK = join(PLUGIN_ROOT, 'scripts/hooks/lib/query-task.sh');
+const DB_JS = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks/lib/db.js');
 const SESSION = 'sess-bypass';
 function makeDb(path, ddl) {
     mkdirSync(join(path, '..'), { recursive: true });
@@ -26,11 +27,17 @@ function makeDb(path, ddl) {
         d.close();
     }
 }
-/** <script> run by bash with query-task.sh sourced as $1 and <args> as $2…, its stdout trimmed. */
-function queryTask(script, args, opts) {
-    const r = spawnSync('bash', ['-c', `. "$1"; ${script}`, 'bash', QUERY_TASK, ...args], { cwd: opts.cwd, env: opts.env, encoding: 'utf8' });
+/** dbPath() of the shipped db.js in a node child process run in <cwd> under <env>, "" when unresolved. */
+function dbPathInChild(opts) {
+    const script = 'const m = await import(process.argv[1]); m.resetDbPathCache(); process.stdout.write(m.dbPath() ?? "");';
+    const r = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', '--input-type=module', '-e', script, DB_JS], {
+        cwd: opts.cwd,
+        env: opts.env,
+        encoding: 'utf8',
+    });
     if (r.error)
         throw r.error;
+    assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();
 }
 describe('swe-boundary l3: bypass audit and DB resolution', () => {
@@ -163,18 +170,18 @@ describe('swe-boundary l3: bypass audit and DB resolution', () => {
             const r = runGate('swe-boundary', { cwd: liveWtPrompt, input: `${JSON.stringify(input)}\n`, env: walkEnv(schemaHome, liveWtPrompt) });
             hasNot(r.stdout + r.stderr, DENY, 'live current-schema DB should be resolved, prompt edit allowed');
         });
-        const probe = (db) => queryTask('if tmb_db_schema_current "$2"; then echo current; else echo stale; fi', [db], { cwd: f.sb.dir, env: f.sb.env });
+        const probe = (db) => (dbSchemaCurrent(db, f.sb.env) === 0 ? 'current' : 'stale');
         it('(L1) schema probe: rejects legacy DB', () => {
             assert.equal(probe(join(schemaHome, '.claude/tmb/trajectory.db')), 'stale', 'legacy DB (no prompt_bearing) probed as stale');
         });
         it('(L1) schema probe: accepts current-schema DB', () => {
             assert.equal(probe(join(liveWs, '.claude/tmb/trajectory.db')), 'current', 'current-schema DB probed as current');
         });
-        it('(L1) a home-level workspace pointer is never adopted by tmb_db_path', () => {
+        it('(L1) a home-level workspace pointer is never adopted by dbPath', () => {
             const home = join(f.sb.dir, 'sentinel-stale-home');
             makeDb(join(home, '.claude/tmb/trajectory.db'), 'CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, status TEXT);');
             writeFileSync(join(home, '.claude/tmb-active-workspace'), `${home}\n`);
-            assert.equal(queryTask('tmb_db_path || true', [], { cwd: home, env: walkEnv(home, home) }), '', 'home-level pointer must be treated as unresolved');
+            assert.equal(dbPathInChild({ cwd: home, env: walkEnv(home, home) }), '', 'home-level pointer must be treated as unresolved');
         });
     });
 });

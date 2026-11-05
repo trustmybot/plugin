@@ -1,29 +1,27 @@
 /**
- * tmb_cmd_write_paths of scripts/hooks/lib/cmd-analysis.sh on loops and
- * listings under a root (GH 1692), ported from the bash cmd-analysis l3 test:
+ * tmb_cmd_write_paths on loops and listings under a root (GH 1692), ported
+ * from the bash cmd-analysis l3 test:
  * loop variables bound by an in-root source and the prompt-surface dirs they
  * reach (GH 1324), and find -exec / -delete, fd -x and xargs (GH 1338). Each
- * case runs on the bash lib and on writePaths of the TS module, except a
- * command recorded in divergences.jsonl, which runs on the bash lib only.
+ * case is judged on the frozen answers of the shell lib and on writePaths of
+ * the TS module, except a command recorded in divergences.jsonl, which is
+ * judged on the frozen answer only.
  */
 import { after } from 'node:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Suite, rootedPaths, runSuite, wpaths } from './cmd-analysis-l3.js';
-const LR = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-cmd-analysis.')));
+const LT = mkdtempSync(join(tmpdir(), 'tmb-cmd-analysis.'));
+const LR = realpathSync(LT);
 mkdirSync(join(LR, 'tests'));
 mkdirSync(join(LR, 'a'));
 after(() => rmSync(LR, { recursive: true, force: true }));
 const L = (cmd, cwd = LR) => rootedPaths(cmd, cwd, LR);
-const mapProbe = (p, f) => ({
-    call: p.call,
-    fromSh: (r) => f(p.fromSh(r)),
-    ...(p.ts ? { ts: async () => f(await p.ts()) } : {}),
-});
+const mapProbe = (p, f) => (p.ts ? { ts: async () => f(await p.ts()) } : {});
 const comma = (p) => mapProbe(p, (v) => `,${v},`);
 const loop = (src) => `for f in $(${src}); do sed -i s/a/b/ "$f"; done`;
-const s = new Suite();
+const s = new Suite('loops').token('<LT>', LT).token('<LR>', LR).token('<LR_PARENT>', dirname(LR));
 s.group('tmb_cmd_write_paths: loop variables bounded by an in-root source (GH 1324)')
     .eq('@/tests/*.sh', L(`for f in ${LR}/tests/*.sh; do sed -i 's/a/b/' "$f"; done`), 'an in-root glob')
     .eq('@/tests/*.sh', L(`for f in tests/*.sh; do sed -i 's/a/b/' "$f"; done`), 'a relative glob')

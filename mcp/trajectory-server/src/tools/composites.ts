@@ -167,9 +167,11 @@ function gitOut(repoPath: string, args: string[]): string {
 // cut base) gives `recordedBase` = merge-base(commit, recordedBaseRef); when
 // it resolves the diff starts there, so commits a local-ahead base carries
 // beyond the target never count either — unless the target merge-base is
-// strictly newer. `baseMoved` is true when recordedBase differs from
-// mergeBase. `checked:false` + a reason when git can't resolve the repo or
-// commit (the caller fails CLOSED).
+// strictly newer. `baseMoved` is true when recordedBase is null, or differs
+// from mergeBase without descending from it (the target merge-base is
+// strictly newer, or the two diverged); a recordedBase strictly descending
+// from mergeBase is a live stacked base, not a move. `checked:false` + a
+// reason when git can't resolve the repo or commit (the caller fails CLOSED).
 export function scopeCheckCommit(
   repoPath: string,
   targetRef: string,
@@ -208,7 +210,8 @@ export function scopeCheckCommit(
     .filter((l) => l.length > 0);
   const outOfScope = changed.filter((l) => !pathInFiles(l, files));
 
-  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+  const baseMoved = recordedBase === null || (recordedBase !== mergeBase && !isAncestor(repoPath, mergeBase, recordedBase));
+  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved };
 }
 
 function scopeUnchecked(e: unknown): ScopeCheck {
@@ -3112,7 +3115,7 @@ export function compositeTools(
             if (targetRef) break;
           }
         }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null) : null;
+        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
         const scope: ScopeCheck =
           repoPath && targetRef
             ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)

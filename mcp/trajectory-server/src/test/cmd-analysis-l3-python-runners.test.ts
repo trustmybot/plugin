@@ -1,10 +1,10 @@
 /**
- * tmb_cmd_write_paths of scripts/hooks/lib/cmd-analysis.sh on python code
- * runners and held writers (GH 1692), ported from the bash cmd-analysis l3
- * test: code-string runners and dynamic builtins (GH 1569), paths that hide a
- * write (GH 1571), and held or aliased write callables (GH 1676, 1687). Each
- * case runs on the bash lib and on writePaths of the TS module, except a
- * command recorded in divergences.jsonl, which runs on the bash lib only.
+ * tmb_cmd_write_paths on python code runners and held writers (GH 1692),
+ * ported from the bash cmd-analysis l3 test: code-string runners and dynamic
+ * builtins (GH 1569), paths that hide a write (GH 1571), and held or aliased
+ * write callables (GH 1676, 1687). Each case is judged on the frozen answers
+ * of the shell lib and on writePaths of the TS module, except a command
+ * recorded in divergences.jsonl, which is judged on the frozen answer only.
  */
 import { Suite, runSuite, wpaths, type Probe } from './cmd-analysis-l3.js';
 
@@ -17,7 +17,7 @@ const pyq = (s: string): string => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\
 const U = 'UNRESOLVED:$(proc):$(proc)';
 const AW = 'UNRESOLVED:$(alias-write):$(alias-write)';
 
-const s = new Suite();
+const s = new Suite('python-runners');
 
 s.group('tmb_cmd_write_paths: code-string runners and dynamic builtins (GH 1569)')
   .has(pyw('import cProfile', `cProfile.run('p = "/etc/evil"')`, "open(p, 'w')"), U, 'a code string can rebind a variable write path')

@@ -39,7 +39,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -273,7 +273,10 @@ export function buildRescanSandbox(s: string): void {
   mkdirSync(join(plugin, '.claude-plugin'), { recursive: true });
   writeFileSync(join(plugin, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"9.9.9-parity"}\n');
   mkdirSync(join(plugin, 'scripts/maintenance'), { recursive: true });
-  cpSync(join(PLUGIN_ROOT, 'scripts/hooks/lib'), join(plugin, 'scripts/hooks/lib'), { recursive: true });
+  mkdirSync(join(plugin, 'scripts/hooks/lib'), { recursive: true });
+  for (const name of ['audit-events.txt', 'data-contracts.json']) {
+    copyFileSync(join(PLUGIN_ROOT, 'scripts/hooks/lib', name), join(plugin, 'scripts/hooks/lib', name));
+  }
   writeFileSync(join(plugin, 'scripts/maintenance/run-scan.mjs'), FAKE_INVOKER);
   mkdirSync(join(plugin, 'mcp/trajectory-server/dist'), { recursive: true });
   cpSync(HOOKS_BUNDLE, join(plugin, 'mcp/trajectory-server/dist/hooks.js'));

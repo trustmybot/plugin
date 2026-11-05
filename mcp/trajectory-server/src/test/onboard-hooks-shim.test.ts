@@ -21,7 +21,7 @@ const HOOKS_JSON = {
     PreToolUse: [
       { matcher: 'Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 12, onFailure: 'block' }] },
       { matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 19, onFailure: 'block' }] },
-      { matcher: 'mcp__.*trajectory-server__.*', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 1833, onFailure: 'block' }] },
+      { matcher: 'mcp__.*trajectory-server__.*', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 3630, onFailure: 'block' }] },
       { matcher: 'Read|Skill', hooks: [{ type: 'command', command: routerCommand('PreToolUse'), timeout: 11 }] },
     ],
     PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: routerCommand('PostToolUse'), timeout: 27 }] }],
@@ -148,7 +148,7 @@ describe('project enforcement shim', () => {
       [
         ['Write|Edit|MultiEdit|NotebookEdit', 1, 12, 'block'],
         ['Bash', 1, 19, 'block'],
-        ['mcp__.*trajectory-server__.*', 1, 1833, 'block'],
+        ['mcp__.*trajectory-server__.*', 1, 3630, 'block'],
         ['Read|Skill', 1, 11, undefined],
       ],
     );

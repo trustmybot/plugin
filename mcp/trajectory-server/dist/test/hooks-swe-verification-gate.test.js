@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
-import { joinToolchainPath, msToS, parseBudget, sweVerificationGate, toolchainDirs, TRAJECTORY_PRETOOLUSE_TIMEOUT_S, VERIFICATION_DEFAULT_S, VERIFICATION_MAX_S, } from '../hooks/swe-verification-gate.js';
+import { joinToolchainPath, msToS, parseBudget, suiteWaitCapS, sweVerificationGate, toolchainDirs, TRAJECTORY_PRETOOLUSE_TIMEOUT_S, VERIFICATION_DEFAULT_S, VERIFICATION_MAX_S, } from '../hooks/swe-verification-gate.js';
 import { acquireSuiteSlot } from '../suite-lock.js';
 import { buildVerificationSandbox } from './hooks-swe-verification-parity.suite.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -274,6 +274,10 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
         const entry = hooks.hooks.PreToolUse.find((e) => e.matcher === 'mcp__.*trajectory-server__.*');
         assert.equal(entry?.hooks[0]?.timeout, TRAJECTORY_PRETOOLUSE_TIMEOUT_S);
     });
+    it('GH 2297: waits up to 1800s for a suite slot at the 1800s budget', () => {
+        assert.equal(TRAJECTORY_PRETOOLUSE_TIMEOUT_S, 3630);
+        assert.equal(suiteWaitCapS(VERIFICATION_MAX_S), 1800);
+    });
     it('serializes two concurrent gate runs of full suites outside the budget: both pass, neither times out', async () => {
         rmSync(marksFile, { force: true });
         const e = env({ TMB_VERIFICATION_TIMEOUT_S: '8', HOLD_S: '5' });
@@ -308,10 +312,10 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
         const held = await acquireSuiteSlot({ command: 'npm test', worktree: '/w/other', env: env() });
         assert.equal(held.kind, 'held');
         try {
-            const r = await sweVerificationGate(completion(52), env({ TMB_VERIFICATION_TIMEOUT_S: String(VERIFICATION_MAX_S) }));
+            const r = await sweVerificationGate(completion(52), env({ TMB_VERIFICATION_TIMEOUT_S: String(VERIFICATION_MAX_S), TMB_SUITE_WAIT_CAP_S: '3' }));
             const out = decision(r.stdout);
             assert.equal(out.permissionDecision, 'deny');
-            assert.match(out.permissionDecisionReason ?? '', new RegExp(`^BLOCKED: suite slot busy — every suite slot is held by pid ${process.pid} \\(worktree /w/other\\) for \\d+s; waited \\d+s, the cap of 3s`));
+            assert.match(out.permissionDecisionReason ?? '', new RegExp(`^BLOCKED: suite slot busy — every suite slot is held by pid ${process.pid} \\(worktree /w/other\\) for \\d+s; waited \\d+s, the cap of 3s \\(set by TMB_SUITE_WAIT_CAP_S\\)`));
             assert.match(out.permissionDecisionReason ?? '', /Retry task_update_status/);
             assert.deepEqual(runs(52), []);
         }

@@ -1,17 +1,19 @@
 /**
- * stripLiterals against tmb_cmd_strip_literals of
- * scripts/hooks/lib/cmd-analysis.sh in its plain mode (GH 1692): the same
- * bytes for each command, in the C and UTF-8 locales.
+ * stripLiterals against tmb_cmd_strip_literals in its plain mode (GH 1692):
+ * the same bytes for each command as the frozen answers of the shell lib,
+ * recorded once per command and locale (C and en_US.UTF-8) into
+ * tests/fixtures/cmd-analysis/strip-literals.jsonl.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripLiterals } from '../hooks/cmd-analysis/index.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
+const FIXTURE = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis/strip-literals.jsonl');
+const NON_ASCII = 'echo "é"';
 
 const COMMANDS: readonly string[] = [
   '',
@@ -39,27 +41,45 @@ const COMMANDS: readonly string[] = [
   'x=$(cat <<EOF\ninner\nEOF\n)',
 ];
 
-function bash(command: string, locale: string): string {
-  const r = spawnSync('bash', ['-c', '. "$1"; tmb_cmd_strip_literals "$2"', '_', LIB, command], {
-    encoding: 'utf8',
-    env: { ...process.env, LC_ALL: locale },
-  });
-  assert.equal(r.status, 0, r.stderr);
-  return r.stdout;
+interface FrozenLine {
+  cmd: string;
+  locale: string;
+  out: string;
+}
+
+const key = (command: string, locale: string): string => JSON.stringify([command, locale]);
+const lines = readFileSync(FIXTURE, 'utf8')
+  .split('\n')
+  .filter((l) => l !== '')
+  .map((l) => JSON.parse(l) as FrozenLine);
+const frozen = new Map(lines.map((l) => [key(l.cmd, l.locale), l.out]));
+const ascii = COMMANDS.filter((c) => !/[^\x00-\x7f]/.test(c));
+
+function shell(command: string, locale: string): string {
+  const out = frozen.get(key(command, locale));
+  assert.ok(out !== undefined, `no fixture line for ${key(command, locale)}`);
+  return out;
 }
 
 describe('stripLiterals matches tmb_cmd_strip_literals', () => {
-  it("prints the .sh's bytes for every command (LC_ALL=C)", () => {
-    for (const command of COMMANDS) assert.equal(stripLiterals(command), bash(command, 'C'), JSON.stringify(command));
+  it('strip-literals.jsonl holds one line per command and locale', () => {
+    const want = [...COMMANDS.map((c) => key(c, 'C')), ...ascii.map((c) => key(c, 'en_US.UTF-8'))];
+    if (!COMMANDS.includes(NON_ASCII)) want.push(key(NON_ASCII, 'C'));
+    assert.equal(frozen.size, lines.length, 'two fixture lines share a key');
+    assert.deepEqual([...frozen.keys()].sort(), want.sort());
   });
 
-  it("prints the .sh's bytes for every ASCII command (LC_ALL=en_US.UTF-8)", () => {
-    for (const command of COMMANDS.filter((c) => !/[^\x00-\x7f]/.test(c))) {
-      assert.equal(stripLiterals(command), bash(command, 'en_US.UTF-8'), JSON.stringify(command));
+  it("prints the shell lib's frozen bytes for every command (LC_ALL=C)", () => {
+    for (const command of COMMANDS) assert.equal(stripLiterals(command), shell(command, 'C'), JSON.stringify(command));
+  });
+
+  it("prints the shell lib's frozen bytes for every ASCII command (LC_ALL=en_US.UTF-8)", () => {
+    for (const command of ascii) {
+      assert.equal(stripLiterals(command), shell(command, 'en_US.UTF-8'), JSON.stringify(command));
     }
   });
 
-  it('reads a non-ASCII command as the .sh does in C, in every locale (BSD awk fails on it under UTF-8)', () => {
-    assert.equal(stripLiterals('echo "é"'), bash('echo "é"', 'C'));
+  it('reads a non-ASCII command as the shell lib did in C, in every locale (BSD awk fails on it under UTF-8)', () => {
+    assert.equal(stripLiterals(NON_ASCII), shell(NON_ASCII, 'C'));
   });
 });
