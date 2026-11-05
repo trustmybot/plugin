@@ -25314,9 +25314,9 @@ var budgets_default = {
       group_budget_ms: 6e3
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
-      max_budget_ms: 183e4,
+      max_budget_ms: 3627e3,
       p99_sum_ms: 7359.5,
-      group_budget_ms: 183e4
+      group_budget_ms: 3627e3
     },
     "PreToolUse:AskUserQuestion": {
       max_budget_ms: 6e3,
@@ -25728,8 +25728,8 @@ var budgets_default = {
       transcript_samples: 0,
       transcript_timed_out: 0,
       window_days: 14,
-      floor_ms: 183e4,
-      budget_ms: 183e4,
+      floor_ms: 3627e3,
+      budget_ms: 3627e3,
       date: "2026-10-31"
     },
     "reviewer-identity-observe": {

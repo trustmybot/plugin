@@ -24,9 +24,9 @@
       "group_budget_ms": 6000
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
-      "max_budget_ms": 1830000,
+      "max_budget_ms": 3627000,
       "p99_sum_ms": 7359.5,
-      "group_budget_ms": 1830000
+      "group_budget_ms": 3627000
     },
     "PreToolUse:AskUserQuestion": {
       "max_budget_ms": 6000,
@@ -438,8 +438,8 @@
       "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,
-      "floor_ms": 1830000,
-      "budget_ms": 1830000,
+      "floor_ms": 3627000,
+      "budget_ms": 3627000,
       "date": "2026-10-31"
     },
     "reviewer-identity-observe": {

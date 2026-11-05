@@ -25,7 +25,7 @@ debug-trajectory 7486 advisory PreToolUse Agent *
 swe-resume-gate 6000 enforcement PreToolUse SendMessage *
 agent-arg-matches-caller 6000 enforcement PreToolUse mcp__.*trajectory-server__.* *
 swe-brief-gate 6000 enforcement PreToolUse mcp__.*trajectory-server__.* *
-swe-verification-gate 1830000 enforcement PreToolUse mcp__.*trajectory-server__.* task_update_status
+swe-verification-gate 3627000 enforcement PreToolUse mcp__.*trajectory-server__.* task_update_status
 reviewer-identity-observe 6000 enforcement PreToolUse mcp__.*trajectory-server__.* validation_record
 cheatcode-install-approval 6000 enforcement PreToolUse mcp__.*trajectory-server__.* cheatcode_install
 worktree-adopt-guard 6000 ts-only PreToolUse mcp__.*trajectory-server__.* task_provision
