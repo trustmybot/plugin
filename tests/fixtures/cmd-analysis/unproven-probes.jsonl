@@ -79,3 +79,22 @@
 {"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,$t{x})'","expect":"fail_closed"}
 {"src":"gh1887","cmd":"perl -e '$o->select(undef,undef,undef,1)'","expect":"fail_closed"}
 {"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,1); undef $x'","expect":"fail_closed"}
+{"src":"gh1903","cmd":"echo $(echo a) $B","expect":"empty"}
+{"src":"gh1903","cmd":"ls $(echo a) $B","expect":"empty"}
+{"src":"gh1903","cmd":"echo $(echo a) \"$B\"","expect":"empty"}
+{"src":"gh1903","cmd":"echo `echo a` $B","expect":"empty"}
+{"src":"gh1903","cmd":"echo $(echo a) ${B}","expect":"empty"}
+{"src":"gh1903","cmd":"echo $(echo a) $B c","expect":"empty"}
+{"src":"gh1903","cmd":"echo $(echo a) $B > o","expect":"resolves","paths":["/w/o"]}
+{"src":"gh1903","cmd":"for b in a b; do git diff --name-only $(git merge-base origin/dev $b) $b 2>/dev/null | grep -E x; done","expect":"resolves","paths":["/dev/null"]}
+{"src":"gh1903","cmd":"$CMD x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"$(echo rm) x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"`echo rm` -rf x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"echo a; $B x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"echo $($B x)","expect":"fail_closed"}
+{"src":"gh1903","cmd":"x=$(echo a) $B y","expect":"fail_closed"}
+{"src":"gh1903","cmd":"x=`echo a` $B y","expect":"fail_closed"}
+{"src":"gh1903","cmd":"timeout $(echo 5) $B x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"sudo -u $(whoami) $B x","expect":"fail_closed"}
+{"src":"gh1903","cmd":"echo $(echo a) \"$($B x)\"","expect":"fail_closed"}
+{"src":"gh1903","cmd":"echo $(echo a) && $B x","expect":"fail_closed"}

@@ -47,6 +47,8 @@ const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A
 export interface Record {
   dir: string;
   stmt: string;
+  /** With `assign`: the words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903). */
+  tail?: boolean;
 }
 
 function norm(p: string): string {
@@ -156,6 +158,8 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   let sp = 0;
   let bt = false;
   let stmt = '';
+  let tail = false;
+  let owns = false;
   let qsp = 0;
   const stack: string[] = [];
   const ostack: string[] = [];
@@ -163,11 +167,12 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   const owstack: string[] = [];
   const astack: string[][] = [];
   const oastack: string[][] = [];
-  const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
+  const sstack: boolean[] = [];
+  const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string) => {
+  const emit = (dir: string, text: string, args = false) => {
     charge(dir.length);
-    records.push({ dir, stmt: text });
+    records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
   };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g'> = [];
   const fids: number[] = [];
@@ -501,7 +506,11 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     return plainDollars(text);
   }
 
+  /** Sets `owns`: the statement's command word comes before its last word, or it is itself a tail. */
   function flush(): void {
+    const args = tail;
+    tail = false;
+    owns = args;
     const chained = fsep === '&&';
     fsep = '';
     vtop = sp === 0 && qsp === 0 && !bt;
@@ -575,6 +584,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       return;
     }
     let a0 = w[first];
+    if (!args) owns = w.slice(first + 1).some((x) => x !== '');
     if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
     else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -658,7 +668,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         break;
       }
     }
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
     if (!chained) {
       old = '-';
       owhy = '';
@@ -693,9 +703,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     const prev = i > 0 ? buf[i - 1] : '';
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
+      q[qsp] = { stmt, tail, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = '';
+      tail = false;
       continue;
     }
     if (c === QC) {
@@ -703,6 +714,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       flush();
       const f = q[qsp];
       stmt = f.stmt + '$' + ENC[8] + rawword(buf.slice(f.start, i)) + ENC[9];
+      tail = f.tail;
       cur = f.cur;
       old = f.old;
       sp = f.sp;
@@ -757,12 +769,15 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       }
       flush();
       push();
+      sstack[sp] = assign && last === '$' && owns;
       continue;
     }
     if (c === ')') {
       flush();
       if (sp === 0) vok = false;
+      const closes = sp > 0 && sstack[sp];
       pop();
+      tail = closes;
       continue;
     }
     if (c === '`') {
@@ -771,10 +786,13 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       flush();
       if (bt) {
         bt = false;
+        const closes = sp > 0 && sstack[sp];
         pop();
+        tail = closes;
       } else {
         bt = true;
         push();
+        sstack[sp] = assign && owns;
       }
       continue;
     }

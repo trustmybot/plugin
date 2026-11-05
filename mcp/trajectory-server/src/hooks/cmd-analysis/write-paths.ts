@@ -573,7 +573,7 @@ class WritePaths {
       if (record.dir.startsWith('=')) continue;
       const { words } = unwrapStatement(record.stmt);
       if (words.length === 0) continue;
-      if (/[$`]/.test(dec(words[0]))) {
+      if (!record.tail && /[$`]/.test(dec(words[0]))) {
         out.push('$(proc)');
         continue;
       }
@@ -846,7 +846,7 @@ class WritePaths {
       this.poisonSet(level, words);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
       const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
-      if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
+      if (!record.tail && /[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
       if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
       else if (body !== '' && !evaluated && this.isHeld(body)) this.print(unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`));
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';

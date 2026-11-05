@@ -588,7 +588,7 @@ class WritePaths {
             const { words } = unwrapStatement(record.stmt);
             if (words.length === 0)
                 continue;
-            if (/[$`]/.test(dec(words[0]))) {
+            if (!record.tail && /[$`]/.test(dec(words[0]))) {
                 out.push('$(proc)');
                 continue;
             }
@@ -892,7 +892,7 @@ class WritePaths {
                     for (const name of setInText(h.body))
                         this.poison(level, name);
             const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
-            if (/[$`\x07]/.test(decode(argv0)))
+            if (!record.tail && /[$`\x07]/.test(decode(argv0)))
                 this.print(unprovenLine(dec(record.stmt)));
             if (evaluated?.some((w) => this.isHeld(w)))
                 this.print(unprovenLine(dec(record.stmt)));
