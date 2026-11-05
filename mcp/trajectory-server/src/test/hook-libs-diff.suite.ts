@@ -1,14 +1,12 @@
 /**
- * Differential test of the TS hook libs (src/hooks/lib/) against the shell
- * libs they port (scripts/hooks/lib/query-task.sh, db-write.sh,
- * normalize-role.sh, agent-context.sh), GH 1692. One bash process sources the
- * shell libs once and runs every case; the TS ports run the same cases twice,
- * through node:sqlite and through the sqlite3 CLI fallback. A case compares
- * what a `$(...)` capture of the .sh holds with what the TS returns; a recorded
- * divergence (tests/fixtures/hook-libs/divergences.jsonl) must still diverge
- * exactly as recorded. The two TS passes split across
- * hook-libs-diff.shard-<k>of<n>.test.ts (GH 1947), each shard running the .sh
- * over every case; shard 1 also runs the checks on the .sh side alone.
+ * Golden test of the TS hook libs (src/hooks/lib/), GH 1692. The TS ports run
+ * every case twice, through node:sqlite and through the sqlite3 CLI fallback,
+ * and each pass must match tests/fixtures/hook-libs/expected.jsonl: the
+ * outcomes the shell libs they replace produced, frozen once. The fixture holds
+ * one line per case {id, fn, out, rc, err?} (err only for STDERR_FNS), then one
+ * {auditRows} line and one {coldDbs} line; the sandbox root is stored as <R>.
+ * The two TS passes split across hook-libs-diff.shard-<k>of<n>.test.ts
+ * (GH 1947); shard 1 also runs the checks on the fixture alone.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,7 +45,7 @@ import {
   testFlag,
   walCold,
 } from '../hooks/lib/db.js';
-import { auditAppend, auditSql, auditWriterCheck, dedupeGuard, dbWrite, nowIso } from '../hooks/lib/audit.js';
+import { auditAppend, auditEventsFile, auditSql, auditWriterCheck, dedupeGuard, dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { agentRole, normalizeRole } from '../hooks/lib/role.js';
 import { agentContext, agentTranscript, ctxInWorktree, pathCanonical, taskLocation } from '../hooks/lib/agent-context.js';
 import { pluginName } from '../hooks/lib/project-env.js';
@@ -55,23 +53,13 @@ import { loadNodeSqlite, sqliteBackend } from '../hooks/lib/sqlite-shell.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-const DIVERGENCES = join(PLUGIN_ROOT, 'tests/fixtures/hook-libs/divergences.jsonl');
+const EXPECTED = join(PLUGIN_ROOT, 'tests/fixtures/hook-libs/expected.jsonl');
+const R_TOKEN = '<R>';
 const DIST_DB = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks/lib/db.js');
 const NOW = '2026-01-02T03:04:05.000Z';
 const CALLER = 'harness';
 const COLD = ['state', 'gate', 'budget', 'probe', 'ro'];
-const KNOWN_ENV = [
-  'TRAJECTORY_DB_PATH',
-  'CLAUDE_PROJECT_DIR',
-  'CLAUDE_PLUGIN_ROOT',
-  'TMB_FORBID_LIVE_SYNC',
-  'TMB_TEST_RUN_ID',
-  'TMB_DB_WRITE_TIMEOUT_MS',
-  'TMB_DB_WRITE_RUN_BUDGET_MS',
-  'HARNESS_EVENTS_FILE',
-];
 const STDERR_FNS = new Set([
   'tmb_db_path',
   'tmb_db_write',
@@ -81,62 +69,6 @@ const STDERR_FNS = new Set([
   'tmb_audit_writer_check',
   'tmb_task_by_slug',
 ]);
-
-const HARNESS = `
-LIB="$1"; CASES="$2"; OUT="$3"
-. "$LIB/query-task.sh"
-. "$LIB/db-write.sh"
-. "$LIB/normalize-role.sh"
-. "$LIB/agent-context.sh"
-HARNESS_EVENTS_DEFAULT="$_TMB_AUDIT_EVENTS_FILE"
-tmb_now_iso() { printf '%s\\n' "$HARNESS_NOW"; }
-op_ctx() {
-  local rc=0
-  tmb_agent_context "$1" "$2" || rc=$?
-  printf 'role=%s\\ntask=%s\\nrepo=%s\\nroot=%s\\nworktree=%s\\nmissing=%s' "$TMB_CTX_ROLE" "$TMB_CTX_TASK_ID" "$TMB_CTX_REPO" "$TMB_CTX_REPO_ROOT" "$TMB_CTX_WORKTREE" "$TMB_CTX_MISSING"
-  return "$rc"
-}
-op_loc() {
-  local rc=0
-  tmb_task_location "$1" "$2" || rc=$?
-  printf 'repo=%s\\nroot=%s\\nworktree=%s\\nmissing=%s' "$TMB_CTX_REPO" "$TMB_CTX_REPO_ROOT" "$TMB_CTX_WORKTREE" "$TMB_CTX_MISSING"
-  return "$rc"
-}
-op_in_wt() { local TMB_CTX_WORKTREE="$2"; tmb_ctx_in_worktree "$1"; }
-op_budget() { tmb_db_read_budget "$1" "$2" <<<"$3"; }
-op_probe() { _tmb_db_probe "$1"; printf '%s' "$?"; }
-op_wal_cold() { _tmb_db_wal_cold "$1"; printf '%s' "$?"; }
-i=0
-exec 9<"$CASES"
-while IFS= read -r -d '' id <&9; do
-  IFS= read -r -d '' cwd <&9
-  IFS= read -r -d '' keep <&9
-  IFS= read -r -d '' nenv <&9
-  for v in ${KNOWN_ENV.join(' ')}; do unset "$v"; done
-  k=0
-  while [ "$k" -lt "$nenv" ]; do
-    IFS= read -r -d '' key <&9
-    IFS= read -r -d '' val <&9
-    export "$key=$val"
-    k=$((k + 1))
-  done
-  IFS= read -r -d '' fn <&9
-  IFS= read -r -d '' nargs <&9
-  args=()
-  k=0
-  while [ "$k" -lt "$nargs" ]; do
-    IFS= read -r -d '' a <&9
-    args[$k]="$a"
-    k=$((k + 1))
-  done
-  if [ "$keep" != 1 ]; then _TMB_DB_PATH_CACHE=""; _TMB_DB_WRITE_SPENT_MS=0; fi
-  _TMB_AUDIT_EVENTS_FILE="\${HARNESS_EVENTS_FILE:-$HARNESS_EVENTS_DEFAULT}"
-  cd "$cwd" || exit 90
-  "$fn" "\${args[@]}" >"$OUT/$i.out" 2>"$OUT/$i.err" </dev/null
-  echo "$?" >"$OUT/$i.rc"
-  i=$((i + 1))
-done
-`;
 
 const HOLDER = `
 import { DatabaseSync } from 'node:sqlite';
@@ -172,12 +104,9 @@ interface Outcome {
   err?: string;
 }
 
-interface Divergence {
+interface ExpectedCase extends Outcome {
+  id: string;
   fn: string;
-  case: string;
-  sh: string;
-  ts: string;
-  reason: string;
 }
 
 type Adapter = (args: string[], env: NodeJS.ProcessEnv) => Outcome;
@@ -785,7 +714,7 @@ function buildCases(): Case[] {
   add('tmb_path_canonical', 'dotdot-past-root', ['/../..']);
   add('tmb_path_canonical', 'dots', [`${R}/./nodb/../tx//own.jsonl`]);
 
-  const events = join(LIB, 'audit-events.txt');
+  const events = auditEventsFile();
   add('tmb_audit_writer_check', 'hook-listed', ['lbl', 'containment_denied', 'hook']);
   add('tmb_audit_writer_check', 'server-listed', ['lbl', 'agent_runs_claimed', 'server']);
   add('tmb_audit_writer_check', 'not-writable', ['lbl', 'branch_gate_waived', 'hook']);
@@ -843,35 +772,6 @@ function buildCases(): Case[] {
   return cases;
 }
 
-function writeCaseFile(cases: Case[], file: string): void {
-  const parts: string[] = [];
-  for (const c of cases) {
-    const env = Object.entries(c.env ?? {});
-    parts.push(c.id, c.cwd ?? R, c.keep ? '1' : '0', String(env.length));
-    for (const [k, v] of env) parts.push(k, v);
-    parts.push(c.fn, String(c.args.length), ...c.args);
-  }
-  writeFileSync(file, parts.map((p) => `${p}\0`).join(''));
-}
-
-function runShell(cases: Case[]): Outcome[] {
-  const dir = join(R, 'sh');
-  mkdirSync(join(dir, 'out'), { recursive: true });
-  writeFileSync(join(dir, 'harness.sh'), HARNESS);
-  writeCaseFile(cases, join(dir, 'cases.bin'));
-  const r = spawnSync('/bin/bash', [join(dir, 'harness.sh'), LIB, join(dir, 'cases.bin'), join(dir, 'out')], {
-    env: { PATH: process.env.PATH, HOME: R, TMPDIR: process.env.TMPDIR ?? tmpdir(), HARNESS_NOW: NOW, LANG: process.env.LANG ?? '' },
-    encoding: 'utf8',
-    cwd: R,
-  });
-  assert.equal(r.status, 0, `harness failed: ${r.stderr}`);
-  return cases.map((_, i) => ({
-    out: stripTrailingNewlines(readFileSync(join(dir, 'out', `${i}.out`), 'utf8')),
-    rc: Number(readFileSync(join(dir, 'out', `${i}.rc`), 'utf8').trim()),
-    err: stripTrailingNewlines(readFileSync(join(dir, 'out', `${i}.err`), 'utf8')),
-  }));
-}
-
 function runTs(cases: Case[], backend: 'node' | 'cli'): Outcome[] {
   const home = process.cwd();
   const results: Outcome[] = [];
@@ -910,34 +810,47 @@ function coldDbs(): string[] {
   return COLD.filter((n) => walCold(join(M(), `cold-${n}.db`)));
 }
 
-function loadDivergences(): Map<string, Divergence> {
-  const map = new Map<string, Divergence>();
-  for (const line of readFileSync(DIVERGENCES, 'utf8').split('\n')) {
+interface Expected {
+  ids: string[];
+  cases: Map<string, ExpectedCase>;
+  auditRows: string[];
+  coldDbs: string[];
+}
+
+function loadExpected(): Expected {
+  const real = (v: string) => v.split(R_TOKEN).join(R);
+  const exp: Expected = { ids: [], cases: new Map(), auditRows: [], coldDbs: [] };
+  for (const line of readFileSync(EXPECTED, 'utf8').split('\n')) {
     if (line.trim() === '') continue;
-    const d = JSON.parse(line) as Divergence;
-    assert.ok(d.fn && d.case && typeof d.sh === 'string' && typeof d.ts === 'string' && d.reason, `malformed divergence: ${line}`);
-    map.set(d.case, d);
+    const row = JSON.parse(line) as Partial<ExpectedCase> & { auditRows?: string[]; coldDbs?: string[] };
+    if (row.auditRows) exp.auditRows = row.auditRows.map(real);
+    else if (row.coldDbs) exp.coldDbs = row.coldDbs;
+    else {
+      assert.ok(row.id && row.fn && typeof row.out === 'string' && typeof row.rc === 'number', `malformed fixture line: ${line}`);
+      exp.ids.push(row.id);
+      exp.cases.set(row.id, { id: row.id, fn: row.fn, out: real(row.out), rc: row.rc, ...(row.err === undefined ? {} : { err: real(row.err) }) });
+    }
   }
-  return map;
+  return exp;
 }
 
 export function hookLibsDiffShard(k: number, n: number): void {
-  describe(`hook libs: TS ports vs the shell libs (shard ${k} of ${n})`, () => {
+  describe(`hook libs: TS ports vs the frozen .sh outcomes (shard ${k} of ${n})`, () => {
     let cases: Case[] = [];
-    let sh: Outcome[] = [];
-    let shRows: string[] = [];
-    let shCold: string[] = [];
+    let expected: Expected = { ids: [], cases: new Map(), auditRows: [], coldDbs: [] };
     const passes: { backend: 'node' | 'cli'; out: Outcome[]; rows: string[]; cold: string[] }[] = [];
     const backends: ('node' | 'cli')[] = loadNodeSqlite() ? ['node', 'cli'] : ['cli'];
+    const byId = (id: string): ExpectedCase => {
+      const e = expected.cases.get(id);
+      assert.ok(e, `no fixture line for ${id}`);
+      return e;
+    };
 
     before(async () => {
       buildSandbox();
       await startHolder();
       cases = buildCases();
-      restoreMut();
-      sh = runShell(cases);
-      shRows = auditRows();
-      shCold = coldDbs();
+      expected = loadExpected();
       for (const backend of shardOf(backends, k, n)) {
         restoreMut();
         const out = runTs(cases, backend);
@@ -961,35 +874,27 @@ export function hookLibsDiffShard(k: number, n: number): void {
         assert.ok(backends.includes('cli'));
       });
 
-      it('every case id is unique and every recorded divergence matches a case', () => {
+      it('every case id is unique and the fixture holds exactly the case ids', () => {
         const ids = new Set<string>();
         for (const c of cases) {
           assert.ok(!ids.has(c.id), `duplicate case id ${c.id}`);
           ids.add(c.id);
         }
-        for (const id of loadDivergences().keys()) assert.ok(ids.has(id), `divergence ${id} matches no case`);
+        assert.deepEqual(expected.ids, cases.map((c) => c.id));
       });
     }
 
-    it('every case matches the .sh, or diverges exactly as recorded', () => {
-      const divergences = loadDivergences();
+    it('every case matches the frozen .sh outcome', () => {
       const mismatches: string[] = [];
-      const check = (actual: unknown, expected: unknown, label: string) => {
-        if (actual !== expected) mismatches.push(`${label}: ts=${JSON.stringify(actual)} sh=${JSON.stringify(expected)}`);
+      const check = (actual: unknown, want: unknown, label: string) => {
+        if (actual !== want) mismatches.push(`${label}: ts=${JSON.stringify(actual)} sh=${JSON.stringify(want)}`);
       };
       for (const pass of passes) {
         cases.forEach((c, i) => {
-          const s = sh[i];
+          const s = byId(c.id);
           const ts = pass.out[i];
           const where = `${pass.backend} ${c.id}`;
-          const d = divergences.get(c.id);
-          if (d) {
-            assert.equal(d.fn, c.fn, `${where}: divergence fn`);
-            assert.equal(s.out, d.sh, `${where}: .sh output no longer as recorded`);
-            assert.equal(ts.out, d.ts, `${where}: TS output no longer as recorded`);
-            assert.notEqual(d.sh, d.ts, `${where}: recorded divergence does not diverge`);
-            return;
-          }
+          check(c.fn, s.fn, `${where}: fn`);
           check(ts.out, s.out, `${where}: output`);
           check(ts.rc, s.rc, `${where}: exit code`);
           if (STDERR_FNS.has(c.fn)) check(ts.err ?? '', s.err ?? '', `${where}: stderr`);
@@ -998,21 +903,20 @@ export function hookLibsDiffShard(k: number, n: number): void {
       assert.deepEqual(mismatches, []);
     });
 
-    it('auditAppend writes the rows the .sh writes', () => {
-      for (const pass of passes) assert.deepEqual(pass.rows, shRows, `${pass.backend}: audit rows`);
+    it('auditAppend writes the rows the .sh wrote', () => {
+      for (const pass of passes) assert.deepEqual(pass.rows, expected.auditRows, `${pass.backend}: audit rows`);
     });
 
-    it('leaves a cold WAL DB cold wherever the .sh does', () => {
+    it('leaves a cold WAL DB cold wherever the .sh did', () => {
       for (const pass of passes) {
-        if (pass.backend === 'cli') assert.deepEqual(pass.cold, shCold, 'cli: cold WAL DBs');
-        else for (const n of shCold) assert.ok(pass.cold.includes(n), `${pass.backend}: cold-${n}.db warmed`);
+        if (pass.backend === 'cli') assert.deepEqual(pass.cold, expected.coldDbs, 'cli: cold WAL DBs');
+        else for (const n of expected.coldDbs) assert.ok(pass.cold.includes(n), `${pass.backend}: cold-${n}.db warmed`);
       }
     });
 
     if (k !== 1) return;
 
     it('covers every dbState value, the run budget and the dedupe hit', () => {
-      const byId = (id: string) => sh[cases.findIndex((c) => c.id === id)];
       assert.equal(byId('tmb_db_state:unresolved').out, 'unresolved');
       assert.equal(byId('tmb_db_state:ok-warm').out, 'ok');
       assert.equal(byId('tmb_db_state:ok-cold').out, 'ok');
@@ -1031,8 +935,8 @@ export function hookLibsDiffShard(k: number, n: number): void {
       assert.equal(byId('tmb_audit_append:unlisted').rc, 2);
     });
 
-    it('the .sh writes no audit row for an unlisted event or a dedupe hit', () => {
-      const parsed = shRows.map((r) => JSON.parse(r) as Record<string, unknown>);
+    it('the .sh wrote no audit row for an unlisted event or a dedupe hit', () => {
+      const parsed = expected.auditRows.map((r) => JSON.parse(r) as Record<string, unknown>);
       assert.equal(parsed.filter((r) => r.event_type === 'no_such_event').length, 0);
       assert.equal(parsed.filter((r) => r.event_type === 'rolled_back').length, 0);
       assert.equal(parsed.filter((r) => r.event_type === 'hook_block_bypassed').length, 2);
