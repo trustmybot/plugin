@@ -1,7 +1,7 @@
 /**
  * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
  * bro's integrate, the assert-sql verification check, the prompt-author-lint
- * pre-write lint and the Human-run maintenance tools (heal-mcp-cache,
+ * pre-write lint, the stale-docs pre-close check and the Human-run maintenance tools (heal-mcp-cache,
  * trajectory-doctor, backfill-agent-runs) run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
  * They read and write the trajectory DB through node:sqlite and never need the
@@ -16,6 +16,7 @@ import { healMcpCache } from './heal-mcp-cache.js';
 import { health } from './health.js';
 import { integrate } from './integrate.js';
 import { promptAuthorLint } from './prompt-author-lint.js';
+import { staleDocs } from './stale-docs.js';
 import { trajectoryDoctor } from './trajectory-doctor.js';
 import { validationRecordFallback } from './validation-record-fallback.js';
 const SUBCOMMANDS = {
@@ -26,6 +27,7 @@ const SUBCOMMANDS = {
     health,
     integrate,
     'prompt-author-lint': promptAuthorLint,
+    'stale-docs': staleDocs,
     'trajectory-doctor': trajectoryDoctor,
     'validation-record-fallback': validationRecordFallback,
 };
