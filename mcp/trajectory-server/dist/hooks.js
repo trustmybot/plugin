@@ -16574,7 +16574,7 @@ var Guard2 = class {
     const name3 = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
     const repoFilter = name3 === "" ? "" : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name3)}')`;
     const tasks = this.read(
-      `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || (${newestVerdictPassSql("t")}) FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`
+      `SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || ${HAS_PASS_SQL} FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`
     );
     if (tasks === GATE_READ_ERROR) return GATE_READ_ERROR;
     if (tasks === "") return "";
@@ -16657,7 +16657,7 @@ var Guard2 = class {
     const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
     if (shaList.length === 0) return null;
     const unsigned = this.read(
-      `SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(",")}) AND NOT (${newestVerdictPassSql("t")});`
+      `SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(",")}) AND NOT ${HAS_PASS_SQL};`
     );
     if (unsigned === GATE_READ_ERROR) return deny3(DB_REASON);
     if (unsigned !== "") {

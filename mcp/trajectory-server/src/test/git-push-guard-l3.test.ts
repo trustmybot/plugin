@@ -13,7 +13,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, before, beforeEach, after, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
-import { commit, DENY, GATE, gateEnv, git, has, hasNot, initRepo, insertRepo, insertTask, INTEGRATE, newDb, NO_DB, push, recordRun, signTask, sql } from './git-push-guard-l3.js';
+import { anchorTask, commit, DENY, GATE, gateEnv, git, has, hasNot, initRepo, insertRepo, insertTask, INTEGRATE, newDb, NO_DB, passTask, push, recordRun, signTask, sql } from './git-push-guard-l3.js';
 import { REAL_SQLITE3, walGateCases } from './wal-gate-cases.js';
 
 interface Repo {
@@ -111,15 +111,46 @@ describe('git-push-guard l3: the review gate', () => {
     hasNot(out, 'task_id=1 ', 'signed task 1 should not appear in block list');
   });
 
+  it('GH 2413: a pass for an earlier commit_sha does not sign the pushed one', () => {
+    const db = newDb(r.repo);
+    insertTask(db, 1, r.sha1);
+    signTask(db, 1);
+    insertTask(db, 2, r.sha1);
+    anchorTask(db, 2, '2026-10-19T00:00:00.000Z');
+    passTask(db, 2, '2026-10-19T00:01:00.000Z');
+    sql(db, 'UPDATE tasks SET commit_sha = ? WHERE id = 2', r.sha2);
+    anchorTask(db, 2, '2026-10-19T00:02:00.000Z');
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a pass recorded before the anchor of the pushed commit must not admit it');
+    has(out, 'unsigned commit(s)', 'the deny is the unsigned-commit deny');
+    has(out, 'task_id=2', 'the deny lists the task whose commit moved');
+    passTask(db, 2, '2026-10-19T00:03:00.000Z');
+    hasNot(run('git push origin main', db), DENY, "a pass recorded after the pushed commit's anchor admits it");
+  });
+
+  it('GH 2413: a pass with no bro_verification_pass anchor for the commit is unsigned (fail-closed)', () => {
+    const db = newDb(r.repo);
+    insertTask(db, 1, r.sha1);
+    signTask(db, 1);
+    insertTask(db, 2, r.sha2);
+    passTask(db, 2);
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a pass with no anchor must not admit the push');
+    has(out, 'unsigned commit(s)', 'the deny is the unsigned-commit deny');
+    has(out, 'task_id=2', 'the deny lists the unanchored task');
+    hasNot(out, 'task_id=1 ', 'the anchored and passed task is signed');
+  });
+
   it('GH 2412: the newest verdict gates: a fail after a pass BLOCKS, a newer pass allows', () => {
     const db = bothSigned(r);
     const verdict = (attempt: number, v: string) =>
       sql(
         db,
         `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-           VALUES (2, ?, 'code-reviewer', ?, 1, 'review', datetime('now'))`,
+           VALUES (2, ?, 'code-reviewer', ?, 1, 'review', ?)`,
         attempt,
         v,
+        new Date().toISOString(),
       );
     verdict(2, 'fail');
     const out = run('git push origin main', db);
@@ -128,6 +159,26 @@ describe('git-push-guard l3: the review gate', () => {
     hasNot(out, 'task_id=1 ', 'task 1, newest verdict pass, is not listed');
     verdict(3, 'pass');
     hasNot(run('git push origin main', db), DENY, 'a newer pass allows the push');
+  });
+
+  it('GH 2412 + GH 2413: a newer fail on top of a same-SHA pass BLOCKS the push', () => {
+    const db = newDb(r.repo);
+    insertTask(db, 1, r.sha1);
+    signTask(db, 1);
+    insertTask(db, 2, r.sha2);
+    anchorTask(db, 2, '2026-10-19T00:00:00.000Z');
+    passTask(db, 2, '2026-10-19T00:01:00.000Z');
+    hasNot(run('git push origin main', db), DENY, 'an anchored pass for the pushed SHA admits the push');
+    sql(
+      db,
+      `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+         VALUES (2, 2, 'code-reviewer', 'fail', 1, 'regressed', '2026-10-19T00:02:00.000Z')`,
+    );
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a newer fail must block despite the anchored same-SHA pass');
+    has(out, 'unsigned commit(s)', 'the deny is the unsigned-commit deny');
+    has(out, 'task_id=2', 'the task whose newest verdict is a fail is listed');
+    hasNot(out, 'task_id=1 ', 'task 1 stays signed');
   });
 
   it('SWE caller (tmb:swe): git push BLOCKED regardless of unsigned status', () => {
@@ -416,6 +467,19 @@ describe('git-push-guard l3: GH 1518 rebased task commits need a verification ru
     has(out, rebased, 'the deny names the rebased SHA');
     has(out, 'task_id=5', 'the deny names the task');
     has(out, 'no passing review', 'the deny says the task is unreviewed');
+  });
+
+  it("GH 2413: a rebase of a task whose pass predates its current commit's anchor → BLOCKED as unreviewed", () => {
+    sql(db, 'DELETE FROM validation_attempts WHERE task_id = 5;');
+    sql(db, "DELETE FROM audit WHERE event_type = 'bro_verification_pass';");
+    passTask(db, 5, '2026-10-19T00:00:00.000Z');
+    anchorTask(db, 5, '2026-10-19T00:01:00.000Z');
+    recordRun(db, 5, rebased, 0);
+    const out = pushBranch('feat/r-rebased');
+    has(out, DENY, 'a pass from before the current commit was verified does not review it');
+    has(out, rebased, 'the deny names the rebased SHA');
+    has(out, 'task_id=5', 'the deny names the task');
+    has(out, 'the task has no passing review', 'the deny says the task is unreviewed');
   });
 
   it('a rebase matching a reviewed and an unreviewed task is judged by the reviewed one', () => {

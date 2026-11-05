@@ -125,6 +125,7 @@ export function buildSandbox(sandbox) {
         db.exec("INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'))");
         const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at) VALUES (?, 1, ?, ?, 'd', 'closed', '## body', ?, datetime('now'), datetime('now'))");
         const sign = db.prepare("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'))");
+        const anchor = db.prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) SELECT 1, 'bro', 'bro_verification_pass', 'verified', json_object('task_id', id, 'commit_sha', commit_sha), datetime('now') FROM tasks WHERE id = ?");
         const rows = [
             [1, 'signed work', signedSha, true],
             [2, 'fix "quoted" title with ü', unsignedA, false],
@@ -140,8 +141,10 @@ export function buildSandbox(sandbox) {
         ];
         for (const [id, title, sha, passed] of rows) {
             task.run(id, `feat/t-${id}`, title, sha);
-            if (passed)
-                sign.run(id);
+            if (!passed)
+                continue;
+            anchor.run(id);
+            sign.run(id);
         }
         db.prepare("INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (5, ?, 'gate', datetime('now'), datetime('now'), 0, 60, 0)").run(rebOk.rebase);
         db.prepare("INSERT INTO repos (name, path, target_branch) VALUES ('fp', ?, 'dev'), ('signed', ?, 'main')").run(fp, signed);
