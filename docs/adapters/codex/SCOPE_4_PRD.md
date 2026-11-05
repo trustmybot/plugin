@@ -1296,7 +1296,7 @@ node tests/benchmarks/codex-agent-materialization.mjs \
 - Harness 的所有 Git 子进程必须移除继承的 `GIT_*` override，关闭 terminal prompt、system/global config、hooks 和 fsmonitor，避免 fixture 初始化、add 或 commit 作用到其他仓库。
 - summary 必须包含三个状态的 cold/p50/p95/max、环境字段、artifact SHA、harness file SHA-256 和 `threshold_status`。`threshold_status` 只能是 `pass` 或 `investigate`。
 - 三种状态和全部样本成功完成、证据完整时退出 0。任一参数、fixture、MCP 协议、采样或输出错误时退出 1。p95 超过观察门槛时仍退出 0，但写入 `threshold_status="investigate"`；PR 必须附原因和后续判断，CI 不因不同机器的耗时直接失败。
-- `tests/benchmarks/selftest.sh` 必须用受控 stub 或 fixture 验证参数拒绝、固定样本数、nearest-rank 汇总、两个输出文件和上述退出语义；selftest 不启动 live Codex 或联网。
+- `tests/benchmarks/selftest.test.mjs` 必须用受控 stub 或 fixture 验证参数拒绝、固定样本数、nearest-rank 汇总、两个输出文件和上述退出语义；selftest 不启动 live Codex 或联网。
 
 ### 22.4 兼容性
 
@@ -1975,7 +1975,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 | `mcp/trajectory-server/src/test/codex-installed-cache.test.ts` | 扩展 installed artifact 到 15 tools、2 Skills 和 materialization 流程 |
 | `mcp/trajectory-server/dist/**` | 重新生成与所有变更 `src/`、`src/test/` 对应的 tracked JS、source map 和 bundle；必须通过 `dist-fresh.sh` |
 | `tests/benchmarks/codex-agent-materialization.mjs` | 新增固定参数、采样协议和证据格式的 getter 性能 harness |
-| `tests/benchmarks/selftest.sh` | 增加 Scope 4 性能 harness 的离线确定性自测 |
+| `tests/benchmarks/selftest.test.mjs` | 增加 Scope 4 性能 harness 的离线确定性自测 |
 | `adapters/codex/skills/tmb-agent-setup/SKILL.md` | 新增显式 Setup workflow |
 | `adapters/codex/skills/tmb-agent-setup/agents/openai.yaml` | 新增 explicit-only metadata |
 | `.codex-plugin/plugin.json` | 更新描述和 starter prompt；不 bump version |
