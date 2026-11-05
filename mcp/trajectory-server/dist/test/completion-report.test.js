@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { taskTools } from '../tools/tasks.js';
+import { wmFeedbackCounts } from '../tools/trajectory-doctor.js';
 import { specCriteriaProblem, specCriterionIds } from '../success-criteria.js';
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works', '  - Writer: x', '- SC2: tested'].join('\n');
 const LEGACY_SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
@@ -180,6 +181,37 @@ describe('task_update_status report.wm_feedback (GH 2417)', () => {
         assert.ok(!(await complete(tasks, id, FULL_REPORT)).isError);
         assert.deepEqual(JSON.parse(stored(db, id).completion_report), FULL_REPORT);
         assert.equal(feedbackRows(db).length, 0);
+        db.close();
+    });
+    for (const [label, wm_feedback] of [
+        ['an empty', {}],
+        ['an all-blank', { missed: '  ' }],
+    ]) {
+        it(`${label} wm_feedback writes no wm_feedback row and stores the report as sent (GH 2421)`, async () => {
+            const { db, tasks } = fixture();
+            const id = seed(db, SPEC);
+            const r = await complete(tasks, id, { ...FULL_REPORT, wm_feedback });
+            assert.ok(!r.isError, JSON.stringify(parse(r)));
+            assert.deepEqual(JSON.parse(stored(db, id).completion_report).wm_feedback, wm_feedback);
+            assert.equal(feedbackRows(db).length, 0);
+            assert.equal(wmFeedbackCounts(db).reports, 0);
+            db.close();
+        });
+    }
+    it('refuses report.wm_feedback from bro with wm_feedback_invalid and writes nothing (GH 2421)', async () => {
+        const { db, tasks } = fixture();
+        const id = seed(db, SPEC);
+        const report = { ...FULL_REPORT, wm_feedback: { answered: 'callers of insertAudit' } };
+        const asBro = await call(tasks, 'task_update_status', { agent: 'bro', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+        assert.match(errorOf(asBro), /^wm_feedback_invalid: .*only swe/);
+        assert.equal(db.get('SELECT status FROM tasks WHERE id = ?', [id]).status, 'running');
+        assert.equal(stored(db, id).completion_report, null);
+        assert.equal(feedbackRows(db).length, 0);
+        assert.ok(!(await complete(tasks, id, report)).isError);
+        const rows = feedbackRows(db);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].from_node, 'swe');
+        assert.equal(wmFeedbackCounts(db).reports, 1);
         db.close();
     });
     for (const [label, wm_feedback, pattern] of [

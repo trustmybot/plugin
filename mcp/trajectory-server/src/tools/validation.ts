@@ -5,7 +5,7 @@ import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware
 import type { FindingSeverity, ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
-import { toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
+import { WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -14,7 +14,7 @@ const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
 export const WM_FEEDBACK_SCHEMA = {
   type: 'object',
   description:
-    'Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row; trajectory_doctor counts them.',
+    'Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row, none when every field is blank; trajectory_doctor counts them.',
   properties: {
     answered: { type: 'string', description: 'What a world_model_* call answered that saved a Grep, Glob or Read.' },
     missed: { type: 'string', description: 'What it had no answer for, so Grep or a Read found it instead.' },
@@ -23,7 +23,7 @@ export const WM_FEEDBACK_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-/** One wm_feedback audit row on the task's issue (GH 2417). */
+/** One wm_feedback audit row on the task's issue (GH 2417), none when every field is absent or blank (GH 2421). */
 export function insertWmFeedback(
   db: TrajectoryDB,
   task: { id: number; issue_id: number; branch_id?: string | null },
@@ -31,6 +31,7 @@ export function insertWmFeedback(
   feedback: WmFeedback,
   createdAt: string,
 ): void {
+  if (WM_FEEDBACK_KEYS.every((k) => (feedback[k] ?? '').trim() === '')) return;
   const flagged = (['missed', 'wrong'] as const).filter((k) => (feedback[k] ?? '').trim() !== '');
   insertAudit(db, {
     issue_id: task.issue_id,
@@ -237,7 +238,7 @@ export function validationTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'validation_record',
-      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task\'s issue.',
+      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task\'s issue, none when every field is absent or blank.',
       inputSchema: {
         type: 'object',
         properties: {
