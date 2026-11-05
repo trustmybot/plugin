@@ -1757,3 +1757,10 @@
 {"cmd":"echo $(echo a) $B c","cwd":"/w","lines":[]}
 {"cmd":"echo $(echo a) $B > o","cwd":"/w","lines":["/w/o"]}
 {"cmd":"for b in a b; do git diff --name-only $(git merge-base origin/dev $b) $b 2>/dev/null | grep -E x; done","cwd":"/w","lines":["/dev/null"]}
+{"cmd":"echo $(true) cd /w/ok; touch x","cwd":"/w","lines":["/w/ok/x"]}
+{"cmd":"echo `true` cd /w/ok; touch x","cwd":"/w","lines":["/w/ok/x"]}
+{"cmd":"echo $(true) pushd /w/ok; touch x","cwd":"/w","lines":["/w/ok/x"]}
+{"cmd":"echo $(true) cd /w/ok && touch x","cwd":"/w","lines":["/w/ok/x"]}
+{"cmd":"D=/w/a; echo $(true) D=/w/ok; touch $D/x","cwd":"/w","lines":["/w/a/x","/w/ok/x"]}
+{"cmd":"D=/w/a; echo $(true) export D=/w/ok; touch $D/x","cwd":"/w","lines":["/w/a/x","/w/ok/x"]}
+{"cmd":"echo $(true) D=/w/ok; touch $D/x","cwd":"/w","lines":["/w/ok/x"]}

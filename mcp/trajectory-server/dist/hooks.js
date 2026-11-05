@@ -9633,12 +9633,12 @@ function scan2(buf, base2, home, assign, frames, charge) {
     }
     if (first >= n3) {
       let ok2 = plain;
-      if (vtop && plain) {
+      if (vtop && plain && !args2) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
       }
       if (assign && asg !== "") {
-        emit3("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
-        if (!chained) {
+        emit3("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg, args2);
+        if (!chained && !args2) {
           old = "-";
           owhy = "";
           oalts = [];
@@ -9656,7 +9656,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
         if (!ASSIGNMENT2.test(w[k])) ok = false;
-        else if (vtop && !assignword(w[k], !csure)) ok = false;
+        else if (vtop && !args2 && !assignword(w[k], !csure)) ok = false;
       }
     } else if (ok) {
       ok = VPLAIN.test(a0);
@@ -9672,7 +9672,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     let da = alts;
     const o = oalts.length > 0 ? "-" : old;
     let dw = cwhy;
-    if (a0 === "cd" || a0 === "pushd") {
+    if (!args2 && (a0 === "cd" || a0 === "pushd")) {
       let p = "";
       for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
@@ -9700,7 +9700,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         cur = t;
         [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
       }
-    } else if (a0 === "popd") {
+    } else if (!args2 && a0 === "popd") {
       old = cur;
       owhy = cwhy;
       oalts = alts;
@@ -9733,7 +9733,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       }
     }
     emit3(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2, args2);
-    if (!chained) {
+    if (!chained && !args2) {
       old = "-";
       owhy = "";
       oalts = [];
@@ -14857,10 +14857,11 @@ var WritePaths = class _WritePaths {
         const words3 = shellWords(record.stmt);
         if (words3.length === 0) return;
         if (dir.startsWith("=")) {
-          this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-            this.pwd = dirPath(d, cwd);
-            for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
-          });
+          if (!record.tail)
+            this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+              this.pwd = dirPath(d, cwd);
+              for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
+            });
           return;
         }
         this.poisonSet(level, words3);
@@ -14873,7 +14874,7 @@ var WritePaths = class _WritePaths {
           for (const text of this.evalTexts(level, evaluated, body2) ?? []) this.evalRun(level, text, tok, depth);
           this.out = out2;
         }
-        if (body2 !== "" && (!evaluated && heldProgram(body2) || depth < MAX_DEPTH3)) return;
+        if (record.tail || body2 !== "" && (!evaluated && heldProgram(body2) || depth < MAX_DEPTH3)) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
           this.trackVars(level, words3);
@@ -14934,10 +14935,11 @@ var WritePaths = class _WritePaths {
       let words3 = shellWords(record.stmt);
       if (words3.length === 0) continue;
       if (dir.startsWith("=")) {
-        this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-          this.pwd = dirPath(d, cwd);
-          for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
-        });
+        if (!record.tail)
+          this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+            this.pwd = dirPath(d, cwd);
+            for (const w of words3) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          });
         continue;
       }
       const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
@@ -15010,10 +15012,11 @@ var WritePaths = class _WritePaths {
           }
         }
       }
-      each((d) => {
-        this.pwd = dirPath(d, cwd);
-        this.trackVars(level, words3);
-      });
+      if (!record.tail)
+        each((d) => {
+          this.pwd = dirPath(d, cwd);
+          this.trackVars(level, words3);
+        });
     }
     return level.vars;
   }

@@ -49,7 +49,7 @@ const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A
 export interface Record {
   dir: string;
   stmt: string;
-  /** With `assign`: the words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903). */
+  /** With `assign`: the words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable (GH 2377). */
   tail?: boolean;
 }
 
@@ -581,10 +581,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
     if (first >= n) {
       let ok = plain;
-      if (vtop && plain) for (const a of aw) if (!assignword(a, !csure)) ok = false;
+      if (vtop && plain && !args) for (const a of aw) if (!assignword(a, !csure)) ok = false;
       if (assign && asg !== '') {
-        emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg);
-        if (!chained) {
+        emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg, args);
+        if (!chained && !args) {
           old = '-';
           owhy = '';
           oalts = [];
@@ -602,7 +602,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (!ASSIGNMENT.test(w[k])) ok = false;
-        else if (vtop && !assignword(w[k], !csure)) ok = false;
+        else if (vtop && !args && !assignword(w[k], !csure)) ok = false;
       }
     } else if (ok) {
       ok = VPLAIN.test(a0);
@@ -618,7 +618,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     let da = alts;
     const o = oalts.length > 0 ? '-' : old;
     let dw = cwhy;
-    if (a0 === 'cd' || a0 === 'pushd') {
+    if (!args && (a0 === 'cd' || a0 === 'pushd')) {
       let p = '';
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
@@ -646,7 +646,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         cur = t;
         [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
       }
-    } else if (a0 === 'popd') {
+    } else if (!args && a0 === 'popd') {
       old = cur;
       owhy = cwhy;
       oalts = alts;
@@ -679,7 +679,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       }
     }
     emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
-    if (!chained) {
+    if (!chained && !args) {
       old = '-';
       owhy = '';
       oalts = [];
