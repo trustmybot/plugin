@@ -20,9 +20,10 @@ Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <s
 
 Trust the swe's checklist of what changed, and take the facts from the records:
 
-- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per review finding — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
+- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per open blocking finding (nit and pre_existing findings are not probed) — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
 - **Scope** comes from `task_brief.scope`: `files`, the `extras_accepted` bro accepted at close, and `base_moved`. Read it as given.
 - **Criteria claims** come from `task_brief.completion_report`: one `met` / `not_met` / `not_applicable` entry per `SC<n>` id, with its `evidence_cmd` or `note`. Treat them as claims to check against the diff; a `not_met`, or a `not_applicable` the spec does not support, is a FAIL.
+- **Case sweep** comes from `task_brief.completion_report.case_sweep`: one `{class, checked}` entry per rule or pattern the diff changes and per open finding's class. Check it against the diff: a changed class with no entry, or a sibling its `checked` list missed, is a blocking finding.
 
 ## Review the diff against its spec
 
@@ -35,7 +36,7 @@ Diff the commit against its parent and judge the diff itself — cite line numbe
 
 ## Re-review after a FAIL
 
-When `validation_history` shows an earlier FAIL for this task, review the finding ids it raised plus the rework's new diff (the branch commits after that FAIL). For each id — still in `open_findings`, or listed in `completion_report.findings_fixed` with a passing `[probe <id>]` in `verification_run` — confirm the change fixes the defect itself rather than only satisfying its probe, and that the swe committed the probe as a test. Then judge the new diff as a fresh change.
+When `validation_history` shows an earlier FAIL for this task, review the finding ids it raised plus the rework's new diff (the branch commits after that FAIL). For each id — still in `open_findings`, or listed in `completion_report.findings_fixed` with a passing `[probe <id>]` in `verification_run` — confirm the change fixes the defect itself rather than only satisfying its probe, that it fixes every sibling of the finding's `class` (the swe's `case_sweep` names that class), and that the swe committed the probe as a test. Then judge the new diff as a fresh change.
 
 ## Probe what the gate did not
 
@@ -47,21 +48,37 @@ Spend the review budget on checks that complement the recorded run:
 - Doc/code agreement — the docs describing the change say what the code now does.
 - For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
 
+## Grade each finding
+
+Give each finding a `class` and a `severity`:
+
+- `blocking` (the default) — the diff breaks a criterion, the code it touches, or a sibling the swe's `case_sweep` missed.
+- `nit` — worth fixing, but the change is correct without it.
+- `pre_existing` — the defect is already on the base; this diff did not introduce it.
+
+Record `fail` only when at least one finding is blocking. A `pass` carries the nit and pre_existing findings you found; bro routes them after the push.
+
+## Sweep for siblings before a FAIL
+
+Before recording a FAIL, take each blocking finding's class and search the diff and the callers of the symbols it changed (`world_model_symbol` with `impact: 2`) for every other instance. Record the siblings in that same finding — one finding per class, its `observed` listing every site — and write its probe to cover the whole class where it can (a check across every site), so the rework cannot fix one site and leave the rest.
+
 ## Recording a FAIL
 
-A `fail` or `escalate` verdict lists `findings[]`, one entry per defect; a `pass` lists none. Each entry carries:
+A `fail` or `escalate` verdict lists `findings[]`, one entry per defect class, and a `fail` needs at least one blocking entry; a `pass` lists only nit and pre_existing entries, or none. Each entry carries:
 
 | Field | Content |
 |---|---|
+| `class` | A short name for the defect kind, e.g. `unquoted-sql-literal`; siblings share it |
+| `severity` | `blocking` (the default), `nit` or `pre_existing`, as graded above |
 | `criterion_id` | The `SC<n>` id the defect breaks; omit it when it breaks no single criterion |
 | `probe_cmd` | A self-contained bash command, run from the worktree root, that exits 0 once the defect is fixed and non-zero while it stands — inline `node -e`, `bash -c` or a heredoc, reading only files in the worktree |
 | `expected` | What correct behaviour looks like — what the probe checks for |
 | `observed` | What you saw instead, with the file:line or output that shows it |
 
-Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The gate re-runs every probe on each later close attempt, so a probe that passes on broken code waves the defect through. You record probes; the rework swe commits each one as a test.
+Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The close gate re-runs the probe of every open blocking finding on each later close attempt (nit and pre_existing findings are not probed), so a probe that passes on broken code waves the defect through. You record probes; the rework swe commits each one as a test.
 
 ## Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires a non-empty array, and a `pass` refuses one (omit it or pass `[]`). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
+After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires at least one blocking entry, and a `pass` takes only nit and pre_existing entries (or omit it, or pass `[]`). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating code-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
