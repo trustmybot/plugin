@@ -289,7 +289,11 @@ describe('CLI exit paths', () => {
       const result = run(`${name}.mjs`, args);
       assert.equal(result.status, 1);
       assert.equal(result.stdout, '');
-      assert.match(result.stderr, new RegExp(`^Usage: \\S*${name}\\.mjs ${usage.replace(/[[\]|.]/g, '\\$&')}\\n$`));
+      const prefix = 'Usage: ';
+      const suffix = `${name}.mjs ${usage}\n`;
+      assert.ok(result.stderr.startsWith(prefix), result.stderr);
+      assert.ok(result.stderr.endsWith(suffix), result.stderr);
+      assert.doesNotMatch(result.stderr.slice(prefix.length, result.stderr.length - suffix.length), /\s/);
     });
   }
 
