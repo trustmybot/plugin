@@ -812,6 +812,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       localAhead?: string[];
       staleParent?: string[];
       orphanParent?: boolean;
+      missingParent?: string;
     } = {},
   ): Promise<{
     db: TrajectoryDB;
@@ -885,6 +886,8 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       git(repoRoot, 'checkout', '-q', 'dev');
       parent = 'feat/orphan';
     }
+
+    if (opts.missingParent) parent = opts.missingParent;
 
     // Put the work commit on a feature branch so the local `dev` ref stays at
     // the base — the remoteless fallback then diffs a real parent...work range.
@@ -1150,6 +1153,29 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       assert.ok('recorded_base' in out);
       assert.equal(out['recorded_base'], null);
       assert.equal(out['merge_base'], baseSha);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a parent branch absent locally and on origin closes with base_moved:true, recorded_base null and the target merge-base diff (GH 2384)', async () => {
+    const { db, composites, taskId, sha, baseSha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], { missingParent: 'feat/gone' });
+    try {
+      const repoPath = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = 'app'`)!.path;
+      for (const ref of ['refs/heads/feat/gone', 'refs/remotes/origin/feat/gone']) {
+        assert.throws(() => execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', ref], { stdio: 'ignore' }));
+      }
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `the task's own files diff from the target merge-base, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r);
+      assert.equal(out['base_moved'], true);
+      assert.ok('recorded_base' in out);
+      assert.equal(out['recorded_base'], null);
+      assert.equal(out['merge_base'], baseSha);
+      const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
+      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras_accepted: [], base_moved: true });
     } finally {
       cleanup();
     }

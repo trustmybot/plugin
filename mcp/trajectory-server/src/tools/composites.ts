@@ -3115,7 +3115,7 @@ export function compositeTools(
             if (targetRef) break;
           }
         }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null) : null;
+        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
         const scope: ScopeCheck =
           repoPath && targetRef
             ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)

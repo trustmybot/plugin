@@ -43758,7 +43758,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             if (targetRef) break;
           }
         }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null : null;
+        const recordedBaseRef = repoPath && task.parent_branch_id ? resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id : null;
         const scope = repoPath && targetRef ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef) : {
           outOfScope: [],
           changed: [],
