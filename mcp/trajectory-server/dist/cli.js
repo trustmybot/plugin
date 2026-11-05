@@ -10004,8 +10004,8 @@ var Integration = class {
       if (r.out !== "") this.io.err(`${r.out}
 `);
       if (r.rc !== 0) this.die(2, `${script} exited ${r.rc} in the rebased worktree; ${branch} and the DB are unchanged`);
-      if (this.git(this.wt, ["status", "--porcelain", "--untracked-files=no"]).out !== "") {
-        if (!this.gitLoud(this.wt, ["add", "-u"]) || !this.gitLoud(this.wt, ["commit", "-q", "--amend", "--no-edit"])) {
+      if (this.git(this.wt, ["status", "--porcelain", "--untracked-files=all", "--", `:(${REGEN_ATTR})`]).out !== "") {
+        if (!this.gitLoud(this.wt, ["add", "-A", "--", `:(${REGEN_ATTR})`]) || !this.gitLoud(this.wt, ["commit", "-q", "--amend", "--no-edit"])) {
           this.die(4, `could not amend the regenerated files into the rebased commit; ${branch} and the DB are unchanged`);
         }
         newSha = this.revParse(this.wt, "HEAD");

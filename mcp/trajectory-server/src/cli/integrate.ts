@@ -21,8 +21,10 @@
  *      shell predecessor) exists and either side of the rebase touched a path
  *      the worktree's .gitattributes marks merge=tmb-regen, the script runs in
  *      the worktree (GH 1652); a failure → exit 2, branch and DB unchanged.
- *      Tracked files it changes are amended into the rebased tip, keeping its
- *      author and message.
+ *      Every change it makes under a merge=tmb-regen path, new untracked files
+ *      and deletions included, is staged (`git add -A` over that attr
+ *      pathspec) and amended into the rebased tip, keeping its author and
+ *      message (GH 2353); changes outside those paths stay out of it.
  *   5. The `git patch-id --stable` lists of the commits a rebase picks from
  *      commit_sha and from <rebased> (`rev-list --cherry-pick --right-only
  *      <base>...<sha>`: a commit whose patch is already in <base>, such as a
@@ -416,8 +418,8 @@ class Integration {
       const r = await this.execute([...regen.run, script], timeoutS, { ...this.env, PATH: toolchainPath });
       if (r.out !== '') this.io.err(`${r.out}\n`);
       if (r.rc !== 0) this.die(2, `${script} exited ${r.rc} in the rebased worktree; ${branch} and the DB are unchanged`);
-      if (this.git(this.wt, ['status', '--porcelain', '--untracked-files=no']).out !== '') {
-        if (!this.gitLoud(this.wt, ['add', '-u']) || !this.gitLoud(this.wt, ['commit', '-q', '--amend', '--no-edit'])) {
+      if (this.git(this.wt, ['status', '--porcelain', '--untracked-files=all', '--', `:(${REGEN_ATTR})`]).out !== '') {
+        if (!this.gitLoud(this.wt, ['add', '-A', '--', `:(${REGEN_ATTR})`]) || !this.gitLoud(this.wt, ['commit', '-q', '--amend', '--no-edit'])) {
           this.die(4, `could not amend the regenerated files into the rebased commit; ${branch} and the DB are unchanged`);
         }
         newSha = this.revParse(this.wt, 'HEAD');
