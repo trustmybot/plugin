@@ -192,7 +192,7 @@ export function validationTools(db) {
         },
         {
             name: 'validation_history',
-            description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
+            description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none), and findings, the review_findings rows of that attempt ({id, criterion_id, status, probe_cmd, expected, observed, severity, class}; withheld wherever feedback is). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -204,7 +204,7 @@ export function validationTools(db) {
                     fields: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns.',
+                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns.',
                     },
                 },
                 required: ['agent', 'task_id'],
@@ -328,15 +328,21 @@ export function validationTools(db) {
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
             const fieldsArg = args['fields'];
-            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run']);
+            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run', 'findings']);
             if (fieldsArg !== undefined) {
                 const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
                 if (unknown.length > 0) {
                     return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(', ')}`);
                 }
             }
+            const findingCols = ['id', 'criterion_id', 'status', 'probe_cmd', 'expected', 'observed', 'severity', 'class'].filter((c) => (db.get(`SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = ?`, [c])?.n ?? 0) > 0);
+            function attemptFindings(attemptN) {
+                return db.all(`SELECT ${findingCols.join(', ')} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`, [taskId, attemptN]);
+            }
             function projectRow(redacted) {
                 const row = { ...redacted, verification_run: latestVerificationRun(db, taskId, String(redacted['created_at'])) };
+                if ('feedback' in redacted)
+                    row['findings'] = attemptFindings(Number(redacted['attempt_n']));
                 if (!fieldsArg)
                     return row;
                 const out = {};
