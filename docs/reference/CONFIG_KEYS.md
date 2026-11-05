@@ -43,10 +43,10 @@ Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`,
 
 | Field | Type | Allowed values | Read by | Written by |
 |---|---|---|---|---|
-| `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards.sh`, bro routing | `onboard_apply` |
-| `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards.sh` PR rule, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`, `cleanup-worktree-on-task-close.sh`, `task_create_batch` (branch base) | `onboard_apply` |
-| `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` |
-| `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary`, `sync` (the onboard Remote choice) | `origin`, else the first remote, is primary; a new row starts at `sync = is_primary` | issue-scoped and milestone sync (`sync = 1` rows only), `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes, never `sync`); `onboard_apply` (git remotes, and `sync` from its `remote` answer) |
+| `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards`, bro routing | `onboard_apply` |
+| `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards` PR rule, `git-push-guard`, `branch-up-to-date-with-remote`, `clean-merged-branch`, `cleanup-worktree-on-task-close`, `task_create_batch` (branch base) | `onboard_apply` |
+| `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards` commit rule, `clean-merged-branch` | `onboard_apply` |
+| `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary`, `sync` (the onboard Remote choice) | `origin`, else the first remote, is primary; a new row starts at `sync = is_primary` | issue-scoped and milestone sync (`sync = 1` rows only), `substrate-preflight`, `no-remote-auth-guard`, the push gate | `scan_run` (from git remotes, never `sync`); `onboard_apply` (git remotes, and `sync` from its `remote` answer) |
 
 Hooks resolve the current repo via `mcp/trajectory-server/src/hooks/lib/repo.ts` (`repoGitRoot` + `repoResolve` / `repoRemotes`) and read the matching `repos` row. An unset `branching_model` / `target_branch` / `protected_branches` means the repo is not onboarded — run `/onboard` — never a silent global default.
 
