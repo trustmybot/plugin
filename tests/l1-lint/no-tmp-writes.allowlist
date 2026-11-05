@@ -1,2 +1,6 @@
-# Repo-relative paths exempt from no-tmp-writes.sh, one per line. Keep empty
-# unless a Human-run tool must write a fixed /tmp path by design.
+# Repo-relative paths exempt from no-tmp-writes.sh, one per line. Admit only a
+# Human-run tool that must write a fixed /tmp path, or a test that plants a
+# literal /tmp path to exercise a /tmp guard, both by design.
+mcp/trajectory-server/src/test/cmd-analysis-l3-programs.test.ts
+mcp/trajectory-server/src/test/containment-guard-l3.test.ts
+mcp/trajectory-server/src/test/l3-runners.test.ts
