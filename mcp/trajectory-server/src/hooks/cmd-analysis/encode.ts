@@ -242,9 +242,12 @@ export interface Heredoc {
 /**
  * `held` (GH 1739): the `heldKey` of every command or herestring word that
  * holds an expansion outside single quotes, so part of its text is filled in
- * by the shell at run time.
+ * by the shell at run time. `spliced` (GH 1913): the `heldKey` of every
+ * command word each of whose `$` is a `$NAME` / `${NAME}` expansion, with no
+ * backtick or substitution, unless a command or redirect word of the same key
+ * holds a `$` or backtick of any other kind.
  */
-export type Encoded = { ok: true; text: string; heredocs: Heredoc[]; held: Set<string> } | { ok: false };
+export type Encoded = { ok: true; text: string; heredocs: Heredoc[]; held: Set<string>; spliced: Set<string> } | { ok: false };
 
 const EXPANSIONS = ['simple_expansion', 'expansion', 'command_substitution', 'arithmetic_expansion', 'process_substitution'];
 
@@ -264,6 +267,29 @@ function heldWords(encoder: Encoder, root: Node): Set<string> {
     }
   }
   return held;
+}
+
+const PLAIN_EXPANSIONS = ['simple_expansion', 'expansion'];
+const CODE_EXPANSIONS = ['command_substitution', 'arithmetic_expansion', 'process_substitution'];
+
+function splicedWords(encoder: Encoder, root: Node): Set<string> {
+  const plain = new Set<string>();
+  const opaque = new Set<string>();
+  const classify = (word: Node, redirect: boolean): void => {
+    const key = heldKey(encoder.word(word));
+    const dollars = key.split('$').length - 1;
+    if (dollars === 0 && !key.includes('`')) return;
+    const spliced =
+      !redirect && !key.includes('`') && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+    (spliced ? plain : opaque).add(key);
+  };
+  for (const node of root.descendantsOfType(['command', 'file_redirect', 'herestring_redirect'])) {
+    if (!node) continue;
+    const redirect = node.type !== 'command';
+    for (const word of node.namedChildren) if (word && !/^(file|herestring)_redirect$/.test(word.type)) classify(word, redirect);
+  }
+  for (const key of opaque) plain.delete(key);
+  return plain;
 }
 
 function broken(node: Node): boolean {
@@ -336,7 +362,7 @@ export function encode(parser: Parser, command: string, charge: Charge = NO_CHAR
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
     const encoder = new Encoder(command, charge);
     const text = encoder.range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
+    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
   } finally {
     tree.delete();
   }
