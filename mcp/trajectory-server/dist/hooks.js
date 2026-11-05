@@ -20638,6 +20638,63 @@ if (isMainModule()) {
 `);
 }
 
+// src/hooks/lib/verification-runs.ts
+var DEFAULT_TAIL_CHARS = 4e3;
+function shellLength(s, env) {
+  return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
+}
+function shellTail(s, n3, env) {
+  if (ctypeUtf8(env)) return [...s].slice(-n3).join("");
+  const bytes = Buffer.from(s);
+  return bytes.subarray(Math.max(0, bytes.length - n3)).toString("utf8");
+}
+function invalid(caller, message) {
+  return { code: 2, sql: "", error: `tmb_verification_run: ${caller}: ${message}` };
+}
+function runStartSql(taskId, sha, budgetS, now = nowIso()) {
+  return `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
+ WHERE finished_at IS NULL
+   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${taskId}, '${sqlQuote(sha)}', 'gate', '${now}', ${budgetS});
+SELECT last_insert_rowid();`;
+}
+function runCommandSql(caller, runId, ordinal, command, rc, elapsed, output, env) {
+  if (!/^[0-9]+$/.test(runId)) return invalid(caller, `invalid run_id '${runId}'`);
+  const rawCap = env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
+  const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
+  const tail = cap > 0 && shellLength(output, env) > cap ? shellTail(output, cap, env) : output;
+  return {
+    code: 0,
+    sql: `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`,
+    error: ""
+  };
+}
+function runFinishSql(caller, runId, rc, timedOut2, now = nowIso()) {
+  if (!/^[0-9]+$/.test(runId)) return invalid(caller, `invalid run_id '${runId}'`);
+  return {
+    code: 0,
+    sql: `UPDATE verification_runs SET finished_at = '${now}', exit_code = ${rc}, timed_out = ${timedOut2} WHERE id = ${runId};`,
+    error: ""
+  };
+}
+function reusableRun(db, taskId, sha, commandsJson, env) {
+  const cmds = sqlQuote(commandsJson);
+  return sqliteRo(
+    db,
+    `SELECT r.id || '|' || r.finished_at FROM verification_runs r
+     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
+       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
+       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
+       AND json_valid('${cmds}')
+       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
+       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
+             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
+            WHERE c.command IS NOT e.value)
+     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`,
+    env
+  );
+}
+
 // src/hooks/swe-brief-gate.ts
 var GATE_NAME47 = "swe-brief-gate";
 var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -20978,7 +21035,6 @@ var FINISH_BACKOFF_MS = 500;
 var LOCK_POLL_MS = 500;
 var TAIL_LINES = 20;
 var FAILURE_LINES = 15;
-var DEFAULT_TAIL_CHARS = 4e3;
 var signals = osConstants.signals;
 var DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
 var WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
@@ -21004,14 +21060,6 @@ function deny7(reason) {
 function context3(text) {
   return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text } })}
 `;
-}
-function shellLength(s, env) {
-  return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
-}
-function shellTail(s, n3, env) {
-  if (ctypeUtf8(env)) return [...s].slice(-n3).join("");
-  const bytes = Buffer.from(s);
-  return bytes.subarray(Math.max(0, bytes.length - n3)).toString("utf8");
 }
 function msToS(ms) {
   const abs = Math.abs(ms);
@@ -21116,23 +21164,6 @@ function lastLines(text, n3) {
 function failureLines(text) {
   return text.split("\n").filter((line) => /FAIL|failed|Error|❌/.test(line)).slice(0, FAILURE_LINES).join("\n");
 }
-function reusableRun(db, taskId, sha, commandsJson, env) {
-  const cmds = sqlQuote(commandsJson);
-  return sqliteRo(
-    db,
-    `SELECT r.id || '|' || r.finished_at FROM verification_runs r
-     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
-       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
-       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
-       AND json_valid('${cmds}')
-       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
-       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
-             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
-            WHERE c.command IS NOT e.value)
-     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`,
-    env
-  );
-}
 var VerificationRun = class {
   constructor(c) {
     this.c = c;
@@ -21164,36 +21195,26 @@ var VerificationRun = class {
     return { ok: false, code: 2, stdout: "", error: "" };
   }
   start(ms) {
-    const now = nowIso();
-    const r = this.write(
-      ms,
-      `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
- WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now}', ${this.c.timeoutS});
-SELECT last_insert_rowid();`
-    );
+    const r = this.write(ms, runStartSql(this.c.taskId, this.c.wtSha, this.c.timeoutS));
     return r.ok ? commandSubstitution(r.stdout) : "";
   }
   commandWrite(ms, ordinal, command, rc, elapsed, output) {
-    if (!/^[0-9]+$/.test(this.runId)) {
-      this.invalid(`invalid run_id '${this.runId}'`);
+    const s = runCommandSql(GATE_NAME48, this.runId, ordinal, command, rc, elapsed, output, this.c.env);
+    if (s.code !== 0) {
+      stderr(`${s.error}
+`);
       return;
     }
-    const rawCap = this.c.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-    const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-    const tail = cap > 0 && shellLength(output, this.c.env) > cap ? shellTail(output, cap, this.c.env) : output;
-    this.write(
-      ms,
-      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`
-    );
+    this.write(ms, s.sql);
   }
   finishWrite(rc, timedOut2) {
-    if (!/^[0-9]+$/.test(this.runId)) return this.invalid(`invalid run_id '${this.runId}'`);
-    return this.write(
-      RECORD_BUDGET_MS,
-      `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut2} WHERE id = ${this.runId};`
-    );
+    const s = runFinishSql(GATE_NAME48, this.runId, rc, timedOut2);
+    if (s.code !== 0) {
+      stderr(`${s.error}
+`);
+      return { ok: false, code: 2, stdout: "", error: "" };
+    }
+    return this.write(RECORD_BUDGET_MS, s.sql);
   }
   fixedWrite(ms, id) {
     if (!/^F[0-9]+-[0-9]+$/.test(id)) return this.invalid(`invalid finding id '${id}'`);
