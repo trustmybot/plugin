@@ -33,7 +33,7 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 Use `subagent_type='code-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
-Each Agent call carries `effort` equal to the configured `reviewer_effort` (default `high`); the spawn gate denies a mismatch. The reviewer's job is catching fail-open misses, so it is the one place lower effort costs more than it saves.
+Each Agent call carries `effort` equal to the configured `reviewer_effort` (default `medium`); the spawn gate denies a mismatch. The reviewer's job is catching fail-open misses, so it is the one place lower effort costs more than it saves.
 
 Read the verdict + `mcp_available` off each task's validation row via `validation_history` (the typed source of truth) — never parse the reviewer's reply text:
 - `mcp_available = 1` — the reviewer wrote `validation_record` itself.

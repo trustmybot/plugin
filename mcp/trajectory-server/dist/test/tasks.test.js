@@ -1879,17 +1879,17 @@ describe('effort (GH 1349)', () => {
             cleanup();
         }
     });
-    it('config_set validates both effort keys; resolveEffortDefaults reads medium/high when unset', async () => {
+    it('config_set validates both effort keys; resolveEffortDefaults reads medium for both when unset (GH 2344)', async () => {
         const { db, config, cleanup } = setup();
         try {
-            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'high' });
+            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'medium' });
             for (const key of ['swe_default_effort', 'reviewer_effort']) {
                 const bad = await call(config.handlers, 'config_set', { agent: 'bro', key, value: 'max' });
                 assert.equal(bad.isError, true, key);
                 assert.match(String(parseResult(bad).error), new RegExp(`typed_field_violation: config key "${key}" must be one of low, medium, high`));
             }
-            await call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_effort', value: 'medium' });
-            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'medium' });
+            await call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_effort', value: 'high' });
+            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'high' });
         }
         finally {
             cleanup();

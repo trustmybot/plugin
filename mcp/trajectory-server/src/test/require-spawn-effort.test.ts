@@ -1,7 +1,7 @@
 /**
  * require-spawn-effort (GH 1692): a swe spawn's effort must equal tasks.effort
  * of its task, naming the expected value and the fix when it does not; a
- * code-reviewer spawn's must equal plugin_config.reviewer_effort (high when
+ * code-reviewer spawn's must equal plugin_config.reviewer_effort (medium when
  * unset or invalid); any other agent passes without one; and a DB from before
  * tasks.effort gets the restart-to-migrate remedy. Each case runs
  * `node dist/hooks.js require-spawn-effort` in a sandbox with its own HOME.
@@ -81,21 +81,21 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
     assert.ok(out.includes('Pass effort=\\"medium\\" on the Agent call'), 'names the fix');
   });
 
-  it('a code-reviewer spawn passes only with reviewer_effort (high when unset)', () => {
-    assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'high')), '', 'high passes while unset');
-    let out = run(payload('tmb:code-reviewer', REVIEW_PROMPT, 'medium'));
-    assert.ok(out.includes(DENY), 'medium denied while unset');
+  it('a code-reviewer spawn passes only with reviewer_effort (medium when unset, GH 2344)', () => {
+    assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'medium')), '', 'medium passes while unset');
+    let out = run(payload('tmb:code-reviewer', REVIEW_PROMPT, 'high'));
+    assert.ok(out.includes(DENY), 'high denied while unset');
     assert.ok(out.includes('config_set(key=\\"reviewer_effort\\"'), 'names how to change reviewer_effort');
-    assert.ok(out.includes('Pass effort=\\"high\\" on the Agent call'), 'names the fix');
+    assert.ok(out.includes('Pass effort=\\"medium\\" on the Agent call'), 'names the fix');
     out = run(payload('code-reviewer', REVIEW_PROMPT));
     assert.ok(out.includes('passed no effort'), 'missing effort denied');
-    exec(db, `INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '"medium"');`);
+    exec(db, `INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '"high"');`);
     try {
-      assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'medium')), '', 'medium passes once configured');
-      out = run(payload('code-reviewer', REVIEW_PROMPT, 'high'));
-      assert.ok(out.includes('Pass effort=\\"medium\\" on the Agent call'), 'high denied once medium is configured');
+      assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'high')), '', 'high passes once configured');
+      out = run(payload('code-reviewer', REVIEW_PROMPT, 'medium'));
+      assert.ok(out.includes('Pass effort=\\"high\\" on the Agent call'), 'medium denied once high is configured');
       exec(db, `UPDATE plugin_config SET value_json = '"max"' WHERE key = 'reviewer_effort';`);
-      assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'high')), '', 'an invalid stored value reads as high');
+      assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'medium')), '', 'an invalid stored value reads as medium');
     } finally {
       exec(db, `DELETE FROM plugin_config WHERE key = 'reviewer_effort';`);
     }
@@ -125,7 +125,7 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
     assert.ok(out.includes('tasks.effort is missing'), 'swe: names the missing column');
     assert.ok(out.includes('Restart Claude Code'), 'swe: names the remedy');
     assert.ok(!out.includes('trajectory DB unavailable'), 'swe: not the generic deny');
-    out = run(payload('code-reviewer', REVIEW_PROMPT, 'high'), old);
+    out = run(payload('code-reviewer', REVIEW_PROMPT, 'medium'), old);
     assert.ok(!out.includes('tasks.effort is missing'), 'code-reviewer: not denied for the missing column');
   });
 });

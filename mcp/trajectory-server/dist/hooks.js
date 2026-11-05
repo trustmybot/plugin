@@ -6624,7 +6624,7 @@ var SWE_DEFAULT_EFFORT_KEY = "swe_default_effort";
 var REVIEWER_EFFORT_KEY = "reviewer_effort";
 var EFFORT_DEFAULTS = {
   [SWE_DEFAULT_EFFORT_KEY]: "medium",
-  [REVIEWER_EFFORT_KEY]: "high"
+  [REVIEWER_EFFORT_KEY]: "medium"
 };
 function isEffortAbConfig(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -17270,7 +17270,7 @@ var configuredEffort = (key2, fallback) => `COALESCE((SELECT v FROM (SELECT CASE
 function effortDefaults(db, env = process.env) {
   return gateRead(
     db,
-    `SELECT ${configuredEffort("swe_default_effort", "medium")} || '|' || ${configuredEffort("reviewer_effort", "high")};`,
+    `SELECT ${configuredEffort("swe_default_effort", "medium")} || '|' || ${configuredEffort("reviewer_effort", "medium")};`,
     env
   );
 }
@@ -17514,7 +17514,7 @@ function reviewerVerdict(given, env) {
   const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
   if (given === expected) return ALLOW;
   return denyMismatch(
-    "code-reviewer (plugin_config.reviewer_effort, high when unset)",
+    "code-reviewer (plugin_config.reviewer_effort, medium when unset)",
     expected,
     given,
     'To change it for every review, config_set(key="reviewer_effort", value=...).'

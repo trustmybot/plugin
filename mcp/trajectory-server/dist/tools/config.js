@@ -24,7 +24,7 @@ export const SWE_DEFAULT_EFFORT_KEY = 'swe_default_effort';
 export const REVIEWER_EFFORT_KEY = 'reviewer_effort';
 const EFFORT_DEFAULTS = {
     [SWE_DEFAULT_EFFORT_KEY]: 'medium',
-    [REVIEWER_EFFORT_KEY]: 'high',
+    [REVIEWER_EFFORT_KEY]: 'medium',
 };
 export function isEffort(value) {
     return typeof value === 'string' && EFFORT_LEVELS.includes(value);
@@ -35,7 +35,7 @@ export function effortRank(value) {
 /**
  * The effort a new swe task runs at when its creator names none, and the
  * effort every code-reviewer spawn runs at. An unset or unreadable key reads as
- * its default (medium, high). The hooks' twin is tmb_effort_defaults in
+ * its default (medium for both). The hooks' twin is tmb_effort_defaults in
  * scripts/hooks/lib/query-task.sh.
  */
 export function resolveEffortDefaults(db) {

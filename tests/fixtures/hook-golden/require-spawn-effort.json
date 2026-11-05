@@ -34,7 +34,7 @@
       "stdout": ""
     }
   },
-  "06-reviewer-default-high-allows.json": {
+  "06-reviewer-default-medium-allows.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
@@ -45,7 +45,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, high when unset) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"medium\\\". Pass effort=\\\"high\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"high\\\". Pass effort=\\\"medium\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
     }
   },
   "08-reviewer-configured-low-allows.json": {
@@ -59,7 +59,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, high when unset) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"high\\\". Pass effort=\\\"low\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"high\\\". Pass effort=\\\"low\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
     }
   },
   "10-db-without-effort-column-denies.json": {
@@ -101,7 +101,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, high when unset) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"1\\\". Pass effort=\\\"high\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"1\\\". Pass effort=\\\"medium\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
     }
   },
   "16-colon-task-id-boolean-effort-denies.json": {

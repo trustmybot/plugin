@@ -155,7 +155,7 @@ describe('agent-spawn-dispatch end to end', () => {
     exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'closed', 'plugin', 'dev', ?)", sha);
     exec(db, 'INSERT INTO verification_runs (task_id, commit_sha, exit_code) VALUES (5, ?, 0)', sha);
     const prompt = `task_id=5 commit_sha=${sha} branch_id=fix/5-pr repo=plugin repo_path=${r} attempt_n=1 subagent_session_id=sess-xyz`;
-    const input = agent({ subagent_type: 'tmb:code-reviewer', effort: 'high', prompt });
+    const input = agent({ subagent_type: 'tmb:code-reviewer', effort: 'medium', prompt });
     assert.equal(dispatch(r, input, db), '', 'no deny, no rewrite, no context for the canonical reviewer name');
     exec(db, "UPDATE tasks SET status = 'running' WHERE id = 5;");
     assert.ok(dispatch(r, input, db).includes('status=closed'), 'control: the same fixture with an open task is denied');
