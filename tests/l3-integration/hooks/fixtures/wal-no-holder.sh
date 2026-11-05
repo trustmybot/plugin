@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Sourced by the gate suites (require-task-spec, swe-verification-gate).
+# Sourced by db-write-lib.test.sh and swe-verification-gate.test.sh; the
+# node:test ports use its TS form, mcp/trajectory-server/src/test/wal-gate-cases.ts.
 # A gate must read a healthy WAL trajectory DB that no process
 # holds open (its -shm/-wal absent), keep the -readonly fast path while a holder
 # exists, and fail closed when neither read can open the DB.

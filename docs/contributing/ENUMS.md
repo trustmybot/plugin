@@ -292,7 +292,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `transcript` | Measured by the bro Stop hook from the session transcript (bro session rows) |
 | `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and code-reviewer rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
-| `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `scripts/maintenance/backfill-agent-runs.sh` (not a live hook); never written over a `transcript` / `subagent_stop` row |
+| `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `cli.js backfill-agent-runs` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
 `CHECK`-enforced. NULL until the run is first measured.
 

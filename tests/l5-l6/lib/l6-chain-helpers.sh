@@ -86,12 +86,12 @@ l6c_launch_step() {
 
 # l6c_trajectory_doctor <db> <report_file>
 # Checks the run's trajectory DB against its data contracts
-# (scripts/maintenance/trajectory-doctor.sh) and writes the JSON report to
+# (`cli.js trajectory-doctor`) and writes the JSON report to
 # <report_file>. Returns 0 when healthy; otherwise prints the report and
 # returns non-zero — an error-severity violation fails the run.
 l6c_trajectory_doctor() {
   local db="$1" report="$2" rc=0
-  bash "$L6C_LIB_DIR/../../../scripts/maintenance/trajectory-doctor.sh" --db "$db" > "$report" 2>&1 || rc=$?
+  node --experimental-sqlite --no-warnings "$L6C_LIB_DIR/../../../mcp/trajectory-server/dist/cli.js" trajectory-doctor --db "$db" > "$report" 2>&1 || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf "  ✗ trajectory_doctor: %s is unhealthy (exit %s)\n" "$db" "$rc"
     sed 's/^/    /' "$report"

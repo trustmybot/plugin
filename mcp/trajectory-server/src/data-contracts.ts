@@ -2,7 +2,7 @@
  * Data contracts for the trajectory DB: one declarative list of invariants on
  * the rows TMB writes over time. The `trajectory_doctor` tool, the SessionStart
  * banner (via the generated `scripts/hooks/lib/data-contracts.json`) and the
- * L5/L6 gate (`scripts/maintenance/trajectory-doctor.sh`) all run this list.
+ * L5/L6 gate (`cli.js trajectory-doctor`) all run this list.
  *
  * Each DB contract's `sql` is one read-only SELECT returning a single number;
  * the contract holds when `actual <op> value`. A NULL result never holds.

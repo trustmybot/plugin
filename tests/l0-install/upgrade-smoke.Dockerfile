@@ -65,6 +65,6 @@ RUN OLD_V=$(sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta'); \
 RUN echo "✓ U3: current server migrated the v1.0.2 DB"
 
 # U4: the upgraded DB passes every data contract.
-RUN bash /plugin/scripts/maintenance/trajectory-doctor.sh --db "$DB" \
+RUN node --experimental-sqlite --no-warnings /plugin/mcp/trajectory-server/dist/cli.js trajectory-doctor --db "$DB" \
  || { echo "❌ FAIL: trajectory-doctor did not exit 0 on the upgraded v1.0.2 DB"; exit 1; }
 RUN echo "✓ Layer 0 upgrade-smoke: v1.0.2 DB upgraded by the current server passes trajectory-doctor"
