@@ -5,16 +5,17 @@
  */
 // A task has a passing review when a validation_attempts row with
 // verdict='pass' was recorded at or after the review anchor of its current
-// commit: the earliest bro_verification_pass audit row naming this task and
-// this commit_sha (bro's first verification of that exact commit). No such
-// row = no anchor = no pass; completed_at is not an anchor because no audit
+// commit: the earliest bro_verification_pass or task_integrated audit row
+// naming this task and this commit_sha (bro's first verification of that
+// exact commit, or cli.js integrate moving the task onto it, so a pass of the
+// reviewed commit never covers its rebase). No such row = no anchor = no pass; completed_at is not an anchor because no audit
 // row records which sha a completion carried. validation_attempts carries no
 // commit_sha, so time is the only link. close-issue-on-merge and
 // cleanup-worktree-on-task-close read it from here.
 export const HAS_PASS_SQL = `(EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+      WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))
   AND ${newestVerdictPassSql('t')})`;
