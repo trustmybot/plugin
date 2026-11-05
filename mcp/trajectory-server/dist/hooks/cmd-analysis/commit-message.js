@@ -36,6 +36,8 @@ function statements(parser, cmd, base, depth, home) {
         return null;
     const out = [];
     for (const record of statementsEnc(encoded.text, base, home, false)) {
+        if (record.tail)
+            continue;
         const stmt = readStmt(record.stmt);
         if (stmt === '')
             continue;

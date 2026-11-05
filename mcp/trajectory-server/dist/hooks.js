@@ -9544,7 +9544,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     for (const ch of VBAD) if (t.includes(ch)) return false;
     return plainDollars(text);
   }
-  function flush() {
+  function flush(sub = false) {
     const args2 = tail;
     tail = false;
     owns = args2;
@@ -9623,7 +9623,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       return;
     }
     let a0 = w[first];
-    if (!args2) owns = w.slice(first + 1).some((x) => x !== "");
+    if (!args2) owns = w.slice(first + 1).some((x) => x !== "") || sub && w[n3 - 1] === "";
     if (assign && !wq[first] && (a0 === "for" || a0 === "select")) forhead(w, first);
     else if (assign && !wq[first] && (a0 === "coproc" || a0 === "function")) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -9803,9 +9803,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
         if (assign && last === "$") stmt = stmt + ENC[8] + ENC[9] + forsrc(i2);
         else stmt = stmt.slice(0, -1);
       }
-      flush();
+      flush(!assign && last === "$");
       push();
-      sstack[sp] = assign && last === "$" && owns;
+      sstack[sp] = last === "$" && owns;
       continue;
     }
     if (c === ")") {
@@ -9819,7 +9819,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     if (c === "`") {
       vkill = true;
       if (assign && !bt) stmt += "$" + ENC[8] + ENC[9];
-      flush();
+      flush(!assign && !bt);
       if (bt) {
         bt = false;
         const closes = sp > 0 && sstack[sp];
@@ -9828,7 +9828,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       } else {
         bt = true;
         push();
-        sstack[sp] = assign && owns;
+        sstack[sp] = owns;
       }
       continue;
     }
@@ -9870,6 +9870,7 @@ function listing(parser2, cmd, base2, depth, home) {
   if (!encoded.ok) return null;
   const out2 = [];
   for (const record of statementsEnc(encoded.text, base2, home, false)) {
+    if (record.tail) continue;
     const stmt = readStmt(record.stmt);
     if (stmt === "") continue;
     const body2 = depth < MAX_DEPTH && !record.dir.startsWith("=") ? inner(stmt) : "";
@@ -9966,6 +9967,7 @@ function statements(parser2, cmd, base2, depth, home) {
   if (!encoded.ok) return null;
   const out2 = [];
   for (const record of statementsEnc(encoded.text, base2, home, false)) {
+    if (record.tail) continue;
     const stmt = readStmt2(record.stmt);
     if (stmt === "") continue;
     const body2 = depth < MAX_DEPTH2 && !record.dir.startsWith("=") ? inner2(stmt) : "";

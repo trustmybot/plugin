@@ -47,7 +47,7 @@ const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A
 export interface Record {
   dir: string;
   stmt: string;
-  /** With `assign`: the words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable (GH 2377). */
+  /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable (GH 2377) and are no command of their own (GH 2381). */
   tail?: boolean;
 }
 
@@ -506,8 +506,13 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     return plainDollars(text);
   }
 
-  /** Sets `owns`: the statement's command word comes before its last word, or it is itself a tail. */
-  function flush(): void {
+  /**
+   * Sets `owns`: the statement's command word comes before its last word, or
+   * it is itself a tail. `sub`: without `assign`, an unquoted $( ) or backtick
+   * follows without leaving a word of its own, so a blank right before it
+   * makes it a word after the command word (GH 2381).
+   */
+  function flush(sub = false): void {
     const args = tail;
     tail = false;
     owns = args;
@@ -584,7 +589,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       return;
     }
     let a0 = w[first];
-    if (!args) owns = w.slice(first + 1).some((x) => x !== '');
+    if (!args) owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
     if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
     else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -767,9 +772,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         if (assign && last === '$') stmt = stmt + ENC[8] + ENC[9] + forsrc(i);
         else stmt = stmt.slice(0, -1);
       }
-      flush();
+      flush(!assign && last === '$');
       push();
-      sstack[sp] = assign && last === '$' && owns;
+      sstack[sp] = last === '$' && owns;
       continue;
     }
     if (c === ')') {
@@ -783,7 +788,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     if (c === '`') {
       vkill = true;
       if (assign && !bt) stmt += '$' + ENC[8] + ENC[9];
-      flush();
+      flush(!assign && !bt);
       if (bt) {
         bt = false;
         const closes = sp > 0 && sstack[sp];
@@ -792,7 +797,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       } else {
         bt = true;
         push();
-        sstack[sp] = assign && owns;
+        sstack[sp] = owns;
       }
       continue;
     }
