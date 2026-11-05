@@ -1444,7 +1444,7 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). " +
+        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open blocking review findings {id, criterion_id, probe_cmd, expected, observed, severity, class}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?, case_sweep?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). " +
         "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, " +
         "locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated, unresolved_paths?}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all; a name outside the named paths and files[] resolves only to exported, non-test symbols; unresolved_paths, present only when non-empty, lists named paths the index lacks), at most 6000 chars, null when the repo has no world model; " +
         "plus a `sections` map of what the others hold), " +
@@ -2202,9 +2202,11 @@ export function compositeTools(
             probe_cmd: string;
             expected: string;
             observed: string;
+            severity: string;
+            class: string | null;
           }>(
-            `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-              WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+            `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
+              WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
             [task.id],
           ).map((f) => ({ ...f }));
           const stop = db.get<{ stop_cause: string | null; stop_detail: string | null; completed_at: string | null }>(

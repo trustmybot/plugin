@@ -503,6 +503,18 @@ export function taskTools(db: TrajectoryDB): {
                 items: { type: 'string' },
                 description: 'Review finding ids (F<task_id>-<n>) this attempt fixes.',
               },
+              case_sweep: {
+                type: 'array',
+                description: 'Each bug class swept before close, with every case checked for it.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    class: { type: 'string', description: 'The bug class, e.g. a defect kind a finding named.' },
+                    checked: { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Each case checked for the class.' },
+                  },
+                  required: ['class', 'checked'],
+                },
+              },
               concepts: {
                 type: 'array',
                 maxItems: MAX_CONCEPT_PROPOSALS,

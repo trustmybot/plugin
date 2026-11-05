@@ -21086,11 +21086,14 @@ function reviewFindingsActive(db, taskId, env) {
   const has = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_findings';", env);
   if (has === GATE_READ_ERROR) return GATE_READ_ERROR;
   if (has !== "1") return "[]";
+  const severity = gateRead(db, "SELECT COUNT(*) FROM pragma_table_info('review_findings') WHERE name = 'severity';", env);
+  if (severity === GATE_READ_ERROR) return GATE_READ_ERROR;
+  const blockingOnly = severity === "1" ? " AND severity = 'blocking'" : "";
   const out2 = gateRead(
     db,
     `SELECT COALESCE(json_group_array(json_object('id', id, 'status', status, 'probe_cmd', probe_cmd)), '[]')
      FROM (SELECT id, status, probe_cmd FROM review_findings
-            WHERE task_id = ${taskId} AND status <> 'wontfix'
+            WHERE task_id = ${taskId} AND status <> 'wontfix'${blockingOnly}
             ORDER BY CAST(substr(id, instr(id, '-') + 1) AS INTEGER));`,
     env
   );

@@ -41,38 +41,50 @@ export interface CarriedFinding {
 }
 
 /**
- * Copies every open finding of `fromTaskId` onto `toTaskId` in id order, as
- * F<toTaskId>-<n> (n from 1) with attempt_n 0, status open and created_at
- * `now`, so the retry's own reviewer attempts (from 1) never replace them.
- * The source rows stay as they are.
+ * Copies every open blocking finding of `fromTaskId` onto `toTaskId` in id
+ * order, with its severity and class, as F<toTaskId>-<n> (n from 1) with
+ * attempt_n 0, status open and created_at `now`, so the retry's own reviewer
+ * attempts (from 1) never replace them. The source rows stay as they are.
  */
 export function carryOpenFindings(db: TrajectoryDB, fromTaskId: number, toTaskId: number, now: string): CarriedFinding[] {
-  const open = db.all<{ id: string; criterion_id: string | null; probe_cmd: string; expected: string; observed: string }>(
-    `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-      WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+  const open = db.all<{
+    id: string;
+    criterion_id: string | null;
+    probe_cmd: string;
+    expected: string;
+    observed: string;
+    severity: string;
+    class: string | null;
+  }>(
+    `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
+      WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
     [fromTaskId],
   );
   return open.map((f, i) => {
     const id = `F${toTaskId}-${i + 1}`;
     db.run(
-      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
-       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?)`,
-      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now],
+      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class],
     );
     return { from: f.id, id };
   });
 }
 
 /**
- * The task's findings the gate probes: every status but wontfix, in id order.
- * A DB without review_findings (schema < 47) has none.
+ * The task's findings the gate probes, the rows reviewFindingsActive in
+ * hooks/swe-verification-gate.ts selects: every blocking finding not wontfix,
+ * in id order; every finding not wontfix on a DB without the severity column
+ * (schema < 57). A DB without review_findings (schema < 47) has none.
  */
 export function activeFindingProbes(db: TrajectoryDB, taskId: number): FindingProbe[] {
   const table = db.get<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
   if (!table) return [];
+  const severity = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = 'severity'");
+  const blockingOnly = severity?.n === 1 ? " AND severity = 'blocking'" : '';
   return db
     .all<FindingProbe>(
-      `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix' ORDER BY ${FINDING_ORDER_SQL}`,
+      `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix'${blockingOnly} ORDER BY ${FINDING_ORDER_SQL}`,
       [taskId],
     )
     .map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));

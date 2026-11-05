@@ -15,6 +15,9 @@
  * concept proposals, checked here for shape only. scan_run applies a closed,
  * reviewed task's proposals once their anchors are in the index
  * (applyConceptProposals).
+ *
+ * An optional `case_sweep` (GH 1955) lists each bug class swe swept before
+ * close and the cases it checked for it; it is stored with the report.
  */
 import type { ConceptInput } from './world-model/concepts.js';
 
@@ -34,6 +37,13 @@ export interface CompletionReport {
   extras?: Array<{ path: string; reason: string }>;
   findings_fixed?: string[];
   concepts?: ConceptProposal[];
+  case_sweep?: CaseSweep[];
+}
+
+/** One bug class swe swept before close (GH 1955): the class and each case checked for it. */
+export interface CaseSweep {
+  class: string;
+  checked: string[];
 }
 
 /** A concept as swe proposes it: world_model_concept_upsert's input, repo defaulting to the task's. */
@@ -219,6 +229,9 @@ export function parseCompletionReport(raw: unknown, ids: readonly string[]): Com
     }
     report.findings_fixed = fixed as string[];
   }
+  if (r['case_sweep'] !== undefined && r['case_sweep'] !== null) {
+    report.case_sweep = parseCaseSweep(r['case_sweep'], ids);
+  }
   if (r['concepts'] !== undefined && r['concepts'] !== null) {
     report.concepts = parseConceptProposals(r['concepts'], ids);
   }
@@ -234,6 +247,23 @@ type ProposalClaim = NonNullable<ConceptProposal['claims']>[number];
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const CONCEPT_SHAPE = '{name, steps, kind?, body?, claims?, repo?}';
+const CASE_SWEEP_SHAPE = '{class: non-empty string, checked: non-empty array of non-empty strings}';
+
+function parseCaseSweep(raw: unknown, ids: readonly string[]): CaseSweep[] {
+  if (!Array.isArray(raw)) throw shapeError(ids, `report.case_sweep must be an array of ${CASE_SWEEP_SHAPE}.`);
+  return raw.map((item, i): CaseSweep => {
+    const at = `report.case_sweep[${i}]`;
+    if (!isObject(item)) throw shapeError(ids, `${at} must be an object ${CASE_SWEEP_SHAPE}.`);
+    const unknown = Object.keys(item).filter((k) => k !== 'class' && k !== 'checked');
+    if (unknown.length > 0) throw shapeError(ids, `${at} has unknown field(s) ${unknown.join(', ')}; allowed: class, checked.`);
+    if (!nonEmpty(item['class'])) throw shapeError(ids, `${at}.class must be a non-empty string.`);
+    const checked = item['checked'];
+    if (!Array.isArray(checked) || checked.length === 0 || !checked.every(nonEmpty)) {
+      throw shapeError(ids, `${at}.checked must be a non-empty array of non-empty strings.`);
+    }
+    return { class: item['class'].trim(), checked: checked.map((c) => c.trim()) };
+  });
+}
 
 function parseConceptProposals(raw: unknown, ids: readonly string[]): ConceptProposal[] {
   if (!Array.isArray(raw)) throw shapeError(ids, `report.concepts must be an array of concepts ${CONCEPT_SHAPE}.`);

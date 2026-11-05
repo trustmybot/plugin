@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 56`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 57`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 56`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 57`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -197,6 +197,8 @@ erDiagram
         TEXT status "NOT NULL; CHECK open|fixed|wontfix"
         TEXT created_at "NOT NULL"
         TEXT resolved_at
+        TEXT severity "NOT NULL; CHECK blocking|nit|pre_existing"
+        TEXT class
     }
 
     agents {
@@ -625,6 +627,8 @@ Table constraints:
 | `status` | TEXT | NOT NULL | `'open'` | CHECK `status IN ('open','fixed','wontfix')` |
 | `created_at` | TEXT | NOT NULL |  |  |
 | `resolved_at` | TEXT | nullable |  |  |
+| `severity` | TEXT | NOT NULL | `'blocking'` | CHECK `severity IN ('blocking','nit','pre_existing')` |
+| `class` | TEXT | nullable |  |  |
 
 ### `agents`
 
@@ -1153,7 +1157,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task, which is how `pr_monitor_comments_get` finds the issue that carries the PR's comments. |
 | `verification_runs` | One row per run of a task's typed `verification[]` (schema v36, GH 1294). The writers are `swe-verification-gate.sh` (`source = 'gate'`) and bro's `cli.js integrate` (`src/cli/integrate.ts`, `source = 'manual'`, `commit_sha` = the rebased SHA), both through `scripts/hooks/lib/verification-runs.sh`: the row when the run starts (`commit_sha` = the worktree HEAD, `budget_s`), then `finished_at`, `exit_code` and `timed_out` when it ends — each its own transaction, so a run killed mid-way keeps its partial record; `finished_at` and `exit_code` are NULL only while a run is in progress, or until the next run start of any task finishes a row unfinished past its own `budget_s` + 60 s as `exit_code = 137`, `timed_out = 0` (its writer was killed; GH 1814). The gate allows a close without running anything when a passing run for the same task and worktree HEAD, with command rows equal to the current `verification[]`, finished within the hour (`idx_verification_runs_task_commit`). `bro_atomic_close` reads the same match, with no age limit, for the closing commit and refuses with `verification_run_missing` when neither such a run nor a `verification_gate_waived` row exists (GH 1672). `task_brief.verification_run` returns a task's latest run and `validation_history` attaches the latest run started by each attempt, so bro and code-reviewer read the result instead of re-running it. |
 | `verification_run_commands` | One row per command of a verification run, in `verification[]` order (`ordinal` from 1), written after the command ends: `exit_code` (124 on the command the budget ran out on), `elapsed_s`, and `output_tail` (the last 20 lines, capped at 4000 characters). Review finding probes are recorded after the `verification[]` lines as `[probe <id>] <probe_cmd>`. |
-| `review_findings` | One row per finding a code-reviewer `fail` or `escalate` verdict raises (schema v47, GH 1737). `validation_record` writes them from its required `findings[]` with ids `F<task>-<n>` and `status = 'open'`; re-recording the same attempt replaces its still-open rows and never reuses an id. The MCP-unavailable code-reviewer path, `cli.js validation-record-fallback` (`mcp/trajectory-server/src/cli/`), writes them by the same rules from its findings JSON argument. `task_retry` copies the failed task's `open` rows onto the new task as `F<new_task>-<n>` with `attempt_n` 0 and one `review_findings_carried` audit row. `task_reopen`'s `wontfix[]` (bro only) sets an `open` row to `wontfix` with `resolved_at`, one `review_finding_wontfix` audit row each. `swe-verification-gate.sh` runs every non-`wontfix` row's `probe_cmd` after `verification[]` on every close attempt: a passing probe moves an `open` row to `fixed` with `resolved_at`, and any failing probe denies the close, naming a failing `fixed` row as a regression. `bro_atomic_close` only counts a verification run whose commands cover the current probes. `task_brief.open_findings` lists the `open` rows. |
+| `review_findings` | One row per finding a code-reviewer verdict raises (schema v47, GH 1737). `validation_record` writes them from its `findings[]` with ids `F<task>-<n>` and `status = 'open'`; re-recording the same attempt replaces its still-open rows and never reuses an id. Since v57 (GH 1955) each row has a `severity` (`blocking`, the default, `nit` or `pre_existing`) and an optional bug `class`: a `fail` needs at least one `blocking` finding, an `escalate` at least one finding, and a `pass` may record only `nit` and `pre_existing` ones. The MCP-unavailable code-reviewer path, `cli.js validation-record-fallback` (`mcp/trajectory-server/src/cli/`), writes them by the same rules from its findings JSON argument. `task_retry` copies the failed task's `open` `blocking` rows, with their severity and class, onto the new task as `F<new_task>-<n>` with `attempt_n` 0 and one `review_findings_carried` audit row. `task_reopen`'s `wontfix[]` (bro only) sets an `open` row to `wontfix` with `resolved_at`, one `review_finding_wontfix` audit row each. `swe-verification-gate` runs every `blocking` non-`wontfix` row's `probe_cmd` after `verification[]` on every close attempt (every non-`wontfix` row on a DB below v57): a passing probe moves an `open` row to `fixed` with `resolved_at`, and any failing probe denies the close, naming a failing `fixed` row as a regression. `bro_atomic_close` only counts a verification run whose commands cover the current probes. `task_brief.open_findings` lists the `open` `blocking` rows with their severity and class. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 | `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write (`insertDiscussion`); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `discussion_search`. Used by the `discussion_search` semantic path. |

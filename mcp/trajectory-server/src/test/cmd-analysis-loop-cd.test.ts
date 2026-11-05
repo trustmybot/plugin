@@ -2,8 +2,8 @@
  * A loop body's relative cd that keeps drifting (GH 1977, finding F210-1):
  * the dirs a frame's back-edge adds stay bounded, so sequential and nested
  * drifting loops fail closed with UNRESOLVED lines in bounded output instead
- * of a dir set that grows with every loop. tests/l3-integration/hooks/
- * cmd-analysis.test.sh asserts the same on cmd-analysis.sh.
+ * of a dir set that grows with every loop. cmd-analysis-l3-write-paths.test.ts
+ * asserts the same on cmd-analysis.sh.
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';

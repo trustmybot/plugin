@@ -702,7 +702,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 56;
+var TARGET_SCHEMA_VERSION = 57;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1274,6 +1274,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 56 && toVersion >= 56) {
     migrateV55toV56(db);
+  }
+  if (fromVersion < 57 && toVersion >= 57) {
+    migrateV56toV57(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3217,6 +3220,28 @@ function migrateV55toV56(db) {
         ["hint", "NULL"]
       ]
     );
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV56toV57(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "review_findings")) {
+      if (!hasColumn(db, "review_findings", "severity")) {
+        db.exec(
+          "ALTER TABLE review_findings ADD COLUMN severity TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing'))"
+        );
+      }
+      if (!hasColumn(db, "review_findings", "class")) {
+        db.exec("ALTER TABLE review_findings ADD COLUMN class TEXT");
+      }
+    }
     commitTransaction(db);
   } catch (err3) {
     try {

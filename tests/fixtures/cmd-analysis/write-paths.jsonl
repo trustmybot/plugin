@@ -1748,3 +1748,4 @@
 {"cmd":"while :; do cd n1; while :; do cd n2; while :; do cd n3; echo > g; done; done; done","cwd":"/w"}
 {"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; echo > f","cwd":"/w"}
 {"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; while false; do cd /a8; done; echo > f","cwd":"/w"}
+{"cmd":"cat <<A <<B\ngit push\nA\ngit commit -m x\nB\ngit status","cwd":"/w"}

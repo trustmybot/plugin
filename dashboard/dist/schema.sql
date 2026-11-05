@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     effort            TEXT    NOT NULL DEFAULT 'medium'
                         CHECK (effort IN ('low','medium','high')),
     -- completion_report (v48 GH 1744): swe's typed completion report as JSON
-    -- {criteria: [{id status evidence_cmd? note?}] extras? findings_fixed?}.
+    -- {criteria: [{id status evidence_cmd? note?}] extras? findings_fixed?
+    -- concepts? case_sweep: [{class checked: [..]}]?} (case_sweep v57 GH 1955).
     -- task_update_status writes it with a move to completed (required when the
     -- spec's Success Criteria carry SC<n>: ids) and clears it on any move but
     -- completed/closed; task_reopen clears it. NULL before a typed completion.
@@ -222,6 +223,10 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
 -- status 'fixed' + resolved_at when an open finding's probe exits 0.
 -- criterion_id is NULL when the finding covers no single criterion;
 -- resolved_at is NULL while the finding is open.
+-- severity (v57 GH 1955): 'blocking' fails the verdict, is probed by the close
+-- gate and reaches the swe through task_brief.open_findings and task_retry's
+-- carry-over; 'nit' and 'pre_existing' ride on a pass and block nothing.
+-- class (v57 GH 1955) names the bug class; NULL when the reviewer gave none.
 CREATE TABLE IF NOT EXISTS review_findings (
     id           TEXT    PRIMARY KEY,
     task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -232,7 +237,9 @@ CREATE TABLE IF NOT EXISTS review_findings (
     observed     TEXT    NOT NULL,
     status       TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
     created_at   TEXT    NOT NULL,
-    resolved_at  TEXT
+    resolved_at  TEXT,
+    severity     TEXT    NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing')),
+    class        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
@@ -333,7 +340,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 56, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 57, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
