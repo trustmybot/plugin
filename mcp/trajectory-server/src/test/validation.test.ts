@@ -828,6 +828,73 @@ describe('validation_record return_line (GH 1959)', () => {
   });
 });
 
+describe('validation_record wm_feedback (GH 2417)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+  let issueId: number;
+
+  before(async () => {
+    db = tempDB();
+    issueId = await createIssue(db);
+    taskId = await createTask(db, issueId);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  function record(attemptN: number, extra: Record<string, unknown>): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-agent-2417-${attemptN}` });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer',
+      task_id: taskId,
+      attempt_n: attemptN,
+      verdict: 'pass',
+      feedback: '# Review',
+      mcp_available: true,
+      ...extra,
+    });
+  }
+
+  const feedbackRows = () =>
+    db.all<{ issue_id: number; from_node: string; content_json: string }>(
+      `SELECT issue_id, from_node, content_json FROM audit WHERE event_type = 'wm_feedback' ORDER BY id`,
+    );
+  const attemptCount = () => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])!.n;
+
+  it('a call without wm_feedback writes no wm_feedback row', async () => {
+    const result = await record(1, {});
+    assert.ok(!result.isError, result.content[0].text);
+    assert.equal(feedbackRows().length, 0);
+  });
+
+  it('a call with wm_feedback writes one wm_feedback row on the task issue', async () => {
+    const wm_feedback = { answered: 'callers of insertAudit', wrong: 'listed a deleted test file' };
+    const result = await record(2, { wm_feedback });
+    assert.ok(!result.isError, result.content[0].text);
+    const rows = feedbackRows();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.issue_id, issueId);
+    assert.equal(rows[0]!.from_node, 'code-reviewer');
+    assert.deepEqual(JSON.parse(rows[0]!.content_json), { task_id: taskId, agent: 'code-reviewer', ...wm_feedback, missed: null });
+  });
+
+  for (const [label, wm_feedback, pattern] of [
+    ['a non-object', 'fine', /wm_feedback must be an object/],
+    ['an unknown key', { answered: 'x', note: 'y' }, /wm_feedback has unknown field\(s\) note/],
+    ['a non-string value', { answered: true }, /wm_feedback\.answered must be a string/],
+  ] as const) {
+    it(`refuses ${label} wm_feedback with wm_feedback_invalid and writes nothing`, async () => {
+      const before = attemptCount();
+      const result = await record(10, { wm_feedback });
+      assert.ok(result.isError);
+      assert.match(parseResult(result).error, new RegExp(`^wm_feedback_invalid: ${pattern.source}`));
+      assert.equal(attemptCount(), before);
+      assert.equal(feedbackRows().length, 1);
+    });
+  }
+});
+
 describe('validation_history findings per attempt (GH 1955)', () => {
   let db: TrajectoryDB;
   let taskId: number;

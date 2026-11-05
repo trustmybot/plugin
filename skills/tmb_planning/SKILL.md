@@ -2,6 +2,7 @@
 name: tmb_planning
 description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, verify on return, atomic-close. Loaded on the first code-touching ask of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
+effort: high
 ---
 
 # Planning — bro's code-touching flow
@@ -38,6 +39,8 @@ When a remote is configured, ask the Human which branch to base the new feature 
 Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
+
+Before each `task_provision`, `task_reopen`, `task_retry` or `task_update_spec` that writes a spec, invoke the `tmb_spec-authoring` skill with the issue or task id as its argument; its `effort: high` raises that turn to high.
 
 When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
@@ -138,7 +141,7 @@ When code-reviewer passes the task and the base has not moved, push the reviewed
 ### Rework and spec changes
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
-- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, spawn_note?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`. After a FAIL, the `spawn_note` names the finding ids to fix (`F<task>-<n>`); the swe reads them, with their probes, from `task_brief.open_findings`.
+- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, spawn_note?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`. After a FAIL, the `spawn_note` names each finding id to fix (`F<task>-<n>`) with its `class`, so the swe sweeps every sibling of that class; the swe reads them, with their probes, from `task_brief.open_findings`.
 - **Rework limits:** the spawn gate denies a further swe spawn or resume of a task at two review FAILs on it since its last pass, at six swe runs of it (budget handbacks aside), or at four FAILs across its issue's tasks, which also stops a `task_retry` or split task. Each counts since the Human's latest waiver, and only the Human lifts one, by typing `waive task <N>`; no row you write does. When one trips, stop and report the task, its findings and your proposed redesign or split to the Human.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.

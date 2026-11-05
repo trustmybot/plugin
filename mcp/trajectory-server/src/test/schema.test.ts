@@ -120,9 +120,10 @@ describe('schema — current table set, default values, constraints', () => {
         'tmb_recovery',
         'tmb_review',
         'tmb_skill-creator',
+        'tmb_spec-authoring',
         'tmb_swe-checklist',
       ],
-      'builtin-skill seed must equal the 11 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
+      'builtin-skill seed must equal the 12 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
     );
     for (const b of builtins) {
       assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);

@@ -2,6 +2,7 @@
 name: tmb_recovery
 description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan); when the failure is a TMB bug, offering an opt-in bug report the Human previews before bro files it. Loaded reactively on the first failure of a session.
 allowed-tools: Bash(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly:*), mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__bug_report_draft, mcp__plugin_tmb_trajectory-server__audit_append
+effort: high
 ---
 
 # Recovery — three failure modes, three responses, and a bug report
@@ -27,6 +28,7 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 |---|---|---|
 | `forbidden` | Bro called a tool scoped to another role. | Reconsider whether the action is bro's responsibility. Change the call signature before retrying. |
 | `validation` | Input didn't match the schema (e.g. malformed branch_id). | Fix the input. Retry with the corrected payload. |
+| `missing_argument` | The call omitted or misspelled a required argument such as `agent`. | Fix the call and retry. |
 | Constraint failure | DB integrity violation (foreign key, unique). | Surface to Human; usually means a stale or duplicate write attempt. When the write was correct for the data, offer a bug report (§D). |
 | Internal error | The server threw on input that matches its schema. | Surface to Human, then offer a bug report (§D). |
 | `no matching deferred tools` | The MCP child process is dead. | Switch to degraded mode (§B). |

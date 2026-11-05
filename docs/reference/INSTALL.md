@@ -24,6 +24,14 @@ After any install, update, enable, disable or uninstall, fully quit and relaunch
 
 Installing at both scopes is safe. Each project uses exactly one install: its own project (or local) install when there is one, else the user-scope install; with two project installs the newest wins. Every `hooks/hooks.json` command but the Stop `liveness-sentinel`, a report-only idle watcher, is the TypeScript router (`node dist/hooks.js <Event> [part]`), which hands the call to that install and runs its gates once per call however many registrations fire, so a user-scope or stale install never runs a second copy of a gate or an older version of it. SessionStart says once per session when a user-scope install is ignored in favour of the project's. With `node` off PATH no router can start, so the SessionStart and WorktreeCreate commands open with a `command -v node` guard that prints `TMB DEGRADED: missing node …` and exits 2: install Node.js 22 or later on PATH and restart Claude Code. See [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md).
 
+## Recommended effort
+
+Run bro's session at **medium** effort. Three of TMB's skills raise it to high for the turn that loads them: `tmb_planning` for planning, `tmb_spec-authoring` for each spec bro writes, and `tmb_recovery` for failure recovery. The session drops back to medium on the next turn.
+
+- Leave `CLAUDE_CODE_EFFORT_LEVEL` unset: it overrides skill effort, so these skills would run at its level instead.
+- `maxEffortLevel`, or a cap your organization sets, still limits the level a skill can raise to.
+- TMB never writes an effort setting; you choose the session level. See [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md).
+
 ## What TMB writes, and where
 
 Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the project's `.gitignore` excludes (`.claude/`):
