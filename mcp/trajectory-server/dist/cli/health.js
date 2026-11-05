@@ -145,7 +145,7 @@ function installEntry(installed, name, root) {
         scope: jqField(picked, 'scope', ''),
     };
 }
-function pgrepProbe(env) {
+export function pgrepProbe(env) {
     if (!commandOnPath('pgrep', env))
         return { count: '-1', rc: 0 };
     const root = env.CLAUDE_PLUGIN_ROOT ?? '';
@@ -414,7 +414,6 @@ export function health(_argv, env, io) {
             r.remediate(`Worktrees under ${wsRoot}/.claude/worktrees/ (clean up once the task is done):`);
             for (const w of worktrees)
                 r.remediate(`    ${w}`);
-            r.remediate('Cleanup helper: scripts/maintenance/cleanup-stale-worktrees.sh');
         }
     }
     // 7. hook-cache-drift — running hooks load from the cache, not the dev checkout

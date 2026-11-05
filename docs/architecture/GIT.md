@@ -174,7 +174,6 @@ plugin/
 plugin/
 ├── CLAUDE.md                                          # bro post-merge cleanup chain
 ├── mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts   # removes SWE worktree (already done at a passing review)
-├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_append(post-merge state)
     └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook refreshes the world model + emits deep_scan_completed audit
