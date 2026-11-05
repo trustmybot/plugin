@@ -68,53 +68,72 @@ function observationAgeS(observation, nowMs) {
     const observedMs = Date.parse(String(observation.observed_at ?? ''));
     return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1000) : Number.POSITIVE_INFINITY;
 }
-const FINDING_KEYS = new Set(['criterion_id', 'probe_cmd', 'expected', 'observed']);
+const FINDING_SEVERITIES = ['blocking', 'nit', 'pre_existing'];
+const FINDING_KEYS = new Set(['criterion_id', 'probe_cmd', 'expected', 'observed', 'severity', 'class']);
+const FINDING_SHAPE = '{criterion_id?, probe_cmd, expected, observed, severity?, class?}';
 /**
- * The typed findings[] of a verdict: required and non-empty on fail/escalate,
- * refused on pass. probe_cmd, expected and observed are trimmed non-empty
- * strings; criterion_id is a non-empty string or absent/null.
+ * The typed findings[] of a verdict. probe_cmd, expected and observed are
+ * trimmed non-empty strings; criterion_id and class are non-empty strings or
+ * absent/null; severity is blocking (the default), nit or pre_existing.
+ * fail needs at least one blocking finding, pass takes only nit and
+ * pre_existing ones, escalate needs a non-empty list.
  */
 function parseFindings(verdict, raw) {
     const list = raw === undefined || raw === null ? [] : raw;
     if (!Array.isArray(list)) {
-        throw new Error(`findings must be an array of {criterion_id?, probe_cmd, expected, observed}; got ${typeof raw}`);
+        throw new Error(`findings must be an array of ${FINDING_SHAPE}; got ${typeof raw}`);
     }
+    if (verdict !== 'pass' && list.length === 0) {
+        throw new Error(`findings_required: a ${verdict} verdict needs a non-empty findings[] — one ${FINDING_SHAPE} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`);
+    }
+    const findings = list.map((item, i) => parseFinding(item, i));
     if (verdict === 'pass') {
-        if (list.length > 0) {
-            throw new Error(`findings_refused: a pass verdict records no findings; got ${list.length}. Send findings only with verdict fail or escalate.`);
+        const blocking = findings.findIndex((f) => f.severity === 'blocking');
+        if (blocking >= 0) {
+            throw new Error(`findings_refused: a pass verdict records only nit or pre_existing findings; findings[${blocking}] is blocking (an omitted severity is blocking). Send a blocking finding with verdict fail or escalate.`);
         }
-        return [];
     }
-    if (list.length === 0) {
-        throw new Error(`findings_required: a ${verdict} verdict needs a non-empty findings[] — one {criterion_id?, probe_cmd, expected, observed} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`);
+    if (verdict === 'fail' && !findings.some((f) => f.severity === 'blocking')) {
+        throw new Error('findings_required: a fail verdict needs at least one finding with severity blocking (an omitted severity is blocking); nit and pre_existing findings alone ride on a pass.');
     }
-    return list.map((item, i) => {
-        if (typeof item !== 'object' || item === null || Array.isArray(item)) {
-            throw new Error(`findings[${i}] must be an object {criterion_id?, probe_cmd, expected, observed}`);
+    return findings;
+}
+function parseFinding(item, i) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new Error(`findings[${i}] must be an object ${FINDING_SHAPE}`);
+    }
+    const entry = item;
+    const unknown = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
+    if (unknown.length > 0) {
+        throw new Error(`findings[${i}] has unknown field(s) ${unknown.join(', ')}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(', ')}`);
+    }
+    const text = (field) => {
+        const v = entry[field];
+        if (typeof v !== 'string' || v.trim() === '') {
+            throw new Error(`findings[${i}].${field} must be a non-empty string`);
         }
-        const entry = item;
-        const unknown = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
-        if (unknown.length > 0) {
-            throw new Error(`findings[${i}] has unknown field(s) ${unknown.join(', ')}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(', ')}`);
-        }
-        const text = (field) => {
-            const v = entry[field];
-            if (typeof v !== 'string' || v.trim() === '') {
-                throw new Error(`findings[${i}].${field} must be a non-empty string`);
-            }
-            return v.trim();
-        };
-        const criterion = entry['criterion_id'];
-        if (criterion !== undefined && criterion !== null && (typeof criterion !== 'string' || criterion.trim() === '')) {
-            throw new Error(`findings[${i}].criterion_id must be a non-empty string or null`);
-        }
-        return {
-            criterion_id: typeof criterion === 'string' ? criterion.trim() : null,
-            probe_cmd: text('probe_cmd'),
-            expected: text('expected'),
-            observed: text('observed'),
-        };
-    });
+        return v.trim();
+    };
+    const criterion = entry['criterion_id'];
+    if (criterion !== undefined && criterion !== null && (typeof criterion !== 'string' || criterion.trim() === '')) {
+        throw new Error(`findings[${i}].criterion_id must be a non-empty string or null`);
+    }
+    const severity = entry['severity'] ?? 'blocking';
+    if (!FINDING_SEVERITIES.includes(severity)) {
+        throw new Error(`findings[${i}].severity must be one of ${FINDING_SEVERITIES.join(', ')}; got ${JSON.stringify(severity)}`);
+    }
+    const cls = entry['class'];
+    if (cls !== undefined && cls !== null && (typeof cls !== 'string' || cls.trim() === '')) {
+        throw new Error(`findings[${i}].class must be a non-empty string or null`);
+    }
+    return {
+        criterion_id: typeof criterion === 'string' ? criterion.trim() : null,
+        probe_cmd: text('probe_cmd'),
+        expected: text('expected'),
+        observed: text('observed'),
+        severity: severity,
+        class: typeof cls === 'string' ? cls.trim() : null,
+    };
 }
 function coerceTaskId(raw) {
     const n = Number(raw);
@@ -127,7 +146,7 @@ export function validationTools(db) {
     const definitions = [
         {
             name: 'validation_record',
-            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail/escalate require findings[] and pass refuses them; each becomes a review_findings row the close gate re-probes.',
+            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -140,11 +159,11 @@ export function validationTools(db) {
                     subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
                     findings: {
                         type: 'array',
-                        description: 'Required and non-empty when verdict is fail or escalate; refused (must be absent or []) when verdict is pass. One entry per defect. ' +
+                        description: 'One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). ' +
                             'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt\'s open findings. ' +
-                            'On every later task_update_status(completed) the swe verification gate runs each non-wontfix finding\'s probe_cmd after verification[]: ' +
+                            'On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
                             'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
-                            'task_brief.open_findings shows the open ones to the swe.',
+                            'task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.',
                         items: {
                             type: 'object',
                             properties: {
@@ -156,6 +175,12 @@ export function validationTools(db) {
                                 },
                                 expected: { type: 'string', description: 'What correct behaviour looks like (what the probe checks for).' },
                                 observed: { type: 'string', description: 'What the reviewer saw instead, with the file:line or output that shows it.' },
+                                severity: {
+                                    type: 'string',
+                                    enum: [...FINDING_SEVERITIES],
+                                    description: 'blocking (default) fails the verdict and gates the close; nit is a non-blocking style or polish note; pre_existing is a defect the task did not introduce.',
+                                },
+                                class: { type: ['string', 'null'], description: 'The bug class this finding belongs to, so its siblings can be swept together. Omit or null when none.' },
                             },
                             required: ['probe_cmd', 'expected', 'observed'],
                             additionalProperties: false,
@@ -280,8 +305,8 @@ export function validationTools(db) {
                 db.run(`DELETE FROM review_findings WHERE task_id = ? AND attempt_n = ? AND status = 'open'`, [taskId, attemptN]);
                 findings.forEach((f, i) => {
                     const id = `F${taskId}-${lastN + i + 1}`;
-                    db.run(`INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`, [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now]);
+                    db.run(`INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`, [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class]);
                     findingIds.push(id);
                 });
             });

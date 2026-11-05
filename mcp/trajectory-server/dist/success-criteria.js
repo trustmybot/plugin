@@ -172,6 +172,9 @@ export function parseCompletionReport(raw, ids) {
         }
         report.findings_fixed = fixed;
     }
+    if (r['case_sweep'] !== undefined && r['case_sweep'] !== null) {
+        report.case_sweep = parseCaseSweep(r['case_sweep'], ids);
+    }
     if (r['concepts'] !== undefined && r['concepts'] !== null) {
         report.concepts = parseConceptProposals(r['concepts'], ids);
     }
@@ -180,6 +183,26 @@ export function parseCompletionReport(raw, ids) {
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nonEmpty = (v) => typeof v === 'string' && v.trim() !== '';
 const CONCEPT_SHAPE = '{name, steps, kind?, body?, claims?, repo?}';
+const CASE_SWEEP_SHAPE = '{class: non-empty string, checked: non-empty array of non-empty strings}';
+function parseCaseSweep(raw, ids) {
+    if (!Array.isArray(raw))
+        throw shapeError(ids, `report.case_sweep must be an array of ${CASE_SWEEP_SHAPE}.`);
+    return raw.map((item, i) => {
+        const at = `report.case_sweep[${i}]`;
+        if (!isObject(item))
+            throw shapeError(ids, `${at} must be an object ${CASE_SWEEP_SHAPE}.`);
+        const unknown = Object.keys(item).filter((k) => k !== 'class' && k !== 'checked');
+        if (unknown.length > 0)
+            throw shapeError(ids, `${at} has unknown field(s) ${unknown.join(', ')}; allowed: class, checked.`);
+        if (!nonEmpty(item['class']))
+            throw shapeError(ids, `${at}.class must be a non-empty string.`);
+        const checked = item['checked'];
+        if (!Array.isArray(checked) || checked.length === 0 || !checked.every(nonEmpty)) {
+            throw shapeError(ids, `${at}.checked must be a non-empty array of non-empty strings.`);
+        }
+        return { class: item['class'].trim(), checked: checked.map((c) => c.trim()) };
+    });
+}
 function parseConceptProposals(raw, ids) {
     if (!Array.isArray(raw))
         throw shapeError(ids, `report.concepts must be an array of concepts ${CONCEPT_SHAPE}.`);

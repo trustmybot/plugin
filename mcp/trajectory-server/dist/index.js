@@ -25454,7 +25454,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 56;
+var TARGET_SCHEMA_VERSION = 57;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26029,6 +26029,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 56 && toVersion >= 56) {
     migrateV55toV56(db2);
+  }
+  if (fromVersion < 57 && toVersion >= 57) {
+    migrateV56toV57(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27972,6 +27975,28 @@ function migrateV55toV56(db2) {
         ["hint", "NULL"]
       ]
     );
+    commitTransaction(db2);
+  } catch (err22) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err22;
+  }
+}
+function migrateV56toV57(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "review_findings")) {
+      if (!hasColumn(db2, "review_findings", "severity")) {
+        db2.exec(
+          "ALTER TABLE review_findings ADD COLUMN severity TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing'))"
+        );
+      }
+      if (!hasColumn(db2, "review_findings", "class")) {
+        db2.exec("ALTER TABLE review_findings ADD COLUMN class TEXT");
+      }
+    }
     commitTransaction(db2);
   } catch (err22) {
     try {
@@ -36044,6 +36069,9 @@ function parseCompletionReport(raw, ids) {
     }
     report.findings_fixed = fixed;
   }
+  if (r["case_sweep"] !== void 0 && r["case_sweep"] !== null) {
+    report.case_sweep = parseCaseSweep(r["case_sweep"], ids);
+  }
   if (r["concepts"] !== void 0 && r["concepts"] !== null) {
     report.concepts = parseConceptProposals(r["concepts"], ids);
   }
@@ -36052,6 +36080,22 @@ function parseCompletionReport(raw, ids) {
 var isObject3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
 var CONCEPT_SHAPE = "{name, steps, kind?, body?, claims?, repo?}";
+var CASE_SWEEP_SHAPE = "{class: non-empty string, checked: non-empty array of non-empty strings}";
+function parseCaseSweep(raw, ids) {
+  if (!Array.isArray(raw)) throw shapeError(ids, `report.case_sweep must be an array of ${CASE_SWEEP_SHAPE}.`);
+  return raw.map((item, i2) => {
+    const at = `report.case_sweep[${i2}]`;
+    if (!isObject3(item)) throw shapeError(ids, `${at} must be an object ${CASE_SWEEP_SHAPE}.`);
+    const unknown2 = Object.keys(item).filter((k) => k !== "class" && k !== "checked");
+    if (unknown2.length > 0) throw shapeError(ids, `${at} has unknown field(s) ${unknown2.join(", ")}; allowed: class, checked.`);
+    if (!nonEmpty(item["class"])) throw shapeError(ids, `${at}.class must be a non-empty string.`);
+    const checked = item["checked"];
+    if (!Array.isArray(checked) || checked.length === 0 || !checked.every(nonEmpty)) {
+      throw shapeError(ids, `${at}.checked must be a non-empty array of non-empty strings.`);
+    }
+    return { class: item["class"].trim(), checked: checked.map((c) => c.trim()) };
+  });
+}
 function parseConceptProposals(raw, ids) {
   if (!Array.isArray(raw)) throw shapeError(ids, `report.concepts must be an array of concepts ${CONCEPT_SHAPE}.`);
   if (raw.length > MAX_CONCEPT_PROPOSALS) {
@@ -36553,6 +36597,18 @@ function taskTools(db2) {
                 type: "array",
                 items: { type: "string" },
                 description: "Review finding ids (F<task_id>-<n>) this attempt fixes."
+              },
+              case_sweep: {
+                type: "array",
+                description: "Each bug class swept before close, with every case checked for it.",
+                items: {
+                  type: "object",
+                  properties: {
+                    class: { type: "string", description: "The bug class, e.g. a defect kind a finding named." },
+                    checked: { type: "array", items: { type: "string" }, minItems: 1, description: "Each case checked for the class." }
+                  },
+                  required: ["class", "checked"]
+                }
               },
               concepts: {
                 type: "array",
@@ -37246,16 +37302,16 @@ function probeCommand(probe) {
 var FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
 function carryOpenFindings(db2, fromTaskId, toTaskId, now2) {
   const open = db2.all(
-    `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-      WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+    `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
+      WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
     [fromTaskId]
   );
   return open.map((f, i2) => {
     const id = `F${toTaskId}-${i2 + 1}`;
     db2.run(
-      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
-       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?)`,
-      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2]
+      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+      [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
     );
     return { from: f.id, id };
   });
@@ -37263,8 +37319,10 @@ function carryOpenFindings(db2, fromTaskId, toTaskId, now2) {
 function activeFindingProbes(db2, taskId) {
   const table = db2.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
   if (!table) return [];
+  const severity = db2.get("SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = 'severity'");
+  const blockingOnly = severity?.n === 1 ? " AND severity = 'blocking'" : "";
   return db2.all(
-    `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix' ORDER BY ${FINDING_ORDER_SQL}`,
+    `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix'${blockingOnly} ORDER BY ${FINDING_ORDER_SQL}`,
     [taskId]
   ).map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));
 }
@@ -37401,50 +37459,71 @@ function observationAgeS(observation, nowMs) {
   const observedMs = Date.parse(String(observation.observed_at ?? ""));
   return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1e3) : Number.POSITIVE_INFINITY;
 }
-var FINDING_KEYS = /* @__PURE__ */ new Set(["criterion_id", "probe_cmd", "expected", "observed"]);
+var FINDING_SEVERITIES = ["blocking", "nit", "pre_existing"];
+var FINDING_KEYS = /* @__PURE__ */ new Set(["criterion_id", "probe_cmd", "expected", "observed", "severity", "class"]);
+var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed, severity?, class?}";
 function parseFindings(verdict, raw) {
   const list = raw === void 0 || raw === null ? [] : raw;
   if (!Array.isArray(list)) {
-    throw new Error(`findings must be an array of {criterion_id?, probe_cmd, expected, observed}; got ${typeof raw}`);
+    throw new Error(`findings must be an array of ${FINDING_SHAPE}; got ${typeof raw}`);
   }
-  if (verdict === "pass") {
-    if (list.length > 0) {
-      throw new Error(`findings_refused: a pass verdict records no findings; got ${list.length}. Send findings only with verdict fail or escalate.`);
-    }
-    return [];
-  }
-  if (list.length === 0) {
+  if (verdict !== "pass" && list.length === 0) {
     throw new Error(
-      `findings_required: a ${verdict} verdict needs a non-empty findings[] \u2014 one {criterion_id?, probe_cmd, expected, observed} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`
+      `findings_required: a ${verdict} verdict needs a non-empty findings[] \u2014 one ${FINDING_SHAPE} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`
     );
   }
-  return list.map((item, i2) => {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      throw new Error(`findings[${i2}] must be an object {criterion_id?, probe_cmd, expected, observed}`);
+  const findings = list.map((item, i2) => parseFinding(item, i2));
+  if (verdict === "pass") {
+    const blocking = findings.findIndex((f) => f.severity === "blocking");
+    if (blocking >= 0) {
+      throw new Error(
+        `findings_refused: a pass verdict records only nit or pre_existing findings; findings[${blocking}] is blocking (an omitted severity is blocking). Send a blocking finding with verdict fail or escalate.`
+      );
     }
-    const entry = item;
-    const unknown2 = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
-    if (unknown2.length > 0) {
-      throw new Error(`findings[${i2}] has unknown field(s) ${unknown2.join(", ")}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(", ")}`);
+  }
+  if (verdict === "fail" && !findings.some((f) => f.severity === "blocking")) {
+    throw new Error(
+      "findings_required: a fail verdict needs at least one finding with severity blocking (an omitted severity is blocking); nit and pre_existing findings alone ride on a pass."
+    );
+  }
+  return findings;
+}
+function parseFinding(item, i2) {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) {
+    throw new Error(`findings[${i2}] must be an object ${FINDING_SHAPE}`);
+  }
+  const entry = item;
+  const unknown2 = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
+  if (unknown2.length > 0) {
+    throw new Error(`findings[${i2}] has unknown field(s) ${unknown2.join(", ")}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(", ")}`);
+  }
+  const text = (field2) => {
+    const v = entry[field2];
+    if (typeof v !== "string" || v.trim() === "") {
+      throw new Error(`findings[${i2}].${field2} must be a non-empty string`);
     }
-    const text = (field2) => {
-      const v = entry[field2];
-      if (typeof v !== "string" || v.trim() === "") {
-        throw new Error(`findings[${i2}].${field2} must be a non-empty string`);
-      }
-      return v.trim();
-    };
-    const criterion = entry["criterion_id"];
-    if (criterion !== void 0 && criterion !== null && (typeof criterion !== "string" || criterion.trim() === "")) {
-      throw new Error(`findings[${i2}].criterion_id must be a non-empty string or null`);
-    }
-    return {
-      criterion_id: typeof criterion === "string" ? criterion.trim() : null,
-      probe_cmd: text("probe_cmd"),
-      expected: text("expected"),
-      observed: text("observed")
-    };
-  });
+    return v.trim();
+  };
+  const criterion = entry["criterion_id"];
+  if (criterion !== void 0 && criterion !== null && (typeof criterion !== "string" || criterion.trim() === "")) {
+    throw new Error(`findings[${i2}].criterion_id must be a non-empty string or null`);
+  }
+  const severity = entry["severity"] ?? "blocking";
+  if (!FINDING_SEVERITIES.includes(severity)) {
+    throw new Error(`findings[${i2}].severity must be one of ${FINDING_SEVERITIES.join(", ")}; got ${JSON.stringify(severity)}`);
+  }
+  const cls = entry["class"];
+  if (cls !== void 0 && cls !== null && (typeof cls !== "string" || cls.trim() === "")) {
+    throw new Error(`findings[${i2}].class must be a non-empty string or null`);
+  }
+  return {
+    criterion_id: typeof criterion === "string" ? criterion.trim() : null,
+    probe_cmd: text("probe_cmd"),
+    expected: text("expected"),
+    observed: text("observed"),
+    severity,
+    class: typeof cls === "string" ? cls.trim() : null
+  };
 }
 function coerceTaskId(raw) {
   const n = Number(raw);
@@ -37459,7 +37538,7 @@ function validationTools(db2) {
   const definitions = [
     {
       name: "validation_record",
-      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail/escalate require findings[] and pass refuses them; each becomes a review_findings row the close gate re-probes.",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37472,7 +37551,7 @@ function validationTools(db2) {
           subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." },
           findings: {
             type: "array",
-            description: "Required and non-empty when verdict is fail or escalate; refused (must be absent or []) when verdict is pass. One entry per defect. The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt's open findings. On every later task_update_status(completed) the swe verification gate runs each non-wontfix finding's probe_cmd after verification[]: a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. task_brief.open_findings shows the open ones to the swe.",
+            description: "One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt's open findings. On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding's probe_cmd after verification[]: a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.",
             items: {
               type: "object",
               properties: {
@@ -37482,7 +37561,13 @@ function validationTools(db2) {
                   description: 'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. Inline node -e, bash -c or a heredoc is fine; it must not depend on files only the reviewer has. Example: grep -q "findings" mcp/trajectory-server/src/tools/validation.ts'
                 },
                 expected: { type: "string", description: "What correct behaviour looks like (what the probe checks for)." },
-                observed: { type: "string", description: "What the reviewer saw instead, with the file:line or output that shows it." }
+                observed: { type: "string", description: "What the reviewer saw instead, with the file:line or output that shows it." },
+                severity: {
+                  type: "string",
+                  enum: [...FINDING_SEVERITIES],
+                  description: "blocking (default) fails the verdict and gates the close; nit is a non-blocking style or polish note; pre_existing is a defect the task did not introduce."
+                },
+                class: { type: ["string", "null"], description: "The bug class this finding belongs to, so its siblings can be swept together. Omit or null when none." }
               },
               required: ["probe_cmd", "expected", "observed"],
               additionalProperties: false
@@ -37642,9 +37727,9 @@ function validationTools(db2) {
         findings.forEach((f, i2) => {
           const id = `F${taskId}-${lastN + i2 + 1}`;
           db2.run(
-            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-            [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2]
+            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+            [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2, f.severity, f.class]
           );
           findingIds.push(id);
         });
@@ -42245,7 +42330,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated, unresolved_paths?}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all; a name outside the named paths and files[] resolves only to exported, non-test symbols; unresolved_paths, present only when non-empty, lists named paths the index lacks), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open blocking review findings {id, criterion_id, probe_cmd, expected, observed, severity, class}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?, case_sweep?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated, unresolved_paths?}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all; a name outside the named paths and files[] resolves only to exported, non-test symbols; unresolved_paths, present only when non-empty, lists named paths the index lacks), at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. `response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
       inputSchema: {
         type: "object",
         properties: {
@@ -42857,8 +42942,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const coreSection = () => {
           const open_findings = db2.all(
-            `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-              WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+            `SELECT id, criterion_id, probe_cmd, expected, observed, severity, class FROM review_findings
+              WHERE task_id = ? AND status = 'open' AND severity = 'blocking' ORDER BY ${FINDING_ORDER_SQL}`,
             [task.id]
           ).map((f) => ({ ...f }));
           const stop2 = db2.get(

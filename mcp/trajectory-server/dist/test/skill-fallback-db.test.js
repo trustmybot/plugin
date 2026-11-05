@@ -148,6 +148,28 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
         }
         assert.equal(rows(), before_, 'no attempt or finding row written');
     });
+    it('GH 1955: applies the severity verdict rules and stores severity and class', () => {
+        const before_ = rows();
+        const nitOnly = validation('/', '7', '90', 'fail', 'nits', 'sess-90', '[{"probe_cmd":"false","expected":"e","observed":"o","severity":"nit"}]');
+        assert.ok(nitOnly.includes('"error":"findings_required"'), `fail with only a nit refused: ${nitOnly}`);
+        assert.ok(nitOnly.includes('severity blocking'), 'the message names severity');
+        const blockingPass = validation('/', '7', '91', 'pass', 'ok', 'sess-91', '[{"probe_cmd":"false","expected":"e","observed":"o","severity":"blocking"}]');
+        assert.ok(blockingPass.includes('"error":"findings_refused"'), `pass with a blocking finding refused: ${blockingPass}`);
+        for (const bad of [
+            '[{"probe_cmd":"false","expected":"e","observed":"o","severity":"major"}]',
+            '[{"probe_cmd":"false","expected":"e","observed":"o","severity":2}]',
+            '[{"probe_cmd":"false","expected":"e","observed":"o","class":7}]',
+            '[{"probe_cmd":"false","expected":"e","observed":"o","class":" "}]',
+        ]) {
+            assert.ok(validation('/', '7', '92', 'fail', 'bad', 'sess-92', bad).includes('"error":"invalid_findings"'), `refused: ${bad}`);
+        }
+        assert.equal(rows(), before_, 'nothing written by a refused call');
+        const pass = validation('/', '7', '93', 'pass', 'ok with notes', 'sess-93', '[{"probe_cmd":"false","expected":"e","observed":"o","severity":"nit","class":" style "},{"probe_cmd":"false","expected":"e","observed":"o","severity":"pre_existing"}]');
+        assert.ok(pass.includes('"ok":true'), `pass with a nit and a pre_existing finding recorded: ${pass}`);
+        const fail = validation('/', '7', '94', 'fail', 'one defect', 'sess-94', '[{"probe_cmd":"false","expected":"e","observed":"o"},{"probe_cmd":"true","expected":"e","observed":"o","severity":"nit","class":"naming"}]');
+        assert.ok(fail.includes('"ok":true'), `fail with an omitted severity and a nit recorded: ${fail}`);
+        assert.equal(q("SELECT attempt_n, severity, COALESCE(class, '<null>'), status FROM review_findings WHERE attempt_n IN (93, 94) ORDER BY attempt_n, id;"), '93|nit|style|open\n93|pre_existing|<null>|open\n94|blocking|<null>|open\n94|nit|naming|open', 'severity defaults to blocking, class trimmed or NULL');
+    });
     it('no .claude dir appears in either cwd', () => {
         assert.ok(!existsSync('/.claude'), '/.claude exists');
         assert.ok(!existsSync(join(wt, '.claude')), `${wt}/.claude created`);
