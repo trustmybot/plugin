@@ -978,6 +978,17 @@ describe('trajectory_doctor tool', () => {
         assert.ok(['ready', 'degraded', 'loading', 'disabled'].includes(body.embeddings.state));
         assert.equal(typeof body.embeddings.consecutive_failures, 'number');
     });
+    it('counts wm_feedback rows and those naming something missed or wrong (GH 2417)', async () => {
+        const db = tempDB();
+        const empty = JSON.parse((await call(db, { agent: 'bro' })).content[0].text);
+        assert.deepEqual(empty.wm_feedback, { reports: 0, missed: 0, wrong: 0 });
+        seedAudit(db, 'wm_feedback', { task_id: 1, agent: 'swe', answered: 'callers', missed: 'a hook reader', wrong: null }, iso(), 'swe');
+        seedAudit(db, 'wm_feedback', { task_id: 1, agent: 'code-reviewer', answered: 'tests', missed: '  ', wrong: 'a stale line range' }, iso(), 'code-reviewer');
+        seedAudit(db, 'wm_feedback', { task_id: 2, agent: 'swe', answered: 'where X lives', missed: null, wrong: null }, iso(), 'swe');
+        seedAudit(db, 'wm_tool_called', { tool: 'world_model_search' }, iso(), 'swe');
+        const body = JSON.parse((await call(db, { agent: 'bro' })).content[0].text);
+        assert.deepEqual(body.wm_feedback, { reports: 3, missed: 1, wrong: 1 });
+    });
     it('ids runs only the named subset', async () => {
         const db = tempDB();
         seedTask(db, seedIssue(db, 'closed'), 'pending');

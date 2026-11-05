@@ -2,7 +2,37 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
+import { toWmFeedback, wmFeedbackProblem } from '../success-criteria.js';
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
+export const WM_FEEDBACK_SCHEMA = {
+    type: 'object',
+    description: 'Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row; trajectory_doctor counts them.',
+    properties: {
+        answered: { type: 'string', description: 'What a world_model_* call answered that saved a Grep, Glob or Read.' },
+        missed: { type: 'string', description: 'What it had no answer for, so Grep or a Read found it instead.' },
+        wrong: { type: 'string', description: 'What it returned that the code contradicts.' },
+    },
+    additionalProperties: false,
+};
+/** One wm_feedback audit row on the task's issue (GH 2417). */
+export function insertWmFeedback(db, task, agent, feedback, createdAt) {
+    const flagged = ['missed', 'wrong'].filter((k) => (feedback[k] ?? '').trim() !== '');
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id ?? null,
+        from_node: agent,
+        event_type: 'wm_feedback',
+        summary: `${agent} world-model feedback on task ${task.id}${flagged.length > 0 ? ` (${flagged.join(', ')})` : ''}`,
+        content_json: JSON.stringify({
+            task_id: task.id,
+            agent,
+            answered: feedback.answered ?? null,
+            missed: feedback.missed ?? null,
+            wrong: feedback.wrong ?? null,
+        }),
+        created_at: createdAt,
+    });
+}
 /** The head of code-reviewer's final message (GH 1959), built from the row validation_record just wrote. */
 export function reviewerReturnLine(row, commitSha, findings) {
     const sha = commitSha ? commitSha.slice(0, 8) : '-';
@@ -146,7 +176,7 @@ export function validationTools(db) {
     const definitions = [
         {
             name: 'validation_record',
-            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt.',
+            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task\'s issue.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -160,7 +190,7 @@ export function validationTools(db) {
                     findings: {
                         type: 'array',
                         description: 'One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). ' +
-                            'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted.' +
+                            'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted. ' +
                             'On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
                             'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
                             'task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.',
@@ -186,6 +216,7 @@ export function validationTools(db) {
                             additionalProperties: false,
                         },
                     },
+                    wm_feedback: WM_FEEDBACK_SCHEMA,
                 },
                 required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
             },
@@ -228,7 +259,15 @@ export function validationTools(db) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
             }
             const findings = parseFindings(verdict, args['findings']);
-            const taskExists = db.get(`SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
+            const wmFeedbackArg = args['wm_feedback'];
+            let wmFeedback = null;
+            if (wmFeedbackArg !== undefined && wmFeedbackArg !== null) {
+                const problem = wmFeedbackProblem(wmFeedbackArg, 'wm_feedback');
+                if (problem)
+                    throw new Error(`wm_feedback_invalid: ${problem}`);
+                wmFeedback = toWmFeedback(wmFeedbackArg);
+            }
+            const taskExists = db.get(`SELECT t.id, t.issue_id, t.branch_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`, [taskId]);
             if (!taskExists) {
@@ -297,6 +336,8 @@ export function validationTools(db) {
              VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`, [id, taskId, storedAttempt, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class]);
                     findingIds.push(id);
                 });
+                if (wmFeedback)
+                    insertWmFeedback(db, taskExists, agent, wmFeedback, now);
             });
             const row = db.get(`SELECT * FROM validation_attempts WHERE rowid = ?`, [rowId]);
             const recorded = findingIds.map((id) => ({ ...db.get('SELECT * FROM review_findings WHERE id = ?', [id]) }));

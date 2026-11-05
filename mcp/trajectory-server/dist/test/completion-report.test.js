@@ -157,6 +157,47 @@ describe('task_update_status completion report (GH 1744)', () => {
         db.close();
     });
 });
+describe('task_update_status report.wm_feedback (GH 2417)', () => {
+    const complete = (tasks, id, report) => call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+    const feedbackRows = (db) => db.all(`SELECT issue_id, from_node, content_json FROM audit WHERE event_type = 'wm_feedback' ORDER BY id`);
+    it('stores wm_feedback with the report and writes one wm_feedback audit row on the task issue', async () => {
+        const { db, tasks } = fixture();
+        const id = seed(db, SPEC);
+        const wm_feedback = { answered: 'callers of parseCompletionReport', missed: 'the hook that reads audit-events.txt' };
+        const r = await complete(tasks, id, { ...FULL_REPORT, wm_feedback });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        assert.deepEqual(JSON.parse(stored(db, id).completion_report).wm_feedback, wm_feedback);
+        const rows = feedbackRows(db);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].issue_id, 1);
+        assert.equal(rows[0].from_node, 'swe');
+        assert.deepEqual(JSON.parse(rows[0].content_json), { task_id: id, agent: 'swe', ...wm_feedback, wrong: null });
+        db.close();
+    });
+    it('a report without wm_feedback writes no wm_feedback row and stores the report unchanged', async () => {
+        const { db, tasks } = fixture();
+        const id = seed(db, SPEC);
+        assert.ok(!(await complete(tasks, id, FULL_REPORT)).isError);
+        assert.deepEqual(JSON.parse(stored(db, id).completion_report), FULL_REPORT);
+        assert.equal(feedbackRows(db).length, 0);
+        db.close();
+    });
+    for (const [label, wm_feedback, pattern] of [
+        ['a non-object', 'it helped', /report\.wm_feedback must be an object/],
+        ['an array', ['answered'], /report\.wm_feedback must be an object/],
+        ['an unknown key', { answered: 'x', helpful: 'y' }, /report\.wm_feedback has unknown field\(s\) helpful/],
+        ['a non-string value', { missed: 3 }, /report\.wm_feedback\.missed must be a string/],
+    ]) {
+        it(`refuses ${label} wm_feedback with completion_report_invalid and writes nothing`, async () => {
+            const { db, tasks } = fixture();
+            const id = seed(db, SPEC);
+            assert.match(errorOf(await complete(tasks, id, { ...FULL_REPORT, wm_feedback })), new RegExp(`completion_report_invalid: .*${pattern.source}`));
+            assert.equal(stored(db, id).completion_report, null);
+            assert.equal(feedbackRows(db).length, 0);
+            db.close();
+        });
+    }
+});
 describe('completion report and spawn_note through task_brief, bro_atomic_close and task_reopen (GH 1744)', () => {
     it('task_brief round-trips the stored report, and null before one', async () => {
         const { db, tasks, composites } = fixture();

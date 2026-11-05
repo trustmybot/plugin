@@ -18,6 +18,10 @@
  *
  * An optional `case_sweep` (GH 1955) lists each bug class swe swept before
  * close and the cases it checked for it; it is stored with the report.
+ *
+ * An optional `wm_feedback` (GH 2417) says what the world model answered,
+ * missed or got wrong during the task; task_update_status also writes it as
+ * one `wm_feedback` audit row, and validation_record takes the same shape.
  */
 import type { ConceptInput } from './world-model/concepts.js';
 
@@ -38,6 +42,34 @@ export interface CompletionReport {
   findings_fixed?: string[];
   concepts?: ConceptProposal[];
   case_sweep?: CaseSweep[];
+  wm_feedback?: WmFeedback;
+}
+
+export const WM_FEEDBACK_KEYS = ['answered', 'missed', 'wrong'] as const;
+
+/** What the world model answered, missed and got wrong during one task (GH 2417). */
+export type WmFeedback = Partial<Record<(typeof WM_FEEDBACK_KEYS)[number], string>>;
+
+/** Why `raw` is not a WmFeedback, named at `at`, or null when it is. */
+export function wmFeedbackProblem(raw: unknown, at: string): string | null {
+  const shape = `{${WM_FEEDBACK_KEYS.map((k) => `${k}?: string`).join(', ')}}`;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return `${at} must be an object ${shape}.`;
+  const entry = raw as Record<string, unknown>;
+  const unknown = Object.keys(entry).filter((k) => !(WM_FEEDBACK_KEYS as readonly string[]).includes(k));
+  if (unknown.length > 0) return `${at} has unknown field(s) ${unknown.join(', ')}; allowed: ${WM_FEEDBACK_KEYS.join(', ')}.`;
+  const bad = WM_FEEDBACK_KEYS.find((k) => entry[k] !== undefined && entry[k] !== null && typeof entry[k] !== 'string');
+  return bad === undefined ? null : `${at}.${bad} must be a string.`;
+}
+
+/** `raw` as a WmFeedback without its null fields; check it with wmFeedbackProblem first. */
+export function toWmFeedback(raw: unknown): WmFeedback {
+  const entry = raw as Record<string, unknown>;
+  const out: WmFeedback = {};
+  for (const k of WM_FEEDBACK_KEYS) {
+    const v = entry[k];
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
 }
 
 /** One bug class swe swept before close (GH 1955): the class and each case checked for it. */
@@ -234,6 +266,11 @@ export function parseCompletionReport(raw: unknown, ids: readonly string[]): Com
   }
   if (r['concepts'] !== undefined && r['concepts'] !== null) {
     report.concepts = parseConceptProposals(r['concepts'], ids);
+  }
+  if (r['wm_feedback'] !== undefined && r['wm_feedback'] !== null) {
+    const problem = wmFeedbackProblem(r['wm_feedback'], 'report.wm_feedback');
+    if (problem) throw shapeError(ids, problem);
+    report.wm_feedback = toWmFeedback(r['wm_feedback']);
   }
   return report;
 }

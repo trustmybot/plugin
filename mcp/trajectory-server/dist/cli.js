@@ -1522,6 +1522,7 @@ var init_audit_events = __esm({
       { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
       { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
       { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
+      { type: "wm_feedback", writers: ["swe", "code-reviewer"], description: "An agent said what the world model answered, missed or got wrong during a task (GH 2417): `task_update_status(status='completed')` writes one row when swe's `report.wm_feedback` is present, and `validation_record` one when code-reviewer passes `wm_feedback`; on the task's issue, from_node the `agent` argument; `content_json` carries `task_id`, `agent`, `answered`, `missed`, `wrong` (null when absent). `trajectory_doctor` counts the rows and those with a non-empty `missed` / `wrong`" },
       { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
     ];
     KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -5721,6 +5722,25 @@ var init_checkpoint = __esm({
   }
 });
 
+// src/tools/verification-runs.ts
+var init_verification_runs = __esm({
+  "src/tools/verification-runs.ts"() {
+    "use strict";
+  }
+});
+
+// src/tools/validation.ts
+var init_validation = __esm({
+  "src/tools/validation.ts"() {
+    "use strict";
+    init_db2();
+    init_agent_scope();
+    init_audit();
+    init_verification_runs();
+    init_success_criteria();
+  }
+});
+
 // src/tools/tasks.ts
 var SPEC_BODY_MAX_BYTES;
 var init_tasks = __esm({
@@ -5740,6 +5760,7 @@ var init_tasks = __esm({
     init_effort_inputs();
     init_success_criteria();
     init_checkpoint();
+    init_validation();
     SPEC_BODY_MAX_BYTES = (() => {
       const raw = process.env["TMB_SPEC_BODY_MAX_BYTES"];
       if (raw === void 0) return 8e3;
@@ -6655,7 +6676,7 @@ function shellTail(s, n, env) {
   const bytes = Buffer.from(s);
   return bytes.subarray(Math.max(0, bytes.length - n)).toString("utf8");
 }
-var init_verification_runs = __esm({
+var init_verification_runs2 = __esm({
   "src/hooks/lib/verification-runs.ts"() {
     "use strict";
     init_audit2();
@@ -6767,22 +6788,15 @@ var init_swe_verification_gate = __esm({
     init_repo();
     init_role();
     await init_verification_carry();
-    init_verification_runs();
+    init_verification_runs2();
     init_swe_brief_gate();
     init_suite_lock();
     init_worktree_setup();
-    init_verification_runs();
+    init_verification_runs2();
     GATE_NAME = "swe-verification-gate";
     VERIFICATION_DEFAULT_S = 900;
     VERIFICATION_MAX_S = 1800;
     signals2 = osConstants2.signals;
-  }
-});
-
-// src/tools/verification-runs.ts
-var init_verification_runs2 = __esm({
-  "src/tools/verification-runs.ts"() {
-    "use strict";
   }
 });
 
@@ -6874,7 +6888,7 @@ var init_composites = __esm({
     init_worktree_deps();
     init_worktree_setup();
     await init_swe_verification_gate();
-    init_verification_runs2();
+    init_verification_runs();
     init_checkpoint();
     init_success_criteria();
     init_config();
@@ -7886,9 +7900,19 @@ __export(trajectory_doctor_exports, {
   selectContracts: () => selectContracts,
   statementTimeoutMs: () => statementTimeoutMs,
   trajectoryDbReader: () => trajectoryDbReader,
-  trajectoryDoctorTools: () => trajectoryDoctorTools
+  trajectoryDoctorTools: () => trajectoryDoctorTools,
+  wmFeedbackCounts: () => wmFeedbackCounts
 });
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
+function wmFeedbackCounts(db) {
+  const row = db.get(
+    `SELECT COUNT(*) AS reports,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.missed'), '')) <> ''), 0) AS missed,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.wrong'), '')) <> ''), 0) AS wrong
+       FROM audit WHERE event_type = 'wm_feedback' AND json_valid(content_json)`
+  );
+  return { reports: Number(row?.reports ?? 0), missed: Number(row?.missed ?? 0), wrong: Number(row?.wrong ?? 0) };
+}
 function trajectoryDbReader(db) {
   return {
     get: (sql, params) => db.get(sql, bind(params)),
@@ -8043,7 +8067,7 @@ function trajectoryDoctorTools(db) {
   const definitions = [
     {
       name: "trajectory_doctor",
-      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.",
+      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings, wm_feedback}, wm_feedback being {reports, missed, wrong}: the count of wm_feedback audit rows and of those with a non-empty missed / wrong; record:true logs one trajectory_doctor_run audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -8075,6 +8099,7 @@ function trajectoryDoctorTools(db) {
       ro?.close();
     }
     report.embeddings = embeddingStatus();
+    report.wm_feedback = wmFeedbackCounts(db);
     if (!record) return ok(report);
     const auditId = insertAudit(db, {
       issue_id: -1,

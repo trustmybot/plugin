@@ -13,6 +13,7 @@ import { enrollEffortAb } from '../effort-ab.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { CLAIMS, CONCEPT_KINDS, CRITERION_STATUSES, HANDOFFS, MAX_CONCEPT_PROPOSALS, parseCompletionReport, specCriteriaProblem, specCriterionIds, } from '../success-criteria.js';
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
+import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -368,7 +369,7 @@ export function taskTools(db) {
         },
         {
             name: 'task_update_status',
-            description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
+            description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. `report.wm_feedback` {answered?, missed?, wrong?} (optional) says what the world model answered, missed or got wrong, and also writes one wm_feedback audit row. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -462,6 +463,7 @@ export function taskTools(db) {
                                     required: ['name', 'steps'],
                                 },
                             },
+                            wm_feedback: WM_FEEDBACK_SCHEMA,
                         },
                         required: ['criteria'],
                     },
@@ -1169,6 +1171,8 @@ export function taskTools(db) {
                 if (TERMINAL_TASK_STATUSES.has(status)) {
                     closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
                 }
+                if (report?.wm_feedback)
+                    insertWmFeedback(db, task, agent, report.wm_feedback, now);
             });
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
             return ok({ ...updated, return_line: sweReturnLine(updated ?? task) });
