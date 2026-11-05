@@ -79,12 +79,26 @@ describe('cli.js stale-docs (GH 1955)', () => {
     assert.equal(staleDocs(base, '--head', head).stdout, 'docs/GUIDE.md:3: sync-helper.sh\n');
   });
 
-  it('a doc line the diff edited is not flagged', () => {
+  it('GH 1955: an edited doc line that keeps a changed identifier unchanged is flagged', () => {
     const head = commit({
       'src/store.ts': 'export const commits_since = 1;\n',
       'docs/GUIDE.md': 'Intro.\nThe scan stores `commits_behind` and more per row.\nRun `sync-helper.sh` nightly.\n',
     });
-    assert.equal(staleDocs(base, '--head', head).stdout, 'src/notes.ts:1: commits_behind\n');
+    assert.equal(staleDocs(base, '--head', head).stdout, 'docs/GUIDE.md:2: commits_behind\nsrc/notes.ts:1: commits_behind\n');
+  });
+
+  it('GH 1955: a doc line whose edit added or removed the identifier is not flagged', () => {
+    const removed = commit({
+      'src/store.ts': 'export const commits_since = 1;\n',
+      'docs/GUIDE.md': 'Intro.\nThe scan stores `commits_since` per row.\nRun `sync-helper.sh` nightly.\n',
+    });
+    assert.equal(staleDocs(base, '--head', removed).stdout, 'src/notes.ts:1: commits_behind\n');
+    git('reset', '-q', '--hard', base);
+    const added = commit({
+      'src/store.ts': 'export const commits_since = 1;\n',
+      'docs/GUIDE.md': 'Intro to `commits_behind`.\nThe scan stores `commits_behind` per row.\nRun `sync-helper.sh` nightly.\n',
+    });
+    assert.equal(staleDocs(base, '--head', added).stdout, 'docs/GUIDE.md:2: commits_behind\nsrc/notes.ts:1: commits_behind\n');
   });
 
   it('skips a token found on more doc lines than --max-hits', () => {
@@ -124,6 +138,15 @@ describe('cli.js stale-docs (GH 1955)', () => {
     const from = git('rev-parse', 'HEAD');
     const head = commit({ 'src/store.ts': 'export const commits_since = 1;\n' });
     assert.equal(staleDocs(from, '--head', head).stdout, 'docs/GUIDE.md:2: commits_behind\nsrc/notes.ts:1: commits_behind\n');
+  });
+
+  it('reads a removed `-- ` SQL comment as a removed line, not a file header', () => {
+    write({ 'src/schema.sql': '-- legacy_flag marks old rows\nSELECT 1;\n', 'docs/DB.md': 'See `legacy_flag`.\n' });
+    git('add', '-A');
+    git('commit', '-qm', 'sql');
+    const from = git('rev-parse', 'HEAD');
+    const head = commit({ 'src/schema.sql': 'SELECT 1;\n' });
+    assert.equal(staleDocs(from, '--head', head).stdout, 'docs/DB.md:1: legacy_flag\n');
   });
 
   it('exits 2 on bad usage and on an unknown base', () => {

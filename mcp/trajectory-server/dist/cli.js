@@ -10194,24 +10194,32 @@ function parseDiff(text) {
   const files = [];
   let file;
   let newLine = 0;
+  let hunkRemoved = /* @__PURE__ */ new Set();
+  let inHunk = false;
   for (const line of text.split("\n")) {
     if (line.startsWith("diff --git ")) {
-      file = { paths: [], added: [], removed: [], touched: /* @__PURE__ */ new Set() };
+      file = { paths: [], added: [], removed: [], touched: /* @__PURE__ */ new Map() };
       files.push(file);
+      inHunk = false;
     } else if (!file) {
       continue;
-    } else if (line.startsWith("--- ") || line.startsWith("+++ ")) {
-      const path = line.slice(4);
-      if (path !== "/dev/null") file.paths.push(path.replace(/^[ab]\//, ""));
-    } else if (line.startsWith("rename from ") || line.startsWith("rename to ")) {
-      file.paths.push(line.replace(/^rename (from|to) /, ""));
     } else if (line.startsWith("@@")) {
       newLine = Number(/\+(\d+)/.exec(line)?.[1] ?? 0);
+      hunkRemoved = /* @__PURE__ */ new Set();
+      inHunk = true;
+    } else if (!inHunk) {
+      if (line.startsWith("--- ") || line.startsWith("+++ ")) {
+        const path = line.slice(4);
+        if (path !== "/dev/null") file.paths.push(path.replace(/^[ab]\//, ""));
+      } else if (line.startsWith("rename from ") || line.startsWith("rename to ")) {
+        file.paths.push(line.replace(/^rename (from|to) /, ""));
+      }
     } else if (line.startsWith("+")) {
       file.added.push(line.slice(1));
-      file.touched.add(newLine++);
+      file.touched.set(newLine++, hunkRemoved);
     } else if (line.startsWith("-")) {
       file.removed.push(line.slice(1));
+      for (const span of spans(line.slice(1))) hunkRemoved.add(span);
     }
   }
   for (const f of files) f.paths = [...new Set(f.paths)];
@@ -10323,9 +10331,10 @@ ${USAGE4}`);
       if (text.includes("\0")) continue;
       text.split("\n").forEach((lineText, i) => {
         const line = i + 1;
-        if (!isDocLine(path, lineText) || touched.get(path)?.has(line)) return;
+        if (!isDocLine(path, lineText)) return;
+        const kept = touched.get(path)?.get(line);
         for (const span of spans(lineText)) {
-          if (!tokens.has(span)) continue;
+          if (!tokens.has(span) || kept && !kept.has(span)) continue;
           const list = hits.get(span) ?? [];
           list.push({ path, line });
           hits.set(span, list);
