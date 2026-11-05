@@ -28880,13 +28880,15 @@ function forbidden(toolName, agent, allowedRoles, received) {
     content: [
       {
         type: "text",
-        text: JSON.stringify({
-          error: "forbidden",
-          tool: toolName,
-          caller_role: agent,
-          allowed_roles: [...allowedRoles],
-          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
-        })
+        text: JSON.stringify(
+          agent === "unknown" ? {
+            error: "missing_argument",
+            argument: "agent",
+            tool: toolName,
+            allowed_roles: [...allowedRoles],
+            ...missingAgentDiagnostics(toolName, allowedRoles, received)
+          } : { error: "forbidden", tool: toolName, caller_role: agent, allowed_roles: [...allowedRoles] }
+        )
       }
     ]
   };
@@ -42257,7 +42259,9 @@ function framedStep(step, derived) {
   const description = derived && step.description ? frameUntrusted("symbol-doc", step.description) : step.description;
   return { ...step, description, symbol: symbol2 };
 }
-var REPO_DEFAULT_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole'). With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.";
+var REPO_RESOLUTION_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole').";
+var REPO_DEFAULT_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.`;
+var REPO_ALL_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, it searches every repo, with repo_source 'all'.`;
 function realOrResolved(path2) {
   try {
     return realpathSync7(path2);
@@ -42327,7 +42331,7 @@ function worldModelTools(db2, graphHolder2, cwd) {
           },
           repo: {
             type: "string",
-            description: `Repo to search. ${REPO_DEFAULT_DOC}`
+            description: `Repo to search. ${REPO_ALL_DOC}`
           },
           k: {
             type: "number",
@@ -42339,7 +42343,7 @@ function worldModelTools(db2, graphHolder2, cwd) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name (alias name) plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -42347,10 +42351,11 @@ function worldModelTools(db2, graphHolder2, cwd) {
           id: { type: "number", description: "Symbol id from a world_model_search hit." },
           repo: {
             type: "string",
-            description: `Repo name, used without id. ${REPO_DEFAULT_DOC}`
+            description: `Repo name, used without id. ${REPO_ALL_DOC}`
           },
           path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
           qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+          name: { type: "string", description: "Alias of qualified_name; qualified_name wins when both are given." },
           impact: {
             type: ["boolean", "integer"],
             description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
@@ -42476,9 +42481,25 @@ function worldModelTools(db2, graphHolder2, cwd) {
         if (!query || typeof query !== "string") return err16("query is required");
         const mode = args2["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+        const resultsOf = (top) => {
+          const stale = staleFiles(
+            db2,
+            top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
+          );
+          return top.map(({ hit, score }) => hitResult(hit, score, stale));
+        };
         const resolved = resolveRepo(args2["repo"]);
         if (resolved.warning) {
-          return ok15({ repo: "", results: [], total_matched: 0, warning: resolved.warning, available_repos: resolved.available_repos, mode });
+          const scope2 = { repo_source: "all", repos_searched: resolved.available_repos };
+          const graph2 = graphHolder2?.ensureGraph() ?? null;
+          if (!graph2) return ok15({ ...scope2, results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          const rankings = [];
+          for (const repo2 of resolved.available_repos) rankings.push(await rankWorldModel(db2, graph2, repo2, query, mode, k));
+          const top = rankings.flatMap((r) => r.ranked.slice(0, k)).sort((a, b) => b.score - a.score).slice(0, k);
+          const results2 = resultsOf(top);
+          const warning2 = rankings.find((r) => r.warning)?.warning;
+          const match2 = rankings.some((r) => r.match === "any_term") ? "any_term" : "all_terms";
+          return ok15({ ...scope2, results: results2, total_matched: results2.length, ...warning2 ? { warning: warning2 } : {}, mode, match: match2 });
         }
         const repo = resolved.name;
         const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
@@ -42488,12 +42509,7 @@ function worldModelTools(db2, graphHolder2, cwd) {
           return ok15({ ...scope, results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
         }
         const { ranked, match, warning } = await rankWorldModel(db2, graph, repo, query, mode, k);
-        const top = ranked.slice(0, k);
-        const stale = staleFiles(
-          db2,
-          top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
-        );
-        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
+        const results = resultsOf(ranked.slice(0, k));
         return ok15({ ...scope, results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
       }))
     ),
@@ -42508,15 +42524,19 @@ function worldModelTools(db2, graphHolder2, cwd) {
           symbol2 = symbolById(db2, id);
           if (!symbol2) return err16(`symbol ${id} not found`);
         } else {
-          const name2 = args2["qualified_name"];
-          if (typeof name2 !== "string" || !name2) return err16("id or qualified_name is required");
+          const qualified = args2["qualified_name"];
+          const name2 = typeof qualified === "string" && qualified ? qualified : args2["name"];
+          if (typeof name2 !== "string" || !name2) return err16("id, qualified_name or name is required");
           const resolved = resolveRepo(args2["repo"]);
-          if (resolved.warning) return ok15({ symbol: null, warning: resolved.warning, available_repos: resolved.available_repos });
+          const allRepos = resolved.warning !== void 0;
           const repo = resolved.name;
-          source = sourceOf(resolved);
-          const path2 = args2["path"];
-          const matches = symbolsByName(db2, repo, name2, typeof path2 === "string" && path2 ? path2 : void 0);
-          if (matches.length === 0) return err16(`symbol ${name2} not found in repo ${repo || "(none)"}`);
+          source = allRepos ? { repo_source: "all" } : sourceOf(resolved);
+          const pathArg = args2["path"];
+          const path2 = typeof pathArg === "string" && pathArg ? pathArg : void 0;
+          const matches = allRepos ? resolved.available_repos.flatMap((r) => symbolsByName(db2, r, name2, path2)) : symbolsByName(db2, repo, name2, path2);
+          if (matches.length === 0) {
+            return err16(`symbol ${name2} not found in ${allRepos ? "any repo" : `repo ${repo || "(none)"}`}`);
+          }
           const definitions2 = matches.filter((m) => m.kind !== "module");
           if (definitions2.length > 1) {
             return ok15({
@@ -42531,10 +42551,10 @@ function worldModelTools(db2, graphHolder2, cwd) {
                 path: m.path,
                 line_start: m.start_line
               })),
-              ...checkoutLag(db2, repo)
+              ...allRepos ? {} : checkoutLag(db2, repo)
             });
           }
-          symbol2 = matches[0];
+          symbol2 = definitions2[0] ?? matches[0];
         }
         const impactArg = args2["impact"];
         let impactDepth = null;

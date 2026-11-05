@@ -258,7 +258,7 @@ describe('audit_append requireRoles guard', () => {
         });
         assert.ok(result.isError, 'Expected isError=true for unknown agent');
         const data = parseResult(result);
-        assert.equal(data.error, 'forbidden');
+        assert.equal(data.error, 'missing_argument');
         db.close();
     });
 });
