@@ -390,6 +390,78 @@ describe('code-reviewer-preflight', () => {
       f.record();
       await assertAllowed(f);
     });
+
+    describe('a path untracked as build output (GH 2054)', () => {
+      const BUILT_FILES: Record<string, string> = {
+        ...BASE_FILES,
+        'docs/guide.md': 'Run `scripts/old.sh` first, then `node pkg/dist/out.js`.\n',
+        'pkg/dist/out.js': 'built\n',
+      };
+
+      it('allows a path the diff drops from the index that the commit .gitignore ignores', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        f.record();
+        assert.equal(f.git('ls-files', 'pkg/dist'), '');
+        await assertAllowed(f);
+      });
+
+      it('still denies a plain deletion beside the untracked build output', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.git('rm', '-q', 'scripts/old.sh');
+        f.commit('untrack dist and drop old.sh');
+        f.record();
+        const d = denial((await run(f)).stdout);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.equal(d.actual, "docs/guide.md mentions removed path 'scripts/old.sh'");
+      });
+
+      it('denies when only the local exclude file, not the commit, ignores the path', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        writeFileSync(join(f.repo, '.git/info/exclude'), 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist without a .gitignore');
+        f.record();
+        const d = denial((await run(f)).stdout);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+
+      it('counts the path as removed when git check-ignore fails (fail-closed)', async () => {
+        const f = fixture(BUILT_FILES);
+        featureCommit(f);
+        f.write('pkg/.gitignore', 'dist/\n');
+        f.git('rm', '-q', '--cached', 'pkg/dist/out.js');
+        f.commit('untrack dist');
+        f.record();
+        const bin = join(dirname(f.repo), 'bin');
+        mkdirSync(bin);
+        const wrapper = join(bin, 'git');
+        writeFileSync(
+          wrapper,
+          [
+            '#!/usr/bin/env node',
+            "const { spawnSync } = require('node:child_process');",
+            "if (process.argv.includes('check-ignore')) process.exit(128);",
+            `const r = spawnSync(${JSON.stringify(execFileSync('which', ['git'], { encoding: 'utf8' }).trim())}, process.argv.slice(2), { stdio: 'inherit' });`,
+            'process.exit(r.status ?? 1);',
+            '',
+          ].join('\n'),
+        );
+        chmodSync(wrapper, 0o755);
+        const env = { ...f.env, PATH: `${bin}:${f.env.PATH}` };
+        const d = denial(((await codeReviewerPreflight(payload(), env)) as { stdout: string }).stdout);
+        assert.equal(d.check, 'stale_doc_ref');
+        assert.match(d.actual ?? '', /docs\/guide\.md mentions removed path 'pkg\/dist\/out\.js'/);
+      });
+    });
   });
 
   describe('missing_changelog', () => {

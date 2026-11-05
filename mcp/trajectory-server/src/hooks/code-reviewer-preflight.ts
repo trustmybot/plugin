@@ -12,13 +12,18 @@
  *                      --source=<commit>` (regenerated at integrate, GH 2005)
  *   stale_doc_ref      no path the diff (merge-base..commit) deletes or renames, and no MCP
  *                      tool name it drops from mcp/<server>/src/tools/, appears in the
- *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit
+ *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit;
+ *                      a removed path the commit's own .gitignore files ignore is untracked
+ *                      build output, not removed (GH 2054)
  *   missing_changelog  with a changelog.d/, the diff adds a file under it
  *
  * Only code-reviewer spawns naming task_id=<N> are judged; a missing task_id is
  * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
  * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
@@ -45,6 +50,8 @@ const TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 const TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 const CHANGELOG_DIR = 'changelog.d';
 const REGEN_DRIVER = 'tmb-regen';
+const GITIGNORE = /(?:^|\/)\.gitignore$/;
+const REPO_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_NAMESPACE'];
 
 interface GitResult {
   code: number;
@@ -190,12 +197,54 @@ async function removedInDiff(repo: string, base: string, commit: string, env: No
   return { paths, tools: [...toolNames(before, contents)].filter((t) => !kept.has(t)).sort() };
 }
 
+/**
+ * The <paths> the .gitignore files in <blobs> ignore, judged by `git check-ignore --no-index`
+ * in a scratch repo holding only those files, or null when that fails.
+ */
+async function ignoredByTree(
+  repo: string,
+  blobs: Map<string, string>,
+  paths: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<Set<string> | null> {
+  const rules = [...blobs].filter(([p]) => GITIGNORE.test(p));
+  if (rules.length === 0 || paths.length === 0) return new Set();
+  const contents = await readBlobs(repo, rules.map(([, oid]) => oid), env);
+  if (!contents) return null;
+  const scratchEnv: NodeJS.ProcessEnv = { ...env };
+  for (const key of REPO_ENV) delete scratchEnv[key];
+  let scratch: string | null = null;
+  try {
+    scratch = await mkdtemp(join(tmpdir(), 'tmb-preflight-ignore-'));
+    for (const [path, oid] of rules) {
+      await mkdir(dirname(join(scratch, path)), { recursive: true });
+      await writeFile(join(scratch, path), contents.get(oid) ?? '');
+    }
+    if ((await git(scratch, ['init', '-q', '--template='], scratchEnv)).code !== 0) return null;
+    const r = await gitSpawn(
+      scratch,
+      ['-c', `core.excludesFile=${join(scratch, '.no-excludes')}`, 'check-ignore', '--no-index', '-z', '--stdin'],
+      { input: `${paths.join('\0')}\0`, env: { ...scratchEnv, GIT_OPTIONAL_LOCKS: '0' }, stderr: 'pipe', timeoutMs: GIT_TIMEOUT_MS },
+    );
+    if (r.code === 1) return new Set();
+    if (r.code !== 0) return null;
+    return new Set(nulFields(r.stdout.toString('utf8')));
+  } catch {
+    return null;
+  } finally {
+    if (scratch !== null) await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function staleDocRefs(repo: string, base: string, commit: string, env: NodeJS.ProcessEnv): Promise<string[] | string> {
   const removed = await removedInDiff(repo, base, commit, env);
   if (typeof removed === 'string') return removed;
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
   const blobs = await treeBlobs(repo, commit, env);
   if (!blobs) return `git ls-tree of ${commit} failed`;
+  const ignored = await ignoredByTree(repo, blobs, removed.paths, env);
+  if (ignored) removed.paths = removed.paths.filter((p) => !ignored.has(p));
+  if (removed.paths.length === 0 && removed.tools.length === 0) return [];
   const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
   if (!contents) return 'git cat-file of the docs failed';
