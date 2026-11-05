@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tempDB } from './helpers.js';
 import { probeCachePath, probeChildEnv, reconcileAtStartup, reconcileCheatcodes, reconcileNow, } from '../tools/cheatcode-reconcile.js';
 const NOW = '2026-10-18T12:00:00.000Z';
@@ -10,17 +10,23 @@ function evidence(partial = {}) {
     return { mcpServers: null, plugins: null, ...partial };
 }
 function plugins(entries) {
-    return new Map(Object.entries(entries).map(([id, e]) => [id, { enabled: e.enabled, mcpServers: new Set(e.mcpServers ?? []) }]));
+    return new Map(Object.entries(entries).map(([id, e]) => [
+        id,
+        { enabled: e.enabled, mcpServers: new Set(e.mcpServers ?? []), version: e.version ?? null },
+    ]));
 }
 describe('reconcileCheatcodes', () => {
     let db;
     let root;
     const addRow = (name, kind, status, opts = {}) => {
-        const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, scope, status, installed_at, created_at, updated_at)
-       VALUES (?, ?, 'external', '', ?, ?, 'project-local', ?, 'then', 'then', 'then')`, [name, kind, opts.source_url ?? `fixture:${name}`, opts.file_path ?? null, status]);
+        const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, scope, status, installed_at, created_at, updated_at)
+       VALUES (?, ?, 'external', '', ?, ?, ?, 'project-local', ?, 'then', 'then', 'then')`, [name, kind, opts.source_url ?? `fixture:${name}`, opts.file_path ?? null, opts.version ?? null, status]);
         return Number(res.lastInsertRowid);
     };
     const statusOf = (id) => db.get('SELECT status FROM cheatcodes WHERE id = ?', [id]).status;
+    const versionRow = (id) => ({
+        ...db.get('SELECT version, updated_at FROM cheatcodes WHERE id = ?', [id]),
+    });
     const reconcile = (ev, pluginRoot = root) => reconcileCheatcodes(db, ev, { fromNode: 'server', writer: 'server', now: NOW, pluginRoot });
     const healthAudits = () => db.all(`SELECT from_node, summary, content_json, created_at, issue_id, branch_id FROM audit WHERE event_type = 'cheatcode_healthcheck'`);
     beforeEach(() => {
@@ -139,6 +145,42 @@ describe('reconcileCheatcodes', () => {
         assert.equal(audits[0].created_at, NOW);
         assert.equal(audits[0].summary, 'gone (plugin): active -> broken');
         assert.deepEqual(JSON.parse(audits[0].content_json), { name: 'gone', kind: 'plugin', from: 'active', to: 'broken' });
+    });
+    it('GH 2136: plugin: a different listed version rewrites version and updated_at, with no transition or audit row', () => {
+        const id = addRow('tmb', 'plugin', 'active', { source_url: 'tmb@trustmybot', version: '1.1.0-rc.4' });
+        const transitions = reconcile(evidence({ plugins: plugins({ 'tmb@trustmybot': { enabled: true, version: '1.2.0-dev.215.gh2130' } }) }));
+        assert.deepEqual(versionRow(id), { version: '1.2.0-dev.215.gh2130', updated_at: NOW });
+        assert.deepEqual(transitions, []);
+        assert.equal(healthAudits().length, 0);
+    });
+    it('GH 2136: plugin: an equal, absent or empty listed version leaves version and updated_at untouched', () => {
+        const equal = addRow('eq', 'plugin', 'active', { version: '1.0.0' });
+        const absent = addRow('absent', 'plugin', 'active', { version: '1.0.0' });
+        const empty = addRow('empty', 'plugin', 'active', { version: '1.0.0' });
+        reconcile(evidence({
+            plugins: plugins({
+                'eq@m': { enabled: true, version: '1.0.0' },
+                'absent@m': { enabled: true },
+                'empty@m': { enabled: true, version: '' },
+            }),
+        }));
+        for (const id of [equal, absent, empty])
+            assert.deepEqual(versionRow(id), { version: '1.0.0', updated_at: 'then' });
+    });
+    it('GH 2136: plugin: no plugin listing leaves a stored version intact', () => {
+        const id = addRow('p', 'plugin', 'active', { version: '1.0.0' });
+        reconcile(evidence());
+        assert.deepEqual(versionRow(id), { version: '1.0.0', updated_at: 'then' });
+    });
+    it('GH 2136: plugin: the enabled entry wins when two marketplaces list the same plugin', () => {
+        const id = addRow('tmb', 'plugin', 'active', { source_url: 'tmb@trustmybot', version: '1.0.0' });
+        reconcile(evidence({
+            plugins: plugins({
+                'tmb@trustmybot': { enabled: false, version: '1.1.0' },
+                'tmb@trustmybot-dev': { enabled: true, version: '1.2.0-dev.1' },
+            }),
+        }));
+        assert.equal(versionRow(id).version, '1.2.0-dev.1');
     });
     it('rejects a writer outside the event writer list', () => {
         addRow('gone', 'plugin', 'active');
@@ -293,6 +335,22 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
         await reconcileAtStartup(db);
         assert.equal(invocations().length, 2);
         assert.match(readCache().fingerprint, /^[0-9a-f]{64}$/);
+    });
+    it('GH 2136: reconcileNow takes each listed plugin version from claude plugin list --json', async () => {
+        const stale = addRow('tmb', 'plugin', 'active', 'tmb@trustmybot');
+        const kept = addRow('kept', 'plugin', 'active', 'kept@m');
+        db.run("UPDATE cheatcodes SET version = '1.1.0-rc.4' WHERE id = ?", [stale]);
+        db.run("UPDATE cheatcodes SET version = '2.0.0' WHERE id = ?", [kept]);
+        const listing = JSON.stringify([
+            { id: 'tmb@trustmybot', enabled: true, version: '1.2.0-dev.215.gh2130' },
+            { id: 'kept@m', enabled: true },
+        ]);
+        writeFileSync(join(dirname(root), 'bin', 'claude'), ['#!/bin/sh', `if [ "$1" = mcp ]; then echo ""; else echo '${listing}'; fi`, ''].join('\n'));
+        await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
+        const versionOf = (id) => db.get('SELECT version, updated_at FROM cheatcodes WHERE id = ?', [id]);
+        assert.equal(versionOf(stale).version, '1.2.0-dev.215.gh2130');
+        assert.notEqual(versionOf(stale).updated_at, 'then');
+        assert.deepEqual({ ...versionOf(kept) }, { version: '2.0.0', updated_at: 'then' });
     });
     it('reconcileNow always probes and refreshes the cache', async () => {
         await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });

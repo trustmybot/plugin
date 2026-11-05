@@ -1,0 +1,2 @@
+### Fixed
+- **The cheatcode registry shows a plugin's current version after it updates** (GH 2136): a plugin row kept the first version a scan saw, so an updated plugin (and the MCP servers it bundles) stayed listed at its old version. A scan now rewrites the stored version whenever `claude plugin list --json` reports a different one, and the startup health-check does the same for plugin rows from its own listing. A listing with no version leaves the stored one as it was.

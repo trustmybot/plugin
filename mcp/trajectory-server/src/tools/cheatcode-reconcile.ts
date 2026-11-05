@@ -13,6 +13,7 @@ import type { Writer } from '../audit-events.js';
 export interface PluginEvidence {
   enabled: boolean;
   mcpServers: Set<string>;
+  version: string | null;
 }
 
 export interface RuntimeEvidence {
@@ -102,10 +103,16 @@ function parsePluginListing(text: string): Map<string, PluginEvidence> | null {
   const plugins = new Map<string, PluginEvidence>();
   for (const entry of parsed) {
     if (!entry || typeof entry !== 'object') continue;
-    const { id, enabled, mcpServers } = entry as { id?: unknown; enabled?: unknown; mcpServers?: unknown };
+    const { id, enabled, mcpServers, version } = entry as {
+      id?: unknown;
+      enabled?: unknown;
+      mcpServers?: unknown;
+      version?: unknown;
+    };
     plugins.set(typeof id === 'string' ? id : '', {
       enabled: enabled === true,
       mcpServers: new Set(mcpServers && typeof mcpServers === 'object' ? Object.keys(mcpServers) : []),
+      version: typeof version === 'string' && version !== '' ? version : null,
     });
   }
   return plugins;
@@ -262,6 +269,21 @@ function computeStatus(
   }
 }
 
+/** The listed version of a plugin row, preferring the enabled entry, then the row's own `<name>@<marketplace>` id. */
+function livePluginVersion(row: { name: string; source_url: string | null }, evidence: RuntimeEvidence): string | null {
+  let best: string | null = null;
+  let bestRank = -1;
+  for (const [id, entry] of evidence.plugins ?? []) {
+    if (pluginName(id) !== row.name || !entry.version) continue;
+    const rank = (entry.enabled ? 2 : 0) + (id === row.source_url ? 1 : 0);
+    if (rank > bestRank) {
+      best = entry.version;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
 export function reconcileCheatcodes(db: TrajectoryDB, evidence: RuntimeEvidence, opts: ReconcileOptions): Transition[] {
   const pluginRoot = opts.pluginRoot ?? process.env['CLAUDE_PLUGIN_ROOT'];
   const rows = db.all<{
@@ -271,10 +293,19 @@ export function reconcileCheatcodes(db: TrajectoryDB, evidence: RuntimeEvidence,
     status: string;
     source_url: string | null;
     file_path: string | null;
-  }>(`SELECT id, name, kind, status, source_url, file_path FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
+    version: string | null;
+  }>(
+    `SELECT id, name, kind, status, source_url, file_path, version FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`,
+  );
 
   const transitions: Transition[] = [];
   for (const row of rows) {
+    if (row.kind === 'plugin') {
+      const live = livePluginVersion(row, evidence);
+      if (live !== null && live !== row.version) {
+        db.run('UPDATE cheatcodes SET version = ?, updated_at = ? WHERE id = ?', [live, opts.now, row.id]);
+      }
+    }
     const next = computeStatus(row, evidence, pluginRoot);
     if (next === null || next === row.status) continue;
     db.run('UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?', [next, opts.now, row.id]);

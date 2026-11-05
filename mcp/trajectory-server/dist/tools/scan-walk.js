@@ -34,12 +34,14 @@ import { insertAudit } from './audit.js';
 /**
  * The one writer for a discovered resource, keyed on (name, kind). A new row is
  * inserted with a scan_discovered audit row; an existing row only gets a blank
- * description / NULL version filled and a legacy 'mcp:<server>' source_url
- * rewritten to the bundled 'mcp:<plugin>/<server>' form, without an audit row.
+ * description filled, its version set to a non-empty live version that differs
+ * from the stored one, and a legacy 'mcp:<server>' source_url rewritten to the
+ * bundled 'mcp:<plugin>/<server>' form, without an audit row. An empty or absent
+ * live version never changes the stored one.
  */
 export function upsertDiscoveredCheatcode(db, r) {
     const description = r.description ?? '';
-    const version = r.version ?? null;
+    const version = r.version || null;
     return db.transaction(() => {
         const now = nowISO();
         const res = db.run(`INSERT INTO cheatcodes
@@ -63,16 +65,16 @@ export function upsertDiscoveredCheatcode(db, r) {
         }
         db.run(`UPDATE cheatcodes
           SET description = CASE WHEN description = '' THEN ? ELSE description END,
-              version = COALESCE(version, ?),
+              version = COALESCE(?, version),
               source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
                                 THEN ? ELSE source_url END,
               updated_at = ?
         WHERE name = ? AND kind = ?
           AND ((description = '' AND ? <> '')
-               OR (version IS NULL AND ? IS NOT NULL)
+               OR (? IS NOT NULL AND version IS NOT ?)
                OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`, [
             description, version, r.source_url, r.source_url, now, r.name, r.kind,
-            description, version, r.source_url,
+            description, version, version, r.source_url,
         ]);
         const row = db.get('SELECT id FROM cheatcodes WHERE name = ? AND kind = ?', [r.name, r.kind]);
         return { id: row.id, inserted: false };

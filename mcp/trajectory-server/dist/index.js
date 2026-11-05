@@ -46230,7 +46230,7 @@ function commandOnPath(name2, env = process.env) {
 // src/tools/scan-walk.ts
 function upsertDiscoveredCheatcode(db2, r) {
   const description = r.description ?? "";
-  const version2 = r.version ?? null;
+  const version2 = r.version || null;
   return db2.transaction(() => {
     const now2 = nowISO();
     const res = db2.run(
@@ -46268,13 +46268,13 @@ function upsertDiscoveredCheatcode(db2, r) {
     db2.run(
       `UPDATE cheatcodes
           SET description = CASE WHEN description = '' THEN ? ELSE description END,
-              version = COALESCE(version, ?),
+              version = COALESCE(?, version),
               source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
                                 THEN ? ELSE source_url END,
               updated_at = ?
         WHERE name = ? AND kind = ?
           AND ((description = '' AND ? <> '')
-               OR (version IS NULL AND ? IS NOT NULL)
+               OR (? IS NOT NULL AND version IS NOT ?)
                OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`,
       [
         description,
@@ -46285,6 +46285,7 @@ function upsertDiscoveredCheatcode(db2, r) {
         r.name,
         r.kind,
         description,
+        version2,
         version2,
         r.source_url
       ]
@@ -47718,10 +47719,11 @@ function parsePluginListing(text) {
   const plugins = /* @__PURE__ */ new Map();
   for (const entry of parsed) {
     if (!entry || typeof entry !== "object") continue;
-    const { id, enabled, mcpServers: mcpServers2 } = entry;
+    const { id, enabled, mcpServers: mcpServers2, version: version2 } = entry;
     plugins.set(typeof id === "string" ? id : "", {
       enabled: enabled === true,
-      mcpServers: new Set(mcpServers2 && typeof mcpServers2 === "object" ? Object.keys(mcpServers2) : [])
+      mcpServers: new Set(mcpServers2 && typeof mcpServers2 === "object" ? Object.keys(mcpServers2) : []),
+      version: typeof version2 === "string" && version2 !== "" ? version2 : null
     });
   }
   return plugins;
@@ -47840,11 +47842,32 @@ function computeStatus(row, evidence, pluginRoot) {
       return null;
   }
 }
+function livePluginVersion(row, evidence) {
+  let best = null;
+  let bestRank = -1;
+  for (const [id, entry] of evidence.plugins ?? []) {
+    if (pluginName(id) !== row.name || !entry.version) continue;
+    const rank = (entry.enabled ? 2 : 0) + (id === row.source_url ? 1 : 0);
+    if (rank > bestRank) {
+      best = entry.version;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
 function reconcileCheatcodes(db2, evidence, opts) {
   const pluginRoot = opts.pluginRoot ?? process.env["CLAUDE_PLUGIN_ROOT"];
-  const rows = db2.all(`SELECT id, name, kind, status, source_url, file_path FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
+  const rows = db2.all(
+    `SELECT id, name, kind, status, source_url, file_path, version FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`
+  );
   const transitions = [];
   for (const row of rows) {
+    if (row.kind === "plugin") {
+      const live = livePluginVersion(row, evidence);
+      if (live !== null && live !== row.version) {
+        db2.run("UPDATE cheatcodes SET version = ?, updated_at = ? WHERE id = ?", [live, opts.now, row.id]);
+      }
+    }
     const next = computeStatus(row, evidence, pluginRoot);
     if (next === null || next === row.status) continue;
     db2.run("UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?", [next, opts.now, row.id]);

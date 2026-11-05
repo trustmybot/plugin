@@ -11218,7 +11218,7 @@ function commandOnPath(name2, env = process.env) {
 // src/tools/scan-walk.ts
 function upsertDiscoveredCheatcode(db, r) {
   const description = r.description ?? "";
-  const version = r.version ?? null;
+  const version = r.version || null;
   return db.transaction(() => {
     const now2 = nowISO();
     const res = db.run(
@@ -11256,13 +11256,13 @@ function upsertDiscoveredCheatcode(db, r) {
     db.run(
       `UPDATE cheatcodes
           SET description = CASE WHEN description = '' THEN ? ELSE description END,
-              version = COALESCE(version, ?),
+              version = COALESCE(?, version),
               source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
                                 THEN ? ELSE source_url END,
               updated_at = ?
         WHERE name = ? AND kind = ?
           AND ((description = '' AND ? <> '')
-               OR (version IS NULL AND ? IS NOT NULL)
+               OR (? IS NOT NULL AND version IS NOT ?)
                OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`,
       [
         description,
@@ -11273,6 +11273,7 @@ function upsertDiscoveredCheatcode(db, r) {
         r.name,
         r.kind,
         description,
+        version,
         version,
         r.source_url
       ]

@@ -70,10 +70,11 @@ function parsePluginListing(text) {
     for (const entry of parsed) {
         if (!entry || typeof entry !== 'object')
             continue;
-        const { id, enabled, mcpServers } = entry;
+        const { id, enabled, mcpServers, version } = entry;
         plugins.set(typeof id === 'string' ? id : '', {
             enabled: enabled === true,
             mcpServers: new Set(mcpServers && typeof mcpServers === 'object' ? Object.keys(mcpServers) : []),
+            version: typeof version === 'string' && version !== '' ? version : null,
         });
     }
     return plugins;
@@ -210,11 +211,32 @@ function computeStatus(row, evidence, pluginRoot) {
             return null;
     }
 }
+/** The listed version of a plugin row, preferring the enabled entry, then the row's own `<name>@<marketplace>` id. */
+function livePluginVersion(row, evidence) {
+    let best = null;
+    let bestRank = -1;
+    for (const [id, entry] of evidence.plugins ?? []) {
+        if (pluginName(id) !== row.name || !entry.version)
+            continue;
+        const rank = (entry.enabled ? 2 : 0) + (id === row.source_url ? 1 : 0);
+        if (rank > bestRank) {
+            best = entry.version;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
 export function reconcileCheatcodes(db, evidence, opts) {
     const pluginRoot = opts.pluginRoot ?? process.env['CLAUDE_PLUGIN_ROOT'];
-    const rows = db.all(`SELECT id, name, kind, status, source_url, file_path FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
+    const rows = db.all(`SELECT id, name, kind, status, source_url, file_path, version FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
     const transitions = [];
     for (const row of rows) {
+        if (row.kind === 'plugin') {
+            const live = livePluginVersion(row, evidence);
+            if (live !== null && live !== row.version) {
+                db.run('UPDATE cheatcodes SET version = ?, updated_at = ? WHERE id = ?', [live, opts.now, row.id]);
+            }
+        }
         const next = computeStatus(row, evidence, pluginRoot);
         if (next === null || next === row.status)
             continue;
