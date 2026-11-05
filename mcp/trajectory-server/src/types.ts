@@ -211,7 +211,12 @@ export interface ReviewFinding {
   status: 'open' | 'fixed' | 'wontfix';
   created_at: string;
   resolved_at: string | null;
+  severity: FindingSeverity;
+  class: string | null;
 }
+
+/** review_findings.severity (v57 GH 1955): only 'blocking' fails a verdict and gates the close. */
+export type FindingSeverity = 'blocking' | 'nit' | 'pre_existing';
 
 /** Capability scope — mirrors the cheatcodes.scope CHECK. */
 export type CapabilityScope = 'global' | 'template' | 'project-local';

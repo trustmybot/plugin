@@ -924,6 +924,9 @@ function runMigrations(db, fromVersion, toVersion) {
   if (fromVersion < 56 && toVersion >= 56) {
     migrateV55toV56(db);
   }
+  if (fromVersion < 57 && toVersion >= 57) {
+    migrateV56toV57(db);
+  }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
   if (!tableExists(db, "cheatcode_attachments")) return;
@@ -2839,6 +2842,28 @@ function migrateV55toV56(db) {
     throw err2;
   }
 }
+function migrateV56toV57(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "review_findings")) {
+      if (!hasColumn(db, "review_findings", "severity")) {
+        db.exec(
+          "ALTER TABLE review_findings ADD COLUMN severity TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing'))"
+        );
+      }
+      if (!hasColumn(db, "review_findings", "class")) {
+        db.exec("ALTER TABLE review_findings ADD COLUMN class TEXT");
+      }
+    }
+    commitTransaction(db);
+  } catch (err2) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err2;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -3691,7 +3716,7 @@ var init_db = __esm({
     init_platform();
     init_audit_events();
     init_remotes();
-    TARGET_SCHEMA_VERSION = 56;
+    TARGET_SCHEMA_VERSION = 57;
     BUSY_TIMEOUT_MS = 5e3;
     TrajectoryDB = class {
       db;
@@ -10206,10 +10231,16 @@ async function trajectoryDoctor(argv2, env, io2) {
 // src/cli/validation-record-fallback.ts
 var USAGE4 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
-var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed}";
-var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed')";
+var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed, severity?, class?}";
+var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed', 'severity', 'class')";
+var SEVERITIES = "('blocking', 'nit', 'pre_existing')";
+var SEVERITY_SQL = "COALESCE(json_extract(e.value, '$.severity'), 'blocking')";
 function badText(field2) {
   return `WHEN json_type(e.value, '$.${field2}') IS NOT 'text' OR trim(json_extract(e.value, '$.${field2}'), ${WS}) = '' THEN 'findings[' || e.key || '].${field2} must be a non-empty string'`;
+}
+function badOptionalText(field2) {
+  return `WHEN json_type(e.value, '$.${field2}') NOT IN ('null', 'text') OR trim(json_extract(e.value, '$.${field2}'), ${WS}) = ''
+      THEN 'findings[' || e.key || '].${field2} must be a non-empty string or null'`;
 }
 var FINDINGS_CHECK_SQL = `
 WITH f(v) AS (SELECT ?1),
@@ -10217,22 +10248,30 @@ bad(k, msg) AS (
   SELECT e.key, CASE
     WHEN e.type <> 'object' THEN 'findings[' || e.key || '] must be an object ${FINDING_SHAPE}'
     WHEN EXISTS (SELECT 1 FROM json_each(e.value) k WHERE k.key NOT IN ${ALLOWED_KEYS})
-      THEN 'findings[' || e.key || '] has unknown field(s) ' || (SELECT group_concat(k.key, ', ') FROM json_each(e.value) k WHERE k.key NOT IN ${ALLOWED_KEYS}) || '; allowed: criterion_id, probe_cmd, expected, observed'
+      THEN 'findings[' || e.key || '] has unknown field(s) ' || (SELECT group_concat(k.key, ', ') FROM json_each(e.value) k WHERE k.key NOT IN ${ALLOWED_KEYS}) || '; allowed: criterion_id, probe_cmd, expected, observed, severity, class'
     ${badText("probe_cmd")}
     ${badText("expected")}
     ${badText("observed")}
-    WHEN json_type(e.value, '$.criterion_id') NOT IN ('null', 'text') OR trim(json_extract(e.value, '$.criterion_id'), ${WS}) = ''
-      THEN 'findings[' || e.key || '].criterion_id must be a non-empty string or null'
+    ${badOptionalText("criterion_id")}
+    WHEN json_type(e.value, '$.severity') NOT IN ('null', 'text') OR json_extract(e.value, '$.severity') NOT IN ${SEVERITIES}
+      THEN 'findings[' || e.key || '].severity must be one of blocking, nit, pre_existing'
+    ${badOptionalText("class")}
   END
   FROM f, json_each(f.v) e
   WHERE json_valid(f.v) AND json_type(f.v) = 'array'
+),
+blocking(n) AS (
+  SELECT COUNT(*) FROM f, json_each(f.v) e
+  WHERE json_valid(f.v) AND json_type(f.v) = 'array' AND ${SEVERITY_SQL} = 'blocking'
 )
 SELECT CASE
   WHEN NOT json_valid(v) THEN 'invalid_findings|findings is not valid JSON'
   WHEN json_type(v) NOT IN ('array', 'null') THEN 'invalid_findings|findings must be a JSON array of ${FINDING_SHAPE}'
-  WHEN ?2 = 'pass' AND COALESCE(json_array_length(v), 0) > 0 THEN 'findings_refused|a pass verdict records no findings; send findings only with verdict fail'
   WHEN ?2 = 'fail' AND COALESCE(json_array_length(v), 0) = 0 THEN 'findings_required|a fail verdict needs a non-empty findings array, one ${FINDING_SHAPE} per defect, each probe_cmd a command that exits 0 once the defect is fixed'
-  ELSE COALESCE((SELECT 'invalid_findings|' || msg FROM bad WHERE msg IS NOT NULL ORDER BY k LIMIT 1), 'ok')
+  WHEN EXISTS (SELECT 1 FROM bad WHERE msg IS NOT NULL) THEN (SELECT 'invalid_findings|' || msg FROM bad WHERE msg IS NOT NULL ORDER BY k LIMIT 1)
+  WHEN ?2 = 'pass' AND (SELECT n FROM blocking) > 0 THEN 'findings_refused|a pass verdict records only nit or pre_existing findings (an omitted severity is blocking); send a blocking finding with verdict fail'
+  WHEN ?2 = 'fail' AND (SELECT n FROM blocking) = 0 THEN 'findings_required|a fail verdict needs at least one finding with severity blocking (an omitted severity is blocking); nit and pre_existing findings alone ride on a pass'
+  ELSE 'ok'
 END
 FROM f;`;
 function findingsCheck(findings, verdict) {
@@ -10271,13 +10310,15 @@ CREATE TEMP TABLE fallback_last_finding AS
   SELECT COALESCE(MAX(CAST(substr(id, instr(id, '-') + 1) AS INTEGER)), 0) AS n
   FROM review_findings WHERE task_id = ${taskId};
 DELETE FROM review_findings WHERE task_id = ${taskId} AND attempt_n = ${attemptN} AND status = 'open';
-INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
+INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
   SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1), ${taskId}, ${attemptN},
     CASE WHEN json_type(e.value, '$.criterion_id') = 'text' THEN trim(json_extract(e.value, '$.criterion_id'), ${WS}) END,
     trim(json_extract(e.value, '$.probe_cmd'), ${WS}),
     trim(json_extract(e.value, '$.expected'), ${WS}),
     trim(json_extract(e.value, '$.observed'), ${WS}),
-    'open', '${createdAt}'
+    'open', '${createdAt}',
+    ${SEVERITY_SQL},
+    CASE WHEN json_type(e.value, '$.class') = 'text' THEN trim(json_extract(e.value, '$.class'), ${WS}) END
   FROM json_each(${findingsArray}) e
   ORDER BY e.key;
 SELECT json_group_array(id) FROM (

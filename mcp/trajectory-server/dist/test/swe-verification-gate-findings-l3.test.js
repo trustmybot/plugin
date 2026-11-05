@@ -215,4 +215,41 @@ describe('swe-verification-gate findings l3', () => {
         });
     });
 });
+describe('swe-verification-gate findings by severity l3 (GH 1955)', () => {
+    let w;
+    const done = (task) => makeInput('swe', 'completed', task);
+    const addFinding = (id, task, probe, severity) => sql(w.db, "INSERT INTO review_findings (id, task_id, attempt_n, probe_cmd, expected, observed, status, created_at, severity) VALUES (?, ?, 1, ?, 'exit 0', 'exit 1', 'open', '2026-01-01T00:00:00.000Z', ?)", id, task, probe, severity);
+    const probed = (task) => q(w.db, "SELECT COALESCE(group_concat(command, '|'), '') FROM (SELECT c.command FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = ? ORDER BY r.id, c.ordinal);", task);
+    before(() => {
+        w = makeWs('swe-verification-gate-findings-severity');
+        execDb(w.db, FINDINGS_SCHEMA);
+        execDb(w.db, `ALTER TABLE review_findings ADD COLUMN severity TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing'));
+       ALTER TABLE review_findings ADD COLUMN class TEXT;`);
+    });
+    after(() => w.sb.remove());
+    it('GH 1955: failing nit and pre_existing probes do not block the close and are not probed', () => {
+        addTask(w.db, 120, 'severity-nonblocking', ['exit 0']);
+        addFinding('F120-1', 120, 'exit 5', 'nit');
+        addFinding('F120-2', 120, 'exit 6', 'pre_existing');
+        gitWorktree(w, 'severity-nonblocking');
+        const r = runHook(w, done(120));
+        hasNot(r.stdout + r.stderr, DENY, 'the close passes with only failing nit and pre_existing probes');
+        assert.equal(probed(120), 'exit 0', 'only verification[] ran; no nit or pre_existing probe');
+        assert.equal(q(w.db, "SELECT group_concat(status, '|') FROM (SELECT status FROM review_findings WHERE task_id = 120 ORDER BY id);"), 'open|open', 'both stay open');
+    });
+    it('GH 1955: a failing blocking probe still denies, naming only the blocking finding', () => {
+        addTask(w.db, 121, 'severity-blocking', ['exit 0']);
+        addFinding('F121-1', 121, 'exit 5', 'nit');
+        addFinding('F121-2', 121, 'exit 6', 'pre_existing');
+        addFinding('F121-3', 121, 'echo blocking still broken; exit 7', 'blocking');
+        gitWorktree(w, 'severity-blocking');
+        const r = runHook(w, done(121));
+        const reason = reasonOf(r.stdout);
+        has(r.stdout + r.stderr, DENY, 'a failing blocking probe denies');
+        has(reason, 'Finding F121-3 (probe 2/2)', 'the deny names the blocking finding as the only probe');
+        hasNot(reason, 'F121-1', 'the nit is not probed');
+        hasNot(reason, 'F121-2', 'the pre_existing finding is not probed');
+        assert.equal(probed(121), 'exit 0|[probe F121-3] echo blocking still broken; exit 7', 'only the blocking probe is recorded');
+    });
+});
 //# sourceMappingURL=swe-verification-gate-findings-l3.test.js.map

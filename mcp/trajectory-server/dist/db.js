@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 56;
+export const TARGET_SCHEMA_VERSION = 57;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -680,6 +680,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 56 && toVersion >= 56) {
         migrateV55toV56(db);
+    }
+    if (fromVersion < 57 && toVersion >= 57) {
+        migrateV56toV57(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2815,6 +2818,32 @@ function migrateV55toV56(db) {
             ['src_id', '0'], ['dst_id', 'NULL'], ['dst_name', "''"], ['kind', "'calls'"],
             ['resolution', "'unresolved'"], ['line', 'NULL'], ['hint', 'NULL'],
         ]);
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v56→v57: review finding severity and class (GH 1955). review_findings gains
+// severity, so existing rows read as 'blocking', and a nullable class; no
+// backfill beyond the column default.
+function migrateV56toV57(db) {
+    beginImmediate(db);
+    try {
+        if (tableExists(db, 'review_findings')) {
+            if (!hasColumn(db, 'review_findings', 'severity')) {
+                db.exec("ALTER TABLE review_findings ADD COLUMN severity TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking','nit','pre_existing'))");
+            }
+            if (!hasColumn(db, 'review_findings', 'class')) {
+                db.exec('ALTER TABLE review_findings ADD COLUMN class TEXT');
+            }
+        }
         commitTransaction(db);
     }
     catch (err) {

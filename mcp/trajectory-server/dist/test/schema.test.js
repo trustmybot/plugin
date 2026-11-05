@@ -214,11 +214,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(db.get('SELECT count(*) AS n FROM agent_run_tool_output')?.n, 0);
         db.close();
     });
-    it('fresh DB has schema_version = 56 in plugin_meta', () => {
+    it('fresh DB has schema_version = 57 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 56);
+        assert.equal(meta.schema_version, 57);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

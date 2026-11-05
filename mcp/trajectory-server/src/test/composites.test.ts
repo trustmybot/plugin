@@ -9,6 +9,7 @@ import { TrajectoryDB } from '../db.js';
 import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { activeFindingProbes } from '../tools/verification-runs.js';
+import { reviewFindingsActive } from '../hooks/swe-verification-gate.js';
 import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
 import { GraphHolder, type WorldModelGraph } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
@@ -4924,6 +4925,142 @@ describe('review findings across task_reopen and task_retry (GH 1783)', () => {
     assert.deepEqual(out['carried_findings'], []);
     assert.equal(findings(db, out['task_id'] as number).length, 0);
     assert.equal(auditRows(db, 'review_findings_carried').length, 0);
+    db.close();
+  });
+});
+
+describe('review finding severity and class across task_retry and the gate (GH 1955)', () => {
+  const SPEC = ['## Description', 'd', '', '## Success Criteria', '- SC1: works'].join('\n');
+
+  function setup(db: TrajectoryDB): number {
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+            VALUES (1, 'fix/severity', '', 'd', 'failed', ?, datetime('now'), datetime('now'))`, [SPEC]);
+    const taskId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/severity'`)!.id;
+    const seed = (n: number, status: string, severity: string, cls: string | null) =>
+      db.run(
+        `INSERT INTO review_findings (id, task_id, attempt_n, probe_cmd, expected, observed, status, created_at, severity, class)
+         VALUES (?, ?, 1, ?, 'exit 0', 'exit 1', ?, '2026-01-01T00:00:00.000Z', ?, ?)`,
+        [`F${taskId}-${n}`, taskId, `exit ${n}`, status, severity, cls],
+      );
+    seed(1, 'open', 'blocking', 'unquoted SQL');
+    seed(2, 'open', 'nit', 'naming');
+    seed(3, 'open', 'pre_existing', null);
+    seed(4, 'fixed', 'blocking', null);
+    seed(5, 'wontfix', 'blocking', null);
+    seed(6, 'fixed', 'nit', null);
+    seed(7, 'open', 'blocking', null);
+    return taskId;
+  }
+
+  it('GH 1955: task_retry carries only the open blocking findings, keeping severity and class', async () => {
+    const db = tempDB();
+    const taskId = setup(db);
+    const handlers = compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers;
+    const r = await call(handlers, 'task_retry', {
+      agent: 'bro', failed_task_id: String(taskId), new_branch_id: 'fix/severity-v2', corrected_spec_body: SPEC,
+      retry_rationale: 'second approach', description: 'd',
+    });
+    assert.equal(r.isError, undefined, JSON.stringify(parse(r)));
+    const newId = parse(r)['task_id'] as number;
+    assert.deepEqual(parse(r)['carried_findings'], [
+      { from: `F${taskId}-1`, id: `F${newId}-1` },
+      { from: `F${taskId}-7`, id: `F${newId}-2` },
+    ]);
+    assert.deepEqual(
+      db.all<{ id: string; probe_cmd: string; severity: string; class: string | null }>(
+        `SELECT id, probe_cmd, severity, class FROM review_findings WHERE task_id = ? ORDER BY id`, [newId],
+      ).map((f) => ({ ...f })),
+      [
+        { id: `F${newId}-1`, probe_cmd: 'exit 1', severity: 'blocking', class: 'unquoted SQL' },
+        { id: `F${newId}-2`, probe_cmd: 'exit 7', severity: 'blocking', class: null },
+      ],
+    );
+    const brief = parse(await call(handlers, 'task_brief', { agent: 'swe', task_id: newId })) as {
+      open_findings: Array<{ id: string; severity: string; class: string | null }>;
+    };
+    assert.deepEqual(brief.open_findings.map(({ id, severity, class: cls }) => ({ id, severity, class: cls })), [
+      { id: `F${newId}-1`, severity: 'blocking', class: 'unquoted SQL' },
+      { id: `F${newId}-2`, severity: 'blocking', class: null },
+    ]);
+    db.close();
+  });
+
+  it('GH 1955: activeFindingProbes selects the same findings in the same order as the gate, with and without the severity column', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gh1955-parity-'));
+    try {
+      const path = join(dir, 'trajectory.db');
+      const db = tempDB({ path });
+      const taskId = setup(db);
+      const gateIds = () =>
+        (JSON.parse(reviewFindingsActive(path, String(taskId), process.env)) as Array<{ id: string }>).map((f) => f.id);
+      const probeIds = () => activeFindingProbes(db, taskId).map((p) => p.id);
+      assert.deepEqual(probeIds(), [`F${taskId}-1`, `F${taskId}-4`, `F${taskId}-7`]);
+      assert.deepEqual(gateIds(), probeIds());
+      db.run('ALTER TABLE review_findings DROP COLUMN class');
+      db.run('ALTER TABLE review_findings DROP COLUMN severity');
+      assert.deepEqual(probeIds(), [1, 2, 3, 4, 6, 7].map((n) => `F${taskId}-${n}`), 'below v57 every non-wontfix finding is probed');
+      assert.deepEqual(gateIds(), probeIds());
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('task_update_status report.case_sweep (GH 1955)', () => {
+  const SPEC = ['## Description', 'd', '', '## Success Criteria', '- SC1: works'].join('\n');
+  const CRITERIA = [{ id: 'SC1', status: 'met' }];
+  const SWEEP = [{ class: 'unquoted SQL', checked: ['tools/tasks.ts', 'tools/validation.ts'] }];
+
+  function seedTask(): { db: TrajectoryDB; id: number; complete: (report: unknown) => Promise<RawResult> } {
+    const db = tempDB();
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, verification, commit_sha, created_at, updated_at)
+            VALUES (1, 'feat/case-sweep', 't', 'd', 'running', ?, '[]', '[]', 'abc1234', datetime('now'), datetime('now'))`, [SPEC]);
+    const id = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'feat/case-sweep'`)!.id;
+    const handlers = taskTools(db).handlers;
+    const complete = (report: unknown) =>
+      call(handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+    return { db, id, complete };
+  }
+  const stored = (db: TrajectoryDB, id: number) =>
+    ({ ...db.get<{ completion_report: string | null; status: string }>('SELECT completion_report, status FROM tasks WHERE id = ?', [id])! });
+
+  it('GH 1955: a stored report round-trips case_sweep through task_brief.completion_report', async () => {
+    const { db, id, complete } = seedTask();
+    const r = await complete({ criteria: CRITERIA, case_sweep: [{ class: ' unquoted SQL ', checked: [' tools/tasks.ts', 'tools/validation.ts'] }] });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.deepEqual(JSON.parse(stored(db, id).completion_report!), { criteria: CRITERIA, case_sweep: SWEEP });
+    const brief = parse(await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_brief', { agent: 'bro', task_id: id, section: 'core' }));
+    assert.deepEqual(brief['completion_report'], { criteria: CRITERIA, case_sweep: SWEEP });
+    db.close();
+  });
+
+  for (const [label, caseSweep, error] of [
+    ['a non-array', { class: 'x', checked: ['a'] }, /completion_report_invalid: report\.case_sweep must be an array/],
+    ['an empty class', [{ class: ' ', checked: ['a'] }], /completion_report_invalid: report\.case_sweep\[0\]\.class must be a non-empty string/],
+    ['an empty checked list', [{ class: 'x', checked: [] }], /completion_report_invalid: report\.case_sweep\[0\]\.checked must be a non-empty array/],
+    ['an empty checked entry', [...SWEEP, { class: 'x', checked: ['a', ''] }], /completion_report_invalid: report\.case_sweep\[1\]\.checked must be a non-empty array/],
+    ['an unknown field', [{ ...SWEEP[0], note: 'n' }], /completion_report_invalid: report\.case_sweep\[0\] has unknown field\(s\) note/],
+  ] as const) {
+    it(`GH 1955: refuses case_sweep with ${label} and stores nothing`, async () => {
+      const { db, id, complete } = seedTask();
+      const r = await complete({ criteria: CRITERIA, case_sweep: caseSweep });
+      assert.equal(r.isError, true, JSON.stringify(parse(r)));
+      assert.match(String(parse(r)['error']), error);
+      assert.deepEqual(stored(db, id), { completion_report: null, status: 'running' });
+      db.close();
+    });
+  }
+
+  it('GH 1955: a report without case_sweep stays valid and unchanged', async () => {
+    const { db, id, complete } = seedTask();
+    const r = await complete({ criteria: CRITERIA });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.deepEqual(JSON.parse(stored(db, id).completion_report!), { criteria: CRITERIA });
     db.close();
   });
 });
