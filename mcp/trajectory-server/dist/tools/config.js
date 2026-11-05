@@ -78,7 +78,7 @@ export function readHighEffortPaths(db) {
 function stripTrailingSlash(path) {
     return path.endsWith('/') ? path.slice(0, -1) : path;
 }
-function pathsOverlap(file, prefix) {
+export function pathsOverlap(file, prefix) {
     const a = stripTrailingSlash(file);
     const b = stripTrailingSlash(prefix);
     return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
@@ -93,6 +93,28 @@ export function isEffortAbConfig(value) {
 /** The swe effort A/B (GH 1745); unset, unparseable or malformed reads as off (null). */
 export function readEffortAb(db) {
     const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [SWE_EFFORT_AB_KEY]);
+    if (!row)
+        return null;
+    try {
+        const value = JSON.parse(row.value_json);
+        if (isEffortAbConfig(value))
+            return { label: value.label, target: value.target };
+    }
+    catch {
+        // An unparseable stored value reads as unset.
+    }
+    return null;
+}
+export const REVIEWER_EFFORT_TIERS_KEY = 'reviewer_effort_tiers';
+export const REVIEWER_EFFORT_AB_KEY = 'reviewer_effort_ab';
+/** The reviewer effort tiers switch (GH 1955): only a stored `true` is on. */
+export function readReviewerEffortTiers(db) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_EFFORT_TIERS_KEY]);
+    return row?.value_json.trim() === 'true';
+}
+/** The reviewer effort A/B (GH 1955); unset, unparseable or malformed reads as off (null). */
+export function readReviewerEffortAb(db) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_EFFORT_AB_KEY]);
     if (!row)
         return null;
     try {
@@ -178,7 +200,10 @@ function validateKnownConfigValue(key, value) {
         }
         return;
     }
-    if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+    if (key === REVIEWER_EFFORT_TIERS_KEY && typeof value !== 'boolean') {
+        throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be a boolean, got ${JSON.stringify(value)}.`);
+    }
+    if ((key === SWE_EFFORT_AB_KEY || key === REVIEWER_EFFORT_AB_KEY) && !isEffortAbConfig(value)) {
         throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`);
     }
     if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {

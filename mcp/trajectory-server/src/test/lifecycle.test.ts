@@ -567,7 +567,7 @@ describe('bro_atomic_close', () => {
     assert.equal(issueStatus(db, issue), 'open');
     assert.equal(spawned, 0, 'no remote close');
     const auditAfter = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit')!.n;
-    assert.equal(auditAfter - auditBefore, 2, 'only scope_gate_waived + bro_verification_pass');
+    assert.equal(auditAfter - auditBefore, 3, 'only scope_gate_waived + bro_verification_pass + reviewer_effort_assigned');
     assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
 
     recordVerdict(db, t, 'pass', iso(HOUR));

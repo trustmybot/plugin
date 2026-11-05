@@ -61,6 +61,7 @@ review_finding_wontfix	bro
 review_findings_carried	bro
 review_gate_bypassed	bro,hook
 review_gate_waived	bro
+reviewer_effort_assigned	bro
 reviewer_identity_observed	hook
 roundtable_slash_invoked	hook
 roundtable_summary	bro

@@ -56,6 +56,7 @@ import {
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { assignReviewerEffort } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
@@ -142,6 +143,7 @@ export function groupBySurface(paths: readonly string[]): Record<string, { count
 
 export interface ScopeCheck {
   outOfScope: string[];
+  changed: string[];
   checked: boolean;
   reason?: string;
   mergeBase?: string;
@@ -200,17 +202,19 @@ export function scopeCheckCommit(
     return scopeUnchecked(e);
   }
 
-  const outOfScope = diffOut
+  const changed = diffOut
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !pathInFiles(l, files));
+    .filter((l) => l.length > 0);
+  const outOfScope = changed.filter((l) => !pathInFiles(l, files));
 
-  return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 
 function scopeUnchecked(e: unknown): ScopeCheck {
   return {
     outOfScope: [],
+    changed: [],
     checked: false,
     reason: (e as Error).message.split('\n')[0] || 'git diff failed',
   };
@@ -1216,7 +1220,7 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
-        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next). ' +
+        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (recorded in a reviewer_effort_assigned row). ' +
         'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
         'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
         'Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
@@ -3037,8 +3041,9 @@ export function compositeTools(
           verification: string | null;
           spec_body: string | null;
           completion_report: string | null;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`,
           [taskId],
         );
@@ -3113,6 +3118,7 @@ export function compositeTools(
             ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
             : {
                 outOfScope: [],
+                changed: [],
                 checked: false,
                 reason: repoPath
                   ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
@@ -3187,11 +3193,13 @@ export function compositeTools(
             });
           }
           const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
+          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
           db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
             review_pending: true,
+            reviewer_effort: reviewerEffort.effort,
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
