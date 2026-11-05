@@ -272,6 +272,21 @@ describe('issue_close: review evidence for closed tasks', () => {
     db.close();
   });
 
+  it('GH 2412: the newest verdict gates: a fail after an anchored pass is no pass until a newer pass is appended', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'closed', { commit: 'abc1234' });
+    recordVerificationPass(db, issue, t, 'abc1234', iso(-4 * HOUR));
+    recordVerdict(db, t, 'pass', iso(-3 * HOUR));
+    assert.equal(taskHasPassingReview(db, t), true);
+    recordVerdict(db, t, 'fail', iso(-2 * HOUR));
+    assert.equal(taskHasPassingReview(db, t), false, 'the newest row is a fail');
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks t WHERE t.id = ? AND NOT ${HAS_PASS_SQL}`, [t])!.n, 1, 'NOT HAS_PASS_SQL negates the whole rule');
+    recordVerdict(db, t, 'pass', iso(-HOUR));
+    assert.equal(taskHasPassingReview(db, t), true, 'a newer pass counts again');
+    db.close();
+  });
+
   it('a pass at an escalated commit A never covers a close at commit B', async () => {
     const db = tempDB();
     const issue = seedIssue(db);

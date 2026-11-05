@@ -64,14 +64,33 @@ export function insertTask(db: string, id: number, sha: string, branch = `feat/x
   );
 }
 
-/** A passing code-reviewer verdict for task <id>. */
-export function signTask(db: string, id: number): void {
+/** bro's bro_verification_pass audit row for task <id>'s current commit_sha, the review anchor, at <at>. */
+export function anchorTask(db: string, id: number, at = new Date().toISOString()): void {
+  sql(
+    db,
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+       SELECT 1, 'bro', 'bro_verification_pass', 'verified', json_object('task_id', id, 'commit_sha', commit_sha), ? FROM tasks WHERE id = ?`,
+    at,
+    id,
+  );
+}
+
+/** A passing code-reviewer verdict, the task's next attempt, for task <id> at <at>, with no anchor. */
+export function passTask(db: string, id: number, at = new Date().toISOString()): void {
   sql(
     db,
     `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-       VALUES (?, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'))`,
+       SELECT ?1, COALESCE(MAX(attempt_n), 0) + 1, 'code-reviewer', 'pass', 1, 'LGTM', ?2 FROM validation_attempts WHERE task_id = ?1`,
     id,
+    at,
   );
+}
+
+/** A passing code-reviewer verdict for task <id>'s current commit_sha: its anchor, then a pass at the same instant. */
+export function signTask(db: string, id: number): void {
+  const at = new Date().toISOString();
+  anchorTask(db, id, at);
+  passTask(db, id, at);
 }
 
 /** A verification run of task <task> on <sha>. */

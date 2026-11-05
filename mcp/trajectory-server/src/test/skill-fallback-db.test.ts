@@ -9,13 +9,15 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { CLI_JS, childEnv, migratedDb, runNode, sandboxDir, sqlExec, sqlRows } from './db-test-fixtures.js';
 
 const RUN_ID = 'skill-fallback-db';
+const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_PROJECT_DIR (GH 1553)', () => {
   let tmp: string;
@@ -163,12 +165,33 @@ describe('skill-fallback-db: the skill fallbacks resolve the DB through CLAUDE_P
     );
   });
 
-  it('re-recording an attempt replaces only its open rows, never reusing an id', () => {
+  it('GH 2412: re-recording an attempt appends at MAX+1, keeps the earlier row and its findings, and reports the stored attempt', () => {
     sqlExec(projectDb, "UPDATE review_findings SET status = 'fixed', resolved_at = '2026-01-02T00:00:00.000Z' WHERE id = 'F7-4';");
+    const failRow = q('SELECT id, verdict, feedback, created_at, subagent_session_id, COALESCE(reviewer_agent_id, \'<null>\') FROM validation_attempts WHERE attempt_n = 70;');
     const out = validation('/', '7', '70', 'fail', 'one defect left', 'sess-70b', '[{"probe_cmd":"false","expected":"e5","observed":"o5"}]');
-    assert.ok(out.includes('"findings":["F7-5"]'), 'new id after the deleted ones');
-    assert.equal(q("SELECT group_concat(id, ' ') FROM (SELECT id FROM review_findings ORDER BY id);"), 'F7-1 F7-4 F7-5', 'open rows of attempt 70 replaced; attempt 50 and the fixed row kept');
-    assert.equal(q('SELECT COUNT(*), feedback, subagent_session_id FROM validation_attempts WHERE attempt_n = 70;'), '1|one defect left|sess-70b', 'attempt row replaced in place');
+    assert.ok(out.includes('"attempt_n":71,'), `stored attempt reported: ${out}`);
+    assert.ok(out.includes('"findings":["F7-5"]'), 'new id after the highest');
+    assert.equal(
+      q("SELECT group_concat(id || ':' || attempt_n || ':' || status, ' ') FROM (SELECT id, attempt_n, status FROM review_findings ORDER BY id);"),
+      'F7-1:50:open F7-2:70:open F7-3:70:open F7-4:70:fixed F7-5:71:open',
+      'every earlier finding kept; the new one attaches to attempt 71',
+    );
+    const pass = validation('/', '7', '70', 'pass', 'fixed now', 'sess-70c', '[]');
+    assert.ok(pass.includes('"attempt_n":72,'), `stored attempt reported: ${pass}`);
+    assert.equal(q('SELECT id, verdict, feedback, created_at, subagent_session_id, COALESCE(reviewer_agent_id, \'<null>\') FROM validation_attempts WHERE attempt_n = 70;'), failRow, 'the FAIL row is unchanged');
+    assert.equal(
+      q("SELECT group_concat(attempt_n || ':' || verdict || ':' || feedback, ' ') FROM (SELECT attempt_n, verdict, feedback FROM validation_attempts WHERE attempt_n >= 70 ORDER BY id);"),
+      '70:fail:two defects 71:fail:one defect left 72:pass:fixed now',
+    );
+    assert.equal(q("SELECT COUNT(*) FROM review_findings WHERE attempt_n = 70 AND status = 'open';"), '2', 'the FAIL findings stay open');
+  });
+
+  it('GH 2412: neither validation writer upserts an attempt or deletes findings', () => {
+    for (const rel of ['src/cli/validation-record-fallback.ts', 'src/tools/validation.ts']) {
+      const src = readFileSync(join(SRC_ROOT, rel), 'utf8');
+      assert.ok(!src.includes('ON CONFLICT(task_id, attempt_n)'), `${rel} upserts validation_attempts`);
+      assert.ok(!src.includes('DELETE FROM review_findings'), `${rel} deletes review_findings`);
+    }
   });
 
   it('a malformed findings array is invalid_findings and writes nothing', () => {
