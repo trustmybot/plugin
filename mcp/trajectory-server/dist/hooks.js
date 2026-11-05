@@ -9243,6 +9243,8 @@ function scan2(buf, base2, home, assign, frames, charge) {
   let sp = 0;
   let bt = false;
   let stmt = "";
+  let tail = false;
+  let owns = false;
   let qsp = 0;
   const stack = [];
   const ostack = [];
@@ -9250,10 +9252,11 @@ function scan2(buf, base2, home, assign, frames, charge) {
   const owstack = [];
   const astack = [];
   const oastack = [];
+  const sstack = [];
   const q = [];
-  const emit3 = (dir, text) => {
+  const emit3 = (dir, text, args2 = false) => {
     charge(dir.length);
-    records2.push({ dir, stmt: text });
+    records2.push(args2 ? { dir, stmt: text, tail: true } : { dir, stmt: text });
   };
   const loops = [];
   const fids = [];
@@ -9545,6 +9548,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
     return plainDollars(text);
   }
   function flush() {
+    const args2 = tail;
+    tail = false;
+    owns = args2;
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
@@ -9622,6 +9628,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       return;
     }
     let a0 = w[first];
+    if (!args2) owns = w.slice(first + 1).some((x) => x !== "");
     if (assign && !wq[first] && (a0 === "for" || a0 === "select")) forhead(w, first);
     else if (assign && !wq[first] && (a0 === "coproc" || a0 === "function")) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -9705,7 +9712,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         break;
       }
     }
-    emit3(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
+    emit3(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2, args2);
     if (!chained) {
       old = "-";
       owhy = "";
@@ -9737,9 +9744,10 @@ function scan2(buf, base2, home, assign, frames, charge) {
     const prev = i2 > 0 ? buf[i2 - 1] : "";
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, cur, old, start: i2 + 1, sp, why: cwhy, owhy, alts, oalts };
+      q[qsp] = { stmt, tail, cur, old, start: i2 + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = "";
+      tail = false;
       continue;
     }
     if (c === QC) {
@@ -9747,6 +9755,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
       flush();
       const f = q[qsp];
       stmt = f.stmt + "$" + ENC[8] + rawword(buf.slice(f.start, i2)) + ENC[9];
+      tail = f.tail;
       cur = f.cur;
       old = f.old;
       sp = f.sp;
@@ -9802,12 +9811,15 @@ function scan2(buf, base2, home, assign, frames, charge) {
       cut4 = true;
       flush();
       push();
+      sstack[sp] = assign && last === "$" && owns;
       continue;
     }
     if (c === ")") {
       flush();
       if (sp === 0) vok = false;
+      const closes = sp > 0 && sstack[sp];
       pop();
+      tail = closes;
       continue;
     }
     if (c === "`") {
@@ -9817,10 +9829,13 @@ function scan2(buf, base2, home, assign, frames, charge) {
       flush();
       if (bt) {
         bt = false;
+        const closes = sp > 0 && sstack[sp];
         pop();
+        tail = closes;
       } else {
         bt = true;
         push();
+        sstack[sp] = assign && owns;
       }
       continue;
     }
@@ -14596,7 +14611,7 @@ var WritePaths = class _WritePaths {
       if (record.dir.startsWith("=")) continue;
       const { words: words3 } = unwrapStatement(record.stmt);
       if (words3.length === 0) continue;
-      if (/[$`]/.test(dec(words3[0]))) {
+      if (!record.tail && /[$`]/.test(dec(words3[0]))) {
         out2.push("$(proc)");
         continue;
       }
@@ -14862,7 +14877,7 @@ var WritePaths = class _WritePaths {
       this.poisonSet(level, words3);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
-      if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
+      if (!record.tail && /[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
       if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
       else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
       const ownWords = body2 !== "" && !evaluated && basename5(words3[0]) !== "watch";
