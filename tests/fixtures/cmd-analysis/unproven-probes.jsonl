@@ -98,3 +98,13 @@
 {"src":"gh1903","cmd":"sudo -u $(whoami) $B x","expect":"fail_closed"}
 {"src":"gh1903","cmd":"echo $(echo a) \"$($B x)\"","expect":"fail_closed"}
 {"src":"gh1903","cmd":"echo $(echo a) && $B x","expect":"fail_closed"}
+{"src":"gh2377","cmd":"echo $(true) cd /w/ok; touch x","expect":"resolves","paths":["/w/x"]}
+{"src":"gh2377","cmd":"echo `true` cd /w/ok; touch x","expect":"resolves","paths":["/w/x"]}
+{"src":"gh2377","cmd":"echo $(true) pushd /w/ok; touch x","expect":"resolves","paths":["/w/x"]}
+{"src":"gh2377","cmd":"echo $(true) cd /w/ok && touch x","expect":"resolves","paths":["/w/x"]}
+{"src":"gh2377","cmd":"D=/w/a; echo $(true) D=/w/ok; touch $D/x","expect":"resolves","paths":["/w/a/x"]}
+{"src":"gh2377","cmd":"D=/w/a; echo $(true) export D=/w/ok; touch $D/x","expect":"resolves","paths":["/w/a/x"]}
+{"src":"gh2377","cmd":"echo $(true) D=/w/ok; touch $D/x","expect":"resolves","paths":["UNRESOLVED:D:$D/x"]}
+{"src":"gh2377","cmd":"echo $(true); cd /w/ok; touch x","expect":"resolves","paths":["/w/ok/x"]}
+{"src":"gh2377","cmd":"x=$(echo a) cd /w/ok; touch x","expect":"resolves","paths":["/w/ok/x"]}
+{"src":"gh2377","cmd":"echo $(true) > o; D=/w/ok; touch $D/x","expect":"resolves","paths":["/w/o","/w/ok/x"]}

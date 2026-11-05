@@ -795,11 +795,12 @@ class WritePaths {
                 if (words.length === 0)
                     return;
                 if (dir.startsWith('=')) {
-                    this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-                        this.pwd = dirPath(d, cwd);
-                        for (const w of words)
-                            this.varSet(level, before(w, '='), dec(after(w, '=')));
-                    });
+                    if (!record.tail)
+                        this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+                            this.pwd = dirPath(d, cwd);
+                            for (const w of words)
+                                this.varSet(level, before(w, '='), dec(after(w, '=')));
+                        });
                     return;
                 }
                 this.poisonSet(level, words);
@@ -808,7 +809,7 @@ class WritePaths {
                         for (const name of setInText(h.body))
                             this.poison(level, name);
                 const body = inner(record.stmt);
-                if (body !== '' && ((!evalArgs(words) && heldProgram(body)) || depth < MAX_DEPTH))
+                if (record.tail || (body !== '' && ((!evalArgs(words) && heldProgram(body)) || depth < MAX_DEPTH)))
                     return;
                 this.eachDir(level, dir.split(ALT), why, (d) => {
                     this.pwd = dirPath(d, cwd);
@@ -874,11 +875,12 @@ class WritePaths {
             if (words.length === 0)
                 continue;
             if (dir.startsWith('=')) {
-                this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-                    this.pwd = dirPath(d, cwd);
-                    for (const w of words)
-                        this.varSet(level, before(w, '='), dec(after(w, '=')));
-                });
+                if (!record.tail)
+                    this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+                        this.pwd = dirPath(d, cwd);
+                        for (const w of words)
+                            this.varSet(level, before(w, '='), dec(after(w, '=')));
+                    });
                 continue;
             }
             const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
@@ -974,10 +976,11 @@ class WritePaths {
                     }
                 }
             }
-            each((d) => {
-                this.pwd = dirPath(d, cwd);
-                this.trackVars(level, words);
-            });
+            if (!record.tail)
+                each((d) => {
+                    this.pwd = dirPath(d, cwd);
+                    this.trackVars(level, words);
+                });
         }
     }
 }

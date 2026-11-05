@@ -601,13 +601,13 @@ function scan(buf, base, home, assign, frames, charge) {
         }
         if (first >= n) {
             let ok = plain;
-            if (vtop && plain)
+            if (vtop && plain && !args)
                 for (const a of aw)
                     if (!assignword(a, !csure))
                         ok = false;
             if (assign && asg !== '') {
-                emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg);
-                if (!chained) {
+                emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg, args);
+                if (!chained && !args) {
                     old = '-';
                     owhy = '';
                     oalts = [];
@@ -630,7 +630,7 @@ function scan(buf, base, home, assign, frames, charge) {
                     continue;
                 if (!ASSIGNMENT.test(w[k]))
                     ok = false;
-                else if (vtop && !assignword(w[k], !csure))
+                else if (vtop && !args && !assignword(w[k], !csure))
                     ok = false;
             }
         }
@@ -650,7 +650,7 @@ function scan(buf, base, home, assign, frames, charge) {
         let da = alts;
         const o = oalts.length > 0 ? '-' : old;
         let dw = cwhy;
-        if (a0 === 'cd' || a0 === 'pushd') {
+        if (!args && (a0 === 'cd' || a0 === 'pushd')) {
             let p = '';
             for (let k = first + 1; k < n; k++) {
                 if (w[k] === '')
@@ -683,7 +683,7 @@ function scan(buf, base, home, assign, frames, charge) {
                 [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
             }
         }
-        else if (a0 === 'popd') {
+        else if (!args && a0 === 'popd') {
             old = cur;
             owhy = cwhy;
             oalts = alts;
@@ -724,7 +724,7 @@ function scan(buf, base, home, assign, frames, charge) {
             }
         }
         emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
-        if (!chained) {
+        if (!chained && !args) {
             old = '-';
             owhy = '';
             oalts = [];
