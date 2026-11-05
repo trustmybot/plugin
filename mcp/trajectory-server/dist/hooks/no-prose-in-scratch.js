@@ -12,7 +12,10 @@
  *
  * Bash is judged, with its line continuations joined first (the analyzer ends a
  * statement at one, GH 1978), by the targets writePaths finds, less the ones an
- * `rm` statement removes, and by `gh issue|pr create|edit|comment` reading its
+ * `rm` statement removes and the ones a redirect of command output writes (GH 2405:
+ * a statement authoring text, with a heredoc or here-string in it or its pipeline's
+ * first command, or as `echo`, `printf` or `cat` with no file operand, keeps its
+ * redirects judged), and by `gh issue|pr create|edit|comment` reading its
  * body from a file. UNRESOLVED lines are containment-guard's; a cap line is denied
  * by the gates that already deny it. On those, and on a command that does not
  * parse, this gate allows. A cap line ends the gate before cmdStatements runs,
@@ -44,6 +47,11 @@ const REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
 const FLATTENED = /[ \t\n<>|;&()`]/g;
 /** Where a backslash-newline is text and no continuation. */
 const LITERAL_NODES = ['raw_string', 'ansi_c_string', 'heredoc_body', 'comment'];
+const CAPTURE_OPERATORS = new Set(['>', '>>', '>|', '&>', '&>>']);
+const INLINE_BODIES = ['heredoc_redirect', 'herestring_redirect'];
+const AUTHORS = new Set(['echo', 'printf', 'cat']);
+/** Commands that run another one named in their words. */
+const WRAPPERS = new Set(['command', 'builtin', 'env', 'exec', 'nohup', 'sudo', 'time', 'nice', 'timeout', 'stdbuf', 'xargs', 'eval', 'bash', 'sh', 'zsh', 'dash', 'ksh']);
 const BODY_FILE_REASON = 'BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.';
 function proseReason(target) {
     return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
@@ -162,6 +170,89 @@ async function withoutRmTargets(lines, statements, cwd, env) {
     }
     return kept;
 }
+function present(nodes) {
+    return nodes.filter((node) => node !== null);
+}
+function hasInlineBody(node) {
+    return present(node.descendantsOfType(INLINE_BODIES)).length > 0;
+}
+/** Whether <command>, a `command` node, writes text of its own: a heredoc or here-string, `echo`, `printf`, `cat` with no file operand, or a wrapper or name that may run one. */
+function authors(command) {
+    if (hasInlineBody(command))
+        return true;
+    const name = command.childForFieldName('name');
+    if (name === null || name.namedChildCount !== 1 || name.namedChildren[0]?.type !== 'word')
+        return true;
+    const program = posixBasename(name.text);
+    const operands = present(command.childrenForFieldName('argument')).map((arg) => arg.text);
+    if (WRAPPERS.has(program))
+        return operands.some((word) => /\b(?:echo|printf|cat)\b/.test(word));
+    if (program !== 'cat')
+        return AUTHORS.has(program);
+    return operands.every((word) => word.startsWith('-'));
+}
+/** Whether <node> is a `command` that writes no text of its own. */
+function capturesOnly(node) {
+    return node !== null && node !== undefined && node.type === 'command' && !authors(node);
+}
+/**
+ * Whether the statement <redirect> belongs to writes command output only. tree-sitter hangs a
+ * redirect on the whole `a && b` or `a | b` before it, where the shell gives it to `b`: the
+ * statement is the last command of that list, and its pipeline's first command counts too.
+ */
+function ownerCapturesOnly(redirect) {
+    const owner = redirect.parent;
+    if (owner === null)
+        return false;
+    if (owner.type === 'command')
+        return capturesOnly(owner);
+    if (owner.type !== 'redirected_statement' || hasInlineBody(owner))
+        return false;
+    let body = owner.childForFieldName('body');
+    while (body?.type === 'list')
+        body = body.namedChildren.at(-1) ?? null;
+    if (body === null || body === undefined)
+        return false;
+    const members = body.type === 'pipeline' ? present(body.namedChildren) : [body];
+    if (!members.every((member) => member.type === 'command') || !capturesOnly(members[0]) || !capturesOnly(members.at(-1)))
+        return false;
+    const outer = owner.parent;
+    if (outer?.type !== 'pipeline')
+        return true;
+    const head = outer.namedChildren[0];
+    return head?.id === owner.id || capturesOnly(head);
+}
+/** The span of <redirect>, through its first destination, when it captures command output into a plain name; null otherwise. */
+function captureSpan(redirect) {
+    const operator = redirect.children.find((child) => child !== null && !child.isNamed);
+    if (operator === undefined || operator === null || !CAPTURE_OPERATORS.has(operator.type))
+        return null;
+    const destination = redirect.childForFieldName('destination');
+    if (destination === null || present(destination.descendantsOfType(['command_substitution', 'process_substitution'])).length > 0)
+        return null;
+    for (let up = redirect.parent; up !== null; up = up.parent)
+        if (INLINE_BODIES.includes(up.type))
+            return null;
+    return ownerCapturesOnly(redirect) ? [redirect.startIndex, destination.endIndex] : null;
+}
+/** <command> with each redirect of command output blanked, so writePaths finds only the targets a statement authors or a command writes itself. */
+async function withoutOutputCapture(command) {
+    const tree = (await bashParser()).parse(command);
+    if (tree === null)
+        return command;
+    const spans = present(tree.rootNode.descendantsOfType('file_redirect')).flatMap((redirect) => {
+        const span = captureSpan(redirect);
+        return span === null ? [] : [span];
+    });
+    tree.delete();
+    let blanked = command;
+    for (const [start, end] of spans)
+        blanked = blanked.slice(0, start) + ' '.repeat(end - start) + blanked.slice(end);
+    return blanked;
+}
+function proseTargets(lines) {
+    return lines.filter((line) => line !== '' && !line.startsWith('UNRESOLVED:') && isProseFile(line));
+}
 async function bashRule(input, env) {
     const command = await joinContinuations(field(input, ['tool_input', 'command']));
     if (command === '')
@@ -172,7 +263,7 @@ async function bashRule(input, env) {
     const lines = capture((await writePaths(command, { cwd, env: runEnv })).join('\n')).split('\n');
     if (lines.some(isCapLine))
         return ALLOW;
-    const prose = lines.filter((line) => line !== '' && !line.startsWith('UNRESOLVED:') && isProseFile(line));
+    const prose = proseTargets(lines);
     if (prose.length === 0 && !/\bgh\b/.test(command))
         return ALLOW;
     const listed = await cmdStatements(command, cwd, env);
@@ -180,7 +271,11 @@ async function bashRule(input, env) {
         return ALLOW;
     if (listed.statements.some(({ stmt }) => readsBodyFile(stmt)))
         return deny(BODY_FILE_REASON);
-    for (const path of await withoutRmTargets(prose, listed.statements, cwd, runEnv)) {
+    if (prose.length === 0)
+        return ALLOW;
+    const blanked = capture((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join('\n')).split('\n');
+    const authored = blanked.some((line) => isCapLine(line) || line.startsWith('UNRESOLVED:$(parse)')) ? prose : proseTargets(blanked);
+    for (const path of await withoutRmTargets(authored, listed.statements, cwd, runEnv)) {
         if (await deniedProse(path, tmpdir, env))
             return deny(proseReason(path));
     }
