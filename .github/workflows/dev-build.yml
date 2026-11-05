@@ -5,6 +5,11 @@ on:
   push:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+        description: 'Build and check the payload on any ref without pushing or commenting'
 
 permissions:
   contents: write
@@ -12,15 +17,15 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: dev-build
+  group: ${{ inputs.dry_run && format('dev-build-dry-run-{0}', github.run_id) || 'dev-build' }}
   cancel-in-progress: true
 
 jobs:
   stamp:
     name: Stamp and publish dev build
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/dev' || inputs.dry_run
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -30,6 +35,17 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Build the generated payload
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          (cd dashboard && bun install --frozen-lockfile)
+          bun run build:payload
+          git add -f mcp/trajectory-server/dist dashboard/dist \
+            scripts/hooks/lib/audit-events.txt scripts/hooks/lib/data-contracts.json
 
       - name: Resolve the next release version
         id: next
@@ -60,6 +76,7 @@ jobs:
 
       - name: Resolve the PR that produced this commit
         id: pr
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -82,8 +99,7 @@ jobs:
           node --experimental-strip-types scripts/maintenance/bump-version.ts --version-only "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push to dev-build
-        id: push
+      - name: Commit the payload
         env:
           VERSION: ${{ steps.version.outputs.version }}
           DEV_SHA: ${{ github.sha }}
@@ -94,6 +110,44 @@ jobs:
           node --experimental-strip-types scripts/maintenance/runtime-payload.ts
           git commit -am "🔖 chore(dev-build): $VERSION" -m "Built from $DEV_SHA."
           node --experimental-strip-types scripts/maintenance/runtime-payload.ts --check
+
+      - name: Check the payload against dev-build
+        if: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags origin +refs/heads/dev-build:refs/remotes/origin/dev-build
+          node --experimental-strip-types scripts/maintenance/payload-parity.ts --ref origin/dev-build
+
+      - name: Cold-boot the payload's MCP server
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          PAYLOAD="$RUNNER_TEMP/payload"
+          mkdir -p "$PAYLOAD"
+          git archive HEAD | tar -x -C "$PAYLOAD"
+          test ! -e "$PAYLOAD/node_modules" && test ! -e "$PAYLOAD/mcp/trajectory-server/node_modules"
+          status=0
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | TRAJECTORY_DB_PATH=:memory: timeout 30 node --experimental-sqlite "$PAYLOAD/mcp/trajectory-server/dist/index.js" \
+              > "$RUNNER_TEMP/cold-mcp.out" 2> "$RUNNER_TEMP/cold-mcp.err" || status=$?
+          if ! grep -q '"name":"onboard_state_get"' "$RUNNER_TEMP/cold-mcp.out"; then
+            echo "::error::Cold MCP boot of the payload's dist/index.js (exit $status) did not list onboard_state_get."
+            cat "$RUNNER_TEMP/cold-mcp.out" "$RUNNER_TEMP/cold-mcp.err"
+            exit 1
+          fi
+          echo "### Dev build dry run \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Payload built, matched dev-build's generated paths and cold-booted; not pushed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push to dev-build
+        id: push
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DEV_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
           git push --force origin HEAD:refs/heads/dev-build
           echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
@@ -110,7 +164,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment the dev build on its PR
-        if: steps.pr.outputs.pr != ''
+        if: ${{ !inputs.dry_run && steps.pr.outputs.pr != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
