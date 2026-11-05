@@ -5,10 +5,13 @@
  * (Sliwerski, Zimmermann and Zeller, MSR 2005): each in-scope Bug issue's fix
  * commits on the base are diffed against their parent, the removed or changed
  * code lines are blamed, and the GH numbers in the blamed commits' subjects
- * map to the passed tasks of those issues. Read-only:
+ * map to the passed tasks of those issues whose files[] cover the blamed path
+ * and that completed by the blamed commit's committer date. Bugs and traced
+ * tasks are limited to one repo. Read-only:
  * scripts/maintenance/reviewer-eval.ts runs it on a DB opened read-only.
  */
 import { spawnSync } from 'node:child_process';
+import { basename, dirname } from 'node:path';
 import type { StatsReader } from './tools/stats.js';
 
 export type GitRun = (args: string[]) => string;
@@ -26,6 +29,7 @@ export function gitRunner(cwd: string): GitRun {
 
 export interface ReviewerEvalOptions {
   readonly base: string;
+  readonly repoName: string;
 }
 
 export interface ArmEval {
@@ -92,31 +96,77 @@ export function removedRanges(diff: string): OldRange[] {
   return out;
 }
 
-function blamedSubjects(git: GitRun, rev: string, path: string, ranges: OldRange[]): string[] {
-  const args = ['blame', '-w', '--porcelain'];
-  for (const r of ranges) args.push('-L', `${r.start},${r.start + r.count - 1}`);
-  const out = git([...args, rev, '--', path]);
-  const subjects: string[] = [];
-  for (const line of out.split('\n')) {
-    if (line.startsWith('summary ')) subjects.push(line.slice('summary '.length));
+export interface BlamedLine {
+  readonly path: string;
+  readonly committer_time: number;
+  readonly refs: number[];
+}
+
+const BLAME_HEADER_RE = /^([0-9a-f]{40}) \d+ \d+(?: \d+)?$/;
+
+export function parseBlame(porcelain: string): BlamedLine[] {
+  const meta = new Map<string, { time: number; subject: string; path: string }>();
+  const out = new Map<string, BlamedLine>();
+  let sha: string | null = null;
+  let path: string | null = null;
+  for (const line of porcelain.split('\n')) {
+    const header = BLAME_HEADER_RE.exec(line);
+    if (header) {
+      sha = header[1]!;
+      path = null;
+      if (!meta.has(sha)) meta.set(sha, { time: 0, subject: '', path: '' });
+      continue;
+    }
+    if (sha === null) continue;
+    const m = meta.get(sha)!;
+    if (line.startsWith('\t')) {
+      const p = path ?? m.path;
+      const key = `${sha}\u0000${p}`;
+      if (!out.has(key)) out.set(key, { path: p, committer_time: m.time, refs: ghRefs(m.subject) });
+      sha = null;
+    } else if (line.startsWith('committer-time ')) {
+      m.time = Number(line.slice('committer-time '.length));
+    } else if (line.startsWith('summary ')) {
+      m.subject = line.slice('summary '.length);
+    } else if (line.startsWith('filename ')) {
+      path = line.slice('filename '.length);
+      m.path = path;
+    }
   }
-  return subjects;
+  return [...out.values()];
 }
 
-interface FixTrace {
-  readonly removedCode: boolean;
-  readonly refs: Set<number>;
-}
-
-function traceFix(git: GitRun, sha: string): FixTrace {
+function traceFix(git: GitRun, sha: string): BlamedLine[] {
   const diff = git(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--unified=0', `${sha}^`, sha]);
   const byPath = new Map<string, OldRange[]>();
   for (const r of removedRanges(diff)) byPath.set(r.path, [...(byPath.get(r.path) ?? []), r]);
-  const refs = new Set<number>();
+  const blamed: BlamedLine[] = [];
   for (const [path, ranges] of byPath) {
-    for (const subject of blamedSubjects(git, `${sha}^`, path, ranges)) for (const n of ghRefs(subject)) refs.add(n);
+    const args = ['blame', '-w', '--porcelain'];
+    for (const r of ranges) args.push('-L', `${r.start},${r.start + r.count - 1}`);
+    blamed.push(...parseBlame(git([...args, `${sha}^`, '--', path])));
   }
-  return { removedCode: byPath.size > 0, refs };
+  return blamed;
+}
+
+export function filesCover(entries: readonly string[], path: string): boolean {
+  return entries.some((entry) => {
+    const dir = entry.replace(/\/+$/, '');
+    return dir !== '' && (path === dir || path.startsWith(`${dir}/`));
+  });
+}
+
+function parseFiles(json: string | null): string[] {
+  try {
+    const v: unknown = JSON.parse(json ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function defaultRepoName(git: GitRun): string {
+  return basename(dirname(git(['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()));
 }
 
 function hasColumn(db: StatsReader, table: string, column: string): boolean {
@@ -128,12 +178,11 @@ function mean(xs: number[]): number | null {
 }
 
 export function reviewerEval(db: StatsReader, git: GitRun, opts: ReviewerEvalOptions): ReviewerEval {
-  const reviewed = db.all<{ task_id: number; first_verdict: string; cycles: number | null; issue_id: number | null }>(
+  const reviewed = db.all<{ task_id: number; first_verdict: string; cycles: number | null }>(
     `SELECT va.task_id,
             (SELECT verdict FROM validation_attempts f WHERE f.task_id = va.task_id ORDER BY attempt_n ASC LIMIT 1) AS first_verdict,
-            MIN(CASE WHEN va.verdict = 'pass' THEN va.attempt_n END) AS cycles,
-            t.issue_id
-       FROM validation_attempts va LEFT JOIN tasks t ON t.id = va.task_id
+            MIN(CASE WHEN va.verdict = 'pass' THEN va.attempt_n END) AS cycles
+       FROM validation_attempts va
       GROUP BY va.task_id ORDER BY va.task_id`,
   );
 
@@ -147,22 +196,34 @@ export function reviewerEval(db: StatsReader, git: GitRun, opts: ReviewerEvalOpt
     arms.set(r.task_id, { model: r.model ?? 'unset', effort: r.effort ?? 'unset' });
   }
 
-  const passedTasksByIssue = new Map<number, number[]>();
-  for (const r of reviewed) {
-    if (r.cycles === null || r.issue_id === null) continue;
-    passedTasksByIssue.set(r.issue_id, [...(passedTasksByIssue.get(r.issue_id) ?? []), r.task_id]);
+  const passedTasksByIssue = new Map<number, Array<{ id: number; files: string[]; completed_s: number }>>();
+  for (const r of db.all<{ id: number; issue_id: number; files: string | null; completed_s: number }>(
+    `SELECT t.id, t.issue_id, t.files, (julianday(t.completed_at) - 2440587.5) * 86400.0 AS completed_s
+       FROM tasks t
+      WHERE t.repo = ? AND julianday(t.completed_at) IS NOT NULL
+        AND EXISTS (SELECT 1 FROM validation_attempts va WHERE va.task_id = t.id AND va.verdict = 'pass')
+      ORDER BY t.id`,
+    [opts.repoName],
+  )) {
+    const files = parseFiles(r.files);
+    if (files.length === 0) continue;
+    passedTasksByIssue.set(r.issue_id, [...(passedTasksByIssue.get(r.issue_id) ?? []), { id: r.id, files, completed_s: r.completed_s }]);
   }
   const issueByIid = new Map<number, number[]>();
-  for (const r of db.all<{ id: number; gh_iid: number }>(`SELECT id, gh_iid FROM issues WHERE gh_iid IS NOT NULL`)) {
+  for (const r of db.all<{ id: number; gh_iid: number }>(
+    `SELECT id, gh_iid FROM issues WHERE gh_iid IS NOT NULL AND repo = ?`,
+    [opts.repoName],
+  )) {
     issueByIid.set(r.gh_iid, [...(issueByIid.get(r.gh_iid) ?? []), r.id]);
   }
 
   const bugs = db.all<{ id: number; gh_iid: number }>(
     `SELECT id, gh_iid FROM issues
-      WHERE gh_iid IS NOT NULL AND json_valid(labels)
+      WHERE gh_iid IS NOT NULL AND repo = ? AND json_valid(labels)
         AND EXISTS (SELECT 1 FROM json_each(issues.labels) WHERE value = 'Bug')
         AND julianday(created_at) > (SELECT julianday(MIN(created_at)) FROM validation_attempts)
       ORDER BY gh_iid`,
+    [opts.repoName],
   );
 
   const fixesByIid = new Map<number, string[]>();
@@ -178,31 +239,33 @@ export function reviewerEval(db: StatsReader, git: GitRun, opts: ReviewerEvalOpt
     }
   }
 
-  const traceCache = new Map<string, FixTrace>();
+  const traceCache = new Map<string, BlamedLine[]>();
   const escaped: EscapedBug[] = [];
   const tracedTasks = new Set<number>();
   let untraced = 0;
   for (const bug of bugs) {
     const fixes = fixesByIid.get(bug.gh_iid);
     if (!fixes) continue;
-    let removedCode = false;
     const taskIds = new Set<number>();
     for (const sha of fixes) {
-      let trace = traceCache.get(sha);
-      if (!trace) {
-        trace = traceFix(git, sha);
-        traceCache.set(sha, trace);
+      let blamed = traceCache.get(sha);
+      if (!blamed) {
+        blamed = traceFix(git, sha);
+        traceCache.set(sha, blamed);
       }
-      removedCode ||= trace.removedCode;
-      for (const n of trace.refs) {
-        for (const issueId of issueByIid.get(n) ?? []) {
-          if (issueId === bug.id) continue;
-          for (const t of passedTasksByIssue.get(issueId) ?? []) taskIds.add(t);
+      for (const line of blamed) {
+        for (const n of line.refs) {
+          for (const issueId of issueByIid.get(n) ?? []) {
+            if (issueId === bug.id) continue;
+            for (const t of passedTasksByIssue.get(issueId) ?? []) {
+              if (t.completed_s <= line.committer_time && filesCover(t.files, line.path)) taskIds.add(t.id);
+            }
+          }
         }
       }
     }
-    if (!removedCode) untraced++;
-    if (taskIds.size > 0) {
+    if (taskIds.size === 0) untraced++;
+    else {
       const ids = [...taskIds].sort((a, b) => a - b);
       escaped.push({ gh_iid: bug.gh_iid, task_ids: ids });
       for (const t of ids) tracedTasks.add(t);
