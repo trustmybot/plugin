@@ -1,11 +1,15 @@
 /**
  * Shared harness for the cmd-analysis l3 ports (GH 1692), the node:test form
- * of the bash cmd-analysis l3 test it replaces. A group is one
- * `it`: its cases run through one bash process that sources
- * scripts/hooks/lib/cmd-analysis.sh once, each call in its own subshell, and a
- * case whose probe has a `ts` side also runs through the TypeScript
- * cmd-analysis module and must give the same answer. A `step` between cases
- * changes the fixture, so the cases after it run in a fresh bash process.
+ * of the bash cmd-analysis l3 test it replaces. A group is one `it`: each of
+ * its cases is judged on the frozen answers of the shell lib, recorded once
+ * into tests/fixtures/cmd-analysis/l3/<suite>.jsonl, and a case whose probe has
+ * a `ts` side also runs through the TypeScript cmd-analysis module and must
+ * give the same answer. A `step` between cases changes the fixture the TS side
+ * reads.
+ * The fixture holds one line {group, index, label, sh} per case, keyed by the
+ * group name, the case's index in the group and its label. A suite registers
+ * its machine paths (tmp roots, HOME) as tokens, which the fixture stores in
+ * place of the path and the harness expands at run time.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,30 +21,23 @@ import { cmdStatements, ghMutation, isPromptSurfacePath, pathCanonical, stripLit
 import { writeTargets } from '../hooks/cmd-analysis/targets.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const PLUGIN_ROOT = resolve(HERE, '../../../..');
-export const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
+const FIXTURES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis');
 const BOUNDED_CHILD = join(HERE, 'run-bounded-child.js');
+const MACHINE_PATH = /\/Users\/|\/var\/folders\/|tmb-cmd-analysis/;
 /**
  * The commands of tests/fixtures/cmd-analysis/divergences.jsonl (decision 703):
  * the TS answers them differently on purpose and cmd-analysis-diff.suite.ts
- * asserts that recorded answer, so a probe of one asserts on bash only.
+ * asserts that recorded answer, so a probe of one asserts on the frozen shell
+ * answer only.
  */
-export const DIVERGENT = new Set(readFileSync(join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis/divergences.jsonl'), 'utf8')
+export const DIVERGENT = new Set(readFileSync(join(FIXTURES, 'divergences.jsonl'), 'utf8')
     .split('\n')
     .filter((l) => l !== '')
     .map((l) => JSON.parse(l).cmd));
+export const SH_ONLY = {};
 function unlessDivergent(cmd, p) {
-    return DIVERGENT.has(cmd) ? shOnly(p) : p;
+    return DIVERGENT.has(cmd) ? SH_ONLY : p;
 }
-const SCRIPT = `. "$1"
-targets() { tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$1")"; }
-ghm() { tmb_gh_mutation "$(tmb_cmd_strip_literals "$1")"; }
-ghs() { tmb_cmd_statements "$1" "$2" | while IFS="$(printf '\\t')" read -r _d s; do tmb_gh_mutation "$s"; done; }
-while IFS= read -r -d '' fn && IFS= read -r -d '' n; do
-  a=()
-  for ((i = 0; i < n; i++)); do IFS= read -r -d '' x; a+=("$x"); done
-  ( "$fn" "\${a[@]}" ) </dev/null
-  printf '\\0%s\\0' "$?"
-done`;
 /** `$( )`: the output without its trailing newlines. */
 export function subst(out) {
     return out.replace(/\n+$/, '');
@@ -59,47 +56,18 @@ export function lastField(s, sep = '|') {
 export function dropFirst(s) {
     return s.replace(/^[^|]*\|/, '');
 }
-export function shRun(calls, env = process.env) {
-    if (calls.length === 0)
-        return [];
-    const input = calls.map((c) => [c.fn, String(c.args.length), ...c.args].join('\0') + '\0').join('');
-    const res = spawnSync('bash', ['-c', SCRIPT, 'bash', LIB], { input, env, maxBuffer: 1 << 28, encoding: 'utf8' });
-    assert.equal(res.status, 0, res.stderr);
-    const chunks = res.stdout.split('\0');
-    return calls.map((_, i) => ({ out: chunks[2 * i], status: Number(chunks[2 * i + 1]) }));
-}
-/** A cmd-analysis.sh function's `$( )` output. */
-export function shFn(fn, ...args) {
-    return { call: { fn, args }, fromSh: (r) => subst(r.out) };
-}
-export function shOnly(p) {
-    return { call: p.call, fromSh: p.fromSh };
-}
-export function withTs(p, ts) {
-    return { ...p, ts };
-}
-/** `tmb_cmd_write_paths "$cmd" "$cwd" | paste -sd, -`. */
+/** tmb_cmd_write_paths "$cmd" "$cwd" | paste -sd, - */
 export function wpaths(cmd, cwd = '') {
-    return unlessDivergent(cmd, {
-        call: { fn: 'tmb_cmd_write_paths', args: [cmd, cwd] },
-        fromSh: (r) => paste(r.out, ','),
-        ts: async () => (await writePaths(cmd, { cwd })).join(','),
-    });
+    return unlessDivergent(cmd, { ts: async () => (await writePaths(cmd, { cwd })).join(',') });
 }
-/** `tmb_cmd_write_paths "$cmd" "$cwd" "" "$root"`, <root> shown as `@`. */
+/** tmb_cmd_write_paths "$cmd" "$cwd" "" "$root", <root> shown as `@`. */
 export function rootedPaths(cmd, cwd, root, at = true) {
     const show = (s) => (at ? s.split(root).join('@') : s);
-    return unlessDivergent(cmd, {
-        call: { fn: 'tmb_cmd_write_paths', args: [cmd, cwd, '', root] },
-        fromSh: (r) => paste(show(r.out), ','),
-        ts: async () => (await writePaths(cmd, { cwd, root })).map(show).join(','),
-    });
+    return unlessDivergent(cmd, { ts: async () => (await writePaths(cmd, { cwd, root })).map(show).join(',') });
 }
-/** `tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$cmd")" | tr '\n' ,`. */
+/** tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$cmd")" | tr '\n' , */
 export function targets(cmd) {
     return {
-        call: { fn: 'targets', args: [cmd] },
-        fromSh: (r) => r.out.replace(/\n/g, ','),
         ts: () => subst(stripLiterals(cmd))
             .split('\n')
             .flatMap((l) => writeTargets(l))
@@ -107,50 +75,60 @@ export function targets(cmd) {
             .join(''),
     };
 }
+/** "$(tmb_cmd_strip_literals "$cmd")" */
 export function strip(cmd) {
-    return withTs(shFn('tmb_cmd_strip_literals', cmd), () => subst(stripLiterals(cmd)));
+    return { ts: () => subst(stripLiterals(cmd)) };
 }
-/** `tmb_is_prompt_surface_path "$p" [root]` as `true` / `false`. */
+/** tmb_is_prompt_surface_path "$p" [root] as `true` / `false`. */
 export function surface(p, root) {
-    const args = root === undefined ? [p] : [p, root];
-    return {
-        call: { fn: 'tmb_is_prompt_surface_path', args },
-        fromSh: (r) => String(r.status === 0),
-        ts: async () => String(await isPromptSurfacePath(p, root ?? '')),
-    };
+    return { ts: async () => String(await isPromptSurfacePath(p, root ?? '')) };
 }
+/** "$(tmb_path_canonical "$p")" */
 export function canonical(p) {
-    return withTs(shFn('tmb_path_canonical', p), () => pathCanonical(p));
+    return { ts: () => pathCanonical(p) };
 }
-/** `tmb_cmd_statements "$cmd" "$cwd" | tr '\t' '#' | paste -sd'|' -`. */
+/** tmb_cmd_statements "$cmd" "$cwd" | tr '\t' '#' | paste -sd'|' - */
 export function stmts(cmd, cwd) {
     return unlessDivergent(cmd, {
-        call: { fn: 'tmb_cmd_statements', args: [cmd, cwd] },
-        fromSh: (r) => paste(r.out.replace(/\t/g, '#'), '|'),
         ts: async () => {
             const res = await cmdStatements(cmd, cwd);
             return res.ok ? res.statements.map((s) => `${s.dir}#${s.stmt}`.replace(/\t/g, '#')).join('|') : '<refused>';
         },
     });
 }
-/** `tmb_gh_mutation "$(tmb_cmd_strip_literals "$cmd")"`. */
+/** "$(tmb_gh_mutation "$(tmb_cmd_strip_literals "$cmd")")" */
 export function ghm(cmd) {
-    return withTs(shFn('ghm', cmd), () => ghMutation(subst(stripLiterals(cmd))));
+    return { ts: () => ghMutation(subst(stripLiterals(cmd))) };
 }
 /** tmb_gh_mutation of every statement tmb_cmd_statements lists. */
 export function ghs(cmd, cwd) {
-    return withTs(shFn('ghs', cmd, cwd), async () => {
-        const res = await cmdStatements(cmd, cwd);
-        if (!res.ok)
-            return '<refused>';
-        return res.statements
-            .map((s) => ghMutation(s.stmt))
-            .filter((m) => m !== '')
-            .join('\n');
-    });
+    return {
+        ts: async () => {
+            const res = await cmdStatements(cmd, cwd);
+            if (!res.ok)
+                return '<refused>';
+            return res.statements
+                .map((s) => ghMutation(s.stmt))
+                .filter((m) => m !== '')
+                .join('\n');
+        },
+    };
 }
 export class Suite {
+    name;
     groups = [];
+    tokens = [];
+    /** <name> picks the fixture tests/fixtures/cmd-analysis/l3/<name>.jsonl. */
+    constructor(name) {
+        this.name = name;
+        if (process.env.HOME)
+            this.token('<HOME>', process.env.HOME);
+    }
+    /** A machine path the fixture stores as <name>. */
+    token(name, value) {
+        this.tokens.push([name, value]);
+        return this;
+    }
     group(name) {
         this.groups.push({ name, items: [] });
         return this;
@@ -172,12 +150,20 @@ export class Suite {
         this.groups[this.groups.length - 1].items.push({ step: fn });
         return this;
     }
-    /** How many assertions the suite makes on cmd-analysis.sh and on the TS module. */
+    /** How many assertions the suite makes on the frozen shell answers and on the TS module. */
     counts() {
         const cases = this.groups.flatMap((g) => g.items.flatMap((i) => ('case' in i ? [i.case] : [])));
         return { sh: cases.length, ts: cases.filter((c) => c.probe.ts !== undefined).length };
     }
+    /** Each case's key, in suite order. */
+    keys() {
+        return this.groups.flatMap((g) => g.items.flatMap((i) => ('case' in i ? [i.case] : [])).map((c, index) => caseKey(g.name, index, c.label)));
+    }
+    expand(s) {
+        return this.tokens.reduce((v, [name, value]) => v.split(name).join(value), s);
+    }
 }
+const caseKey = (group, index, label) => JSON.stringify([group, index, label]);
 function judge(c, got) {
     const ok = c.kind === 'eq' ? got === c.want : c.kind === 'has' ? got.includes(c.want) : !got.includes(c.want);
     if (ok)
@@ -185,40 +171,49 @@ function judge(c, got) {
     const how = c.kind === 'eq' ? 'want' : c.kind === 'has' ? 'missing' : 'unexpected';
     return `${c.label}: ${how} ${JSON.stringify(c.want)}, got ${JSON.stringify(got)}`;
 }
-async function runGroup(g) {
+async function runGroup(g, frozen) {
     const fails = [];
-    let pending = [];
-    const flush = async () => {
-        const sh = shRun(pending.map((c) => c.probe.call));
-        for (const [i, c] of pending.entries()) {
-            const shFail = judge(c, c.post(c.probe.fromSh(sh[i])));
-            if (shFail)
-                fails.push(`sh ${shFail}`);
-            if (c.probe.ts) {
-                const tsFail = judge(c, c.post(await c.probe.ts()));
-                if (tsFail)
-                    fails.push(`ts ${tsFail}`);
-            }
-        }
-        pending = [];
-    };
+    let index = 0;
     for (const item of g.items) {
-        if ('case' in item) {
-            pending.push(item.case);
+        if (!('case' in item)) {
+            await item.step();
             continue;
         }
-        await flush();
-        await item.step();
+        const c = item.case;
+        const sh = frozen.get(caseKey(g.name, index++, c.label));
+        if (sh === undefined)
+            fails.push(`sh ${c.label}: no fixture line`);
+        else {
+            const shFail = judge(c, c.post(sh));
+            if (shFail)
+                fails.push(`sh ${shFail}`);
+        }
+        if (c.probe.ts) {
+            const tsFail = judge(c, c.post(await c.probe.ts()));
+            if (tsFail)
+                fails.push(`ts ${tsFail}`);
+        }
     }
-    await flush();
     return fails;
 }
 export function runSuite(title, suite) {
     const { sh, ts } = suite.counts();
-    describe(`${title}: ${sh} cases on cmd-analysis.sh, ${ts} also on the TS module`, () => {
+    const file = join(FIXTURES, 'l3', `${suite.name}.jsonl`);
+    const raw = readFileSync(file, 'utf8').split('\n').filter((l) => l !== '');
+    const lines = raw.map((l) => JSON.parse(l));
+    const frozen = new Map(lines.map((l) => [caseKey(l.group, l.index, suite.expand(l.label)), suite.expand(l.sh)]));
+    describe(`${title}: ${sh} cases on the frozen shell answers, ${ts} also on the TS module`, () => {
+        it(`l3/${suite.name}.jsonl holds one line per case and no machine path`, () => {
+            const keys = suite.keys();
+            assert.equal(new Set(keys).size, keys.length, 'two cases share a key');
+            assert.equal(frozen.size, lines.length, 'two fixture lines share a key');
+            assert.deepEqual([...frozen.keys()].sort(), [...keys].sort());
+            for (const l of raw)
+                assert.doesNotMatch(l, MACHINE_PATH);
+        });
         for (const g of suite.groups) {
             it(`${g.name} [${g.items.filter((i) => 'case' in i).length}]`, async () => {
-                assert.deepEqual(await runGroup(g), []);
+                assert.deepEqual(await runGroup(g, frozen), []);
             });
         }
     });

@@ -113,7 +113,7 @@ Returned in the created-issue payload, not stored.
 | `trajectory-server` | TMB server | `tmb_branch_autocreated` rows written when `task_create_batch` creates a branch ref |
 | `hook:<name>` | TMB hook / script | A row written by a hook or script, `<name>` = its basename without `.sh` (e.g. `hook:swe-brief-gate`, `hook:scan`); matches `hook:[a-z0-9-]+` |
 
-**TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only. A hook never writes an agent role: every audit row a hook writes goes through the write library (`tmb_audit_append` in `scripts/hooks/lib/db-write.sh`) as `hook:<name>`.
+**TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only. A hook never writes an agent role: every audit row a hook writes goes through the write library (`auditAppend` in `mcp/trajectory-server/src/hooks/lib/audit.ts`) as `hook:<name>`.
 
 ### `audit.event_type` — workflow events
 
@@ -317,7 +317,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every code-reviewer SubagentStop |
 | `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
 | `escalated` | `task_update_status` → `escalated` |
-| `swept_orphan` | `task_recover` sweeping a never-measured row; an open swe row no subagent bound (`spawn_id` NULL or `tool_use:*`) closed by the next swe spawn (`record-swe-spawn.sh`, older than 90 s) or by `task_brief` (older than 10 min); `swe-spawn-rollback.sh` closing the `tool_use:*` row of a spawn auto mode refused (PermissionDenied); a swe SubagentStop marking the task's other zero-token unbound rows `unmeasured` (`spawn_id` NULL rows from the spawn's window, open `tool_use:*` rows older than 90 s); v33 backfill of an `unmeasured` row. A row bound to an agent id is never swept |
+| `swept_orphan` | `task_recover` sweeping a never-measured row; an open swe row no subagent bound (`spawn_id` NULL or `tool_use:*`) closed by the next swe spawn (`record-swe-spawn`, older than 90 s) or by `task_brief` (older than 10 min); `swe-spawn-rollback` closing the `tool_use:*` row of a spawn auto mode refused (PermissionDenied); a swe SubagentStop marking the task's other zero-token unbound rows `unmeasured` (`spawn_id` NULL rows from the spawn's window, open `tool_use:*` rows older than 90 s); v33 backfill of an `unmeasured` row. A row bound to an agent id is never swept |
 | `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
 | `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 
@@ -331,11 +331,11 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `medium` | The default (`plugin_config.swe_default_effort` unset) |
 | `high` | Most reasoning; hooks, guards, MCP write paths, prompt-bearing tasks, rework |
 
-`CHECK`-enforced, `NOT NULL DEFAULT 'medium'`. Written by `task_create_batch` / `task_provision` (omitted → `plugin_config.swe_default_effort`); `task_reopen` / `task_retry` may change it and write `task_effort_raised` when they raise it. `require-spawn-effort.sh` denies a swe Agent call whose `effort` differs.
+`CHECK`-enforced, `NOT NULL DEFAULT 'medium'`. Written by `task_create_batch` / `task_provision` (omitted → `plugin_config.swe_default_effort`); `task_reopen` / `task_retry` may change it and write `task_effort_raised` when they raise it. `require-spawn-effort` denies a swe Agent call whose `effort` differs.
 
 ### `agent_runs.effort` — the effort a run was spawned at
 
-Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`medium` when unset). NULL on other agent types and on runs recorded before schema v37.
+Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`medium` when unset). NULL on other agent types and on runs recorded before schema v37.
 
 ### Timestamp format
 
@@ -365,7 +365,7 @@ Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The write
 
 | Value | Meaning |
 |---|---|
-| `gate` | `swe-verification-gate.sh` ran `verification[]` on the swe close |
+| `gate` | `swe-verification-gate` ran `verification[]` on the swe close |
 | `manual` | reserved for a run recorded outside the gate; no writer yet |
 
 Schema enforces via `CHECK (source IN ('gate','manual'))`.

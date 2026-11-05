@@ -1,12 +1,13 @@
 /**
- * The helpers swe-boundary.ts ports from scripts/hooks/lib (GH 1692),
- * each checked against its bash original on the same input:
- * tmb_gh_mutation, tmb_is_prompt_surface_path, tmb_worktree_root_for_target,
- * tmb_resolve_task_id_for_target, tmb_path_digest and tmb_cmd_write_shapes.
+ * The swe-boundary helpers (GH 1692), each judged on the answers its shell
+ * original gave on the same input, recorded once and frozen here:
+ * ghMutation, isPromptSurfacePath, worktreeRootForTarget, sqlLikeEscape,
+ * resolveTaskIdForTarget, pathDigest and writeShapes.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,10 +18,8 @@ import { sqlLikeEscape } from '../hooks/lib/db.js';
 import { pathDigest, resolveTaskIdForTarget, worktreeRootForTarget } from '../hooks/lib/target-task.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const NOW = '2026-10-11T10:00:00.000Z';
-const HAVE_SQLITE_CLI = spawnSync('sqlite3', ['-version'], { stdio: 'ignore' }).status === 0;
 
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -32,52 +31,93 @@ const GIT_ENV: NodeJS.ProcessEnv = {
   GIT_COMMITTER_EMAIL: 'test@example.com',
 };
 
-/** `<fn> "$@"` after sourcing the libs swe-boundary.sh sources: its stdout as `$(...)` captures it, and its exit code. */
-function bashLib(fn: string, args: string[], env: NodeJS.ProcessEnv = process.env): { stdout: string; code: number | null } {
-  const script = `. "${LIB}/query-task.sh"; . "${LIB}/cmd-analysis.sh"; ${fn} "$@"`;
-  const r = spawnSync('bash', ['-c', script, 'lib', ...args], { encoding: 'utf8', env });
-  return { stdout: r.stdout.replace(/\n+$/, ''), code: r.status };
-}
-
-describe('swe-boundary helpers: the bash originals agree', () => {
-  it('ghMutation matches tmb_gh_mutation', () => {
-    const stmts = [
-      'gh pr create --title x',
-      'gh pr view 1',
-      'gh pr list',
-      'gh issue close 4',
-      'gh issue comment 4 --body b',
-      'gh api repos/o/r',
-      'gh api -X POST repos/o/r/issues',
-      'gh api --method=PATCH repos/o/r',
-      'gh api -XDELETE repos/o/r',
-      'glab mr merge 3',
-      'glab mr view 3',
-      'GH_TOKEN=x gh release create v1',
-      '/usr/local/bin/gh repo delete o/r',
-      'gh pr merge_1',
-      'echo gh pr create',
-      'gh',
-      'gh auth status',
-      'gh workflow run ci.yml',
-      'gh label create bug',
-      'gh pr review 3 --approve',
+describe('swe-boundary helpers: the frozen shell answers agree', () => {
+  it('ghMutation gives the frozen shell answers', () => {
+    const cases: [string, string][] = [
+      ['gh pr create --title x', 'pr create'],
+      ['gh pr view 1', ''],
+      ['gh pr list', ''],
+      ['gh issue close 4', 'issue close'],
+      ['gh issue comment 4 --body b', 'issue comment'],
+      ['gh api repos/o/r', ''],
+      ['gh api -X POST repos/o/r/issues', 'POST'],
+      ['gh api --method=PATCH repos/o/r', 'PATCH'],
+      ['gh api -XDELETE repos/o/r', 'DELETE'],
+      ['glab mr merge 3', 'mr merge'],
+      ['glab mr view 3', ''],
+      ['GH_TOKEN=x gh release create v1', 'release create'],
+      ['/usr/local/bin/gh repo delete o/r', 'repo delete'],
+      ['gh pr merge_1', ''],
+      ['echo gh pr create', ''],
+      ['gh', ''],
+      ['gh auth status', ''],
+      ['gh workflow run ci.yml', ''],
+      ['gh label create bug', 'label create'],
+      ['gh pr review 3 --approve', 'pr review'],
     ];
-    for (const stmt of stmts) assert.equal(ghMutation(stmt), bashLib('tmb_gh_mutation', [stmt]).stdout, stmt);
+    assert.equal(cases.length, 20);
+    for (const [stmt, expected] of cases) assert.equal(ghMutation(stmt), expected, stmt);
   });
 
-  it('writeShapes matches tmb_cmd_write_shapes', () => {
-    assert.equal(writeShapes(), bashLib('tmb_cmd_write_shapes', []).stdout);
+  it('writeShapes gives the frozen shell answer', () => {
+    const shapes = [
+      '>',
+      '>>',
+      '>|',
+      '&>',
+      'exec N>',
+      'heredoc into a redirect',
+      'tee',
+      'tee -a',
+      'sed -i',
+      'perl -i',
+      'dd of=',
+      'truncate',
+      'cp',
+      'mv',
+      'install',
+      'rsync',
+      'git mv',
+      'ln',
+      'mkdir',
+      'rm',
+      'touch',
+      'tar -C / make -C / env -C / npm --prefix',
+      'git commit / reset / checkout / stash / clean / bisect / submodule update / … in its -C dir or own dir',
+      'git init <dir> / format-patch -o / archive -o / checkout-index --prefix',
+      'python -c / node -e / perl -e / ruby -e with a write mode',
+      'a program fed to python / node / perl / ruby / sh through a heredoc',
+      'find -exec / -execdir / -ok / -delete / -fprint',
+      'fd -x / -X',
+      'xargs fed by find or fd',
+    ];
+    assert.equal(shapes.length, 29);
+    assert.equal(writeShapes(), shapes.join(', '));
   });
 
-  it('worktreeRootForTarget matches tmb_worktree_root_for_target', () => {
-    for (const p of ['/a/.claude/worktrees/x/y/z', '/a/.claude/worktrees/x', '/a/.claude/worktrees/', '/a/b', 'rel/.claude/worktrees/s/t', '/a/.claude/worktrees/x/.claude/worktrees/y/z', '']) {
-      assert.equal(worktreeRootForTarget(p), bashLib('tmb_worktree_root_for_target', [p]).stdout, p);
-    }
+  it('worktreeRootForTarget gives the frozen shell answers', () => {
+    const cases: [string, string][] = [
+      ['/a/.claude/worktrees/x/y/z', '/a/.claude/worktrees/x'],
+      ['/a/.claude/worktrees/x', '/a/.claude/worktrees/x'],
+      ['/a/.claude/worktrees/', '/a/.claude/worktrees/'],
+      ['/a/b', ''],
+      ['rel/.claude/worktrees/s/t', 'rel/.claude/worktrees/s'],
+      ['/a/.claude/worktrees/x/.claude/worktrees/y/z', '/a/.claude/worktrees/x/.claude/worktrees/y'],
+      ['', ''],
+    ];
+    assert.equal(cases.length, 7);
+    for (const [p, expected] of cases) assert.equal(worktreeRootForTarget(p), expected, p);
   });
 
-  it('sqlLikeEscape matches tmb_sql_like_escape', () => {
-    for (const v of ['plain', 'a_b%c', "it's", 'back\\slash']) assert.equal(sqlLikeEscape(v), bashLib('tmb_sql_like_escape', [v]).stdout, v);
+  it('sqlLikeEscape gives the frozen shell answers', () => {
+    const cases: [string, string][] = [
+      ['plain', 'plain'],
+      ['a_b%c', 'a\\_b\\%c'],
+      ["it's", "it''s"],
+      ['back\\slash', 'back\\\\slash'],
+    ];
+    assert.equal(cases.length, 4);
+    for (const [v, expected] of cases) assert.equal(sqlLikeEscape(v), expected, v);
   });
 
   it('lib/db.ts is the one module defining taskBySlug and sqlLikeEscape (F203-2)', () => {
@@ -133,58 +173,61 @@ describe('swe-boundary helpers: the bash originals agree', () => {
       rmSync(dir, { recursive: true, force: true });
     });
 
-    it('isPromptSurfacePath matches tmb_is_prompt_surface_path, with and without a root', async () => {
+    it('isPromptSurfacePath gives the frozen shell answers, with and without a root', async () => {
       const repo = join(dir, 'repo');
       const wt = join(repo, '.claude/worktrees/by-branch');
-      const cases: [string, string][] = [
-        ['agents/a.md', ''],
-        ['./agents/a.md', ''],
-        ['agents/a.txt', ''],
-        ['skills/s/SKILL.md', ''],
-        ['templates/x/y.md', ''],
-        ['rules/r.md', ''],
-        ['.claude/rules/r.md', ''],
-        ['.claude/templates/r.md', ''],
-        ['src/agents/a.md', ''],
-        ['docs/CLAUDE.md', ''],
-        ['GEMINI.md', ''],
-        [`${repo}/agents/a.md`, ''],
-        [`${repo}/src/a.ts`, ''],
-        [`${repo}/src/agents/a.md`, ''],
-        [`${repo}/docs/CLAUDE.md`, ''],
-        [`${wt}/agents/a.md`, ''],
-        [`${wt}/agents/a.md`, wt],
-        [`${dir}/agents-link/a.md`, ''],
-        [`${dir}/elsewhere/agents/a.md`, ''],
-        ['/nonexistent/x/agents/a.md', ''],
-        ['agents/a.md', wt],
+      const cases: [string, string, boolean][] = [
+        ['agents/a.md', '', true],
+        ['./agents/a.md', '', true],
+        ['agents/a.txt', '', false],
+        ['skills/s/SKILL.md', '', true],
+        ['templates/x/y.md', '', true],
+        ['rules/r.md', '', true],
+        ['.claude/rules/r.md', '', true],
+        ['.claude/templates/r.md', '', false],
+        ['src/agents/a.md', '', false],
+        ['docs/CLAUDE.md', '', true],
+        ['GEMINI.md', '', true],
+        [`${repo}/agents/a.md`, '', true],
+        [`${repo}/src/a.ts`, '', false],
+        [`${repo}/src/agents/a.md`, '', false],
+        [`${repo}/docs/CLAUDE.md`, '', true],
+        [`${wt}/agents/a.md`, '', true],
+        [`${wt}/agents/a.md`, wt, true],
+        [`${dir}/agents-link/a.md`, '', true],
+        [`${dir}/elsewhere/agents/a.md`, '', true],
+        ['/nonexistent/x/agents/a.md', '', true],
+        ['agents/a.md', wt, true],
       ];
-      for (const [p, root] of cases) {
-        const expected = bashLib('tmb_is_prompt_surface_path', [p, root], env).code === 0;
-        assert.equal(await isPromptSurfacePath(p, root, env), expected, `${p} root=${root}`);
-      }
+      assert.equal(cases.length, 21);
+      for (const [p, root, expected] of cases) assert.equal(await isPromptSurfacePath(p, root, env), expected, `${p} root=${root}`);
     });
 
-    it('pathDigest matches tmb_path_digest, through a symlink too', () => {
-      for (const p of [`${dir}/repo/agents/a.md`, `${dir}/agents-link/a.md`, `${dir}/repo/new/file`, '/']) {
-        assert.equal(pathDigest(p), bashLib('tmb_path_digest', [p]).stdout, p);
-      }
+    it('pathDigest gives the shell recipe: sha256 of the canonical path, through a symlink too', () => {
+      const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+      const cases: [string, string][] = [
+        [`${dir}/repo/agents/a.md`, sha256(realpathSync(`${dir}/repo/agents/a.md`))],
+        [`${dir}/agents-link/a.md`, sha256(realpathSync(`${dir}/repo/agents/a.md`))],
+        [`${dir}/repo/new/file`, sha256(join(realpathSync(`${dir}/repo`), 'new/file'))],
+        ['/', '8a5edab282632443219e051e4ade2d1d5bbc671c781051bf1437897cbdfea0f1'],
+      ];
+      assert.equal(cases.length, 4);
+      for (const [p, expected] of cases) assert.equal(pathDigest(p), expected, p);
+      assert.equal(pathDigest(`${dir}/agents-link/a.md`), pathDigest(`${dir}/repo/agents/a.md`));
     });
 
-    it('resolveTaskIdForTarget matches tmb_resolve_task_id_for_target: branch, slug, then transcript', { skip: !HAVE_SQLITE_CLI && 'the .sh needs the sqlite3 CLI' }, async () => {
+    it('resolveTaskIdForTarget gives the frozen shell answers: branch, slug, then transcript', async () => {
       const wts = join(dir, 'repo/.claude/worktrees');
       const withTranscript = JSON.stringify({ agent_transcript_path: join(dir, 'tr/spawn.jsonl') });
-      const cases: [string, string][] = [
-        [`${wts}/by-branch/agents/a.md`, '{}'],
-        [`${wts}/by-slug/agents/a.md`, '{}'],
-        [`${wts}/nowhere/a.md`, withTranscript],
-        [`${dir}/repo/src/a.ts`, withTranscript],
-        [`${dir}/repo/src/a.ts`, '{}'],
+      const cases: [string, string, string][] = [
+        [`${wts}/by-branch/agents/a.md`, '{}', '4'],
+        [`${wts}/by-slug/agents/a.md`, '{}', '6'],
+        [`${wts}/nowhere/a.md`, withTranscript, '9'],
+        [`${dir}/repo/src/a.ts`, withTranscript, '9'],
+        [`${dir}/repo/src/a.ts`, '{}', ''],
       ];
-      for (const [target, input] of cases) {
-        const sh = bashLib('tmb_resolve_task_id_for_target', [target, input, db], env).stdout;
-        assert.equal(await resolveTaskIdForTarget(target, input, db, env), sh, target);
-      }
+      assert.equal(cases.length, 5);
+      for (const [target, input, expected] of cases) assert.equal(await resolveTaskIdForTarget(target, input, db, env), expected, target);
       assert.equal(await resolveTaskIdForTarget(`${wts}/by-branch/x`, '{}', db, env), '4');
       assert.equal(await resolveTaskIdForTarget(`${wts}/by-slug/x`, '{}', db, env), '6');
       assert.equal(await resolveTaskIdForTarget(`${dir}/repo/src/a.ts`, withTranscript, db, env), '9');

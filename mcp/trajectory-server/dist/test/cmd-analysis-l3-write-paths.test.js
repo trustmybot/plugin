@@ -1,24 +1,24 @@
 /**
- * tmb_cmd_write_paths of scripts/hooks/lib/cmd-analysis.sh on shell commands
- * (GH 1692), ported from the bash cmd-analysis l3 test: write shapes, per
- * statement dirs, -C / --prefix dirs and mutating git, variables, $PWD and
+ * tmb_cmd_write_paths on shell commands (GH 1692), ported from the bash
+ * cmd-analysis l3 test: write shapes, per statement dirs, -C / --prefix dirs and mutating git, variables, $PWD and
  * $OLDPWD, wrapper options, and loop-body assignments and cds (GH 1944, 1977).
- * Each case runs on the bash lib and on writePaths of the TS module, except a
- * command recorded in divergences.jsonl, which runs on the bash lib only.
+ * Each case is judged on the frozen answers of the shell lib and on writePaths
+ * of the TS module, except a command recorded in divergences.jsonl, which is
+ * judged on the frozen answer only.
  */
 import { after } from 'node:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writePaths } from '../hooks/cmd-analysis/index.js';
-import { LIB, Suite, ghs, lastField, rootedPaths, runBounded, runSuite, stmts, targets, wpaths, } from './cmd-analysis-l3.js';
+import { Suite, ghs, lastField, rootedPaths, runSuite, stmts, targets, wpaths, } from './cmd-analysis-l3.js';
 const HOME = process.env.HOME ?? '';
 const TMP = mkdtempSync(join(tmpdir(), 'tmb-cmd-analysis-'));
 const PLAIN = join(TMP, 'plain');
 mkdirSync(PLAIN);
 after(() => rmSync(TMP, { recursive: true, force: true }));
 const w = (cmd) => wpaths(cmd, '/w');
-const s = new Suite();
+const s = new Suite('write-paths').token('<TMP>', TMP).token('<TMP_REAL>', realpathSync(TMP));
 s.group('tmb_cmd_write_paths: every write shape (GH 1272)')
     .eq('/w/a.md', w('echo x >| a.md'), '>|')
     .eq('/w/a.md', w('exec 3> a.md'), 'exec N>')
@@ -215,10 +215,7 @@ s.eq('/w/f,/etc/f', w('while false; do cd /etc; done; echo > f'), "after the loo
     .eq('/w/f,/etc/f', w(`while :; do python3 -c "open('f','w')"; cd /etc; done`), 'an inline program')
     .eq('UNRESOLVED:PWD:$PWD/f', w('while :; do echo > f; cd sub; done'), 'a dir that keeps growing fails closed', (v) => lastField(v, ','))
     .eq('/w/f,/f', w('cd /w; while :; do echo > f; cd ..; done'), 'cd .. stops at the root, so the dirs stop growing');
-const BOUNDED = '. "$1"; out=$(tmb_cmd_write_paths "$2" /w "" /w); grep -q "^UNRESOLVED:" <<<"$out"';
 const boundedUnresolved = (c) => ({
-    call: { fn: 'true', args: [] },
-    fromSh: () => String(runBounded(10, 'bash', ['-c', BOUNDED, '_', LIB, c]).status),
     ts: async () => String((await writePaths(c, { cwd: '/w', root: '/w' })).some((l) => l.startsWith('UNRESOLVED:')) ? 0 : 1),
 });
 const absLoops = (n) => `${Array.from({ length: n }, (_, i) => `while false; do cd /a${i + 1}; done; `).join('')}echo > f`;

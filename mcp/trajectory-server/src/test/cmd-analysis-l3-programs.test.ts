@@ -1,14 +1,15 @@
 /**
- * tmb_cmd_write_paths of scripts/hooks/lib/cmd-analysis.sh on inline programs
- * (GH 1692), ported from the bash cmd-analysis l3 test: programs fed through a
+ * tmb_cmd_write_paths on inline programs (GH 1692), ported from the bash
+ * cmd-analysis l3 test: programs fed through a
  * heredoc (GH 1279), write-call path arguments and text calls (GH 1510, 1550,
  * 1567), and process calls, chdirs, string evaluation and written data
  * (GH 1531, 1602), plus _tmb_cmd_prog_calls on every child_process import form.
- * Each case runs on the bash lib and on the TS module, except a command
- * recorded in divergences.jsonl, which runs on the bash lib only.
+ * Each case is judged on the frozen answers of the shell lib and on the TS
+ * module, except a command recorded in divergences.jsonl, which is judged on
+ * the frozen answer only.
  */
 import { progCalls } from '../hooks/cmd-analysis/prog-calls.js';
-import { LIB, Suite, paste, runBounded, runSuite, wpaths, type Probe } from './cmd-analysis-l3.js';
+import { Suite, paste, runSuite, wpaths, type Probe } from './cmd-analysis-l3.js';
 
 const HOME = process.env.HOME ?? '';
 const lines = (...xs: string[]): string => xs.join('\n');
@@ -20,7 +21,7 @@ const pyw = (...body: string[]): Probe => wt('python3 -', ...body);
 const nodew = (body: string): Probe => wt('node -', body);
 const U = 'UNRESOLVED:$(proc):$(proc)';
 
-const s = new Suite();
+const s = new Suite('programs');
 
 s.group('tmb_cmd_write_paths: programs fed to an interpreter through a heredoc (GH 1279)')
   .eq('/etc/x', hw('python3 -', "open('/etc/x','w').write('y')"), 'python3 -')
@@ -148,16 +149,9 @@ s.group('tmb_cmd_write_paths: renamed process imports are resolved, unresolvable
   .eq('', pyw('import subprocess', 'try:', "    subprocess.check_call(['make', 'test'])", 'except subprocess.CalledProcessError as e:', '    print(e)'), 'subprocess exceptions and constants are not calls')
   .eq('', pyw('from os import path', "print(path.join('a', 'b'))"), 'other os names');
 
-const PROG_CALLS = '. "$1"; _tmb_cmd_prog_calls node "$2" | paste -sd, -';
-const progCallsBounded = (program: string): Probe => {
-  let sh: ReturnType<typeof runBounded> | undefined;
-  const run = () => (sh ??= runBounded(5, 'bash', ['-c', PROG_CALLS, '_', LIB, program]));
-  return {
-    call: { fn: 'true', args: [] },
-    fromSh: () => `${run().status}|${run().stdout}`,
-    ts: () => `0|${paste(progCalls('node', program).join('\n'), ',')}\n`,
-  };
-};
+const progCallsBounded = (program: string): Probe => ({
+  ts: () => `0|${paste(progCalls('node', program).join('\n'), ',')}\n`,
+});
 s.group('_tmb_cmd_prog_calls: every child_process import form finishes (GH 1531)');
 for (const imp of [
   "import cp from 'child_process'",
