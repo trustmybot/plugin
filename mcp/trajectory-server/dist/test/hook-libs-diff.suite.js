@@ -61,7 +61,7 @@ process.stdin.on('end', () => {
 const ok = (out, rc = 0) => ({ out, rc });
 const a = (args, i) => args[i] ?? '';
 function eventsOpt(env) {
-    return env.HARNESS_EVENTS_FILE ? { eventsFile: env.HARNESS_EVENTS_FILE } : {};
+    return env.CASE_EVENTS_FILE ? { eventsFile: env.CASE_EVENTS_FILE } : {};
 }
 function ctxText(c) {
     return `role=${c.role}\ntask=${c.taskId}\nrepo=${c.repo}\nroot=${c.repoRoot}\nworktree=${c.worktree}\nmissing=${c.missing}`;
@@ -634,9 +634,9 @@ function buildCases() {
     add('tmb_audit_writer_check', 'unknown', ['lbl', 'no_such_event', 'hook']);
     add('tmb_audit_writer_check', 'empty-event', ['lbl', '', 'hook']);
     add('tmb_audit_writer_check', 'list-missing', ['lbl', 'containment_denied', 'hook'], {
-        env: { HARNESS_EVENTS_FILE: join(R, 'nope/audit-events.txt') },
+        env: { CASE_EVENTS_FILE: join(R, 'nope/audit-events.txt') },
     });
-    add('tmb_audit_writer_check', 'explicit-list', ['lbl', 'hook_block_bypassed', 'hook'], { env: { HARNESS_EVENTS_FILE: events } });
+    add('tmb_audit_writer_check', 'explicit-list', ['lbl', 'hook_block_bypassed', 'hook'], { env: { CASE_EVENTS_FILE: events } });
     const content = '{"task_id":7,"commit_sha":"abc"}';
     add('tmb_audit_dedupe_guard', 'one-path', ['hook_block_bypassed', content, '$.task_id']);
     add('tmb_audit_dedupe_guard', 'two-paths', ['hook_block_bypassed', content, '$.task_id', '$.commit_sha']);
