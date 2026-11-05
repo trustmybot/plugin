@@ -241,8 +241,8 @@
 {"id":"tmb_audit_writer_check:hook-listed","fn":"tmb_audit_writer_check","out":"","rc":0,"err":""}
 {"id":"tmb_audit_writer_check:server-listed","fn":"tmb_audit_writer_check","out":"","rc":0,"err":""}
 {"id":"tmb_audit_writer_check:not-writable","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: audit_event_not_writable_by_role: 'hook' may not write 'branch_gate_waived' (writers: bro)"}
-{"id":"tmb_audit_writer_check:unknown","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: unknown event_type 'no_such_event' (not in /Users/Zax/Git/GitHub/TMB/plugin/.claude/worktrees/1692-r6-hook-libs-golden/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
-{"id":"tmb_audit_writer_check:empty-event","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: unknown event_type '' (not in /Users/Zax/Git/GitHub/TMB/plugin/.claude/worktrees/1692-r6-hook-libs-golden/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
+{"id":"tmb_audit_writer_check:unknown","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: unknown event_type 'no_such_event' (not in <PLUGIN_ROOT>/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
+{"id":"tmb_audit_writer_check:empty-event","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: unknown event_type '' (not in <PLUGIN_ROOT>/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
 {"id":"tmb_audit_writer_check:list-missing","fn":"tmb_audit_writer_check","out":"","rc":2,"err":"lbl: audit event list missing or unreadable: <R>/nope/audit-events.txt (run npm run build in mcp/trajectory-server)"}
 {"id":"tmb_audit_writer_check:explicit-list","fn":"tmb_audit_writer_check","out":"","rc":0,"err":""}
 {"id":"tmb_audit_dedupe_guard:one-path","fn":"tmb_audit_dedupe_guard","out":"NOT EXISTS (SELECT 1 FROM audit d WHERE d.event_type = 'hook_block_bypassed' AND json_valid(d.content_json) AND json_extract(d.content_json, '$.task_id') IS json_extract('{\"task_id\":7,\"commit_sha\":\"abc\"}', '$.task_id'))","rc":0,"err":""}
@@ -258,7 +258,7 @@
 {"id":"tmb_audit_sql:bare-hook","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: invalid from_node 'hook:' (want hook:<name> or system)"}
 {"id":"tmb_audit_sql:hook-underscore","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: invalid from_node 'hook:a_b' (want hook:<name> or system)"}
 {"id":"tmb_audit_sql:hook-upper","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: invalid from_node 'hook:Bad' (want hook:<name> or system)"}
-{"id":"tmb_audit_sql:unlisted","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: unknown event_type 'no_such_event' (not in /Users/Zax/Git/GitHub/TMB/plugin/.claude/worktrees/1692-r6-hook-libs-golden/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
+{"id":"tmb_audit_sql:unlisted","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: unknown event_type 'no_such_event' (not in <PLUGIN_ROOT>/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
 {"id":"tmb_audit_sql:not-writable","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: audit_event_not_writable_by_role: 'hook' may not write 'branch_gate_waived' (writers: bro)"}
 {"id":"tmb_audit_sql:system-hook-event","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: audit_event_not_writable_by_role: 'server' may not write 'containment_denied' (writers: hook)"}
 {"id":"tmb_audit_sql:bad-issue","fn":"tmb_audit_sql","out":"","rc":2,"err":"tmb_audit_append: harness: invalid issue_id 'x1'"}
@@ -274,7 +274,7 @@
 {"id":"tmb_db_write:trailing-newlines","fn":"tmb_db_write","out":"5","rc":0,"err":""}
 {"id":"tmb_audit_append:listed","fn":"tmb_audit_append","out":"","rc":0,"err":""}
 {"id":"tmb_audit_append:system-sentinel-issue","fn":"tmb_audit_append","out":"","rc":0,"err":""}
-{"id":"tmb_audit_append:unlisted","fn":"tmb_audit_append","out":"","rc":2,"err":"tmb_audit_append: harness: unknown event_type 'no_such_event' (not in /Users/Zax/Git/GitHub/TMB/plugin/.claude/worktrees/1692-r6-hook-libs-golden/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
+{"id":"tmb_audit_append:unlisted","fn":"tmb_audit_append","out":"","rc":2,"err":"tmb_audit_append: harness: unknown event_type 'no_such_event' (not in <PLUGIN_ROOT>/scripts/hooks/lib/audit-events.txt; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)"}
 {"id":"tmb_audit_append:dedupe-hit","fn":"tmb_audit_append","out":"","rc":0,"err":""}
 {"id":"tmb_audit_append:dedupe-miss","fn":"tmb_audit_append","out":"","rc":0,"err":""}
 {"id":"tmb_audit_append:dedupe-bad-path","fn":"tmb_audit_append","out":"","rc":2,"err":"tmb_audit_append: harness: invalid dedupe json path 'task_id'"}

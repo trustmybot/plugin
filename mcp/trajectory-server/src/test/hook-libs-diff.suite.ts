@@ -4,7 +4,8 @@
  * and each pass must match tests/fixtures/hook-libs/expected.jsonl: the
  * outcomes the shell libs they replace produced, frozen once. The fixture holds
  * one line per case {id, fn, out, rc, err?} (err only for STDERR_FNS), then one
- * {auditRows} line and one {coldDbs} line; the sandbox root is stored as <R>.
+ * {auditRows} line and one {coldDbs} line; the sandbox root is stored as <R>
+ * and the plugin root as <PLUGIN_ROOT>.
  * The two TS passes split across hook-libs-diff.shard-<k>of<n>.test.ts
  * (GH 1947); shard 1 also runs the checks on the fixture alone.
  */
@@ -56,6 +57,7 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const EXPECTED = join(PLUGIN_ROOT, 'tests/fixtures/hook-libs/expected.jsonl');
 const R_TOKEN = '<R>';
+const PLUGIN_ROOT_TOKEN = '<PLUGIN_ROOT>';
 const DIST_DB = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks/lib/db.js');
 const NOW = '2026-01-02T03:04:05.000Z';
 const CALLER = 'harness';
@@ -818,7 +820,7 @@ interface Expected {
 }
 
 function loadExpected(): Expected {
-  const real = (v: string) => v.split(R_TOKEN).join(R);
+  const real = (v: string) => v.split(R_TOKEN).join(R).split(PLUGIN_ROOT_TOKEN).join(PLUGIN_ROOT);
   const exp: Expected = { ids: [], cases: new Map(), auditRows: [], coldDbs: [] };
   for (const line of readFileSync(EXPECTED, 'utf8').split('\n')) {
     if (line.trim() === '') continue;
@@ -881,6 +883,12 @@ export function hookLibsDiffShard(k: number, n: number): void {
           ids.add(c.id);
         }
         assert.deepEqual(expected.ids, cases.map((c) => c.id));
+      });
+
+      it('the fixture holds no absolute path from the recording machine', () => {
+        const raw = readFileSync(EXPECTED, 'utf8');
+        assert.doesNotMatch(raw, /\/Users\/|\/home\/|\/private\/|\/var\/folders\//);
+        assert.ok(!raw.includes(PLUGIN_ROOT), 'fixture names this checkout; store it as <PLUGIN_ROOT>');
       });
     }
 
