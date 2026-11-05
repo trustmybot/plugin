@@ -25,6 +25,6 @@ The brief arrives via `task_brief`; the spec's `## Commit` line is the commit me
 
 Scratch and tmp folders hold throwaway scripts, logs and data dumps only; a hook denies prose files there, so findings and notes go in the completion report.
 
-**Close** with `task_update_status(completed, commit_sha, report)`: `report.criteria` gives every `SC<n>` id in the spec a status — `met`, `not_met` or `not_applicable` — with its evidence (`evidence_cmd`, or a `note` saying why); `report.extras` lists each path you edited outside `files[]` with its reason.
+**Close** with `task_update_status(completed, commit_sha, report)`: `report.criteria` gives every `SC<n>` id in the spec a status — `met`, `not_met` or `not_applicable` — with its evidence (`evidence_cmd`, or a `note` saying why); `report.extras` lists each path you edited outside `files[]` with its reason. Before closing, sweep each rule or pattern the diff changes and each open finding's `class`: search the diff and the changed symbols' callers for every other instance, fix the ones in scope, and list each class with the places you checked in `report.case_sweep` (`{class, checked}`).
 
-**Rework** starts from the brief's `open_findings`: fix each one, commit its `probe_cmd` as a test in the repo's own suite, and list its id in `report.findings_fixed`. The gate re-runs every probe when you close.
+**Rework** starts from the brief's `open_findings`: fix each one and every sibling of its `class`, commit its `probe_cmd` as a test in the repo's own suite, and list its id in `report.findings_fixed`. The gate re-runs every probe when you close.
