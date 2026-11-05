@@ -168,7 +168,7 @@ run_step "L1 lint: no in-session plugin commands prescribed (self-test)" bash "$
 run_step "L1 lint: no in-session plugin commands prescribed" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh"
 run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
 run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
-run_step "L1 lint: live-db shim survives a plain parent directory" bash "$HERE/l1-lint/live-db-shim-parent-layout.sh"
+run_step "L1 lint: live-db shim survives a plain parent directory" node --test "$HERE/lib/live-db-shim.test.mjs"
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
@@ -222,7 +222,7 @@ live_cli_check "L2" || FAIL=1
 
 # ----- L3 — Integration ------------------------------------------------------
 
-run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
+run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  node "$HERE/l3-integration/mcp/run.mjs"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"

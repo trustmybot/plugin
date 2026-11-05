@@ -116,7 +116,7 @@ bash tests/l1-lint/agent-line-budget.sh
 (cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/*.test.js)
 
 # L3 — MCP integration (real server subprocess + JSON-RPC)
-bash tests/l3-integration/mcp/run.sh
+node tests/l3-integration/mcp/run.mjs
 
 # L3 — Hooks (one node:test suite, built with L2 above)
 (cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/<name>-l3.test.js)

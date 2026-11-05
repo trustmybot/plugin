@@ -34,8 +34,6 @@ scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-
 scripts/publish-rc-channel.ts	'ls-remote', '--tags', PLUGIN_REPO	not-location	ls-remote names its remote URL; reads no checkout
 scripts/publish-rc-channel.ts	'clone', '--quiet', '--depth', '1', CATALOG_REPO	not-location	clone names its source URL and an absolute destination
 tests/lib/assert.sh	git -C "$(pwd -P)" rev-parse --show-toplevel	test-harness	assert_not_in_plugin_repo refuses a test whose own cwd is the plugin checkout
-tests/lib/live-db-shim.sh	"\$PWD" "\$*"	test-harness	the generated sqlite3 shim logs the dir it was invoked in
-tests/lib/live-db-shim.sh	abs="\$PWD/\$arg"	test-harness	the generated sqlite3 shim joins a relative DB argument to the dir it was invoked in
 mcp/trajectory-server/src/test-run.ts	spawnSync('bash', ['-c', opts.command]	not-location	the test-run wrapper runs its caller's command in the caller's directory, as verification[] entries run; it finds no project, repo or agent
 mcp/trajectory-server/src/test-run.ts	worktree: process.cwd()	not-location	the suite-slot holder records the dir the suite runs in as data for the waiting line (GH 2092); it finds no project, repo or agent
 mcp/trajectory-server/src/suite-lock.ts	spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)]	not-location	ps by pid for the suite-slot holder's process group (GH 2092); reads no project or repo location
@@ -63,3 +61,5 @@ scripts/hooks/lib/query-task.sh	case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac	c
 mcp/trajectory-server/src/cli/health.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	the server-reachable check counts MCP server processes from the process table; reads no project or repo
 mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	the redaction root falls back to the server's start dir only when neither the DB nor CLAUDE_PROJECT_DIR names a project (an in-memory DB in tests)
 mcp/trajectory-server/src/hooks/resolve-hook.ts	const result = spawnSync(process.execPath, [router	not-location	the headless-shim resolver finds nothing from the cwd: it runs the router in the hook runner's directory, as the plugin's own hooks.json entry does and resolve-hook.sh's exec did (GH 1692)
+tests/lib/live-db-shim.mjs	const here = process.cwd();	test-harness	the generated sqlite3 shim logs the dir it was invoked in and joins a relative DB argument to it
+tests/lib/live-db-shim.mjs	spawnSync(REAL, args, { stdio: 'inherit' })	test-harness	the generated sqlite3 shim runs the real sqlite3 in its caller's dir, as the exec it replaces did
