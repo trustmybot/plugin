@@ -8935,6 +8935,26 @@ function heldWords(encoder, root) {
   }
   return held;
 }
+var PLAIN_EXPANSIONS = ["simple_expansion", "expansion"];
+var CODE_EXPANSIONS = ["command_substitution", "arithmetic_expansion", "process_substitution"];
+function splicedWords(encoder, root) {
+  const plain = /* @__PURE__ */ new Set();
+  const opaque = /* @__PURE__ */ new Set();
+  const classify = (word, redirect) => {
+    const key2 = heldKey(encoder.word(word));
+    const dollars = key2.split("$").length - 1;
+    if (dollars === 0 && !key2.includes("`")) return;
+    const spliced = !redirect && !key2.includes("`") && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+    (spliced ? plain : opaque).add(key2);
+  };
+  for (const node of root.descendantsOfType(["command", "file_redirect", "herestring_redirect"])) {
+    if (!node) continue;
+    const redirect = node.type !== "command";
+    for (const word of node.namedChildren) if (word && !/^(file|herestring)_redirect$/.test(word.type)) classify(word, redirect);
+  }
+  for (const key2 of opaque) plain.delete(key2);
+  return plain;
+}
 function broken(node) {
   if (node.isError || node.isMissing) return true;
   if (!node.hasError) return false;
@@ -8988,7 +9008,7 @@ function encode(parser2, command, charge = NO_CHARGE) {
     if (command.includes("<<") && heredocMisread(command, root)) return { ok: false };
     const encoder = new Encoder(command, charge);
     const text = encoder.range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [], held: heldWords(encoder, root) };
+    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
   } finally {
     tree.delete();
   }
@@ -14630,10 +14650,53 @@ var WritePaths = class _WritePaths {
   }
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   held = /* @__PURE__ */ new Set();
+  /** The `Encoded.spliced` keys of the command `run` is in. */
+  spliced = /* @__PURE__ */ new Set();
   /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
   unbalanced = false;
   isHeld(word) {
     return this.held.has(heldKey(word));
+  }
+  /**
+   * GH 1913: each text an eval with held arguments runs, when the shell fills
+   * them in only from `$NAME` / `${NAME}` variables whose every value is a
+   * literal tracked in this command (no glob, brace, newline or tab, IFS
+   * untouched), one per combination of values (at most 16), none changing
+   * the directory; else null.
+   */
+  evalExpansions(level, args2, body2) {
+    if (this.unbalanced || this.varGet(level.vars, "IFS") !== null) return null;
+    if (args2.some((w) => /[$`]/.test(heldKey(w)) && !this.spliced.has(heldKey(w)))) return null;
+    const text = dec(body2);
+    if (/[`\x07\x08]/.test(text) || !plainDollars(text)) return null;
+    const ref = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+    let combos = [/* @__PURE__ */ new Map()];
+    for (const name3 of new Set([...text.matchAll(ref)].map((m) => m[1] ?? m[2]))) {
+      const vals = this.varGet(level.vars, name3);
+      if (vals === null) return null;
+      const values = vals.split("\n");
+      if (values.some((v) => /[\x01$`*?[{\t\n\r]|[!@+]\(/.test(v))) return null;
+      combos = combos.flatMap((c) => values.map((v) => new Map(c).set(name3, v)));
+      if (combos.length > 16) return null;
+    }
+    const texts = combos.map((c) => text.replace(ref, (_, braced, plain) => c.get(braced ?? plain ?? "") ?? ""));
+    for (const t of texts) {
+      for (const record of this.listing(t, "@", 0)) {
+        if (/^(cd|pushd|popd)$/.test(basename5(unwrapStatement(record.stmt).words[0] ?? ""))) return null;
+      }
+    }
+    return texts;
+  }
+  /** The texts an eval runs: its own when no argument is held, else `evalExpansions`. */
+  evalTexts(level, args2, body2) {
+    return args2.some((w) => this.isHeld(w)) ? this.evalExpansions(level, args2, body2) : [dec(body2)];
+  }
+  /** Runs one eval text at depth + 1 in this shell: a name it sets is poisoned in `level`. */
+  evalRun(level, text, tok, depth) {
+    const seen = new Set(level.vars.split("\n"));
+    for (const line of this.run(text, tok, depth + 1, level.vars).split("\n")) {
+      if (line !== "" && !seen.has(line)) this.poison(level, before(line, "	"));
+    }
   }
   interp = (words3) => interpWrites(
     words3,
@@ -14713,22 +14776,23 @@ var WritePaths = class _WritePaths {
         return;
     }
   }
-  /** _tmb_cmd_write_paths_in */
+  /** _tmb_cmd_write_paths_in; the TS returns the variables tracked when it ends. */
   run(cmd, base2, depth, vars) {
     this.charge(cmd.length);
     const encoded = encode(this.parser, cmd, this.charge);
     if (!encoded.ok) {
       this.print(parseLine(cmd));
-      return;
+      return vars;
     }
-    const outer = this.held;
-    const unbalanced = this.unbalanced;
+    const outer = { held: this.held, spliced: this.spliced, unbalanced: this.unbalanced };
     this.held = encoded.held;
+    this.spliced = encoded.spliced;
     try {
-      this.runEncoded(encoded.text, encoded.heredocs, base2, depth, vars);
+      return this.runEncoded(encoded.text, encoded.heredocs, base2, depth, vars);
     } finally {
-      this.held = outer;
-      this.unbalanced = unbalanced;
+      this.held = outer.held;
+      this.spliced = outer.spliced;
+      this.unbalanced = outer.unbalanced;
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
@@ -14780,7 +14844,14 @@ var WritePaths = class _WritePaths {
         this.poisonSet(level, words3);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner3(record.stmt);
-        if (body2 !== "" && (!evalArgs(words3) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
+        const evaluated = evalArgs(words3);
+        if (body2 !== "" && evaluated && depth < MAX_DEPTH3) {
+          const out2 = this.out;
+          const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
+          for (const text of this.evalTexts(level, evaluated, body2) ?? []) this.evalRun(level, text, tok, depth);
+          this.out = out2;
+        }
+        if (body2 !== "" && (!evaluated && heldProgram(body2) || depth < MAX_DEPTH3)) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
           this.trackVars(level, words3);
@@ -14854,9 +14925,10 @@ var WritePaths = class _WritePaths {
       const evaluated = evalArgs(words3);
       this.poisonSet(level, words3);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
+      const texts = evaluated && body2 !== "" ? this.evalTexts(level, evaluated, body2) : null;
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
       if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
-      if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
+      if (evaluated?.some((w) => this.isHeld(w)) && texts === null) this.print(unprovenLine(dec(record.stmt)));
       else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
       const ownWords = body2 !== "" && !evaluated && basename5(words3[0]) !== "watch";
       if (ownWords) {
@@ -14869,7 +14941,8 @@ var WritePaths = class _WritePaths {
         continue;
       }
       if (body2 !== "" && depth < MAX_DEPTH3) {
-        this.run(dec(body2), tok, depth + 1, level.vars);
+        if (texts) for (const t of texts) this.evalRun(level, t, tok, depth);
+        else this.run(dec(body2), tok, depth + 1, level.vars);
         continue;
       }
       if (body2 !== "") this.print(computedLine(dec(body2)));
@@ -14920,6 +14993,7 @@ var WritePaths = class _WritePaths {
         this.trackVars(level, words3);
       });
     }
+    return level.vars;
   }
 };
 function loopBody(records2, from) {
@@ -15767,7 +15841,7 @@ var UNJUDGED_PHRASE = "cannot be judged:";
 var NEVER_JUDGED = {
   "$(parse)": "the command could not be parsed, so its write targets are unknown; split it or fix its quoting.",
   "$(computed)": "the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.",
-  "$(unproven)": "the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file."
+  "$(unproven)": "the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file; for eval, run each command directly instead of through eval."
 };
 function capture(text) {
   return stripTrailingNewlines(text.replace(/\0/g, ""));
