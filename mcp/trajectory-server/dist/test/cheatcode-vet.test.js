@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CheatcodeInputError } from '../tools/cheatcode-runtime.js';
+import { cheatcodeSearch } from '../tools/cheatcode-search.js';
 import { cheatcodeVet } from '../tools/cheatcode-vet.js';
-import { cleanEnv, githubDirFetch, tempWorkspace } from './cheatcode-stubs.js';
+import { cleanEnv, githubDirFetch, stubFetch, tempWorkspace } from './cheatcode-stubs.js';
 const ws = tempWorkspace('tmb-cheatcode-vet');
 const gh = join(ws.dir, 'gh');
 after(() => ws.cleanup());
@@ -523,6 +524,39 @@ describe('cheatcodeVet over a fixture tree', () => {
     });
     it('(.) a marketplace plugin whose source is "." (the root) stays trusted', async () => {
         assert.equal((await vetTree([MKT, 'SKILL.md'], market([{ name: 'x', source: '.' }]))).trust_tier, 'trusted');
+    });
+});
+describe('cheatcodeVet on a resolved marketplace-relative source (GH 2135)', () => {
+    let out;
+    let requests;
+    before(async () => {
+        const marketplace = JSON.stringify({ plugins: [{ name: 'pr-review-toolkit', description: 'review agents', source: './plugins/pr-review-toolkit' }] });
+        const search = await cheatcodeSearch({ query: 'review', kind: 'plugin' }, { projectRoot: ws.dir, env: cleanEnv(), fetchImpl: stubFetch((u) => (new URL(u).host === 'raw.githubusercontent.com' ? marketplace : null)).fetchImpl });
+        const c = search.candidates[0];
+        assert.ok(c);
+        copyFileSync(join(gh, 'anthropics_live-pdf.repo.json'), join(gh, 'anthropics_claude-plugins-official.repo.json'));
+        stubGh('anthropics_claude-plugins-official.trees.json', {
+            sha: 'abc',
+            truncated: false,
+            tree: [
+                { path: 'plugins/pr-review-toolkit/.claude-plugin/plugin.json', mode: '100644', type: 'blob' },
+                { path: 'plugins/pr-review-toolkit/agents/code-reviewer.md', mode: '100644', type: 'blob' },
+                { path: 'plugins/pr-review-toolkit/agents/silent-failure-hunter.md', mode: '100644', type: 'blob' },
+                { path: 'plugins/other/hooks/hooks.json', mode: '100644', type: 'blob' },
+            ],
+        });
+        stubGh('anthropics_claude-plugins-official.contents.plugins_pr-review-toolkit_.claude-plugin_plugin.json.json', base64Body('{"name":"pr-review-toolkit","agents":["./agents/code-reviewer.md","./agents/silent-failure-hunter.md"]}'));
+        ({ out, requests } = await vetLive({ name: c.name, kind: c.kind, source_url: c.source_url, tier: c.signals.tier }));
+    });
+    it('GH 2135: lists the plugin folder through git/trees and reads its manifest at the ref', () => {
+        assert.ok(requests.includes('https://api.github.com/repos/anthropics/claude-plugins-official/git/trees/main?recursive=1'));
+        assert.ok(requests.includes('https://api.github.com/repos/anthropics/claude-plugins-official/contents/plugins/pr-review-toolkit/.claude-plugin/plugin.json?ref=main'));
+    });
+    it('GH 2135: an agents-only plugin is inspected, not the could-not-inspect caution', () => {
+        assert.ok(!out.rationale.includes('could not be inspected'), out.rationale);
+        assert.ok(!out.rationale.includes('could not be read'), out.rationale);
+        assert.deepEqual(out.capabilities, []);
+        assert.equal(out.trust_tier, 'trusted');
     });
 });
 //# sourceMappingURL=cheatcode-vet.test.js.map
