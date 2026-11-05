@@ -138,13 +138,14 @@ describe('agent-scope middleware', () => {
         const payload = JSON.parse(result.content[0].text);
         assert.deepEqual(Object.keys(payload).slice(0, 4), [
             'error',
+            'argument',
             'tool',
-            'caller_role',
             'allowed_roles',
         ]);
-        assert.equal(payload.error, 'forbidden');
+        assert.equal(payload.error, 'missing_argument');
+        assert.equal(payload.argument, 'agent');
         assert.equal(payload.tool, 'x');
-        assert.equal(payload.caller_role, 'unknown');
+        assert.equal(payload.caller_role, undefined);
         assert.deepEqual(payload.allowed_roles, ['bro']);
         assert.equal(payload.reason, 'agent_missing_or_invalid');
         assert.equal(payload.agent_received, null);
@@ -166,8 +167,8 @@ describe('agent-scope middleware', () => {
         const result = await wrapped({ agent: '!!!' });
         assert.ok(result.isError, 'Expected isError=true');
         const payload = JSON.parse(result.content[0].text);
-        assert.equal(payload.error, 'forbidden');
-        assert.equal(payload.caller_role, 'unknown');
+        assert.equal(payload.error, 'missing_argument');
+        assert.equal(payload.argument, 'agent');
         assert.deepEqual(payload.allowed_roles, ['bro']);
         assert.equal(payload.reason, 'agent_missing_or_invalid');
         assert.equal(payload.agent_received, '!!!');
@@ -197,8 +198,8 @@ describe('requireAgent', () => {
         const result = await requireAgent('issue_list', passthrough)({});
         assert.ok(result.isError);
         const payload = payloadOf(result);
-        assert.equal(payload.error, 'forbidden');
-        assert.equal(payload.caller_role, 'unknown');
+        assert.equal(payload.error, 'missing_argument');
+        assert.equal(payload.argument, 'agent');
         assert.equal(payload.reason, 'agent_missing_or_invalid');
         assert.equal(payload.agent_received, null);
         assert.deepEqual(payload.allowed_roles, ['bro', 'swe', 'code-reviewer', 'consultant']);

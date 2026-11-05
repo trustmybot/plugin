@@ -14,9 +14,15 @@
  * verification_runs under a per-(task, HEAD) mkdir lock, commands the task's
  * last passing ancestor run carries forward are recorded, not run (GH 1950),
  * and the rest run through `bash -c` with the user's toolchain PATH.
+ * Before a run that is not reused, the worktree's opt-in
+ * .config/tmb/worktree-setup.json commands run with that same env (GH 2054);
+ * a setup failure denies with the failing command and its output tail, and
+ * setup is never recorded as a verification command.
  *
  * Budget: plugin_config.verification_timeout_s or TMB_VERIFICATION_TIMEOUT_S,
- * default 900 s, clamped to [1, 1800]; it counts command time only. The record
+ * default 900 s, clamped to [1, 1800]; it counts command time only, worktree
+ * setup included: verification[] gets what setup leaves, and a setup that
+ * spends it denies. The record
  * writes have their own per-write and pooled budgets, and the finish write is
  * tried three times. timed_out is 1 only when the gate's own timer fired or
  * the budget was spent before a command started; a timed-out command's
@@ -25,8 +31,10 @@
  * When a command or probe is a full suite (isFullSuite), the run first takes a
  * suite slot (suite-lock.ts, GH 2092), exported to the commands as
  * TMB_SUITE_LOCK_HELD. The wait comes before the budget timer and is capped at
- * the hook timeout less 30 s and the budget; past the cap the gate denies with
- * `suite slot busy` and records no run.
+ * the hook timeout less 30 s and the budget (1800 s at the 1800 s budget;
+ * TMB_SUITE_WAIT_CAP_S lowers it for tests); waiters queue first come first
+ * served (GH 2297). Past the cap the gate denies with `suite slot busy` and
+ * records no run.
  *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
  * still runs verification[] and denies a failing command where the .sh let
@@ -42,16 +50,23 @@ import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveS
 import { gitRun, isDir } from './lib/git.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
-import { commandSubstitution, ctypeUtf8, jqRawText, posixDirname } from './lib/project-env.js';
+import { commandSubstitution, jqRawText, posixDirname } from './lib/project-env.js';
 import { repoSinglePath } from './lib/repo.js';
 import { normalizeRole } from './lib/role.js';
 import { planCarrySafe } from './lib/verification-carry.js';
+import { reusableRun, runCommandSql, runFinishSql, runStartSql, shellLength } from './lib/verification-runs.js';
 import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
+import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
+export { shellLength, shellTail } from './lib/verification-runs.js';
 export const GATE_NAME = 'swe-verification-gate';
 /** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
-export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 3630;
 const SUITE_WAIT_MARGIN_S = 30;
+/** The suite-slot wait cap: the hook timeout less 30 s and the verification budget. */
+export function suiteWaitCapS(budgetS) {
+    return TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budgetS;
+}
 export const VERIFICATION_DEFAULT_S = 900;
 export const VERIFICATION_MAX_S = 1800;
 const RECORD_BUDGET_MS = 3000;
@@ -61,7 +76,6 @@ const FINISH_BACKOFF_MS = 500;
 const LOCK_POLL_MS = 500;
 const TAIL_LINES = 20;
 const FAILURE_LINES = 15;
-const DEFAULT_TAIL_CHARS = 4000;
 const signals = osConstants.signals;
 const DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
 const WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
@@ -86,17 +100,6 @@ function deny(reason) {
 }
 function context(text) {
     return `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } })}\n`;
-}
-/** bash's `${#s}`: code points under a UTF-8 LC_CTYPE, bytes under C. */
-export function shellLength(s, env) {
-    return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
-}
-/** bash's `${s: -n}` for n > 0, in the units shellLength counts. */
-export function shellTail(s, n, env) {
-    if (ctypeUtf8(env))
-        return [...s].slice(-n).join('');
-    const bytes = Buffer.from(s);
-    return bytes.subarray(Math.max(0, bytes.length - n)).toString('utf8');
 }
 /** awk's `printf "%.1f", ms / 1000`: the exact binary value rounded, an exact tie to even. */
 export function msToS(ms) {
@@ -223,19 +226,6 @@ function failureLines(text) {
         .slice(0, FAILURE_LINES)
         .join('\n');
 }
-function reusableRun(db, taskId, sha, commandsJson, env) {
-    const cmds = sqlQuote(commandsJson);
-    return sqliteRo(db, `SELECT r.id || '|' || r.finished_at FROM verification_runs r
-     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
-       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
-       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
-       AND json_valid('${cmds}')
-       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
-       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
-             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
-            WHERE c.command IS NOT e.value)
-     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`, env);
-}
 /** One verification run of the worktree, recorded in verification_runs as it goes. */
 class VerificationRun {
     c;
@@ -268,28 +258,24 @@ class VerificationRun {
         return { ok: false, code: 2, stdout: '', error: '' };
     }
     start(ms) {
-        const now = nowIso();
-        const r = this.write(ms, `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
- WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now}', ${this.c.timeoutS});
-SELECT last_insert_rowid();`);
+        const r = this.write(ms, runStartSql(this.c.taskId, this.c.wtSha, this.c.timeoutS));
         return r.ok ? commandSubstitution(r.stdout) : '';
     }
     commandWrite(ms, ordinal, command, rc, elapsed, output) {
-        if (!/^[0-9]+$/.test(this.runId)) {
-            this.invalid(`invalid run_id '${this.runId}'`);
+        const s = runCommandSql(GATE_NAME, this.runId, ordinal, command, rc, elapsed, output, this.c.env);
+        if (s.code !== 0) {
+            stderr(`${s.error}\n`);
             return;
         }
-        const rawCap = this.c.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-        const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-        const tail = cap > 0 && shellLength(output, this.c.env) > cap ? shellTail(output, cap, this.c.env) : output;
-        this.write(ms, `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`);
+        this.write(ms, s.sql);
     }
     finishWrite(rc, timedOut) {
-        if (!/^[0-9]+$/.test(this.runId))
-            return this.invalid(`invalid run_id '${this.runId}'`);
-        return this.write(RECORD_BUDGET_MS, `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`);
+        const s = runFinishSql(GATE_NAME, this.runId, rc, timedOut);
+        if (s.code !== 0) {
+            stderr(`${s.error}\n`);
+            return { ok: false, code: 2, stdout: '', error: '' };
+        }
+        return this.write(RECORD_BUDGET_MS, s.sql);
     }
     fixedWrite(ms, id) {
         if (!/^F[0-9]+-[0-9]+$/.test(id))
@@ -333,7 +319,7 @@ SELECT last_insert_rowid();`);
     }
     timeoutReason(ordinal, command, elapsed, cumulative) {
         const ran = elapsed !== '' ? ` after ${elapsed}s` : '';
-        return commandSubstitution(`BLOCKED: verification timed out — the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:\n${command}\n\nRaise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`);
+        return commandSubstitution(`BLOCKED: verification timed out — the ${this.c.timeoutS}s budget${this.c.setupS !== undefined ? ` left after ${this.c.setupS}s of worktree setup` : ''} ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:\n${command}\n\nRaise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`);
     }
     async planCarry() {
         const plan = await planCarrySafe({ db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson }, { ...this.c.env, PATH: this.c.toolchainPath });
@@ -658,21 +644,43 @@ export const sweVerificationGate = async (payload, env) => {
                 return null;
             return context(`TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) — verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`);
         };
+        const setupThenRun = async (runCtx) => {
+            const setupStart = Date.now();
+            const setup = await runWorktreeSetup(worktree, { env: { ...runCtx.env, PATH: toolchainPath }, totalTimeoutMs: runCtx.timeoutS * 1000 });
+            const setupS = Math.ceil((Date.now() - setupStart) / 1000);
+            const raise = `Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up setup.`;
+            if (setup.error !== undefined) {
+                const timedOut = setup.commands.some((c) => c.timed_out);
+                return deny(`BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.\n${describeSetupFailure(setup)}\n\n${timedOut ? `Worktree setup counts against the ${runCtx.timeoutS}s verification budget. ${raise}` : `Fix the command or ${WORKTREE_SETUP_FILE} and retry.`}`);
+            }
+            if (!setup.ran)
+                return new VerificationRun(runCtx).run();
+            const leftS = runCtx.timeoutS - setupS;
+            if (leftS <= 0) {
+                return deny(`BLOCKED: worktree setup used up the ${runCtx.timeoutS}s verification budget (${setupS}s), so verification[] did not run and no verification run was recorded. ${raise}`);
+            }
+            return new VerificationRun({ ...runCtx, timeoutS: leftS, setupS }).run();
+        };
         const suiteCommand = [...commands, ...findings.map((f) => (typeof f.probe_cmd === 'string' ? f.probe_cmd : ''))].find(isFullSuite);
         const verify = async () => {
             if (suiteCommand === undefined)
-                return new VerificationRun(ctx).run();
-            const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+                return setupThenRun(ctx);
+            const fullCapS = suiteWaitCapS(budget.timeoutS);
+            const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? '';
+            const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
+            const capWhy = capS === fullCapS
+                ? `the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget`
+                : 'set by TMB_SUITE_WAIT_CAP_S';
             const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
             if (slot.kind === 'busy') {
-                return deny(`BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`);
+                return deny(`BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`);
             }
             try {
                 const reusedAfterSlot = reuse();
                 if (reusedAfterSlot !== null)
                     return reusedAfterSlot;
                 const env = slot.kind === 'held' ? { ...genv, [SUITE_LOCK_HELD_ENV]: slot.slot } : genv;
-                return await new VerificationRun({ ...ctx, env }).run();
+                return await setupThenRun({ ...ctx, env });
             }
             finally {
                 if (slot.kind === 'held')

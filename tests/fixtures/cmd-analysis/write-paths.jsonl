@@ -1749,3 +1749,18 @@
 {"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; echo > f","cwd":"/w"}
 {"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; while false; do cd /a8; done; echo > f","cwd":"/w"}
 {"cmd":"cat <<A <<B\ngit push\nA\ngit commit -m x\nB\ngit status","cwd":"/w"}
+{"cmd":"echo $(echo a) $B","cwd":"/w"}
+{"cmd":"ls $(echo a) $B","cwd":"/w"}
+{"cmd":"echo $(echo a) \"$B\"","cwd":"/w"}
+{"cmd":"echo `echo a` $B","cwd":"/w"}
+{"cmd":"echo $(echo a) ${B}","cwd":"/w"}
+{"cmd":"echo $(echo a) $B c","cwd":"/w"}
+{"cmd":"echo $(echo a) $B > o","cwd":"/w"}
+{"cmd":"for b in a b; do git diff --name-only $(git merge-base origin/dev $b) $b 2>/dev/null | grep -E x; done","cwd":"/w"}
+{"cmd":"echo $(true) cd /w/ok; touch x","cwd":"/w"}
+{"cmd":"echo `true` cd /w/ok; touch x","cwd":"/w"}
+{"cmd":"echo $(true) pushd /w/ok; touch x","cwd":"/w"}
+{"cmd":"echo $(true) cd /w/ok && touch x","cwd":"/w"}
+{"cmd":"D=/w/a; echo $(true) D=/w/ok; touch $D/x","cwd":"/w"}
+{"cmd":"D=/w/a; echo $(true) export D=/w/ok; touch $D/x","cwd":"/w"}
+{"cmd":"echo $(true) D=/w/ok; touch $D/x","cwd":"/w"}

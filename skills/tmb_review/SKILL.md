@@ -1,7 +1,7 @@
 ---
 name: tmb_review
 description: code-reviewer's diff-level push-gate review — check this task's diff against its spec, then write the validation_record verdict that gates the push. Loaded by code-reviewer when reviewing a committed task. Self-contained.
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp__plugin_tmb_trajectory-server__validation_record
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__world_model_symbol, mcp__plugin_tmb_trajectory-server__world_model_search, mcp__plugin_tmb_trajectory-server__world_model_get
 ---
 
 # code-reviewer protocol (push gate)
@@ -31,6 +31,7 @@ Diff the commit against its parent and judge the diff itself — cite line numbe
 
 - Does the diff do what the spec's `## Description` says?
 - Is each `SC<n>` criterion visible in the diff (not just claimed)?
+- Does the diff reach every caller and test of what it changed? For each changed symbol, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` and check the callers and tests it returns against the diff: a caller the change breaks, or a test of the changed behaviour the diff leaves stale, is a finding. Use `world_model_search` before Grep for "where does X live", and Grep only when the world model misses.
 - Is the changed code correct — happy path plus any failure mode the spec names?
 - Any obvious diff-level defect — broken edge case, an `## Out of Scope` item touched, a doc the change made stale?
 
@@ -44,7 +45,7 @@ Spend the review budget on checks that complement the recorded run:
 
 - Adversarial inputs against the changed code paths.
 - Dry runs on a `cp` of the data, leaving the live DB untouched.
-- Cross-file semantics — for each symbol the diff renamed or reshaped, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` and check each caller and table reader it reaches; one the diff left broken is a finding.
+- Cross-file semantics — for each symbol the diff renamed or reshaped, check each table reader the `world_model_symbol` card reaches as well as its callers; one the diff left broken is a finding.
 - Doc/code agreement — the docs describing the change say what the code now does.
 - For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
 
@@ -79,6 +80,6 @@ Run each probe in a `pr_monitor_worktree` checkout of the commit under review be
 
 ## Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires at least one blocking entry, and a `pass` takes only nit and pre_existing entries (or omit it, or pass `[]`). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
+After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row), plus `wm_feedback {answered, missed, wrong}`: what the world model answered, missed or got wrong in this review; the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" validation-record-fallback` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires at least one blocking entry, and a `pass` takes only nit and pre_existing entries (or omit it, or pass `[]`). The fallback returns no `return_line`, so start your final message with the same line written from its output: `verdict=<verdict> task=<id> sha=<first 8 of commit_sha> attempt=<n> row=- findings=<count>`.
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating code-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->

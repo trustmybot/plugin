@@ -157,17 +157,21 @@ describe('validation_record review findings (GH 1737)', () => {
     assert.match(String(rows[0]!['created_at']), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   });
 
-  it('re-recording an attempt replaces its open findings, keeps fixed ones, and numbers on from the highest id', async () => {
+  it('re-recording an attempt appends at the next attempt, keeps every earlier finding, and numbers on from the highest id', async () => {
     db.run("UPDATE review_findings SET status = 'fixed', resolved_at = ? WHERE id = ?", [new Date().toISOString(), `F${taskId}-1`]);
     const result = await record(1, { verdict: 'fail', findings: [{ probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1' }] });
     assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.equal(parseResult(result).attempt_n, 2);
+    assert.equal(attempts(1), 1);
+    assert.equal(attempts(2), 1);
     assert.deepEqual(
-      findingRows().map((r) => [r['id'], r['status'], r['probe_cmd']]),
+      findingRows().map((r) => [r['id'], r['attempt_n'], r['status'], r['probe_cmd']]),
       [
-        [`F${taskId}-1`, 'fixed', 'npm test'],
-        [`F${taskId}-3`, 'open', 'npm run lint'],
+        [`F${taskId}-1`, 1, 'fixed', 'npm test'],
+        [`F${taskId}-2`, 1, 'open', 'bash tests/l3.sh'],
+        [`F${taskId}-3`, 2, 'open', 'npm run lint'],
       ],
-      'the open F-2 of attempt 1 is replaced by F-3; the fixed F-1 stays',
+      'attempt 1 keeps F-1 and F-2; F-3 attaches to the stored attempt 2',
     );
   });
 
@@ -183,6 +187,7 @@ describe('validation_record review findings (GH 1737)', () => {
       (await call(compositeTools(db, '').handlers, 'task_brief', { agent: 'swe', task_id: taskId })) as RawResult,
     ) as { open_findings: unknown };
     assert.deepEqual(brief.open_findings, [
+      { id: `F${taskId}-2`, criterion_id: null, probe_cmd: 'bash tests/l3.sh', expected: 'exit 0', observed: 'exit 2', severity: 'blocking', class: null },
       { id: `F${taskId}-3`, criterion_id: null, probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: null },
       { id: `F${taskId}-4`, criterion_id: 'SC2', probe_cmd: 'exit 3', expected: 'exit 0', observed: 'exit 1: 2 failing', severity: 'blocking', class: null },
     ]);
@@ -454,16 +459,17 @@ describe('validation_record reviewer identity', () => {
     assert.equal(db.get<{ s: number }>(`SELECT json_extract(content_json, '$.superseded_by') AS s FROM audit WHERE id = ?`, [older])!.s, newer);
   });
 
-  it('a verified pass is never overwritten by an honor-system call (verified_verdict_exists)', async () => {
+  it('an honor-system call at a verified attempt appends at the next attempt and leaves the verified row unchanged', async () => {
     seedReviewerObservation(db, taskId, 13, { agentId: 'reviewer-agent-0013' });
     const verified = await record(13);
     assert.ok(!verified.isError, JSON.stringify(parseResult(verified)));
     const before = db.get<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]);
     const honor = await record(13, { mcp_available: false, verdict: 'fail', subagent_session_id: 'sess-honor', findings: [FINDING] });
-    assert.ok(honor.isError);
-    const error = parseResult(honor).error as string;
-    assert.match(error, /^verified_verdict_exists/);
-    assert.match(error, /verified pass verdict/);
+    assert.ok(!honor.isError, JSON.stringify(parseResult(honor)));
+    const row = parseResult(honor);
+    assert.equal(row.attempt_n, 14);
+    assert.equal(row.verdict, 'fail');
+    assert.equal(row.mcp_available, 0);
     assert.deepEqual(
       { ...db.get<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]) },
       { ...before },
@@ -471,16 +477,22 @@ describe('validation_record reviewer identity', () => {
     );
   });
 
-  it('a verified verdict replaces a verified verdict', async () => {
-    seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
-    assert.ok(!(await record(14)).isError);
-    seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
-    const replaced = await record(14, { verdict: 'fail', feedback: '# re-recorded', findings: [FINDING] });
-    assert.ok(!replaced.isError, JSON.stringify(parseResult(replaced)));
-    const row = parseResult(replaced);
+  it('a verified verdict at a recorded attempt appends after the verified one', async () => {
+    seedReviewerObservation(db, taskId, 21, { agentId: 'reviewer-agent-0021' });
+    assert.ok(!(await record(21)).isError);
+    const before = db.get<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 21', [taskId]);
+    seedReviewerObservation(db, taskId, 21, { agentId: 'reviewer-agent-0021' });
+    const appended = await record(21, { verdict: 'fail', feedback: '# re-recorded', findings: [FINDING] });
+    assert.ok(!appended.isError, JSON.stringify(parseResult(appended)));
+    const row = parseResult(appended);
+    assert.equal(row.attempt_n, 22);
     assert.equal(row.verdict, 'fail');
     assert.equal(row.mcp_available, 1);
-    assert.equal(row.reviewer_agent_id, 'reviewer-agent-0014');
+    assert.equal(row.reviewer_agent_id, 'reviewer-agent-0021');
+    assert.deepEqual(
+      { ...db.get<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 21', [taskId]) },
+      { ...before },
+    );
   });
 
   it('honor-system path (mcp_available:false, no row) records caller values and audits validation_session_unverified', async () => {
@@ -785,5 +797,160 @@ describe('validation_record return_line (GH 1959)', () => {
     assert.equal(data.findings.length, 2);
     assert.equal(data.return_line, `verdict=fail task=${taskId} sha=fedcba98 attempt=2 row=${data.id} findings=2`);
     assert.match(data.return_line, /^[\x20-\x7e]+$/);
+  });
+
+  it('GH 2412: a PASS at the attempt_n of an earlier FAIL appends at MAX+1 and leaves the FAIL and its open findings as they were', async () => {
+    const fail = await record(7, { verdict: 'fail', findings: [FINDING] });
+    assert.ok(!fail.isError, fail.content[0].text);
+    const failRow = { ...db.get<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 7', [taskId]) };
+    assert.equal(failRow['reviewer_agent_id'], 'reviewer-agent-1959-7');
+    const failFindings = db.all<Record<string, unknown>>('SELECT * FROM review_findings WHERE task_id = ? AND attempt_n = 7', [taskId]).map((r) => ({ ...r }));
+    assert.equal(failFindings.length, 1);
+
+    const pass = await record(7, { verdict: 'pass' });
+    assert.ok(!pass.isError, pass.content[0].text);
+    const data = parseResult(pass);
+    assert.equal(data.attempt_n, 8);
+    assert.equal(data.verdict, 'pass');
+    assert.equal(data.return_line, `verdict=pass task=${taskId} sha=fedcba98 attempt=8 row=${data.id} findings=0`);
+
+    const rows = db.all<Record<string, unknown>>('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n IN (7, 8) ORDER BY id', [taskId]).map((r) => ({ ...r }));
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows[0], failRow, 'the FAIL row is unchanged: verdict, feedback, created_at, reviewer ids');
+    assert.equal(rows[1]!['verdict'], 'pass');
+    assert.equal(rows[1]!['id'], data.id);
+    assert.deepEqual(
+      db.all<Record<string, unknown>>('SELECT * FROM review_findings WHERE task_id = ? AND attempt_n = 7', [taskId]).map((r) => ({ ...r })),
+      failFindings,
+      'the FAIL findings stay open',
+    );
+    assert.equal(failFindings[0]!['status'], 'open');
+  });
+});
+
+describe('validation_record wm_feedback (GH 2417)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+  let issueId: number;
+
+  before(async () => {
+    db = tempDB();
+    issueId = await createIssue(db);
+    taskId = await createTask(db, issueId);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  function record(attemptN: number, extra: Record<string, unknown>): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-agent-2417-${attemptN}` });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer',
+      task_id: taskId,
+      attempt_n: attemptN,
+      verdict: 'pass',
+      feedback: '# Review',
+      mcp_available: true,
+      ...extra,
+    });
+  }
+
+  const feedbackRows = () =>
+    db.all<{ issue_id: number; from_node: string; content_json: string }>(
+      `SELECT issue_id, from_node, content_json FROM audit WHERE event_type = 'wm_feedback' ORDER BY id`,
+    );
+  const attemptCount = () => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])!.n;
+
+  it('a call without wm_feedback writes no wm_feedback row', async () => {
+    const result = await record(1, {});
+    assert.ok(!result.isError, result.content[0].text);
+    assert.equal(feedbackRows().length, 0);
+  });
+
+  it('a call with wm_feedback writes one wm_feedback row on the task issue', async () => {
+    const wm_feedback = { answered: 'callers of insertAudit', wrong: 'listed a deleted test file' };
+    const result = await record(2, { wm_feedback });
+    assert.ok(!result.isError, result.content[0].text);
+    const rows = feedbackRows();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.issue_id, issueId);
+    assert.equal(rows[0]!.from_node, 'code-reviewer');
+    assert.deepEqual(JSON.parse(rows[0]!.content_json), { task_id: taskId, agent: 'code-reviewer', ...wm_feedback, missed: null });
+  });
+
+  for (const [label, wm_feedback, pattern] of [
+    ['a non-object', 'fine', /wm_feedback must be an object/],
+    ['an unknown key', { answered: 'x', note: 'y' }, /wm_feedback has unknown field\(s\) note/],
+    ['a non-string value', { answered: true }, /wm_feedback\.answered must be a string/],
+  ] as const) {
+    it(`refuses ${label} wm_feedback with wm_feedback_invalid and writes nothing`, async () => {
+      const before = attemptCount();
+      const result = await record(10, { wm_feedback });
+      assert.ok(result.isError);
+      assert.match(parseResult(result).error, new RegExp(`^wm_feedback_invalid: ${pattern.source}`));
+      assert.equal(attemptCount(), before);
+      assert.equal(feedbackRows().length, 1);
+    });
+  }
+});
+
+describe('validation_history findings per attempt (GH 1955)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+  let otherTaskId: number;
+
+  before(async () => {
+    db = tempDB();
+    const issueId = await createIssue(db);
+    taskId = await createTask(db, issueId);
+    otherTaskId = Number(db.run(`INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, 'fix/other', 'd', 'pending', datetime('now'), datetime('now'))`, [issueId]).lastInsertRowid);
+    const now = new Date().toISOString();
+    for (const [n, verdict] of [[1, 'fail'], [2, 'pass']] as const) {
+      db.run(
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
+         VALUES (?, ?, 'code-reviewer', ?, '# fb', 1, ?)`,
+        [taskId, n, verdict, now],
+      );
+    }
+    db.run(
+      `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+       VALUES (?, ?, 1, 'SC1', 'npm test', 'exit 0', 'exit 1', 'fixed', ?, 'blocking', 'off-by-one'),
+              (?, ?, 2, NULL, 'npm run lint', 'clean', '1 warning', 'open', ?, 'nit', NULL)`,
+      [`F${taskId}-1`, taskId, now, `F${taskId}-2`, taskId, now],
+    );
+  });
+
+  after(() => db.close());
+
+  const history = (args: Record<string, unknown>) =>
+    call(validationTools(db).handlers, 'validation_history', { task_id: taskId, ...args });
+
+  it('each row carries the findings of its attempt with their text, severity and class', async () => {
+    const rows = parseResult(await history({ agent: 'bro' })) as Array<{ attempt_n: number; findings: unknown }>;
+    assert.deepEqual(rows.map((r) => r.findings), [
+      [{ id: `F${taskId}-1`, criterion_id: 'SC1', status: 'fixed', probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: 'off-by-one' }],
+      [{ id: `F${taskId}-2`, criterion_id: null, status: 'open', probe_cmd: 'npm run lint', expected: 'clean', observed: '1 warning', severity: 'nit', class: null }],
+    ]);
+  });
+
+  it("fields: ['findings'] projects the array, also on the paged form", async () => {
+    const rows = parseResult(await history({ agent: 'bro', fields: ['findings'] })) as Array<Record<string, unknown>>;
+    assert.deepEqual(Object.keys(rows[0]!), ['findings']);
+    assert.equal((rows[0]!['findings'] as unknown[]).length, 1);
+    const paged = parseResult(await history({ agent: 'bro', fields: ['attempt_n', 'findings'], limit: 1 })) as { rows: Array<Record<string, unknown>> };
+    assert.equal((paged.rows[0]!['findings'] as Array<{ id: string }>)[0]!.id, `F${taskId}-1`);
+  });
+
+  it('swe gets findings exactly where it gets feedback', async () => {
+    const own = parseResult(await history({ agent: 'swe', own_task_id: taskId })) as Array<Record<string, unknown>>;
+    assert.ok(own.every((r) => 'feedback' in r && Array.isArray(r['findings'])));
+    const other = parseResult(await history({ agent: 'swe', own_task_id: otherTaskId })) as Array<Record<string, unknown>>;
+    assert.ok(other.length === 2 && other.every((r) => !('feedback' in r) && !('findings' in r)));
+  });
+
+  it('the tool description names findings', () => {
+    const def = validationTools(db).definitions.find((d) => d.name === 'validation_history')!;
+    assert.match(def.description ?? '', /findings, the review_findings rows of that attempt/);
   });
 });

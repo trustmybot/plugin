@@ -8,8 +8,3 @@
 # are this lint's subjects.
 scripts/hooks/lib/query-task.sh@tmb_gate_read
 scripts/hooks/lib/query-task.sh@tmb_sqlite_ro
-
-# db-write.sh is the write library: $sql/$wrapped are whole-statement parameters
-# (callers are this lint's subjects) and tmb_audit_sql quotes every value itself
-# via printf arguments; its own function names put every line in SQL context.
-scripts/hooks/lib/db-write.sh

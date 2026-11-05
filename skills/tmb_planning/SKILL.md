@@ -2,6 +2,7 @@
 name: tmb_planning
 description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, verify on return, atomic-close. Loaded on the first code-touching ask of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
+effort: high
 ---
 
 # Planning — bro's code-touching flow
@@ -38,6 +39,8 @@ When a remote is configured, ask the Human which branch to base the new feature 
 Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
+
+Before each `task_provision`, `task_reopen`, `task_retry` or `task_update_spec` that writes a spec, invoke the `tmb_spec-authoring` skill with the issue or task id as its argument; its `effort: high` raises that turn to high.
 
 When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
@@ -131,11 +134,10 @@ If any of the four checks fails, record it with `bro_verification_fail_record` (
 
 When code-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>`:
 
-- **Exit 0** — rebased and re-verified; push the SHA it prints.
+- **Exit 0** — rebased and re-verified, and the task now records the SHA it prints; spawn code-reviewer on that SHA, then push it. A base that had not moved prints the reviewed SHA unchanged; push it as is.
 - **Exit 1** — `verification[]` failed on the rebased commit; surface the failure and rework the task (below).
 - **Exit 2** — conflict or patch drift; `task_retry` on a fresh branch from the current base, with a spec that points at the reviewed commit. The retry goes through verify and review again.
-- **Exit 3** — the task has no passing review; spawn code-reviewer first.
-
+- **Exit 3** — the task has no passing review for its recorded SHA (an integrated head needs its own); spawn code-reviewer first.
 ### Rework and spec changes
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.

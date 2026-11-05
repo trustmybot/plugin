@@ -19,7 +19,7 @@ jobs:
   payload:
     name: Build and publish the runtime payload
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -63,6 +63,19 @@ jobs:
             *) echo "::error::git ls-remote failed with exit $status."
                exit "$status" ;;
           esac
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.existing.outputs.exists == 'false'
+
+      - name: Build the generated payload
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          (cd dashboard && bun install --frozen-lockfile)
+          bun run build:payload
+          git add -f mcp/trajectory-server/dist dashboard/dist \
+            scripts/hooks/lib/audit-events.txt scripts/hooks/lib/data-contracts.json
 
       - name: Build the payload commit
         if: steps.existing.outputs.exists == 'false'

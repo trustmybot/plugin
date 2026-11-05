@@ -13,7 +13,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L0** | Install-smoke (Docker `bun install --ignore-scripts`), an upgrade smoke from a real-shape v1.0.2 DB, plus an isolated local Codex installer smoke | [`l0-install/`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn, a v1.0.2 DB failing trajectory-doctor after the upgrade, Codex Skill selection, accidental Claude command migration |
 | **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
-| **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
+| **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), hook suites `mcp/trajectory-server/src/test/*-l3.test.ts` (node:test, run with L2) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
 | **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
@@ -116,10 +116,10 @@ bash tests/l1-lint/agent-line-budget.sh
 (cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/*.test.js)
 
 # L3 — MCP integration (real server subprocess + JSON-RPC)
-bash tests/l3-integration/mcp/run.sh
+node tests/l3-integration/mcp/run.mjs
 
-# L3 — Hook scripts
-bash tests/l3-integration/hooks/run.sh
+# L3 — Hooks (one node:test suite, built with L2 above)
+(cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/<name>-l3.test.js)
 
 # L4 — Workflow simulation
 bun test --timeout 30000 tests/l4-workflow-sim/*.test.mjs
@@ -239,7 +239,7 @@ Does the change affect cross-step / multi-turn dynamics?
   → L2 + L3 + L6 (add a row under tests/l5-l6/rows/ AND an entry to tests/l5-l6/l6-chain/chain-manifest.json).
 
 Does the change introduce a hook or modify hook behavior?
-  → L3 (tests/l3-integration/hooks/<name>.test.sh).
+  → L3 (mcp/trajectory-server/src/test/<name>-l3.test.ts).
 
 Does the change touch the schema (DB tables, columns, CHECK constraints)?
   → L2 (test the new shape) + L3 (regression test that callers handle migration).
@@ -260,33 +260,37 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 |---|---|---|
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/l3-integration/mcp/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
-| Hook script | `tests/l3-integration/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
+| Hook | `mcp/trajectory-server/src/test/<name>-l3.test.ts` | `node:test` + `node:assert/strict`; `makeSandbox()` + `runGate()` from `src/test/hook-sandbox.ts`, `CLAUDE_PROJECT_DIR` pinned to the sandbox (skeleton below) |
 | L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 
 ### Hook test skeleton
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$HERE/../../lib/assert.sh"
-PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-HOOK="$PLUGIN_ROOT/scripts/hooks/<your-hook>.sh"
+```ts
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+import { makeSandbox, runGate, type Sandbox } from './hook-sandbox.js';
 
-test_case "describe the scenario"
-out=$(echo '{"tool_input":{"command":"..."}}' | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" "expected-substring"
+describe('<your-gate> l3', () => {
+  let sb: Sandbox;
 
-summarize
+  before(() => {
+    sb = makeSandbox('<your-gate>');
+  });
+
+  after(() => sb.remove());
+
+  it('describe the scenario', () => {
+    const r = runGate('<your-gate>', {
+      cwd: sb.dir,
+      input: JSON.stringify({ tool_input: { command: '...' } }),
+      env: { ...sb.env, CLAUDE_PROJECT_DIR: sb.dir },
+    });
+    assert.match(r.stdout + r.stderr, /expected-substring/);
+  });
+});
 ```
 
-Assertion helpers (`tests/lib/assert.sh`):
-
-- `assert_eq <expected> <actual> [label]`
-- `assert_contains <haystack> <needle> [label]`
-- `assert_not_contains <haystack> <needle> [label]`
-- `assert_exit_code <expected> <actual> [label]`
-- `summarize` — prints pass/fail summary; returns non-zero if any assertion failed.
+`hook-sandbox.ts` gives each suite a temp dir with its own `HOME` and `TMPDIR` and a child env that inherits no `CLAUDE_*` / `TMB_*` variable. Pin `CLAUDE_PROJECT_DIR` (or `TRAJECTORY_DB_PATH`) to the sandbox in every hook run, so the hook never resolves the live project trajectory DB. It also exports `noCmdPath()` (a `PATH` without one command), `jsonValues()` and `contextOf()` (a hook's JSON output and its `additionalContext`); `db-test-fixtures.ts` has `migratedDb()` for a current-schema DB.
 
 ### Dry runs as assertions (`cli.js assert-sql`)
 

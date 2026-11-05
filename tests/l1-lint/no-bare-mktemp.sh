@@ -7,7 +7,6 @@
 # drops every trailing slash; a raw `${TMPDIR:-/tmp}/` parent yields a `//` that
 # hooks normalise away and path comparisons then miss:
 #   D=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-<name>.XXXXXX")
-#   D=$(mktemp -d "$(tmp_footprint_parent)/tmb-<name>.XXXXXX")   # tests/lib/tmp-footprint.sh sourced
 #
 # A call is a mktemp in command position (line start, after `$(`, a backtick,
 # or `;` `&` `|` and a space); its first non-flag argument must contain a `/`
@@ -131,7 +130,7 @@ OUT=$(scan "$ALLOWLIST" "${FILES[@]}")
 status=$?
 
 if [ "$status" -ne 0 ]; then
-  printf 'No-bare-mktemp: FAIL — mktemp without a slash-stripped path template (BSD mktemp ignores TMPDIR and the sandbox denies its default dir; a raw ${TMPDIR:-/tmp}/ parent doubles macOS'"'"'s trailing slash).\nUse: D=$(mktemp -d "$(printf %%s "${TMPDIR:-/tmp}" | sed '"'"'s|/*$||'"'"')/tmb-<name>.XXXXXX") (or "$(tmp_footprint_parent)/..." where tests/lib/tmp-footprint.sh is sourced)\n%s\n' "$OUT" >&2
+  printf 'No-bare-mktemp: FAIL — mktemp without a slash-stripped path template (BSD mktemp ignores TMPDIR and the sandbox denies its default dir; a raw ${TMPDIR:-/tmp}/ parent doubles macOS'"'"'s trailing slash).\nUse: D=$(mktemp -d "$(printf %%s "${TMPDIR:-/tmp}" | sed '"'"'s|/*$||'"'"')/tmb-<name>.XXXXXX")\n%s\n' "$OUT" >&2
   exit 1
 fi
 printf 'No-bare-mktemp: PASS (%d files)\n' "${#FILES[@]}"

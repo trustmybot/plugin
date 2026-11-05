@@ -116,7 +116,7 @@ test('issue_update_description — agent=code-reviewer returns forbidden', async
   assert.equal(result.error?.caller_role, 'code-reviewer');
 });
 
-test('issue_update_description — missing agent returns forbidden (unknown role)', async (t) => {
+test('issue_update_description — missing agent returns missing_argument', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -126,9 +126,9 @@ test('issue_update_description — missing agent returns forbidden (unknown role
     issue_id: String(issue.id),
     description: 'no agent provided',
   });
-  assert.equal(result.ok, false, 'missing agent should be forbidden');
-  assert.equal(result.error?.error, 'forbidden');
-  assert.equal(result.error?.caller_role, 'unknown');
+  assert.equal(result.ok, false, 'missing agent should be rejected');
+  assert.equal(result.error?.error, 'missing_argument');
+  assert.equal(result.error?.argument, 'agent');
 });
 
 test('issue_update_description — missing issue_id returns validation error', async (t) => {

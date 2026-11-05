@@ -37,7 +37,7 @@ import { pluginVersion, jqCompare, jqIntText } from './bro-turn-usage.js';
 import { taskLocation } from './lib/agent-context.js';
 import { auditAppend, auditSql, dbWrite, nowIso } from './lib/audit.js';
 import { branchSlug, dbPath, haveSqlite, projectRoot, realdir, sqliteRo, sqlInt, sqlQuote, stateDir, stripTrailingNewlines, taskIdFromTranscript } from './lib/db.js';
-import { effortDefaults } from './lib/effort.js';
+import { reviewerEffortFor } from './lib/effort.js';
 import { cdPwd, gitOk, gitOut, isDir } from './lib/git.js';
 import { byteCompare, commandSubstitution } from './lib/host.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
@@ -469,8 +469,7 @@ SELECT CASE WHEN resumed_from IS NOT NULL THEN started_at END FROM agent_runs
   const usageInsertSql = measured ? "'subagent_stop'" : "'unmeasured'";
 
   if (agentType === 'code-reviewer') {
-    const defaults = effortDefaults(db, env);
-    const reviewerEffort = defaults.includes('|') ? defaults.slice(defaults.indexOf('|') + 1) : defaults;
+    const reviewerEffort = reviewerEffortFor(db, taskId, env)?.effort ?? '';
     const effortSql = ['low', 'medium', 'high'].includes(reviewerEffort) ? `'${reviewerEffort}'` : 'NULL';
     const safeProjectRoot = sqlQuote(physicalDir(`${posixDirname(db)}/../..`, env));
     const ok = write(

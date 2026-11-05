@@ -128,6 +128,7 @@ describe('agent-spawn-dispatch end to end', () => {
        CREATE TABLE verification_runs (id INTEGER PRIMARY KEY, task_id INTEGER, commit_sha TEXT, exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0);
        CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
        CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
+       CREATE TABLE audit (id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, content_json TEXT);
        INSERT INTO issues (id) VALUES (1);`);
         exec(db, "INSERT INTO repos (name, path, target_branch) VALUES ('plugin', ?, 'dev')", r);
         exec(db, "INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'closed', 'plugin', 'dev', ?)", sha);

@@ -6,7 +6,7 @@
 #   L0 — Install-smoke (Docker)          → tests/l0-install/install-smoke.Dockerfile (installation layer: run locally with Docker before a PR; release-gate also runs it on rc tags)
 #   L1 — Static / lint                   → tests/l1-lint/*.sh              ← this file
 #   L2 — Unit (MCP handlers)             → mcp/trajectory-server/src/test/*.ts ← this file
-#   L3 — Integration (server + hooks)    → tests/l3-integration/mcp/*.mjs + tests/l3-integration/hooks/*.sh ← this file
+#   L3 — Integration (server + hooks)    → tests/l3-integration/mcp/*.mjs (hook suites: mcp/trajectory-server/src/test/*-l3.test.ts, run in L2) ← this file
 #   L4 — Workflow simulation             → tests/l4-workflow-sim/*.mjs     ← this file
 #   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
 #   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
@@ -86,6 +86,11 @@ live_cli_check() {
   fi
   printf "→ sentinel 0-byte: no live CLI calls during %s. PASS\n" "$1"
 }
+
+# ----- Build the generated payload --------------------------------------
+# Server dist, dashboard dist, audit-events.txt and data-contracts.json, which
+# the L1 lints below read (GH 2054).
+run_step "Build: generated payload (bun run build:payload)" bun run --cwd "$PLUGIN_ROOT" build:payload
 
 # ----- L1 — Static / lint -----------------------------------------------
 # Offline: lints that would query a forge (TMB_L1_OFFLINE=1) skip, and the
@@ -168,16 +173,13 @@ run_step "L1 lint: no in-session plugin commands prescribed (self-test)" bash "$
 run_step "L1 lint: no in-session plugin commands prescribed" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh"
 run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
 run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
-run_step "L1 lint: live-db shim survives a plain parent directory" bash "$HERE/l1-lint/live-db-shim-parent-layout.sh"
+run_step "L1 lint: live-db shim survives a plain parent directory" node --test "$HERE/lib/live-db-shim.test.mjs"
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
 run_step "L1 lint: no filesystem writes at module load" bash "$HERE/l1-lint/no-module-load-writes.sh"
-run_step "L1 lint: hook tests that source assert.sh call summarize" bash "$HERE/l1-lint/test-summarize-present.sh"
 run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH (self-test)" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh" --self-test
 run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh"
-run_step "L1 lint: hook tests pin the project (self-test)" bash "$HERE/l1-lint/hook-tests-pin-project.sh" --self-test
-run_step "L1 lint: hook tests pin the project" bash "$HERE/l1-lint/hook-tests-pin-project.sh"
 run_step "L1 lint: no .tmp-* scratch dir in the checkout" bash "$HERE/l1-lint/no-scratch-in-tree.sh"
 run_step "L1 lint: nothing finds the project or a repo from the cwd" bash "$HERE/l1-lint/no-cwd-reads.sh"
 run_step "L1 lint: /onboard option wording is plain language (self-test)" bash "$HERE/l1-lint/onboard-option-wording.sh" --self-test
@@ -199,7 +201,7 @@ run_step "L1 self-check: every tests/l1-lint/*.sh runs here" l1_lints_all_wired
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
-run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+run_step "L1 bench: measurement harness selftest"     node --test "$HERE/benchmarks/selftest.test.mjs"
 
 export PATH="$_l1_saved_path"
 unset TMB_L1_OFFLINE
@@ -225,10 +227,10 @@ live_cli_check "L2" || FAIL=1
 
 # ----- L3 — Integration ------------------------------------------------------
 
-run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
-run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
+run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  node "$HERE/l3-integration/mcp/run.mjs"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
+run_step "L3 integration: generated payload parity (dev-build)"       node --test "$HERE/l3-integration/payload-parity.test.mjs"
 run_step "L3 integration: await payload/<tag> on the remote"          node --test "$HERE/l3-integration/await-payload-tag.test.mjs"
 run_step "L3 integration: release.ts + publish-rc-channel.ts (stubbed git/gh)"  node --test "$HERE/l3-integration/release-scripts.test.mjs"
 run_step "L3 integration: changelog fragments + bump-version"         node --test "$HERE/l3-integration/changelog-fragments.test.mjs"

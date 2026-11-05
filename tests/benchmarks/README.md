@@ -2,16 +2,16 @@
 
 Tools for measuring token burn, cache health, Claude Code subagent behaviour, and Codex Agent materialization latency.
 
-**Dependencies:** the legacy transcript tools use `bash` and `python3` (stdlib only); the Codex materialization harness uses Node.js 22 or newer. `jq` is not required. `selftest.sh` runs each available toolchain independently and prints a warning for a missing optional runtime.
+**Dependencies:** every tool runs on Node.js 22 or newer with the standard library only; neither `bash`, Python nor `jq` is required. The transcript tools (`replay-session`, `tokens-per-turn`, `cache-stability`, `spawn-reads`) share `python-compat.mjs`, which keeps the output byte-identical to the Python scripts they replaced; `fixtures/golden/` holds that output and `selftest.test.mjs` asserts it.
 
 ## Tools
 
-### replay-session.sh
+### replay-session.mjs
 
 Parse a raw CC session JSONL file and emit per-turn metrics.
 
 ```
-bash tests/benchmarks/replay-session.sh <session.jsonl> [--jsonl | --table]
+node tests/benchmarks/replay-session.mjs <session.jsonl> [--jsonl | --table]
 ```
 
 **Output fields per turn:**
@@ -29,25 +29,25 @@ bash tests/benchmarks/replay-session.sh <session.jsonl> [--jsonl | --table]
 
 Default output is JSONL (one object per turn). Pass `--table` for a human-readable ASCII table.
 
-### tokens-per-turn.sh
+### tokens-per-turn.mjs
 
 Compute aggregate token statistics over a replay-session output.
 
 ```
-bash tests/benchmarks/replay-session.sh session.jsonl > replay.jsonl
-bash tests/benchmarks/tokens-per-turn.sh replay.jsonl
+node tests/benchmarks/replay-session.mjs session.jsonl > replay.jsonl
+node tests/benchmarks/tokens-per-turn.mjs replay.jsonl
 ```
 
 Output: `avg=N p50=N p95=N (over M turns)`
 
 Tokens counted: `input_tokens + output_tokens` per turn. Cache tokens are excluded — they represent context re-read, not new model computation, so they belong in a separate cache-hit analysis.
 
-### cache-stability.sh
+### cache-stability.mjs
 
 Compare two replay-session outputs of the same session run at different times to assess cache prefix stability.
 
 ```
-bash tests/benchmarks/cache-stability.sh replay-run1.jsonl replay-run2.jsonl
+node tests/benchmarks/cache-stability.mjs replay-run1.jsonl replay-run2.jsonl
 ```
 
 **Output columns:**
@@ -60,12 +60,12 @@ bash tests/benchmarks/cache-stability.sh replay-run1.jsonl replay-run2.jsonl
 
 A healthy, stable session has high `SHARED_PFX` and low `DRIFT`. High `DRIFT` signals that hook injections or system-reminder content changed between runs, breaking the cache prefix.
 
-### spawn-reads.sh
+### spawn-reads.mjs
 
 Count subagent spawns (TaskCreate tool calls) and Read tool calls in a raw session JSONL, and compute mean reads per spawn.
 
 ```
-bash tests/benchmarks/spawn-reads.sh session.jsonl
+node tests/benchmarks/spawn-reads.mjs session.jsonl
 ```
 
 Output: `spawns=N reads=M mean_reads_per_spawn=X.XX`
@@ -151,21 +151,23 @@ Other types (`last-prompt`, `permission-mode`, `file-history-snapshot`, `ai-titl
 | `bro-5turn.jsonl` | 5-turn bro session: task_list, task_brief, task_update_status calls with realistic usage fields and hook-injected system-reminders |
 | `bro-with-spawn.jsonl` | Session with two TaskCreate subagent spawns (swe + code-reviewer) |
 | `bro-provision-reads.jsonl` | Two `task_provision` windows with Read/Grep/Glob, reading and non-reading Bash, world-model calls, an MCP-prefixed tool name and a sidechain read |
+| `edge-python-semantics.jsonl` | Malformed, blank and CR-separated lines, non-ASCII and astral text, empty usage, string content, and tie-valued totals (2.5 average, 1/8 reads per spawn) |
+| `edge-null-usage.jsonl` | A present `null` usage key and float token values |
 
 ## Acceptance Criteria (token-burn issues)
 
 A token-burn issue is considered resolved when:
 
-1. `replay-session.sh` on a representative session shows `cache_read_tokens` increasing monotonically across turns (cache prefix is stable).
-2. `tokens-per-turn.sh` p95 falls within the target bound for the session type (set per issue).
-3. `cache-stability.sh` between two identical runs shows `DRIFT < 500` tokens per turn (hook injection is deterministic and not re-creating the cache prefix).
-4. `spawn-reads.sh` shows `mean_reads_per_spawn <= 3` for a mature bro session (subagents lean on world model, not cold-start reads).
+1. `replay-session.mjs` on a representative session shows `cache_read_tokens` increasing monotonically across turns (cache prefix is stable).
+2. `tokens-per-turn.mjs` p95 falls within the target bound for the session type (set per issue).
+3. `cache-stability.mjs` between two identical runs shows `DRIFT < 500` tokens per turn (hook injection is deterministic and not re-creating the cache prefix).
+4. `spawn-reads.mjs` shows `mean_reads_per_spawn <= 3` for a mature bro session (subagents lean on world model, not cold-start reads).
 
 ## Running
 
 ```bash
 # All benchmark selftests (fast, deterministic — no live services)
-bash tests/benchmarks/selftest.sh
+node --test tests/benchmarks/selftest.test.mjs
 
 # As part of the full test suite (wired into L1-adjacent section)
 bash tests/run-all.sh

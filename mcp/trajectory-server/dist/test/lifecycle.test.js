@@ -9,6 +9,7 @@ import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
+import { HAS_PASS_SQL } from '../review-sql.js';
 import { taskHasPassingReview } from '../tools/lifecycle.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
 const DB_PATH = '/tmp/.claude/tmb/trajectory.db';
@@ -207,6 +208,20 @@ describe('issue_close: review evidence for closed tasks', () => {
         recordVerdict(db, t, 'pass', iso(-2 * HOUR));
         recordVerificationPass(db, issue, t, 'abc1234', iso(-HOUR));
         assert.equal(taskHasPassingReview(db, t), true);
+        db.close();
+    });
+    it('GH 2412: the newest verdict gates: a fail after an anchored pass is no pass until a newer pass is appended', () => {
+        const db = tempDB();
+        const issue = seedIssue(db);
+        const t = seedTask(db, issue, 'closed', { commit: 'abc1234' });
+        recordVerificationPass(db, issue, t, 'abc1234', iso(-4 * HOUR));
+        recordVerdict(db, t, 'pass', iso(-3 * HOUR));
+        assert.equal(taskHasPassingReview(db, t), true);
+        recordVerdict(db, t, 'fail', iso(-2 * HOUR));
+        assert.equal(taskHasPassingReview(db, t), false, 'the newest row is a fail');
+        assert.equal(db.get(`SELECT COUNT(*) AS n FROM tasks t WHERE t.id = ? AND NOT ${HAS_PASS_SQL}`, [t]).n, 1, 'NOT HAS_PASS_SQL negates the whole rule');
+        recordVerdict(db, t, 'pass', iso(-HOUR));
+        assert.equal(taskHasPassingReview(db, t), true, 'a newer pass counts again');
         db.close();
     });
     it('a pass at an escalated commit A never covers a close at commit B', async () => {
@@ -479,7 +494,7 @@ describe('bro_atomic_close', () => {
         assert.equal(issueStatus(db, issue), 'open');
         assert.equal(spawned, 0, 'no remote close');
         const auditAfter = db.get('SELECT COUNT(*) AS n FROM audit').n;
-        assert.equal(auditAfter - auditBefore, 2, 'only scope_gate_waived + bro_verification_pass');
+        assert.equal(auditAfter - auditBefore, 3, 'only scope_gate_waived + bro_verification_pass + reviewer_effort_assigned');
         assert.equal(auditRows(db, 'review_gate_bypassed').length, 0);
         recordVerdict(db, t, 'pass', iso(HOUR));
         const close = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issue) });

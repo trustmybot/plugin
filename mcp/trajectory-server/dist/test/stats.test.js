@@ -153,13 +153,13 @@ describe('statsTools — task_stats', () => {
         assert.match(parseResult(result).error, /positive integer/);
         db.close();
     });
-    it('is forbidden for malformed agent names (unknown role)', async () => {
+    it('is a missing argument for malformed agent names (unknown role)', async () => {
         const db = tempDB();
         const tools = statsTools(db);
         const result = await call(tools.handlers, 'task_stats', { agent: '!!!malformed', task_id: 1 });
         assert.ok(result.isError);
         const payload = parseResult(result);
-        assert.equal(payload.error, 'forbidden');
+        assert.equal(payload.error, 'missing_argument');
         db.close();
     });
     it('is accessible to all allowed roles (swe, bro, consultant agents, code-reviewer)', async () => {

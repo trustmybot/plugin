@@ -35,6 +35,8 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
+import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
@@ -56,6 +58,7 @@ import {
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { assignReviewerEffort } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
@@ -142,6 +145,7 @@ export function groupBySurface(paths: readonly string[]): Record<string, { count
 
 export interface ScopeCheck {
   outOfScope: string[];
+  changed: string[];
   checked: boolean;
   reason?: string;
   mergeBase?: string;
@@ -165,9 +169,11 @@ function gitOut(repoPath: string, args: string[]): string {
 // cut base) gives `recordedBase` = merge-base(commit, recordedBaseRef); when
 // it resolves the diff starts there, so commits a local-ahead base carries
 // beyond the target never count either — unless the target merge-base is
-// strictly newer. `baseMoved` is true when recordedBase differs from
-// mergeBase. `checked:false` + a reason when git can't resolve the repo or
-// commit (the caller fails CLOSED).
+// strictly newer. `baseMoved` is true when recordedBase is null, or differs
+// from mergeBase without descending from it (the target merge-base is
+// strictly newer, or the two diverged); a recordedBase strictly descending
+// from mergeBase is a live stacked base, not a move. `checked:false` + a
+// reason when git can't resolve the repo or commit (the caller fails CLOSED).
 export function scopeCheckCommit(
   repoPath: string,
   targetRef: string,
@@ -200,17 +206,20 @@ export function scopeCheckCommit(
     return scopeUnchecked(e);
   }
 
-  const outOfScope = diffOut
+  const changed = diffOut
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !pathInFiles(l, files));
+    .filter((l) => l.length > 0);
+  const outOfScope = changed.filter((l) => !pathInFiles(l, files));
 
-  return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+  const baseMoved = recordedBase === null || (recordedBase !== mergeBase && !isAncestor(repoPath, mergeBase, recordedBase));
+  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved };
 }
 
 function scopeUnchecked(e: unknown): ScopeCheck {
   return {
     outOfScope: [],
+    changed: [],
     checked: false,
     reason: (e as Error).message.split('\n')[0] || 'git diff failed',
   };
@@ -522,13 +531,14 @@ function worktreeOfBranch(repoPath: string, branchId: string): string | null {
 // Adds the task's worktree unless git already tracks one at that path (matched
 // by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
 // /private/var/… for a /var/… symlink), then links the main checkout's
-// node_modules into it, on reuse too (GH 1853). Throws only when
-// `git worktree add` fails.
-function ensureTaskWorktree(
+// node_modules into it and runs the repo's opt-in worktree setup, on reuse
+// too (GH 1853, GH 2054). Throws only when `git worktree add` fails; a setup
+// failure is reported in `setup`, never thrown.
+async function ensureTaskWorktree(
   repoPath: string,
   branchId: string,
   worktreePath = taskWorktreePath(repoPath, branchId),
-): { worktreePath: string; reused: boolean } {
+): Promise<{ worktreePath: string; reused: boolean; setup: WorktreeSetupResult }> {
   let reused = false;
   if (existsSync(worktreePath)) {
     const canonicalWt = realpathSync(worktreePath);
@@ -548,7 +558,17 @@ function ensureTaskWorktree(
   } catch {
     // Best-effort: a missing link never fails provisioning.
   }
-  return { worktreePath, reused };
+  return { worktreePath, reused, setup: await runWorktreeSetup(worktreePath, { env: setupEnv(worktreePath) }) };
+}
+
+// Worktree setup gets the user's toolchain PATH, as verification[] does.
+function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
+  return { ...process.env, PATH: joinToolchainPath(toolchainDirs(process.env, worktreePath), process.env.PATH ?? '') };
+}
+
+// The tool-result field for a setup, absent when the repo has no setup file.
+function setupField(setup: WorktreeSetupResult | undefined): { worktree_setup?: WorktreeSetupResult } {
+  return setup && (setup.ran || setup.error !== undefined) ? { worktree_setup: setup } : {};
 }
 
 // Session-worktree adoption (GH 2032): task_provision, task_reopen and
@@ -1173,7 +1193,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
+        'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout\'s node_modules and runs the repo\'s .config/tmb/worktree-setup.json commands (a setup failure returns an error naming the command, and the command is not run), runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1216,7 +1236,7 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
-        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next). ' +
+        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (recorded in a reviewer_effort_assigned row). ' +
         'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
         'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
         'Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
@@ -1786,6 +1806,7 @@ export function compositeTools(
         // re-created. An adopted worktree is switched to the branch instead.
         let gitSetup: 'created' | 'reused' | 'error' = branch.created ? 'created' : 'reused';
         let worktreeReused = false;
+        let worktreeSetup: WorktreeSetupResult | undefined;
         let diagnostic: string | undefined;
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
 
@@ -1794,7 +1815,9 @@ export function compositeTools(
           if (diagnostic !== undefined) gitSetup = 'error';
         } else {
           try {
-            worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
+            const wt = await ensureTaskWorktree(repoPath, branchId);
+            worktreeReused = wt.reused;
+            worktreeSetup = wt.setup;
           } catch (e) {
             gitSetup = 'error';
             diagnostic = (e as Error).message;
@@ -1812,6 +1835,7 @@ export function compositeTools(
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
+          ...setupField(worktreeSetup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
           ...(cutBase?.diverged
@@ -1965,6 +1989,7 @@ export function compositeTools(
 
         let worktreePath: string | null = null;
         let worktreeRecreated = false;
+        let worktreeSetup: WorktreeSetupResult | undefined;
         let branchCreated = false;
         let diagnostic: string | undefined;
         if (repoPath) {
@@ -1986,9 +2011,10 @@ export function compositeTools(
               worktreePath = adoptedWorktree;
               diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
             } else {
-              const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
+              const wt = await ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
               worktreePath = wt.worktreePath;
               worktreeRecreated = !wt.reused;
+              worktreeSetup = wt.setup;
             }
           } catch (e) {
             worktreePath = adoptedWorktree ?? taskWorktreeDir(repoPath, task);
@@ -2008,6 +2034,7 @@ export function compositeTools(
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
+          ...setupField(worktreeSetup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           branch_created: branchCreated,
           ...(diagnostic ? { diagnostic } : {}),
@@ -2668,11 +2695,12 @@ export function compositeTools(
         }
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
         let diagnostic: string | undefined;
+        let worktreeSetup: WorktreeSetupResult | undefined;
         if (adoptedWorktree !== null) {
           diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
         } else {
           try {
-            ensureTaskWorktree(repoPath, newBranchId);
+            worktreeSetup = (await ensureTaskWorktree(repoPath, newBranchId)).setup;
           } catch (e) {
             diagnostic = (e as Error).message;
           }
@@ -2685,6 +2713,7 @@ export function compositeTools(
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
+          ...setupField(worktreeSetup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           ...(diagnostic ? { diagnostic } : {}),
         });
@@ -2870,13 +2899,24 @@ export function compositeTools(
           return err(`worktree add failed: ${(e as Error).message}`);
         }
 
+        let setupFailure: WorktreeSetupResult | null = null;
         try {
-          const result = execFileSync('bash', ['-c', command], {
-            cwd: wtPath,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: 60_000,
-          });
-          stdout = result.toString('utf8');
+          try {
+            linkWorktreeNodeModules(repoPath, wtPath);
+          } catch {
+            // Best-effort, as in ensureTaskWorktree.
+          }
+          const setup = await runWorktreeSetup(wtPath, { env: setupEnv(wtPath) });
+          if (setup.error !== undefined) {
+            setupFailure = setup;
+          } else {
+            const result = execFileSync('bash', ['-c', command], {
+              cwd: wtPath,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 60_000,
+            });
+            stdout = result.toString('utf8');
+          }
         } catch (e: unknown) {
           const spawnErr = e as { stdout?: Buffer; stderr?: Buffer; status?: number; message?: string };
           stdout = spawnErr.stdout?.toString('utf8') ?? '';
@@ -2893,6 +2933,9 @@ export function compositeTools(
           }
         }
 
+        if (setupFailure !== null) {
+          return err(`worktree setup failed, command not run: ${describeSetupFailure(setupFailure)}`);
+        }
         const passed = exitCode === 0;
         return {
           content: [
@@ -3037,8 +3080,9 @@ export function compositeTools(
           verification: string | null;
           spec_body: string | null;
           completion_report: string | null;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`,
           [taskId],
         );
@@ -3107,12 +3151,13 @@ export function compositeTools(
             if (targetRef) break;
           }
         }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null) : null;
+        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
         const scope: ScopeCheck =
           repoPath && targetRef
             ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
             : {
                 outOfScope: [],
+                changed: [],
                 checked: false,
                 reason: repoPath
                   ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
@@ -3187,11 +3232,13 @@ export function compositeTools(
             });
           }
           const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
+          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
           db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
             review_pending: true,
+            reviewer_effort: reviewerEffort.effort,
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),

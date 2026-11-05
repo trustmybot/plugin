@@ -680,7 +680,7 @@ describe('router docs describe what is routed (GH 1692 R3)', () => {
 
 describe('per-group budgets (GH 1692 R2)', () => {
   const HANG_S = 30;
-  const VERIFICATION_FLOOR_MS = 1_830_000;
+  const VERIFICATION_FLOOR_MS = 3_627_000;
   let bin: string;
   let env: NodeJS.ProcessEnv;
   const viaGit: Gate = async (_payload, gateEnv) => {

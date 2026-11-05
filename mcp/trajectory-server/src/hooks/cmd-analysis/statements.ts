@@ -42,11 +42,15 @@ const KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 const ENCODED = /[\x01-\x06\x0e-\x13]/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 const BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+/** A redirect whose target is a literal word or an fd duplication (GH 2404): it expands nothing, so it cannot reassign a variable. */
+const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 
 export interface Record {
   dir: string;
   stmt: string;
+  /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable in either mode (GH 2377, GH 2381). */
+  tail?: boolean;
 }
 
 function norm(p: string): string {
@@ -138,6 +142,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   let lastdir = '';
   let piped = false;
   let pipesrc = '';
+  let cut = false;
   let i = 0;
 
   let s = base.indexOf(SEP);
@@ -156,6 +161,8 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   let sp = 0;
   let bt = false;
   let stmt = '';
+  let tail = false;
+  let owns = false;
   let qsp = 0;
   const stack: string[] = [];
   const ostack: string[] = [];
@@ -163,11 +170,12 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   const owstack: string[] = [];
   const astack: string[][] = [];
   const oastack: string[][] = [];
-  const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
+  const sstack: boolean[] = [];
+  const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string) => {
+  const emit = (dir: string, text: string, args = false) => {
     charge(dir.length);
-    records.push({ dir, stmt: text });
+    records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
   };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g'> = [];
   const fids: number[] = [];
@@ -488,8 +496,13 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
   }
 
-  /** Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA mark. */
-  function vplainexp(text: string): boolean {
+  /**
+   * Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA
+   * mark. A literal redirect is plain unless a `(` or backtick cut the
+   * statement short, where its target runs on into the substitution.
+   */
+  function vplainexp(text: string, whole: boolean): boolean {
+    if (whole) text = text.replace(LITERAL_REDIRECT, '$1');
     const parts = text.split('<<');
     for (let k = 1; k < parts.length; k++) {
       if (!parts[k].startsWith(HD_DATA)) return false;
@@ -501,11 +514,22 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     return plainDollars(text);
   }
 
-  function flush(): void {
+  /**
+   * Sets `owns`: the statement's command word comes before its last word, or
+   * it is itself a tail. `sub`: without `assign`, an unquoted $( ) or backtick
+   * follows without leaving a word of its own, so a blank right before it
+   * makes it a word after the command word (GH 2381).
+   */
+  function flush(sub = false): void {
+    const args = tail;
+    tail = false;
+    owns = args;
     const chained = fsep === '&&';
     fsep = '';
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt.replaceAll(QM, ''))) vok = false;
+    const whole = !cut;
+    cut = false;
+    if (!vplainexp(stmt.replaceAll(QM, ''), whole)) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
@@ -562,10 +586,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
     if (first >= n) {
       let ok = plain;
-      if (vtop && plain) for (const a of aw) if (!assignword(a, !csure)) ok = false;
+      if (vtop && plain && !args) for (const a of aw) if (!assignword(a, !csure)) ok = false;
       if (assign && asg !== '') {
-        emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg);
-        if (!chained) {
+        emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg, args);
+        if (!chained && !args) {
           old = '-';
           owhy = '';
           oalts = [];
@@ -575,6 +599,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       return;
     }
     let a0 = w[first];
+    if (!args) owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
     if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
     else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
@@ -582,7 +607,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (!ASSIGNMENT.test(w[k])) ok = false;
-        else if (vtop && !assignword(w[k], !csure)) ok = false;
+        else if (vtop && !args && !assignword(w[k], !csure)) ok = false;
       }
     } else if (ok) {
       ok = VPLAIN.test(a0);
@@ -598,7 +623,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     let da = alts;
     const o = oalts.length > 0 ? '-' : old;
     let dw = cwhy;
-    if (a0 === 'cd' || a0 === 'pushd') {
+    if (!args && (a0 === 'cd' || a0 === 'pushd')) {
       let p = '';
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
@@ -626,7 +651,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         cur = t;
         [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
       }
-    } else if (a0 === 'popd') {
+    } else if (!args && a0 === 'popd') {
       old = cur;
       owhy = cwhy;
       oalts = alts;
@@ -658,8 +683,8 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         break;
       }
     }
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
-    if (!chained) {
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
+    if (!chained && !args) {
       old = '-';
       owhy = '';
       oalts = [];
@@ -693,9 +718,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     const prev = i > 0 ? buf[i - 1] : '';
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
+      q[qsp] = { stmt, tail, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = '';
+      tail = false;
       continue;
     }
     if (c === QC) {
@@ -703,6 +729,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       flush();
       const f = q[qsp];
       stmt = f.stmt + '$' + ENC[8] + rawword(buf.slice(f.start, i)) + ENC[9];
+      tail = f.tail;
       cur = f.cur;
       old = f.old;
       sp = f.sp;
@@ -755,26 +782,34 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         if (assign && last === '$') stmt = stmt + ENC[8] + ENC[9] + forsrc(i);
         else stmt = stmt.slice(0, -1);
       }
-      flush();
+      cut = true;
+      flush(!assign && last === '$');
       push();
+      sstack[sp] = last === '$' && owns;
       continue;
     }
     if (c === ')') {
       flush();
       if (sp === 0) vok = false;
+      const closes = sp > 0 && sstack[sp];
       pop();
+      tail = closes;
       continue;
     }
     if (c === '`') {
       vkill = true;
       if (assign && !bt) stmt += '$' + ENC[8] + ENC[9];
-      flush();
+      cut = true;
+      flush(!assign && !bt);
       if (bt) {
         bt = false;
+        const closes = sp > 0 && sstack[sp];
         pop();
+        tail = closes;
       } else {
         bt = true;
         push();
+        sstack[sp] = owns;
       }
       continue;
     }

@@ -37,6 +37,24 @@ export interface DoctorReport {
   skipped: Array<{ id: string; reason: string }>;
   /** The live embedding model state; set only by the in-server `trajectory_doctor` tool. */
   embeddings?: EmbeddingStatus;
+  /** wm_feedback audit rows, and those naming something missed / wrong; set only by the in-server `trajectory_doctor` tool. */
+  wm_feedback?: WmFeedbackCounts;
+}
+
+export interface WmFeedbackCounts {
+  reports: number;
+  missed: number;
+  wrong: number;
+}
+
+export function wmFeedbackCounts(db: TrajectoryDB): WmFeedbackCounts {
+  const row = db.get<WmFeedbackCounts>(
+    `SELECT COUNT(*) AS reports,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.missed'), '')) <> ''), 0) AS missed,
+            COALESCE(SUM(TRIM(COALESCE(json_extract(content_json, '$.wrong'), '')) <> ''), 0) AS wrong
+       FROM audit WHERE event_type = 'wm_feedback' AND json_valid(content_json)`,
+  );
+  return { reports: Number(row?.reports ?? 0), missed: Number(row?.missed ?? 0), wrong: Number(row?.wrong ?? 0) };
 }
 
 /** A read-only view of the DB the contracts run against. */
@@ -249,7 +267,7 @@ export function trajectoryDoctorTools(db: TrajectoryDB): {
     {
       name: 'trajectory_doctor',
       description:
-        'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.',
+        'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings, wm_feedback}, wm_feedback being {reports, missed, wrong}: the count of wm_feedback audit rows and of those with a non-empty missed / wrong; record:true logs one trajectory_doctor_run audit row.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -283,6 +301,7 @@ export function trajectoryDoctorTools(db: TrajectoryDB): {
       ro?.close();
     }
     report.embeddings = embeddingStatus();
+    report.wm_feedback = wmFeedbackCounts(db);
 
     if (!record) return ok(report);
     const auditId = insertAudit(db, {

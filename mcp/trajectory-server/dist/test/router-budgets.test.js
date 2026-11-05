@@ -147,8 +147,8 @@ describe('router budgets.json (GH 1861)', () => {
         const blocked = ['PostToolUse', 'PermissionDenied', 'Stop', 'PreCompact', 'SubagentStop', 'SessionStart', 'UserPromptSubmit', 'WorktreeCreate'].filter((e) => HOOKS.hooks[e].some((g) => g.hooks.some((h) => h.onFailure === 'block')));
         assert.deepEqual(blocked, ['SubagentStop']);
     });
-    it('swe-verification-gate keeps its chain-table budget as its floor', () => {
-        assert.equal(BUDGETS.gates['swe-verification-gate'].floor_ms, 1_830_000);
+    it('swe-verification-gate takes the close-gate wait as its floor, for a 3630 s router timeout (GH 2297)', () => {
+        assert.equal(BUDGETS.gates['swe-verification-gate'].floor_ms, 3_627_000);
     });
     it('the group formula and the parse allowance', () => {
         assert.equal(BUDGETS.parse_allowance_ms, PARSE_ALLOWANCE_MS);

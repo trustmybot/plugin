@@ -25332,8 +25332,9 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate stops probing it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
-  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`, and the task's newest `validation_attempts` row (highest `id`) is a pass: a newer `fail` or `escalate` row cancels it" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_effort_assigned", writers: ["bro"], description: "`bro_atomic_close` assigned the effort the task's code-reviewer spawn runs at (GH 1955), returned as `reviewer_effort`; one row per close, in the close transaction right after `bro_verification_pass`, on the task's issue, from_node `bro`. The risk tier is `high` for a prompt-bearing task or a changed path overlapping a `high_effort_paths` prefix, `low` when every changed path is docs or tests, else `medium`; it applies with `plugin_config.reviewer_effort_tiers` true or in the `tiered` arm of `plugin_config.reviewer_effort_ab` (even task ids; odd ids are `fixed`), else the effort is `reviewer_effort` (reason `config`, also when the scope check did not run). `require-spawn-effort` and `swe-atomic-close` read the newest row for the task; `task_recover` writes none. `content_json` carries `task_id`, `commit_sha`, `effort` (`low`, `medium`, `high`), `reason` (`prompt_bearing`, `high_effort_paths`, `docs_tests`, `default`, `config`) and, for a task enrolled in the A/B, `label` and `arm`" },
   { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
@@ -25352,6 +25353,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "task_integrated", writers: ["hook"], description: "`cli.js integrate` (`src/cli/integrate.ts`) moved the task branch to the rebased SHA and set `tasks.commit_sha` to it, in one transaction guarded on the reviewed `commit_sha`; one row per integration on the task's issue, from_node `hook:integrate`. It is a review anchor beside `bro_verification_pass` (`HAS_PASS_SQL`), so the integrated head needs a fresh code-reviewer pass; `content_json` carries `task_id`, `reviewed_sha`, `commit_sha` (the rebased SHA), `base`, `run_id` (the passing `verification_runs` row)" },
   { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
   { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
@@ -25365,6 +25367,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
+  { type: "wm_feedback", writers: ["swe", "code-reviewer"], description: "An agent said what the world model answered, missed or got wrong during a task (GH 2417): `task_update_status(status='completed')` writes one row when swe's `report.wm_feedback` is present, and `validation_record` one when code-reviewer passes `wm_feedback`; on the task's issue, from_node the `agent` argument; `content_json` carries `task_id`, `agent`, `answered`, `missed`, `wrong` (null when absent). `trajectory_doctor` counts the rows and those with a non-empty `missed` / `wrong`" },
   { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -30363,13 +30366,15 @@ function forbidden(toolName, agent, allowedRoles, received) {
     content: [
       {
         type: "text",
-        text: JSON.stringify({
-          error: "forbidden",
-          tool: toolName,
-          caller_role: agent,
-          allowed_roles: [...allowedRoles],
-          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
-        })
+        text: JSON.stringify(
+          agent === "unknown" ? {
+            error: "missing_argument",
+            argument: "agent",
+            tool: toolName,
+            allowed_roles: [...allowedRoles],
+            ...missingAgentDiagnostics(toolName, allowedRoles, received)
+          } : { error: "forbidden", tool: toolName, caller_role: agent, allowed_roles: [...allowedRoles] }
+        )
       }
     ]
   };
@@ -31277,6 +31282,8 @@ function isEffortAbConfig(value) {
   const { label, target } = value;
   return typeof label === "string" && label.trim().length > 0 && Number.isInteger(target) && target > 0;
 }
+var REVIEWER_EFFORT_TIERS_KEY = "reviewer_effort_tiers";
+var REVIEWER_EFFORT_AB_KEY = "reviewer_effort_ab";
 var DOWNSTREAM_CONTEXT_AB_KEY = "downstream_context_ab";
 function isDownstreamContextAbConfig(value) {
   if (!isEffortAbConfig(value)) return false;
@@ -31315,7 +31322,12 @@ function validateKnownConfigValue(key, value) {
     }
     return;
   }
-  if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+  if (key === REVIEWER_EFFORT_TIERS_KEY && typeof value !== "boolean") {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be a boolean, got ${JSON.stringify(value)}.`
+    );
+  }
+  if ((key === SWE_EFFORT_AB_KEY || key === REVIEWER_EFFORT_AB_KEY) && !isEffortAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`
     );
@@ -31455,6 +31467,7 @@ import { spawnSync } from "node:child_process";
 
 // src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
+var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
 
 // src/utils/live-cli-guard.ts
 function liveCliBlockReason(env = process.env) {
@@ -32137,12 +32150,13 @@ function closeOpenRunsForTask(db, taskId, now2, exitReason) {
 }
 
 // src/review-sql.ts
-var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+var HAS_PASS_SQL = `(EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+      WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))
+  AND ${newestVerdictPassSql("t")})`;
 var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
       OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
@@ -32150,6 +32164,9 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function newestVerdictPassSql(alias) {
+  return `COALESCE((SELECT v.verdict FROM validation_attempts v WHERE v.task_id = ${alias}.id ORDER BY v.id DESC LIMIT 1), '') = 'pass'`;
+}
 
 // src/tools/lifecycle.ts
 var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
@@ -38595,7 +38612,9 @@ function framedStep(step, derived) {
   const description = derived && step.description ? frameUntrusted("symbol-doc", step.description) : step.description;
   return { ...step, description, symbol: symbol2 };
 }
-var REPO_DEFAULT_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole'). With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.";
+var REPO_RESOLUTION_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole').";
+var REPO_DEFAULT_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.`;
+var REPO_ALL_DOC = `${REPO_RESOLUTION_DOC} With two or more repos and no match, it searches every repo, with repo_source 'all'.`;
 function realOrResolved(path) {
   try {
     return realpathSync8(path);
@@ -38665,7 +38684,7 @@ function worldModelTools(db, graphHolder, cwd) {
           },
           repo: {
             type: "string",
-            description: `Repo to search. ${REPO_DEFAULT_DOC}`
+            description: `Repo to search. ${REPO_ALL_DOC}`
           },
           k: {
             type: "number",
@@ -38677,7 +38696,7 @@ function worldModelTools(db, graphHolder, cwd) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name (alias name) plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -38685,10 +38704,11 @@ function worldModelTools(db, graphHolder, cwd) {
           id: { type: "number", description: "Symbol id from a world_model_search hit." },
           repo: {
             type: "string",
-            description: `Repo name, used without id. ${REPO_DEFAULT_DOC}`
+            description: `Repo name, used without id. ${REPO_ALL_DOC}`
           },
           path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
           qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+          name: { type: "string", description: "Alias of qualified_name; qualified_name wins when both are given." },
           impact: {
             type: ["boolean", "integer"],
             description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
@@ -38814,9 +38834,25 @@ function worldModelTools(db, graphHolder, cwd) {
         if (!query || typeof query !== "string") return err5("query is required");
         const mode = args2["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+        const resultsOf = (top) => {
+          const stale = staleFiles(
+            db,
+            top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
+          );
+          return top.map(({ hit, score }) => hitResult(hit, score, stale));
+        };
         const resolved = resolveRepo(args2["repo"]);
         if (resolved.warning) {
-          return ok4({ repo: "", results: [], total_matched: 0, warning: resolved.warning, available_repos: resolved.available_repos, mode });
+          const scope2 = { repo_source: "all", repos_searched: resolved.available_repos };
+          const graph2 = graphHolder?.ensureGraph() ?? null;
+          if (!graph2) return ok4({ ...scope2, results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          const rankings = [];
+          for (const repo2 of resolved.available_repos) rankings.push(await rankWorldModel(db, graph2, repo2, query, mode, k));
+          const top = rankings.flatMap((r) => r.ranked.slice(0, k)).sort((a, b) => b.score - a.score).slice(0, k);
+          const results2 = resultsOf(top);
+          const warning2 = rankings.find((r) => r.warning)?.warning;
+          const match2 = rankings.some((r) => r.match === "any_term") ? "any_term" : "all_terms";
+          return ok4({ ...scope2, results: results2, total_matched: results2.length, ...warning2 ? { warning: warning2 } : {}, mode, match: match2 });
         }
         const repo = resolved.name;
         const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
@@ -38826,12 +38862,7 @@ function worldModelTools(db, graphHolder, cwd) {
           return ok4({ ...scope, results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
         }
         const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
-        const top = ranked.slice(0, k);
-        const stale = staleFiles(
-          db,
-          top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
-        );
-        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
+        const results = resultsOf(ranked.slice(0, k));
         return ok4({ ...scope, results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
       }))
     ),
@@ -38846,15 +38877,19 @@ function worldModelTools(db, graphHolder, cwd) {
           symbol2 = symbolById(db, id);
           if (!symbol2) return err5(`symbol ${id} not found`);
         } else {
-          const name2 = args2["qualified_name"];
-          if (typeof name2 !== "string" || !name2) return err5("id or qualified_name is required");
+          const qualified = args2["qualified_name"];
+          const name2 = typeof qualified === "string" && qualified ? qualified : args2["name"];
+          if (typeof name2 !== "string" || !name2) return err5("id, qualified_name or name is required");
           const resolved = resolveRepo(args2["repo"]);
-          if (resolved.warning) return ok4({ symbol: null, warning: resolved.warning, available_repos: resolved.available_repos });
+          const allRepos = resolved.warning !== void 0;
           const repo = resolved.name;
-          source = sourceOf(resolved);
-          const path = args2["path"];
-          const matches = symbolsByName(db, repo, name2, typeof path === "string" && path ? path : void 0);
-          if (matches.length === 0) return err5(`symbol ${name2} not found in repo ${repo || "(none)"}`);
+          source = allRepos ? { repo_source: "all" } : sourceOf(resolved);
+          const pathArg = args2["path"];
+          const path = typeof pathArg === "string" && pathArg ? pathArg : void 0;
+          const matches = allRepos ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name2, path)) : symbolsByName(db, repo, name2, path);
+          if (matches.length === 0) {
+            return err5(`symbol ${name2} not found in ${allRepos ? "any repo" : `repo ${repo || "(none)"}`}`);
+          }
           const definitions2 = matches.filter((m) => m.kind !== "module");
           if (definitions2.length > 1) {
             return ok4({
@@ -38869,10 +38904,10 @@ function worldModelTools(db, graphHolder, cwd) {
                 path: m.path,
                 line_start: m.start_line
               })),
-              ...checkoutLag(db, repo)
+              ...allRepos ? {} : checkoutLag(db, repo)
             });
           }
-          symbol2 = matches[0];
+          symbol2 = definitions2[0] ?? matches[0];
         }
         const impactArg = args2["impact"];
         let impactDepth = null;

@@ -2,7 +2,8 @@
  * The require-spawn-effort gate (GH 1692): the
  * Agent call's `effort` must be the effort the trajectory DB holds for the
  * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
- * code-reviewer spawn needs plugin_config.reviewer_effort (medium when unset);
+ * code-reviewer spawn needs the effort bro_atomic_close assigned task N's
+ * review (GH 1955), else plugin_config.reviewer_effort (medium when unset);
  * any other agent is allowed. A missing effort is a mismatch. No resolvable
  * DB allows; a DB read failure denies, and a DB without tasks.effort gets the
  * restart-to-migrate remedy. Unlike the .sh, it needs no jq, so it decides
@@ -10,7 +11,7 @@
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, stripTrailingNewlines } from './lib/db.js';
-import { effortDefaults } from './lib/effort.js';
+import { reviewerEffortFor } from './lib/effort.js';
 import { jqCompact, jqIndex, jqLiteralNumbers, jqMap, jqOr } from './lib/jq.js';
 import { jqRawText } from './lib/project-env.js';
 import { CODE_REVIEWER_ROLE, normalizeRole } from './lib/role.js';
@@ -70,17 +71,24 @@ function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): Gat
   );
 }
 
-function reviewerVerdict(given: string, env: NodeJS.ProcessEnv): GateResult {
+function reviewerVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): GateResult {
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
-  const defaults = effortDefaults(db, env);
-  if (defaults === GATE_READ_ERROR || defaults === '') return denyUnreadable(GATE_NAME, env);
-  const bar = defaults.indexOf('|');
-  const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
-  if (given === expected) return ALLOW;
+  const taskId = sqlInt(promptTaskId(toolInputRaw(payload, 'prompt')));
+  const expected = reviewerEffortFor(db, taskId, env);
+  if (expected === null) return denyUnreadable(GATE_NAME, env);
+  if (given === expected.effort) return ALLOW;
+  if (expected.source === 'assigned') {
+    return denyMismatch(
+      `code-reviewer for task_id=${taskId} (the task's assigned reviewer effort, returned by bro_atomic_close as reviewer_effort)`,
+      expected.effort,
+      given,
+      "The assignment is the task's newest reviewer_effort_assigned audit row; the next bro_atomic_close of the task assigns it again.",
+    );
+  }
   return denyMismatch(
     'code-reviewer (plugin_config.reviewer_effort, medium when unset)',
-    expected,
+    expected.effort,
     given,
     'To change it for every review, config_set(key="reviewer_effort", value=...).',
   );
@@ -90,6 +98,6 @@ export const requireSpawnEffort: SyncGate = (payload, env) => {
   const subagent = toolInputRaw(payload, 'subagent_type');
   const given = givenEffort(payload);
   if (/(^|:)swe$/.test(subagent)) return sweVerdict(payload, given, env);
-  if (normalizeRole(subagent.slice(subagent.lastIndexOf(':') + 1)) === CODE_REVIEWER_ROLE) return reviewerVerdict(given, env);
+  if (normalizeRole(subagent.slice(subagent.lastIndexOf(':') + 1)) === CODE_REVIEWER_ROLE) return reviewerVerdict(payload, given, env);
   return ALLOW;
 };

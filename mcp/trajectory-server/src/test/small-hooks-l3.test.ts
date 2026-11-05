@@ -1,9 +1,10 @@
 /**
  * Six small l3 bash suites in node:test (GH 1692): the attribution-footer and
  * orphan-scan gates run as `node dist/hooks.js <gate>` with CLAUDE_PROJECT_DIR
- * pinned and PWD set; the enums-stable lint and its perl extractor, and the
- * query-task.sh and resolve-repo.sh hook libs, run unchanged through perl and
- * bash; the live Claude Code hook-env proof runs only with TMB_L3_LIVE_CC=1.
+ * pinned and PWD set; the enums-stable lint and its perl extractor run
+ * unchanged through perl; resolveTaskIdForTarget, taskBySlug and repoRemotes
+ * run as shipped TS; the live Claude Code hook-env proof runs only with
+ * TMB_L3_LIVE_CC=1.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +14,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { normalizeFooter } from '../hooks/attribution-footer.js';
+import * as dbLib from '../hooks/lib/db.js';
+import { repoRemotes } from '../hooks/lib/repo.js';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 import { gateEnv, git, has, hasNot, sql } from './git-push-guard-l3.js';
 
@@ -41,11 +44,19 @@ function execDb(path: string, statements: string): void {
   }
 }
 
-/** <fn> <args> in bash after sourcing <lib>. */
-function sourced(lib: string, fn: string, args: string[], env: NodeJS.ProcessEnv, cwd: string) {
-  const r = spawnSync('bash', ['-c', `. "$1"; shift; ${fn} "$@"`, 'bash', lib, ...args], { env, cwd, encoding: 'utf8' });
+const TARGET_TASK_JS = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks/lib/target-task.js');
+
+/** resolveTaskIdForTarget <target> '' <db> in a node child process, so its stderr warning is captured. */
+function resolveInChild(target: string, db: string, env: NodeJS.ProcessEnv, cwd: string) {
+  const script = 'const m = await import(process.argv[1]); process.stdout.write(await m.resolveTaskIdForTarget(process.argv[2], "", process.argv[3]));';
+  const r = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', '--input-type=module', '-e', script, TARGET_TASK_JS, target, db], {
+    env,
+    cwd,
+    encoding: 'utf8',
+  });
   if (r.error) throw r.error;
-  return { stdout: cap(r.stdout), stderr: cap(r.stderr), status: r.status };
+  assert.equal(r.status, 0, r.stderr);
+  return { stdout: cap(r.stdout), stderr: cap(r.stderr) };
 }
 
 describe('attribution-footer l3', () => {
@@ -244,8 +255,8 @@ describe('enums-stable lint and extractor l3', () => {
   it('the lint rejects an undocumented event', () => {
     const dir = newTree('undocumented', 'undocumented');
     mkdirSync(join(dir, 'scripts/maintenance'), { recursive: true });
-    cpSync(join(dir, 'scripts/hooks/extra.sh'), join(dir, 'scripts/maintenance/extra.sh'));
-    rmSync(join(dir, 'scripts/hooks/extra.sh'));
+    cpSync(join(dir, 'scripts', 'hooks', 'extra.sh'), join(dir, 'scripts/maintenance/extra.sh'));
+    rmSync(join(dir, 'scripts', 'hooks', 'extra.sh'));
     const { exit, output } = runLint('undocumented');
     assert.equal(exit, 1, 'undocumented event');
     has(output, "audit.event_type 'ghost_event' used in scripts/maintenance/extra.sh but missing from ENUMS.md", 'output');
@@ -531,21 +542,20 @@ echo "CC $!" >> "$1"`;
 });
 
 /**
- * scripts/hooks/lib/query-task.sh worktree → task resolution: two tasks share
- * a slug under different types (the worktree's checked-out branch matches
- * exactly; a detached worktree gets the newest with a stderr warning naming
- * both), `_` and `%` in a slug match literally, tmb_unsigned_tasks is gone.
+ * resolveTaskIdForTarget worktree → task resolution: two tasks share a slug
+ * under different types (the worktree's checked-out branch matches exactly; a
+ * detached worktree gets the newest with a stderr warning naming both), `_`
+ * and `%` in a slug match literally, db.ts exports no unsignedTasks.
  */
-describe('query-task.sh slug resolution l3', () => {
-  const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/query-task.sh');
+describe('resolveTaskIdForTarget and taskBySlug slug resolution l3', () => {
   let sb: Sandbox;
   let repo: string;
   let db: string;
   let detached: string;
 
   const env = () => ({ ...gateEnv(sb, sb.dir), TRAJECTORY_DB_PATH: db });
-  const resolve = (target: string) => sourced(LIB, 'tmb_resolve_task_id_for_target', [target, '', db], env(), sb.dir);
-  const bySlug = (...args: string[]) => sourced(LIB, 'tmb_task_by_slug', [db, ...args], env(), sb.dir).stdout;
+  const resolve = (target: string) => resolveInChild(target, db, env(), sb.dir);
+  const bySlug = (slug: string, col?: string, statuses?: string) => cap(dbLib.taskBySlug(db, slug, col, statuses, env()));
 
   before(() => {
     sb = makeSandbox('query-task-slug');
@@ -603,7 +613,7 @@ describe('query-task.sh slug resolution l3', () => {
     assert.equal(resolve(join(repo, '.claude/worktrees/50%off/x')).stdout, '', '50%off does not match feat/50xoff');
   });
 
-  it('tmb_task_by_slug: branch_id column and status filter', () => {
+  it('taskBySlug: branch_id column and status filter', () => {
     assert.equal(bySlug('shared-slug', 'branch_id'), 'fix/shared-slug', 'branch_id of the newest');
     sql(db, "UPDATE tasks SET status = 'closed' WHERE id = 2");
     assert.equal(bySlug('shared-slug', 'id', "'pending','running'"), '1', 'status filter narrows to the open task');
@@ -616,25 +626,23 @@ describe('query-task.sh slug resolution l3', () => {
     }
   });
 
-  it('tmb_unsigned_tasks is gone', () => {
-    const r = sourced(LIB, 'declare', ['-F', 'tmb_unsigned_tasks'], env(), sb.dir);
-    assert.notEqual(r.status, 0, 'tmb_unsigned_tasks still defined');
+  it('unsignedTasks is gone', () => {
+    assert.equal('unsignedTasks' in dbLib, false, 'db.ts still exports unsignedTasks');
   });
 });
 
 /**
- * tmb_repo_remotes (scripts/hooks/lib/resolve-repo.sh) against the real
- * schema.sql: the repo_remotes rows of the repos row matching <git_root> (else
- * the sole registered repo) as a JSON array of {name,provider,url}, primary
- * first; "[]" for a registered repo with no rows; empty when no repo resolves
- * or the DB predates repo_remotes.
+ * repoRemotes (src/hooks/lib/repo.ts) against the real schema.sql: the
+ * repo_remotes rows of the repos row matching <git_root> (else the sole
+ * registered repo) as a JSON array of {name,provider,url}, primary first; "[]"
+ * for a registered repo with no rows; empty when no repo resolves or the DB
+ * predates repo_remotes.
  */
-describe('resolve-repo.sh tmb_repo_remotes l3', () => {
-  const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/resolve-repo.sh');
+describe('repoRemotes l3', () => {
   let sb: Sandbox;
   let db: string;
 
-  const remotes = (path: string, root: string) => sourced(LIB, 'tmb_repo_remotes', [path, root], gateEnv(sb, sb.dir), sb.dir).stdout;
+  const remotes = (path: string, root: string) => cap(repoRemotes(path, root, gateEnv(sb, sb.dir)));
 
   before(() => {
     sb = makeSandbox('resolve-repo-remotes');

@@ -2,7 +2,37 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
+import { toWmFeedback, wmFeedbackProblem } from '../success-criteria.js';
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
+export const WM_FEEDBACK_SCHEMA = {
+    type: 'object',
+    description: 'Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row; trajectory_doctor counts them.',
+    properties: {
+        answered: { type: 'string', description: 'What a world_model_* call answered that saved a Grep, Glob or Read.' },
+        missed: { type: 'string', description: 'What it had no answer for, so Grep or a Read found it instead.' },
+        wrong: { type: 'string', description: 'What it returned that the code contradicts.' },
+    },
+    additionalProperties: false,
+};
+/** One wm_feedback audit row on the task's issue (GH 2417). */
+export function insertWmFeedback(db, task, agent, feedback, createdAt) {
+    const flagged = ['missed', 'wrong'].filter((k) => (feedback[k] ?? '').trim() !== '');
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id ?? null,
+        from_node: agent,
+        event_type: 'wm_feedback',
+        summary: `${agent} world-model feedback on task ${task.id}${flagged.length > 0 ? ` (${flagged.join(', ')})` : ''}`,
+        content_json: JSON.stringify({
+            task_id: task.id,
+            agent,
+            answered: feedback.answered ?? null,
+            missed: feedback.missed ?? null,
+            wrong: feedback.wrong ?? null,
+        }),
+        created_at: createdAt,
+    });
+}
 /** The head of code-reviewer's final message (GH 1959), built from the row validation_record just wrote. */
 export function reviewerReturnLine(row, commitSha, findings) {
     const sha = commitSha ? commitSha.slice(0, 8) : '-';
@@ -146,7 +176,7 @@ export function validationTools(db) {
     const definitions = [
         {
             name: 'validation_record',
-            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones.',
+            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task\'s issue.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -160,7 +190,7 @@ export function validationTools(db) {
                     findings: {
                         type: 'array',
                         description: 'One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). ' +
-                            'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt\'s open findings. ' +
+                            'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted. ' +
                             'On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
                             'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
                             'task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.',
@@ -186,13 +216,14 @@ export function validationTools(db) {
                             additionalProperties: false,
                         },
                     },
+                    wm_feedback: WM_FEEDBACK_SCHEMA,
                 },
                 required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
             },
         },
         {
             name: 'validation_history',
-            description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
+            description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none), and findings, the review_findings rows of that attempt ({id, criterion_id, status, probe_cmd, expected, observed, severity, class}; withheld wherever feedback is). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -204,7 +235,7 @@ export function validationTools(db) {
                     fields: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns.',
+                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns.',
                     },
                 },
                 required: ['agent', 'task_id'],
@@ -228,7 +259,15 @@ export function validationTools(db) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
             }
             const findings = parseFindings(verdict, args['findings']);
-            const taskExists = db.get(`SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
+            const wmFeedbackArg = args['wm_feedback'];
+            let wmFeedback = null;
+            if (wmFeedbackArg !== undefined && wmFeedbackArg !== null) {
+                const problem = wmFeedbackProblem(wmFeedbackArg, 'wm_feedback');
+                if (problem)
+                    throw new Error(`wm_feedback_invalid: ${problem}`);
+                wmFeedback = toWmFeedback(wmFeedbackArg);
+            }
+            const taskExists = db.get(`SELECT t.id, t.issue_id, t.branch_id, COALESCE(t.repo, i.repo) AS repo, t.commit_sha
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`, [taskId]);
             if (!taskExists) {
@@ -239,14 +278,9 @@ export function validationTools(db) {
             const now = nowISO();
             const callerSessionId = typeof args['subagent_session_id'] === 'string' ? args['subagent_session_id'] : null;
             const findingIds = [];
+            let storedAttempt = attemptN;
+            let rowId = 0;
             db.transaction(() => {
-                if (mcpAvailable === 0) {
-                    const verified = db.get(`SELECT verdict, reviewer_agent_id, created_at FROM validation_attempts
-              WHERE task_id = ? AND attempt_n = ? AND mcp_available = 1`, [taskId, attemptN]);
-                    if (verified) {
-                        throw new Error(`verified_verdict_exists: task ${taskId} attempt ${attemptN} already holds a verified ${verified.verdict} verdict (reviewer_agent_id ${verified.reviewer_agent_id ?? 'null'}, recorded ${verified.created_at}); an honor-system call (mcp_available:false) cannot overwrite it.`);
-                    }
-                }
                 const latest = latestObservation(db, taskId, attemptN);
                 const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
                 const staleRow = latest !== undefined && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : undefined;
@@ -289,28 +323,23 @@ export function validationTools(db) {
                 else {
                     throw new Error(`subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`);
                 }
-                db.run(`INSERT INTO validation_attempts
+                storedAttempt = db.get(`SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ?1 AND attempt_n = ?2)
+                  THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ?1)
+                  ELSE ?2 END AS n`, [taskId, attemptN])?.n ?? attemptN;
+                rowId = db.run(`INSERT INTO validation_attempts
              (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-             agent = excluded.agent,
-             verdict = excluded.verdict,
-             feedback = excluded.feedback,
-             mcp_available = excluded.mcp_available,
-             subagent_session_id = excluded.subagent_session_id,
-             reviewer_agent_id = excluded.reviewer_agent_id,
-             created_at = excluded.created_at,
-             repo = excluded.repo`, [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo]);
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo]).lastInsertRowid;
                 const lastN = db.get(`SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`, [taskId])?.n ?? 0;
-                db.run(`DELETE FROM review_findings WHERE task_id = ? AND attempt_n = ? AND status = 'open'`, [taskId, attemptN]);
                 findings.forEach((f, i) => {
                     const id = `F${taskId}-${lastN + i + 1}`;
                     db.run(`INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`, [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class]);
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`, [id, taskId, storedAttempt, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class]);
                     findingIds.push(id);
                 });
+                if (wmFeedback)
+                    insertWmFeedback(db, taskExists, agent, wmFeedback, now);
             });
-            const row = db.get(`SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`, [taskId, attemptN]);
+            const row = db.get(`SELECT * FROM validation_attempts WHERE rowid = ?`, [rowId]);
             const recorded = findingIds.map((id) => ({ ...db.get('SELECT * FROM review_findings WHERE id = ?', [id]) }));
             return ok({
                 ...row,
@@ -328,15 +357,21 @@ export function validationTools(db) {
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
             const fieldsArg = args['fields'];
-            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run']);
+            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run', 'findings']);
             if (fieldsArg !== undefined) {
                 const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
                 if (unknown.length > 0) {
                     return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(', ')}`);
                 }
             }
+            const findingCols = ['id', 'criterion_id', 'status', 'probe_cmd', 'expected', 'observed', 'severity', 'class'].filter((c) => (db.get(`SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = ?`, [c])?.n ?? 0) > 0);
+            function attemptFindings(attemptN) {
+                return db.all(`SELECT ${findingCols.join(', ')} FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY rowid`, [taskId, attemptN]);
+            }
             function projectRow(redacted) {
                 const row = { ...redacted, verification_run: latestVerificationRun(db, taskId, String(redacted['created_at'])) };
+                if ('feedback' in redacted)
+                    row['findings'] = attemptFindings(Number(redacted['attempt_n']));
                 if (!fieldsArg)
                     return row;
                 const out = {};

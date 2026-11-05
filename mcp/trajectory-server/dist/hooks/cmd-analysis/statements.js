@@ -39,6 +39,8 @@ const KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 const ENCODED = /[\x01-\x06\x0e-\x13]/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 const BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+/** A redirect whose target is a literal word or an fd duplication (GH 2404): it expands nothing, so it cannot reassign a variable. */
+const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 function norm(p) {
     let lead = '';
@@ -131,6 +133,7 @@ function scan(buf, base, home, assign, frames, charge) {
     let lastdir = '';
     let piped = false;
     let pipesrc = '';
+    let cut = false;
     let i = 0;
     let s = base.indexOf(SEP);
     if (s >= 0) {
@@ -148,6 +151,8 @@ function scan(buf, base, home, assign, frames, charge) {
     let sp = 0;
     let bt = false;
     let stmt = '';
+    let tail = false;
+    let owns = false;
     let qsp = 0;
     const stack = [];
     const ostack = [];
@@ -155,10 +160,11 @@ function scan(buf, base, home, assign, frames, charge) {
     const owstack = [];
     const astack = [];
     const oastack = [];
+    const sstack = [];
     const q = [];
-    const emit = (dir, text) => {
+    const emit = (dir, text, args = false) => {
         charge(dir.length);
-        records.push({ dir, stmt: text });
+        records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
     };
     const loops = [];
     const fids = [];
@@ -512,8 +518,14 @@ function scan(buf, base, home, assign, frames, charge) {
             vkill = false;
         }
     }
-    /** Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA mark. */
-    function vplainexp(text) {
+    /**
+     * Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA
+     * mark. A literal redirect is plain unless a `(` or backtick cut the
+     * statement short, where its target runs on into the substitution.
+     */
+    function vplainexp(text, whole) {
+        if (whole)
+            text = text.replace(LITERAL_REDIRECT, '$1');
         const parts = text.split('<<');
         for (let k = 1; k < parts.length; k++) {
             if (!parts[k].startsWith(HD_DATA))
@@ -527,11 +539,22 @@ function scan(buf, base, home, assign, frames, charge) {
                 return false;
         return plainDollars(text);
     }
-    function flush() {
+    /**
+     * Sets `owns`: the statement's command word comes before its last word, or
+     * it is itself a tail. `sub`: without `assign`, an unquoted $( ) or backtick
+     * follows without leaving a word of its own, so a blank right before it
+     * makes it a word after the command word (GH 2381).
+     */
+    function flush(sub = false) {
+        const args = tail;
+        tail = false;
+        owns = args;
         const chained = fsep === '&&';
         fsep = '';
         vtop = sp === 0 && qsp === 0 && !bt;
-        if (!vplainexp(stmt.replaceAll(QM, '')))
+        const whole = !cut;
+        cut = false;
+        if (!vplainexp(stmt.replaceAll(QM, ''), whole))
             vok = false;
         stmt = unmark(stmt);
         const csure = !cond;
@@ -594,13 +617,13 @@ function scan(buf, base, home, assign, frames, charge) {
         }
         if (first >= n) {
             let ok = plain;
-            if (vtop && plain)
+            if (vtop && plain && !args)
                 for (const a of aw)
                     if (!assignword(a, !csure))
                         ok = false;
             if (assign && asg !== '') {
-                emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg);
-                if (!chained) {
+                emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg, args);
+                if (!chained && !args) {
                     old = '-';
                     owhy = '';
                     oalts = [];
@@ -610,6 +633,8 @@ function scan(buf, base, home, assign, frames, charge) {
             return;
         }
         let a0 = w[first];
+        if (!args)
+            owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
         if (assign && !wq[first] && (a0 === 'for' || a0 === 'select'))
             forhead(w, first);
         else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function'))
@@ -621,7 +646,7 @@ function scan(buf, base, home, assign, frames, charge) {
                     continue;
                 if (!ASSIGNMENT.test(w[k]))
                     ok = false;
-                else if (vtop && !assignword(w[k], !csure))
+                else if (vtop && !args && !assignword(w[k], !csure))
                     ok = false;
             }
         }
@@ -641,7 +666,7 @@ function scan(buf, base, home, assign, frames, charge) {
         let da = alts;
         const o = oalts.length > 0 ? '-' : old;
         let dw = cwhy;
-        if (a0 === 'cd' || a0 === 'pushd') {
+        if (!args && (a0 === 'cd' || a0 === 'pushd')) {
             let p = '';
             for (let k = first + 1; k < n; k++) {
                 if (w[k] === '')
@@ -674,7 +699,7 @@ function scan(buf, base, home, assign, frames, charge) {
                 [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
             }
         }
-        else if (a0 === 'popd') {
+        else if (!args && a0 === 'popd') {
             old = cur;
             owhy = cwhy;
             oalts = alts;
@@ -714,8 +739,8 @@ function scan(buf, base, home, assign, frames, charge) {
                 break;
             }
         }
-        emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
-        if (!chained) {
+        emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
+        if (!chained && !args) {
             old = '-';
             owhy = '';
             oalts = [];
@@ -746,9 +771,10 @@ function scan(buf, base, home, assign, frames, charge) {
         const prev = i > 0 ? buf[i - 1] : '';
         if (c === QO) {
             qsp++;
-            q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
+            q[qsp] = { stmt, tail, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
             vkill = true;
             stmt = '';
+            tail = false;
             continue;
         }
         if (c === QC) {
@@ -757,6 +783,7 @@ function scan(buf, base, home, assign, frames, charge) {
             flush();
             const f = q[qsp];
             stmt = f.stmt + '$' + ENC[8] + rawword(buf.slice(f.start, i)) + ENC[9];
+            tail = f.tail;
             cur = f.cur;
             old = f.old;
             sp = f.sp;
@@ -813,29 +840,37 @@ function scan(buf, base, home, assign, frames, charge) {
                 else
                     stmt = stmt.slice(0, -1);
             }
-            flush();
+            cut = true;
+            flush(!assign && last === '$');
             push();
+            sstack[sp] = last === '$' && owns;
             continue;
         }
         if (c === ')') {
             flush();
             if (sp === 0)
                 vok = false;
+            const closes = sp > 0 && sstack[sp];
             pop();
+            tail = closes;
             continue;
         }
         if (c === '`') {
             vkill = true;
             if (assign && !bt)
                 stmt += '$' + ENC[8] + ENC[9];
-            flush();
+            cut = true;
+            flush(!assign && !bt);
             if (bt) {
                 bt = false;
+                const closes = sp > 0 && sstack[sp];
                 pop();
+                tail = closes;
             }
             else {
                 bt = true;
                 push();
+                sstack[sp] = owns;
             }
             continue;
         }

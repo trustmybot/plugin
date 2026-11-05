@@ -35,7 +35,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 ### Persistent persona behaviors
 
-- **Activation routine** — `activation-routine.sh` UserPromptSubmit hook reads `plugin_config('onboarded')` + pending issue from the trajectory DB and injects them as `additionalContext`. Bro consumes the injected data; doesn't redundantly call those MCP tools.
+- **Activation routine** — `activation-routine` UserPromptSubmit hook reads `plugin_config('onboarded')` + pending issue from the trajectory DB and injects them as `additionalContext`. Bro consumes the injected data; doesn't redundantly call those MCP tools.
 - **First-contact auto-fire** — when the hook reports `onboarded=no`, bro fires `/onboard` immediately before any reply.
 - **Welcome banner** on first activation in a session.
 - **Verify context before answering** — query trajectory DB first; branch by git-clean state; web for upstream specs; flag training-data fallbacks.
@@ -44,7 +44,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 ### Code-touching chain
 
-1. `session-start-prescan.sh` (auto hook — inventory) → decide
+1. `session-start-prescan` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
 3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + a `kind=decision` discussion when the change is architectural: new boundary/module, public API, schema, strategic stack, external side effects)
 4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`, `worktree_reused`); an existing branch is reused only at or behind the base tip — a diverged one is refused with `branch_exists_diverged` unless `reuse_existing: true`.
@@ -54,7 +54,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
    - V1 — files match the spec's `## Files`
    - V2 — re-run the spec's `## Verification` commands inside the worktree
    - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`). The post-close hook (`post-task-close-rescan.sh`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
+8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`). The post-close hook (`post-task-close-rescan`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
 
 ### Server-enforced privileges (Layer 1)
 
@@ -73,16 +73,16 @@ Bro is the only agent allowed to call:
 
 | Hook | When | Effect |
 |---|---|---|
-| `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
-| `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
-| `session-start-persona.sh` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block, and after a compaction the issue, live tasks and newest decision `session-handoff` recorded at PreCompact; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
-| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
-| `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
-| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
-| `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
-| `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
-| `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once code-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
-| `post-task-close-rescan.sh` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
+| `user-prompt-persona` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
+| `activation-routine` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
+| `session-start-persona` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block, and after a compaction the issue, live tasks and newest decision `session-handoff` recorded at PreCompact; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
+| `session-start-prescan` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
+| `ensure-gitignore` | SessionStart | Ensure `.claude/` is gitignored |
+| `no-source-edit-from-main` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
+| `no-worktree-branch-create` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
+| `branch-up-to-date-with-remote` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
+| `cleanup-worktree-on-task-close` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once code-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
+| `post-task-close-rescan` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
 
 ### Universal rules
 
@@ -97,8 +97,8 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 ### Spawn contract
 
-- Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or the task is neither `pending` nor `running` without a live swe run (Layer 2 hook `require-task-spec.sh` enforces).
-- bro spawns SWE with `isolation='worktree'`; the `WorktreeCreate` hook (`worktree-create.sh`) is the sole creator — it adds the worktree at `.claude/worktrees/<slug>` on `tasks.branch_id` (bro pre-created the branch) and routes it to `tasks.repo`. SWE arrives already in the worktree.
+- Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or the task is neither `pending` nor `running` without a live swe run (Layer 2 hook `require-task-spec` enforces).
+- bro spawns SWE with `isolation='worktree'`; the `WorktreeCreate` hook (`worktree-create`) is the sole creator — it adds the worktree at `.claude/worktrees/<slug>` on `tasks.branch_id` (bro pre-created the branch) and routes it to `tasks.repo`. SWE arrives already in the worktree.
 - **First response** (parallel batch): `task_brief(agent='swe', task_id=N)` + `Bash(cd <worktree>)`. SWE never runs `git worktree add` itself.
 
 ### Work loop
@@ -125,16 +125,16 @@ Batch in one response:
 
 | Hook | When | Effect |
 |---|---|---|
-| `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec; a schema-touching or column-adding spec also needs `Writer:` + `Populated:` lines or a `Nullable:` line (waived by a `spec_shape_gate_waived` audit row with `from_node = 'bro'` naming the task in `content_json.task_id`, written per task by `task_create_batch` / `task_provision` with `waive_spec_shape` or by bro through `audit_append`) |
-| `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only), except `git merge --ff-only` of a branch onto its own remote-tracking upstream, alone or right after an exact `git switch <branch> &&` (`git pull --ff-only` is the suggested sync); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard.sh`). |
-| `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
-| `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
-| `swe-boundary.sh` | PreToolUse Bash + Edit/Write | Deny push, gh/glab mutations, edits outside the worktree, the repo-root `CLAUDE.md` (always) and prompt-surface writes on a task without `prompt_bearing`; a Bash write outside `files[]` gets a once-per-path note |
-| `swe-scope-fence.sh` | PreToolUse Edit/Write | Never denies: an Edit/Write outside `files[]` gets a once-per-path note (`<state>/locks/scope-notes/`) |
+| `require-task-spec` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec; a schema-touching or column-adding spec also needs `Writer:` + `Populated:` lines or a `Nullable:` line (waived by a `spec_shape_gate_waived` audit row with `from_node = 'bro'` naming the task in `content_json.task_id`, written per task by `task_create_batch` / `task_provision` with `waive_spec_shape` or by bro through `audit_append`) |
+| `git-guards`, `git-push-guard` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only), except `git merge --ff-only` of a branch onto its own remote-tracking upstream, alone or right after an exact `git switch <branch> &&` (`git pull --ff-only` is the suggested sync); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard`). |
+| `no-worktree-branch-create` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
+| `branch-up-to-date-with-remote` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
+| `swe-boundary` | PreToolUse Bash + Edit/Write | Deny push, gh/glab mutations, edits outside the worktree, the repo-root `CLAUDE.md` (always) and prompt-surface writes on a task without `prompt_bearing`; a Bash write outside `files[]` gets a once-per-path note |
+| `swe-scope-fence` | PreToolUse Edit/Write | Never denies: an Edit/Write outside `files[]` gets a once-per-path note (`<state>/locks/scope-notes/`) |
 
 ### Scope is judged at close
 
-`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else the remote's default branch — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by top-level directory (root files under `<root>`) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` differs from the merge-base with the target). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so code-reviewer reads bro's acceptance instead of recomputing the diff.
+`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else the remote's default branch — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by top-level directory (root files under `<root>`) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` does not resolve, or differs from the merge-base with the target without descending from it; a task stacked on a live sibling branch, whose recorded base strictly descends from the target merge-base, reports `false`). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so code-reviewer reads bro's acceptance instead of recomputing the diff.
 
 ### Forbidden
 
@@ -175,7 +175,7 @@ For each task, trust the swe's checklist of what changed and read the records: t
 
 | Hook | When | Effect |
 |---|---|---|
-| `git-push-guard.sh` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every unsigned task has a passing `validation_attempts` row |
+| `git-push-guard` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every pushed task commit's newest `validation_attempts` row is a `pass` recorded at or after its review anchor, the first `bro_verification_pass` or `task_integrated` row for its current `commit_sha` |
 
 ### Forbidden
 
@@ -204,7 +204,7 @@ Bro spawns consultants for second opinions; consultants return analysis as a `di
 
 Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireRoles` declarations.
 
-`requireRoles` reads the role from the `agent` argument the caller passes; the server never sees who is calling. The `agent-arg-matches-caller.sh` PreToolUse hook closes that gap on every trajectory-server call: it compares `agent` with the hook payload's `agent_type` (the subagent's real type, after `tmb_normalize_role`), or with `bro` when the payload has none (the main session), and denies a mismatch with an `agent_arg_mismatch` audit row. A subagent therefore cannot unlock bro's column by passing `agent='bro'`, and the main session cannot act as a subagent; a call without `agent` is left to the server, which treats it as `unknown`.
+`requireRoles` reads the role from the `agent` argument the caller passes; the server never sees who is calling. The `agent-arg-matches-caller` PreToolUse hook closes that gap on every trajectory-server call: it compares `agent` with the hook payload's `agent_type` (the subagent's real type, after `normalizeRole`), or with `bro` when the payload has none (the main session), and denies a mismatch with an `agent_arg_mismatch` audit row. A subagent therefore cannot unlock bro's column by passing `agent='bro'`, and the main session cannot act as a subagent; a call without `agent` is left to the server, which treats it as `unknown`.
 
 | Tool | bro | swe | code-reviewer | consultants |
 |---|:---:|:---:|:---:|:---:|

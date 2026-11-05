@@ -18,7 +18,9 @@
  * eval / heredoc nesting deeper than 3. It prints
  * UNRESOLVED:$(unproven):<text> (GH 1739) for an inline program it cannot
  * prove, a program, eval argument or sh -c body part of whose text the shell
- * fills in, and a statement whose command word is an expansion; a variable
+ * fills in, and a statement whose command word is an expansion; an eval
+ * filled in only from variables holding tracked literals is judged as each
+ * text it expands to instead (GH 1913); a variable
  * set where the tracking cannot follow (`+=`, a subscript, `declare -n`,
  * `mapfile`, an arithmetic or `name=` text anywhere in another statement) is
  * poisoned so its later uses fail closed. An analysis past ANALYSIS_WORK_CAP
@@ -26,7 +28,7 @@
  * only CAP_LINE (GH 2090): a command is judged only if its analysis finishes.
  */
 import type { Parser } from 'web-tree-sitter';
-import { type Charge, type Heredoc, decode, encode, heldKey } from './encode.js';
+import { type Charge, type Heredoc, decode, encode, heldKey, plainDollars } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
@@ -573,7 +575,7 @@ class WritePaths {
       if (record.dir.startsWith('=')) continue;
       const { words } = unwrapStatement(record.stmt);
       if (words.length === 0) continue;
-      if (/[$`]/.test(dec(words[0]))) {
+      if (!record.tail && /[$`]/.test(dec(words[0]))) {
         out.push('$(proc)');
         continue;
       }
@@ -617,11 +619,58 @@ class WritePaths {
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   private held = new Set<string>();
 
+  /** The `Encoded.spliced` keys of the command `run` is in. */
+  private spliced = new Set<string>();
+
   /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
   private unbalanced = false;
 
   private isHeld(word: string): boolean {
     return this.held.has(heldKey(word));
+  }
+
+  /**
+   * GH 1913: each text an eval with held arguments runs, when the shell fills
+   * them in only from `$NAME` / `${NAME}` variables whose every value is a
+   * literal tracked in this command (no glob, brace, newline or tab, IFS
+   * untouched), one per combination of values (at most 16), none changing
+   * the directory; else null.
+   */
+  private evalExpansions(level: Level, args: readonly string[], body: string): string[] | null {
+    if (this.unbalanced || this.varGet(level.vars, 'IFS') !== null) return null;
+    if (args.some((w) => /[$`]/.test(heldKey(w)) && !this.spliced.has(heldKey(w)))) return null;
+    const text = dec(body);
+    if (/[`\x07\x08]/.test(text) || !plainDollars(text)) return null;
+    const ref = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+    let combos: Map<string, string>[] = [new Map()];
+    for (const name of new Set([...text.matchAll(ref)].map((m) => m[1] ?? m[2]))) {
+      const vals = this.varGet(level.vars, name);
+      if (vals === null) return null;
+      const values = vals.split('\n');
+      if (values.some((v) => /[\x01$`*?[{\t\n\r]|[!@+]\(/.test(v))) return null;
+      combos = combos.flatMap((c) => values.map((v) => new Map(c).set(name, v)));
+      if (combos.length > 16) return null;
+    }
+    const texts = combos.map((c) => text.replace(ref, (_, braced: string | undefined, plain: string | undefined) => c.get(braced ?? plain ?? '') ?? ''));
+    for (const t of texts) {
+      for (const record of this.listing(t, '@', 0)) {
+        if (/^(cd|pushd|popd)$/.test(basename(unwrapStatement(record.stmt).words[0] ?? ''))) return null;
+      }
+    }
+    return texts;
+  }
+
+  /** The texts an eval runs: its own when no argument is held, else `evalExpansions`. */
+  private evalTexts(level: Level, args: readonly string[], body: string): string[] | null {
+    return args.some((w) => this.isHeld(w)) ? this.evalExpansions(level, args, body) : [dec(body)];
+  }
+
+  /** Runs one eval text at depth + 1 in this shell: a name it sets is poisoned in `level`. */
+  private evalRun(level: Level, text: string, tok: string, depth: number): void {
+    const seen = new Set(level.vars.split('\n'));
+    for (const line of this.run(text, tok, depth + 1, level.vars).split('\n')) {
+      if (line !== '' && !seen.has(line)) this.poison(level, before(line, '\t'));
+    }
   }
 
   private readonly interp: Interp = (words) =>
@@ -701,22 +750,23 @@ class WritePaths {
     }
   }
 
-  /** _tmb_cmd_write_paths_in */
-  run(cmd: string, base: string, depth: number, vars: string): void {
+  /** _tmb_cmd_write_paths_in; the TS returns the variables tracked when it ends. */
+  run(cmd: string, base: string, depth: number, vars: string): string {
     this.charge(cmd.length);
     const encoded = encode(this.parser, cmd, this.charge);
     if (!encoded.ok) {
       this.print(parseLine(cmd));
-      return;
+      return vars;
     }
-    const outer = this.held;
-    const unbalanced = this.unbalanced;
+    const outer = { held: this.held, spliced: this.spliced, unbalanced: this.unbalanced };
     this.held = encoded.held;
+    this.spliced = encoded.spliced;
     try {
-      this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
+      return this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
     } finally {
-      this.held = outer;
-      this.unbalanced = unbalanced;
+      this.held = outer.held;
+      this.spliced = outer.spliced;
+      this.unbalanced = outer.unbalanced;
     }
   }
 
@@ -761,16 +811,24 @@ class WritePaths {
         const words = shellWords(record.stmt);
         if (words.length === 0) return;
         if (dir.startsWith('=')) {
-          this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-            this.pwd = dirPath(d, cwd);
-            for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
-          });
+          if (!record.tail)
+            this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+              this.pwd = dirPath(d, cwd);
+              for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
+            });
           return;
         }
         this.poisonSet(level, words);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
         const body = inner(record.stmt);
-        if (body !== '' && ((!evalArgs(words) && heldProgram(body)) || depth < MAX_DEPTH)) return;
+        const evaluated = evalArgs(words);
+        if (body !== '' && evaluated && depth < MAX_DEPTH) {
+          const out = this.out;
+          const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
+          for (const text of this.evalTexts(level, evaluated, body) ?? []) this.evalRun(level, text, tok, depth);
+          this.out = out;
+        }
+        if (record.tail || (body !== '' && ((!evaluated && heldProgram(body)) || depth < MAX_DEPTH))) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
           this.trackVars(level, words);
@@ -803,7 +861,7 @@ class WritePaths {
     level.why = why;
   }
 
-  private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string): void {
+  private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string): string {
     const level: Level = { vars, oldtok: '-', why: '' };
     const { cwd } = this.opts;
     const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true, this.charge).filter((r) => !/^\t*$/.test(r.stmt));
@@ -831,10 +889,11 @@ class WritePaths {
       let words = shellWords(record.stmt);
       if (words.length === 0) continue;
       if (dir.startsWith('=')) {
-        this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
-          this.pwd = dirPath(d, cwd);
-          for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
-        });
+        if (!record.tail)
+          this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+            this.pwd = dirPath(d, cwd);
+            for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
+          });
         continue;
       }
       const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
@@ -845,9 +904,10 @@ class WritePaths {
       const evaluated = evalArgs(words);
       this.poisonSet(level, words);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
+      const texts = evaluated && body !== '' ? this.evalTexts(level, evaluated, body) : null;
       const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
-      if (/[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
-      if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
+      if (!record.tail && /[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
+      if (evaluated?.some((w) => this.isHeld(w)) && texts === null) this.print(unprovenLine(dec(record.stmt)));
       else if (body !== '' && !evaluated && this.isHeld(body)) this.print(unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`));
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
@@ -860,7 +920,8 @@ class WritePaths {
         continue;
       }
       if (body !== '' && depth < MAX_DEPTH) {
-        this.run(dec(body), tok, depth + 1, level.vars);
+        if (texts) for (const t of texts) this.evalRun(level, t, tok, depth);
+        else this.run(dec(body), tok, depth + 1, level.vars);
         continue;
       }
       if (body !== '') this.print(computedLine(dec(body)));
@@ -906,11 +967,13 @@ class WritePaths {
           }
         }
       }
-      each((d) => {
-        this.pwd = dirPath(d, cwd);
-        this.trackVars(level, words);
-      });
+      if (!record.tail)
+        each((d) => {
+          this.pwd = dirPath(d, cwd);
+          this.trackVars(level, words);
+        });
     }
+    return level.vars;
   }
 }
 
