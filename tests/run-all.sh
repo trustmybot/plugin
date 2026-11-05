@@ -199,7 +199,7 @@ run_step "L1 self-check: every tests/l1-lint/*.sh runs here" l1_lints_all_wired
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
-run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+run_step "L1 bench: measurement harness selftest"     node --test "$HERE/benchmarks/selftest.test.mjs"
 
 export PATH="$_l1_saved_path"
 unset TMB_L1_OFFLINE
