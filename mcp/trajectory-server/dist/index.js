@@ -25290,7 +25290,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_feedback", writers: ["swe", "code-reviewer"], description: "An agent said what the world model answered, missed or got wrong during a task (GH 2417): `task_update_status(status='completed')` writes one row when swe's `report.wm_feedback` is present, and `validation_record` one when code-reviewer passes `wm_feedback`; on the task's issue, from_node the `agent` argument; `content_json` carries `task_id`, `agent`, `answered`, `missed`, `wrong` (null when absent). `trajectory_doctor` counts the rows and those with a non-empty `missed` / `wrong`" },
+  { type: "wm_feedback", writers: ["swe", "code-reviewer"], description: "An agent said what the world model answered, missed or got wrong during a task (GH 2417): `task_update_status(status='completed')` writes one row when swe's `report.wm_feedback` is present (only swe may pass it; any other agent is refused with `wm_feedback_invalid`), and `validation_record` one when code-reviewer passes `wm_feedback`; a report whose `answered`, `missed` and `wrong` are all absent or blank writes no row; on the task's issue, from_node the `agent` argument; `content_json` carries `task_id`, `agent`, `answered`, `missed`, `wrong` (null when absent). `trajectory_doctor` counts the rows and those with a non-empty `missed` / `wrong`" },
   { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -36388,7 +36388,7 @@ function latestVerificationRun(db2, taskId, startedBy) {
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
 var WM_FEEDBACK_SCHEMA = {
   type: "object",
-  description: "Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row; trajectory_doctor counts them.",
+  description: "Optional: what the world model answered, missed or got wrong during this task, each in a sentence. Stored as one wm_feedback audit row, none when every field is blank; trajectory_doctor counts them.",
   properties: {
     answered: { type: "string", description: "What a world_model_* call answered that saved a Grep, Glob or Read." },
     missed: { type: "string", description: "What it had no answer for, so Grep or a Read found it instead." },
@@ -36397,6 +36397,7 @@ var WM_FEEDBACK_SCHEMA = {
   additionalProperties: false
 };
 function insertWmFeedback(db2, task, agent, feedback, createdAt) {
+  if (WM_FEEDBACK_KEYS.every((k) => (feedback[k] ?? "").trim() === "")) return;
   const flagged = ["missed", "wrong"].filter((k) => (feedback[k] ?? "").trim() !== "");
   insertAudit(db2, {
     issue_id: task.issue_id,
@@ -36562,7 +36563,7 @@ function validationTools(db2) {
   const definitions = [
     {
       name: "validation_record",
-      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task's issue.",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task's issue, none when every field is absent or blank.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37145,7 +37146,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. `report.wm_feedback` {answered?, missed?, wrong?} (optional) says what the world model answered, missed or got wrong, and also writes one wm_feedback audit row. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. `report.wm_feedback` {answered?, missed?, wrong?} (optional) says what the world model answered, missed or got wrong, and also writes one wm_feedback audit row, none when every field is blank; only swe may pass it, any other agent is refused with wm_feedback_invalid. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37836,6 +37837,9 @@ function taskTools(db2) {
         throw new Error(`task_update_status: checkpoint is accepted only with status='running' (got '${status}').`);
       }
       const report = status === "completed" ? parseCompletionReport(args2["report"], specCriterionIds(task.spec_body)) : null;
+      if (report?.wm_feedback && agent !== "swe") {
+        throw new Error(`wm_feedback_invalid: only swe may pass report.wm_feedback (got agent '${agent}').`);
+      }
       const taskRepo = task.repo;
       if (report?.concepts && taskRepo) {
         report.concepts = report.concepts.map((c) => ({ ...c, repo: c.repo ?? taskRepo }));

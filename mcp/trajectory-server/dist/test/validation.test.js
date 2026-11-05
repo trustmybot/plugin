@@ -720,6 +720,12 @@ describe('validation_record wm_feedback (GH 2417)', () => {
         assert.equal(rows[0].from_node, 'code-reviewer');
         assert.deepEqual(JSON.parse(rows[0].content_json), { task_id: taskId, agent: 'code-reviewer', ...wm_feedback, missed: null });
     });
+    it('an empty wm_feedback writes no wm_feedback row (GH 2421)', async () => {
+        const before = feedbackRows().length;
+        const result = await record(3, { wm_feedback: {} });
+        assert.ok(!result.isError, result.content[0].text);
+        assert.equal(feedbackRows().length, before);
+    });
     for (const [label, wm_feedback, pattern] of [
         ['a non-object', 'fine', /wm_feedback must be an object/],
         ['an unknown key', { answered: 'x', note: 'y' }, /wm_feedback has unknown field\(s\) note/],
