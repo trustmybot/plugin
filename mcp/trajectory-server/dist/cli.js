@@ -1508,6 +1508,7 @@ var init_audit_events = __esm({
       { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
       { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
       { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+      { type: "task_integrated", writers: ["hook"], description: "`cli.js integrate` (`src/cli/integrate.ts`) moved the task branch to the rebased SHA and set `tasks.commit_sha` to it, in one transaction guarded on the reviewed `commit_sha`; one row per integration on the task's issue, from_node `hook:integrate`. It is a review anchor beside `bro_verification_pass` (`HAS_PASS_SQL`), so the integrated head needs a fresh code-reviewer pass; `content_json` carries `task_id`, `reviewed_sha`, `commit_sha` (the rebased SHA), `base`, `run_id` (the passing `verification_runs` row)" },
       { type: "liveness_finding_reported", writers: ["hook"], description: "`liveness-sentinel` or `liveness-alert` reported a subagent run or `tail -f` watcher that looks dead or hung (GH 2205); one row per `kind` (`subagent` or `shell`) and `finding_id` (the `agent_runs` id, else the background task id), ever (the once-marker), on the run's issue or the system issue, from_node `hook:<gate>`; `content_json` carries `kind`, `finding_id`, `run_id`, `task_id`, `agent_type`, `agent_id`, `shell_id`, `command`, `silent_min`, `reason`" },
       { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
       { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
@@ -5487,7 +5488,7 @@ var init_review_sql = __esm({
     HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+      WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
     reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
@@ -6065,6 +6066,7 @@ var init_worktree_setup = __esm({
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync3, constants as constants4, readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 function digitsOr3(value, fallback) {
   return value !== void 0 && /^[0-9]+$/.test(value) ? Number(value) : fallback;
 }
@@ -6131,7 +6133,81 @@ COMMIT;
   const detail = (err2 || `sqlite3 exited ${code}`).split("\n")[0];
   return { ok: false, code, stdout, error: `tmb_db_write: ${caller}: ${detail}` };
 }
-var WRITE_ATTEMPTS, BACKOFF_MS, DEFAULT_BUSY_MS, DEFAULT_RUN_BUDGET_MS, BUDGET_SPENT_CODE, spentMs, BUSY_PATTERN;
+function fromNodeValid(fromNode) {
+  return fromNode === "system" || /^hook:[a-z0-9-]+$/.test(fromNode);
+}
+function auditWriter(fromNode) {
+  if (fromNode.startsWith("hook:")) return "hook";
+  return fromNode === "system" ? "server" : "";
+}
+function auditEventsFile(env = process.env) {
+  const here = posixDirname(fileURLToPath3(import.meta.url));
+  const root = installRoot(here) ?? env.CLAUDE_PLUGIN_ROOT ?? here;
+  return `${root}/${AUDIT_EVENTS_REL}`;
+}
+function eventWriters(file, eventType) {
+  if (eventType === "") return null;
+  let text;
+  try {
+    text = readFileSync7(file, "utf8");
+  } catch {
+    return null;
+  }
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  for (const line of lines) {
+    const trimmed = line.replace(/^\t+/, "").replace(/\t+$/, "");
+    const tab = trimmed.indexOf("	");
+    const ev = tab < 0 ? trimmed : trimmed.slice(0, tab);
+    if (ev === eventType) return tab < 0 ? "" : trimmed.slice(tab).replace(/^\t+/, "");
+  }
+  return null;
+}
+function readable(file) {
+  try {
+    accessSync3(file, constants4.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function auditWriterCheck(label, eventType, writer, opts = {}) {
+  const file = opts.eventsFile ?? auditEventsFile(opts.env);
+  if (!readable(file)) {
+    return {
+      code: 2,
+      error: `${label}: audit event list missing or unreadable: ${file} (run npm run build in mcp/trajectory-server)`
+    };
+  }
+  const writers = eventWriters(file, eventType);
+  if (writers === null) {
+    return {
+      code: 2,
+      error: `${label}: unknown event_type '${eventType}' (not in ${file}; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)`
+    };
+  }
+  if (`,${writers},`.includes(`,${writer},`)) return { code: 0, error: "" };
+  return {
+    code: 2,
+    error: `${label}: audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${writers})`
+  };
+}
+function auditSql(row, guardSql = "", opts = {}) {
+  const caller = opts.caller ?? defaultCaller();
+  const label = `tmb_audit_append: ${caller}`;
+  if (!fromNodeValid(row.fromNode)) {
+    return { code: INVALID_CODE, sql: "", error: `${label}: invalid from_node '${row.fromNode}' (want hook:<name> or system)` };
+  }
+  const check = auditWriterCheck(label, row.eventType, auditWriter(row.fromNode), opts);
+  if (check.code !== 0) return { code: INVALID_CODE, sql: "", error: check.error };
+  const issue = row.issueId === "-1" ? "-1" : sqlInt(row.issueId);
+  if (issue === "") return { code: INVALID_CODE, sql: "", error: `${label}: invalid issue_id '${row.issueId}'` };
+  const branch = row.branchId === "" ? "NULL" : `'${sqlQuote(row.branchId)}'`;
+  const where = guardSql === "" ? "" : ` WHERE ${guardSql}`;
+  const sql = `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at) SELECT ${issue}, ${branch}, '${sqlQuote(row.fromNode)}', '${sqlQuote(row.eventType)}', '${sqlQuote(row.summary)}', '${sqlQuote(row.contentJson || "{}")}', (SELECT repo FROM issues WHERE id = ${issue}), '${opts.now ?? nowIso()}'${where};`;
+  return { code: 0, sql, error: "" };
+}
+var WRITE_ATTEMPTS, BACKOFF_MS, DEFAULT_BUSY_MS, DEFAULT_RUN_BUDGET_MS, BUDGET_SPENT_CODE, INVALID_CODE, AUDIT_EVENTS_REL, spentMs, BUSY_PATTERN;
 var init_audit2 = __esm({
   "src/hooks/lib/audit.ts"() {
     "use strict";
@@ -6143,6 +6219,8 @@ var init_audit2 = __esm({
     DEFAULT_BUSY_MS = 1500;
     DEFAULT_RUN_BUDGET_MS = 3500;
     BUDGET_SPENT_CODE = 5;
+    INVALID_CODE = 2;
+    AUDIT_EVENTS_REL = "scripts/hooks/lib/audit-events.txt";
     spentMs = /* @__PURE__ */ new WeakMap();
     BUSY_PATTERN = /database is locked|SQLITE_BUSY|database is busy/;
   }
@@ -6389,7 +6467,7 @@ function firstLine(text) {
   const nl = text.indexOf("\n");
   return nl < 0 ? text : text.slice(0, nl);
 }
-function readable(db, env) {
+function readable2(db, env) {
   return isFile4(db) && haveSqlite(env);
 }
 async function repoGitRoot(target, env = process.env) {
@@ -6401,12 +6479,12 @@ async function repoGitRoot(target, env = process.env) {
   return await gitOut(target, ["rev-parse", "--show-toplevel"], env);
 }
 function repoSinglePath(db, env = process.env) {
-  if (!readable(db, env)) return "";
+  if (!readable2(db, env)) return "";
   if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
   return firstLine(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
 }
 function repoPathByName(db, name2, env = process.env) {
-  if (!readable(db, env) || name2 === "") return "";
+  if (!readable2(db, env) || name2 === "") return "";
   return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name2)}' LIMIT 1;`, env));
 }
 var init_repo = __esm({
@@ -6422,7 +6500,7 @@ var init_repo = __esm({
 // src/hooks/lib/verification-carry.ts
 import { realpathSync as realpathSync5 } from "node:fs";
 import { basename as basename5, matchesGlob } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 function refuse(reason, source = null) {
   return { source_run: source?.id ?? null, source_sha: source?.sha ?? null, carry: [], refused: reason, commands: [] };
 }
@@ -6536,7 +6614,7 @@ async function planCarrySafe(req, env = process.env) {
 }
 function isMainModule2() {
   const entry = process.argv[1];
-  const self = fileURLToPath3(import.meta.url);
+  const self = fileURLToPath4(import.meta.url);
   if (entry === void 0 || basename5(self) !== "verification-carry.js") return false;
   try {
     return realpathSync5(entry) === realpathSync5(self);
@@ -8838,7 +8916,7 @@ init_host();
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { existsSync as existsSync9, readdirSync as readdirSync4, readFileSync as readFileSync11, statSync as statSync13 } from "node:fs";
 import { constants as constants7 } from "node:os";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/hooks/lib/install.ts
 init_db();
@@ -9164,7 +9242,7 @@ function jqInterp(v) {
 }
 function selfRoot(env) {
   if ((env.CLAUDE_PLUGIN_ROOT ?? "") !== "") return env.CLAUDE_PLUGIN_ROOT;
-  return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
+  return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
 }
 function manifestName2(root) {
   const manifest = `${root}/.claude-plugin/plugin.json`;
@@ -10064,8 +10142,10 @@ var Integration = class {
   io;
   db = "";
   taskId = "";
+  issueId = "";
   base = "";
   branch = "";
+  reviewedSha = "";
   commitSha = "";
   baseSha = "";
   repoRoot = "";
@@ -10111,6 +10191,40 @@ var Integration = class {
     if (!r.ok && r.error !== "") this.io.err(`${r.error}
 `);
     return { ok: r.ok, stdout: r.stdout };
+  }
+  /** Points tasks.commit_sha at <newSha> and writes its task_integrated anchor, both or neither; false when the task moved off the reviewed SHA. */
+  recordIntegrated(newSha) {
+    const now2 = nowIso();
+    const content = JSON.stringify({
+      task_id: Number(this.taskId),
+      reviewed_sha: this.reviewedSha,
+      commit_sha: newSha,
+      base: this.base,
+      run_id: Number(this.runId)
+    });
+    const audit = auditSql(
+      {
+        issueId: this.issueId,
+        branchId: this.branch,
+        fromNode: "hook:integrate",
+        eventType: "task_integrated",
+        summary: `task ${this.taskId} integrated onto ${this.base}: ${this.reviewedSha} -> ${newSha}`,
+        contentJson: content
+      },
+      "changes() = 1",
+      { caller: "integrate", env: this.env, now: now2 }
+    );
+    if (audit.code !== 0) {
+      this.io.err(`${audit.error}
+`);
+      return false;
+    }
+    const r = this.record(
+      `UPDATE tasks SET commit_sha = '${sqlQuote(newSha)}', updated_at = '${now2}' WHERE id = ${this.taskId} AND commit_sha = '${sqlQuote(this.reviewedSha)}';
+${audit.sql}
+SELECT changes();`
+    );
+    return r.ok && commandSubstitution(r.stdout) === "1";
   }
   finish(rc, timedOut2) {
     for (let attempt = 1; attempt <= FINISH_ATTEMPTS; attempt += 1) {
@@ -10251,14 +10365,16 @@ var Integration = class {
     this.db = db;
     const row = gateRead(
       db,
-      `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || ${HAS_PASS_SQL}
+      `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || issue_id || char(10) || ${HAS_PASS_SQL}
   FROM tasks t WHERE t.id = ${this.taskId};`,
       this.env
     );
     if (row === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${db}`);
     if (row === "") this.die(4, `no task ${this.taskId}`);
-    const [, taskRepo = "", branch = "", commitSha = "", hasPass = ""] = row.split("\n");
+    const [, taskRepo = "", branch = "", commitSha = "", issueId = "", hasPass = ""] = row.split("\n");
     this.branch = branch;
+    this.issueId = issueId;
+    this.reviewedSha = commitSha;
     if (branch === "") this.die(4, `task ${this.taskId} has no branch_id`);
     if (commitSha === "") this.die(3, `task ${this.taskId} has no commit_sha, so no reviewed commit`);
     if (hasPass !== "1") this.die(3, `task ${this.taskId} has no passing code-reviewer verdict for commit ${commitSha}`);
@@ -10394,6 +10510,12 @@ SELECT last_insert_rowid();`
     if (this.tip !== oldTip) this.die(4, `${branch} moved during integration (${oldTip} -> ${this.tip}); left as is`);
     if (!this.g(["update-ref", "-m", `cli.js integrate: task ${this.taskId} onto ${this.base}`, `refs/heads/${branch}`, newSha, this.tip]).ok) {
       this.die(4, `git update-ref of ${branch} failed; the rebased commit is ${newSha} (run #${this.runId})`);
+    }
+    if (!this.recordIntegrated(newSha)) {
+      this.die(
+        4,
+        `${branch} moved to ${newSha} (run #${this.runId} passed), but recording it on task ${this.taskId} failed; tasks.commit_sha still names the reviewed ${this.reviewedSha}, so code-reviewer-preflight denies a review of ${newSha} until it is recorded`
+      );
     }
     this.say(`${branch} -> ${newSha} (verification run #${this.runId} passed)`);
     this.io.out(`${newSha}
