@@ -16,6 +16,8 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
+import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
+import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { FINDING_ORDER_SQL, activeFindingProbes, carryOpenFindings, gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit, } from './verification-runs.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
 import { parseSpawnNote, parseStoredReport, reportMissingIds, specCriteriaProblem, specCriterionIds, SPAWN_NOTE_MAX_CHARS, } from '../success-criteria.js';
@@ -393,9 +395,10 @@ function worktreeOfBranch(repoPath, branchId) {
 // Adds the task's worktree unless git already tracks one at that path (matched
 // by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
 // /private/var/… for a /var/… symlink), then links the main checkout's
-// node_modules into it, on reuse too (GH 1853). Throws only when
-// `git worktree add` fails.
-function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(repoPath, branchId)) {
+// node_modules into it and runs the repo's opt-in worktree setup, on reuse
+// too (GH 1853, GH 2054). Throws only when `git worktree add` fails; a setup
+// failure is reported in `setup`, never thrown.
+async function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(repoPath, branchId)) {
     let reused = false;
     if (existsSync(worktreePath)) {
         const canonicalWt = realpathSync(worktreePath);
@@ -417,7 +420,15 @@ function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(
     catch {
         // Best-effort: a missing link never fails provisioning.
     }
-    return { worktreePath, reused };
+    return { worktreePath, reused, setup: await runWorktreeSetup(worktreePath, { env: setupEnv(worktreePath) }) };
+}
+// Worktree setup gets the user's toolchain PATH, as verification[] does.
+function setupEnv(worktreePath) {
+    return { ...process.env, PATH: joinToolchainPath(toolchainDirs(process.env, worktreePath), process.env.PATH ?? '') };
+}
+// The tool-result field for a setup, absent when the repo has no setup file.
+function setupField(setup) {
+    return setup && (setup.ran || setup.error !== undefined) ? { worktree_setup: setup } : {};
 }
 // Session-worktree adoption (GH 2032): task_provision, task_reopen and
 // task_retry take adopt_worktree, and the worktree-adopt-guard hook admits it
@@ -953,7 +964,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'pr_monitor_worktree',
-            description: 'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
+            description: 'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout\'s node_modules and runs the repo\'s .config/tmb/worktree-setup.json commands (a setup failure returns an error naming the command, and the command is not run), runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1504,6 +1515,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             // re-created. An adopted worktree is switched to the branch instead.
             let gitSetup = branch.created ? 'created' : 'reused';
             let worktreeReused = false;
+            let worktreeSetup;
             let diagnostic;
             const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
             if (adoptedWorktree !== null) {
@@ -1513,7 +1525,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             else {
                 try {
-                    worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
+                    const wt = await ensureTaskWorktree(repoPath, branchId);
+                    worktreeReused = wt.reused;
+                    worktreeSetup = wt.setup;
                 }
                 catch (e) {
                     gitSetup = 'error';
@@ -1531,6 +1545,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 worktree_path: worktreePath,
                 git_setup: gitSetup,
                 worktree_reused: worktreeReused,
+                ...setupField(worktreeSetup),
                 ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
                 ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
                 ...(cutBase?.diverged
@@ -1657,6 +1672,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 return adoptRefusalResult(refused);
             let worktreePath = null;
             let worktreeRecreated = false;
+            let worktreeSetup;
             let branchCreated = false;
             let diagnostic;
             if (repoPath) {
@@ -1681,9 +1697,10 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
                     }
                     else {
-                        const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
+                        const wt = await ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
                         worktreePath = wt.worktreePath;
                         worktreeRecreated = !wt.reused;
+                        worktreeSetup = wt.setup;
                     }
                 }
                 catch (e) {
@@ -1704,6 +1721,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 wontfixed: wontfix.map((w) => w.finding_id),
                 worktree_path: worktreePath,
                 worktree_recreated: worktreeRecreated,
+                ...setupField(worktreeSetup),
                 ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
                 branch_created: branchCreated,
                 ...(diagnostic ? { diagnostic } : {}),
@@ -2210,12 +2228,13 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
             let diagnostic;
+            let worktreeSetup;
             if (adoptedWorktree !== null) {
                 diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
             }
             else {
                 try {
-                    ensureTaskWorktree(repoPath, newBranchId);
+                    worktreeSetup = (await ensureTaskWorktree(repoPath, newBranchId)).setup;
                 }
                 catch (e) {
                     diagnostic = e.message;
@@ -2229,6 +2248,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 git_setup: branchSetup.gitSetup,
                 base_ref: branchSetup.baseRef,
                 worktree_path: worktreePath,
+                ...setupField(worktreeSetup),
                 ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
                 ...(diagnostic ? { diagnostic } : {}),
             });
@@ -2368,13 +2388,26 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             catch (e) {
                 return err(`worktree add failed: ${e.message}`);
             }
+            let setupFailure = null;
             try {
-                const result = execFileSync('bash', ['-c', command], {
-                    cwd: wtPath,
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                    timeout: 60_000,
-                });
-                stdout = result.toString('utf8');
+                try {
+                    linkWorktreeNodeModules(repoPath, wtPath);
+                }
+                catch {
+                    // Best-effort, as in ensureTaskWorktree.
+                }
+                const setup = await runWorktreeSetup(wtPath, { env: setupEnv(wtPath) });
+                if (setup.error !== undefined) {
+                    setupFailure = setup;
+                }
+                else {
+                    const result = execFileSync('bash', ['-c', command], {
+                        cwd: wtPath,
+                        stdio: ['ignore', 'pipe', 'pipe'],
+                        timeout: 60_000,
+                    });
+                    stdout = result.toString('utf8');
+                }
             }
             catch (e) {
                 const spawnErr = e;
@@ -2392,6 +2425,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 catch {
                     // best-effort cleanup; don't override the command result
                 }
+            }
+            if (setupFailure !== null) {
+                return err(`worktree setup failed, command not run: ${describeSetupFailure(setupFailure)}`);
             }
             const passed = exitCode === 0;
             return {
