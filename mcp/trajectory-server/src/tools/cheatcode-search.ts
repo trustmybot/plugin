@@ -68,12 +68,30 @@ function mcpOfficial(query: string, opts: CheatcodeRunOptions): Promise<Json[]> 
   );
 }
 
+const MARKETPLACE_URL = 'https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json';
+const [, , , MARKETPLACE_OWNER, MARKETPLACE_REPO, MARKETPLACE_REF] = MARKETPLACE_URL.split('/');
+const MARKETPLACE_TREE = `https://github.com/${MARKETPLACE_OWNER}/${MARKETPLACE_REPO}/tree/${MARKETPLACE_REF}`;
+
+// A marketplace-relative source (./plugins/<name>) as the marketplace repo's github.com tree URL; an absolute URL
+// passes through; null for a source that escapes the marketplace (a leading / or a .. segment) or names no folder.
+export function resolveMarketplaceSource(source: string): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return source;
+  if (source.startsWith('/')) return null;
+  const segments = source.split('/').filter((s) => s !== '' && s !== '.');
+  if (segments.length === 0 || segments.includes('..')) return null;
+  return `${MARKETPLACE_TREE}/${segments.join('/')}`;
+}
+
 function anthropicMarketplace(opts: CheatcodeRunOptions): Promise<Json[]> {
-  const url = 'https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json';
-  return adapter(url, opts, (body) =>
+  return adapter(MARKETPLACE_URL, opts, (body) =>
     iterate(alt(get(body, 'plugins'), [])).map((p) => {
       const source = get(p, 'source');
-      const fromSource = source !== null && typeof source === 'object' && !Array.isArray(source) ? get(source, 'url') : source;
+      const fromSource =
+        source !== null && typeof source === 'object' && !Array.isArray(source)
+          ? get(source, 'url')
+          : typeof source === 'string'
+            ? resolveMarketplaceSource(source)
+            : source;
       return {
         name: alt(get(p, 'name'), ''),
         description: alt(get(p, 'description'), ''),

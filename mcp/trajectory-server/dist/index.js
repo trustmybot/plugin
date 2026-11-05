@@ -48172,14 +48172,23 @@ function mcpOfficial(query, opts) {
     })
   );
 }
+var MARKETPLACE_URL = "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json";
+var [, , , MARKETPLACE_OWNER, MARKETPLACE_REPO, MARKETPLACE_REF] = MARKETPLACE_URL.split("/");
+var MARKETPLACE_TREE = `https://github.com/${MARKETPLACE_OWNER}/${MARKETPLACE_REPO}/tree/${MARKETPLACE_REF}`;
+function resolveMarketplaceSource(source) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return source;
+  if (source.startsWith("/")) return null;
+  const segments = source.split("/").filter((s) => s !== "" && s !== ".");
+  if (segments.length === 0 || segments.includes("..")) return null;
+  return `${MARKETPLACE_TREE}/${segments.join("/")}`;
+}
 function anthropicMarketplace(opts) {
-  const url2 = "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json";
   return adapter(
-    url2,
+    MARKETPLACE_URL,
     opts,
     (body2) => iterate(alt(get(body2, "plugins"), [])).map((p) => {
       const source = get(p, "source");
-      const fromSource = source !== null && typeof source === "object" && !Array.isArray(source) ? get(source, "url") : source;
+      const fromSource = source !== null && typeof source === "object" && !Array.isArray(source) ? get(source, "url") : typeof source === "string" ? resolveMarketplaceSource(source) : source;
       return {
         name: alt(get(p, "name"), ""),
         description: alt(get(p, "description"), ""),

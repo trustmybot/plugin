@@ -149,6 +149,38 @@ describe('cheatcodeSearch over the stubbed live registries', () => {
     );
     assert.equal(mcp.candidates.filter((c) => c.kind !== 'mcp').length, 0);
   });
+  describe('anthropic marketplace source resolution (GH 2135)', () => {
+    const PLUGINS = [
+      { name: 'rel-plugin', description: 'pdf review', source: './plugins/pr-review-toolkit' },
+      { name: 'abs-plugin', description: 'pdf review', source: 'https://github.com/someorg/abs-plugin' },
+      { name: 'obj-plugin', description: 'pdf review', source: { source: 'url', url: 'https://github.com/someorg/obj-plugin.git' } },
+      { name: 'up-plugin', description: 'pdf review', source: './plugins/../../escape', homepage: 'https://x.test/up' },
+      { name: 'root-plugin', description: 'pdf review', source: '/etc/plugins/root' },
+    ];
+    let urls: Record<string, string>;
+    before(async () => {
+      const body = JSON.stringify({ plugins: PLUGINS });
+      const { fetchImpl } = stubFetch((url) => (new URL(url).host === 'raw.githubusercontent.com' ? body : null));
+      const res = await cheatcodeSearch({ query: 'pdf', kind: 'plugin' }, { projectRoot: ws.dir, env: cleanEnv(), fetchImpl });
+      urls = Object.fromEntries(res.candidates.map((c) => [c.name, c.source_url]));
+    });
+    it('GH 2135: a ./plugins/<name> source resolves to the marketplace repo tree URL', () => {
+      assert.equal(urls['rel-plugin'], 'https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit');
+    });
+    it('GH 2135: an absolute URL source passes through unchanged', () => {
+      assert.equal(urls['abs-plugin'], 'https://github.com/someorg/abs-plugin');
+    });
+    it('GH 2135: an object {url} source passes through unchanged', () => {
+      assert.equal(urls['obj-plugin'], 'https://github.com/someorg/obj-plugin.git');
+    });
+    it('GH 2135: a source with a .. segment falls back to homepage', () => {
+      assert.equal(urls['up-plugin'], 'https://x.test/up');
+    });
+    it('GH 2135: a leading-/ source without a homepage is not resolved and yields no candidate', () => {
+      assert.ok(!('root-plugin' in urls));
+      assert.ok(!Object.values(urls).some((u) => u.includes('/etc/plugins')));
+    });
+  });
   it('a failing or malformed registry yields no candidates instead of an error', async () => {
     const { fetchImpl } = stubFetch((url) => (url.includes('pulsemcp') ? 'not json' : null));
     const res = await cheatcodeSearch({ query: 'pdf' }, { projectRoot: ws.dir, env: cleanEnv(), fetchImpl });
