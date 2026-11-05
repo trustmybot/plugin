@@ -5448,13 +5448,13 @@ var init_prose_files = __esm({
 });
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync14, realpathSync as realpathSync6 } from "node:fs";
-import { join as join12 } from "node:path";
+import { readFileSync as readFileSync15, realpathSync as realpathSync6 } from "node:fs";
+import { join as join13 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join12(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join13(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join12(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join13(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir2(dir) {
   try {
@@ -5465,7 +5465,7 @@ function canonicalDir2(dir) {
 }
 function readJsonObject(path) {
   try {
-    const parsed = JSON.parse(readFileSync14(path, "utf8"));
+    const parsed = JSON.parse(readFileSync15(path, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -5473,9 +5473,9 @@ function readJsonObject(path) {
 }
 function enabledMap(project, env) {
   const files = [
-    join12(claudeConfigDir(env), "settings.json"),
-    join12(project, ".claude", "settings.json"),
-    join12(project, ".claude", "settings.local.json")
+    join13(claudeConfigDir(env), "settings.json"),
+    join13(project, ".claude", "settings.json"),
+    join13(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file of files) {
@@ -5531,7 +5531,7 @@ var init_plugin_installs = __esm({
 
 // src/data-contracts.ts
 import { readdirSync as readdirSync6 } from "node:fs";
-import { dirname as dirname6, join as join13 } from "node:path";
+import { dirname as dirname6, join as join14 } from "node:path";
 function singleTmbPluginEnabled(env) {
   const result = enabledPluginCopies(env);
   if ("skipped" in result) return { skipped: result.skipped };
@@ -5554,7 +5554,7 @@ function noOtherTrajectoryDbs(env, ctx) {
 }
 function scratchNoProse(_env, ctx) {
   if (ctx.dbPath === void 0) return { skipped: "the checked DB has no file behind it" };
-  const scratch = join13(dirname6(ctx.dbPath), "scratch");
+  const scratch = join14(dirname6(ctx.dbPath), "scratch");
   let entries;
   try {
     entries = readdirSync6(scratch, { recursive: true, withFileTypes: true });
@@ -5562,7 +5562,7 @@ function scratchNoProse(_env, ctx) {
     if (e.code === "ENOENT") return { actual: 0, sample: [] };
     return { skipped: `the scratch folder cannot be read: ${e.message}` };
   }
-  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join13(e.parentPath, e.name)).sort();
+  const prose = entries.filter((e) => !e.isDirectory() && isProseFile(e.name)).map((e) => join14(e.parentPath, e.name)).sort();
   return { actual: prose.length, sample: prose.slice(0, SCRATCH_PROSE_SAMPLE).map((path) => ({ path })) };
 }
 function populatedContract(c) {
@@ -5573,12 +5573,12 @@ function populatedContract(c) {
     ...c.scope ? [c.scope] : []
   ].join(" AND ");
   const since = c.writer_since ? ` and not before ${c.writer_since.label}` : "";
-  const excluded = c.table === "agent_runs" ? ", per-task bro rows excluded" : "";
+  const excluded2 = c.table === "agent_runs" ? ", per-task bro rows excluded" : "";
   const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
   return {
     id: `populated_${c.table}_${c.column}`,
     severity: "warn",
-    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since}${excluded} stays at or under ${c.floor}`,
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since}${excluded2} stays at or under ${c.floor}`,
     sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
     expect: { op: "<=", value: c.floor },
     sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
@@ -9356,9 +9356,9 @@ function forget(memo, settledFetches) {
   }
 }
 function startShared(memo, key, kind, dir, args, options) {
-  const conclude = (keep) => {
+  const conclude = (keep2) => {
     entry.settled = true;
-    if (!keep && memo.entries.get(key) === entry) memo.entries.delete(key);
+    if (!keep2 && memo.entries.get(key) === entry) memo.entries.delete(key);
     if (kind === "fetch") forget(memo, false);
   };
   const entry = {
@@ -10134,6 +10134,235 @@ function promptAuthorLint(argv2, _env, io2) {
   return 0;
 }
 
+// src/cli/stale-docs.ts
+import { spawnSync as spawnSync5 } from "node:child_process";
+import { readFileSync as readFileSync14 } from "node:fs";
+import { join as join12, posix } from "node:path";
+import { parseArgs as parseArgs3 } from "node:util";
+var USAGE4 = "usage: cli.js stale-docs <base> [--head <sha>] [--max-hits <n>]\n";
+var DEFAULT_MAX_HITS = 15;
+var MIN_TOKEN_LENGTH = 6;
+var MIN_KEBAB_LENGTH = 8;
+var COMMENT_EXTENSIONS = /* @__PURE__ */ new Set([".ts", ".sh", ".sql", ".mjs"]);
+var COMMENT_LINE2 = /^\s*(\/\/|#|--|\*|\/\*)/;
+var GENERATED_DOCS = /* @__PURE__ */ new Set(["docs/contributing/ENUMS.md"]);
+var EXCLUDED_SEGMENTS = ["changelog.d", "dist", "node_modules"];
+var EXCLUDED_PATHSPECS = EXCLUDED_SEGMENTS.map((segment) => `:(exclude,glob)**/${segment}/**`);
+var COMMON_WORDS = /* @__PURE__ */ new Set([
+  "console_log",
+  "forEach",
+  "hasOwnProperty",
+  "toString",
+  "toLowerCase",
+  "toUpperCase",
+  "startsWith",
+  "endsWith",
+  "indexOf",
+  "readFileSync",
+  "writeFileSync",
+  "existsSync",
+  "spawnSync",
+  "execFileSync",
+  "mkdtempSync",
+  "JSON_EXTRACT",
+  "CURRENT_TIMESTAMP",
+  "PRIMARY_KEY",
+  "NOT_NULL",
+  "node_modules",
+  "README.md",
+  "index.ts",
+  "package.json"
+]);
+var WORD = /[A-Za-z0-9_]+/g;
+var KEBAB = /\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b/g;
+var GitError = class extends Error {
+};
+function git(cwd, args) {
+  const r = spawnSync5("git", ["-c", "core.quotePath=false", ...args], { cwd, encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+  if (r.error) throw new GitError(`git ${args[0]}: ${r.error.message}`);
+  if (r.status !== 0) throw new GitError(`git ${args[0]} failed: ${r.stderr.trim()}`);
+  return r.stdout;
+}
+function isDoc(path) {
+  return path.endsWith(".md");
+}
+function excluded(path) {
+  if (GENERATED_DOCS.has(path) || posix.basename(path) === "CHANGELOG.md") return true;
+  return path.split("/").some((segment) => EXCLUDED_SEGMENTS.includes(segment));
+}
+function parseDiff(text) {
+  const files = [];
+  let file;
+  let newLine = 0;
+  let hunkRemoved = /* @__PURE__ */ new Set();
+  let inHunk = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      file = { paths: [], added: [], removed: [], touched: /* @__PURE__ */ new Map() };
+      files.push(file);
+      inHunk = false;
+    } else if (!file) {
+      continue;
+    } else if (line.startsWith("@@")) {
+      newLine = Number(/\+(\d+)/.exec(line)?.[1] ?? 0);
+      hunkRemoved = /* @__PURE__ */ new Set();
+      inHunk = true;
+    } else if (!inHunk) {
+      if (line.startsWith("--- ") || line.startsWith("+++ ")) {
+        const path = line.slice(4);
+        if (path !== "/dev/null") file.paths.push(path.replace(/^[ab]\//, ""));
+      } else if (line.startsWith("rename from ") || line.startsWith("rename to ")) {
+        file.paths.push(line.replace(/^rename (from|to) /, ""));
+      }
+    } else if (line.startsWith("+")) {
+      file.added.push(line.slice(1));
+      file.touched.set(newLine++, hunkRemoved);
+    } else if (line.startsWith("-")) {
+      file.removed.push(line.slice(1));
+      for (const span of spans(line.slice(1))) hunkRemoved.add(span);
+    }
+  }
+  for (const f of files) f.paths = [...new Set(f.paths)];
+  return files;
+}
+function keep(token) {
+  return token.length >= MIN_TOKEN_LENGTH && !COMMON_WORDS.has(token);
+}
+function identifiers(files) {
+  const tokens = /* @__PURE__ */ new Set();
+  for (const file of files) {
+    if (file.paths.some((p) => isDoc(p) || excluded(p))) continue;
+    for (const p of file.paths) if (keep(posix.basename(p))) tokens.add(posix.basename(p));
+    for (const line of [...file.added, ...file.removed]) {
+      for (const word of line.match(WORD) ?? []) {
+        const token = word.replace(/^_+|_+$/g, "");
+        if ((token.includes("_") || /[a-z][A-Z]/.test(token)) && /[A-Za-z]/.test(token) && keep(token)) tokens.add(token);
+      }
+      for (const token of line.match(KEBAB) ?? []) if (token.length >= MIN_KEBAB_LENGTH && keep(token)) tokens.add(token);
+    }
+  }
+  return tokens;
+}
+function isDocLine(path, text) {
+  if (excluded(path)) return false;
+  if (isDoc(path)) return true;
+  return COMMENT_EXTENSIONS.has(posix.extname(path)) && COMMENT_LINE2.test(text);
+}
+function spans(text) {
+  const out = /* @__PURE__ */ new Set();
+  for (const run2 of text.match(/[A-Za-z0-9_.-]+/g) ?? []) {
+    const parts = run2.split(/([.-])/);
+    for (let i = 0; i < parts.length; i += 2) {
+      if (parts[i] === "") continue;
+      let span = parts[i];
+      out.add(span);
+      for (let j = i + 2; j < parts.length && parts[j] !== ""; j += 2) {
+        span += parts[j - 1] + parts[j];
+        out.add(span);
+      }
+    }
+  }
+  return out;
+}
+function docFiles(root, head) {
+  const listed = git(root, head ? ["ls-tree", "-r", "-z", "--name-only", head] : ["ls-files", "-z"]).split("\0");
+  const paths = listed.filter((p) => p !== "" && !excluded(p) && (isDoc(p) || COMMENT_EXTENSIONS.has(posix.extname(p))));
+  if (!head) {
+    return paths.flatMap((path) => {
+      try {
+        return [{ path, text: readFileSync14(join12(root, path), "utf8") }];
+      } catch {
+        return [];
+      }
+    });
+  }
+  const r = spawnSync5("git", ["cat-file", "--batch"], { cwd: root, input: paths.map((p) => `${head}:${p}
+`).join(""), maxBuffer: 1024 * 1024 * 1024 });
+  if (r.status !== 0) throw new GitError(`git cat-file failed: ${r.stderr.toString().trim()}`);
+  const out = r.stdout;
+  const files = [];
+  let at = 0;
+  for (const path of paths) {
+    const eol = out.indexOf(10, at);
+    const header = out.subarray(at, eol).toString().split(" ");
+    const size = Number(header[2]);
+    if (header[1] !== "blob") throw new GitError(`git cat-file: no blob for ${path}`);
+    files.push({ path, text: out.subarray(eol + 1, eol + 1 + size).toString("utf8") });
+    at = eol + 1 + size + 1;
+  }
+  return files;
+}
+function parseCount(raw) {
+  if (raw === void 0) return DEFAULT_MAX_HITS;
+  return /^\d+$/.test(raw) ? Number(raw) : void 0;
+}
+function staleDocs(argv2, _env, io2) {
+  let base;
+  let head;
+  let maxHits;
+  try {
+    const { values, positionals } = parseArgs3({
+      args: [...argv2],
+      allowPositionals: true,
+      options: { head: { type: "string" }, "max-hits": { type: "string" } }
+    });
+    if (positionals.length !== 1) throw new Error("expected one <base>");
+    base = positionals[0];
+    head = values.head;
+    maxHits = parseCount(values["max-hits"]);
+    if (maxHits === void 0) throw new Error("--max-hits takes a non-negative integer");
+  } catch (e) {
+    io2.err(`stale-docs: ${e.message}
+${USAGE4}`);
+    return 2;
+  }
+  try {
+    const root = git(process.cwd(), ["rev-parse", "--show-toplevel"]).trim();
+    const mergeBase = git(root, ["merge-base", base, head ?? "HEAD"]).trim();
+    const files = parseDiff(
+      git(root, ["diff", "--no-color", "--no-ext-diff", "-M", "--unified=0", mergeBase, ...head ? [head] : [], "--", ".", ...EXCLUDED_PATHSPECS])
+    );
+    const touched = /* @__PURE__ */ new Map();
+    for (const f of files) touched.set(f.paths[f.paths.length - 1] ?? "", f.touched);
+    const tokens = identifiers(files);
+    if (tokens.size === 0) return 0;
+    const hits = /* @__PURE__ */ new Map();
+    for (const { path, text } of docFiles(root, head)) {
+      if (text.includes("\0")) continue;
+      text.split("\n").forEach((lineText, i) => {
+        const line = i + 1;
+        if (!isDocLine(path, lineText)) return;
+        const kept = touched.get(path)?.get(line);
+        for (const span of spans(lineText)) {
+          if (!tokens.has(span) || kept && !kept.has(span)) continue;
+          const list = hits.get(span) ?? [];
+          list.push({ path, line });
+          hits.set(span, list);
+        }
+      });
+    }
+    const flagged = /* @__PURE__ */ new Map();
+    for (const [token, list] of hits) {
+      if (list.length > maxHits) continue;
+      for (const { path, line } of list) {
+        const key = `${path}\0${line}`;
+        const entry = flagged.get(key) ?? { path, line, tokens: [] };
+        entry.tokens.push(token);
+        flagged.set(key, entry);
+      }
+    }
+    const rows = [...flagged.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line);
+    io2.out(rows.map((r) => `${r.path}:${r.line}: ${r.tokens.sort().join(", ")}
+`).join(""));
+    return 0;
+  } catch (e) {
+    if (!(e instanceof GitError)) throw e;
+    io2.err(`stale-docs: ${e.message}
+`);
+    return 2;
+  }
+}
+
 // src/cli/trajectory-doctor.ts
 import { existsSync as existsSync11 } from "node:fs";
 var HELP = `Check a trajectory DB against its data contracts. Prints the JSON report.
@@ -10229,7 +10458,7 @@ async function trajectoryDoctor(argv2, env, io2) {
 }
 
 // src/cli/validation-record-fallback.ts
-var USAGE4 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
+var USAGE5 = '{"error":"usage","message":"validation-record-fallback <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]"}\n';
 var WS = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 var FINDING_SHAPE = "{criterion_id?, probe_cmd, expected, observed, severity?, class?}";
 var ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed', 'severity', 'class')";
@@ -10329,7 +10558,7 @@ DROP TABLE fallback_last_finding;`;
 }
 function validationRecordFallback(argv2, env, io2) {
   if (argv2.length < 5 || argv2.length > 6) {
-    io2.out(USAGE4);
+    io2.out(USAGE5);
     return 1;
   }
   const [taskId, attemptN, verdict, feedback, session] = argv2;
@@ -10389,10 +10618,11 @@ var SUBCOMMANDS = {
   health,
   integrate,
   "prompt-author-lint": promptAuthorLint,
+  "stale-docs": staleDocs,
   "trajectory-doctor": trajectoryDoctor,
   "validation-record-fallback": validationRecordFallback
 };
-var USAGE5 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
+var USAGE6 = `usage: cli.js <${Object.keys(SUBCOMMANDS).join("|")}> [args...]
 `;
 var io = {
   out: (text) => process.stdout.write(text),
@@ -10403,10 +10633,10 @@ process.on("SIGTERM", () => process.exit(143));
 var [name, ...argv] = process.argv.slice(2);
 var run = name !== void 0 && Object.hasOwn(SUBCOMMANDS, name) ? SUBCOMMANDS[name] : void 0;
 if (name === "--help" || name === "-h") {
-  io.out(USAGE5);
+  io.out(USAGE6);
 } else if (!run) {
-  io.err(name === void 0 ? USAGE5 : `cli.js: unknown subcommand '${name}'
-${USAGE5}`);
+  io.err(name === void 0 ? USAGE6 : `cli.js: unknown subcommand '${name}'
+${USAGE6}`);
   process.exitCode = 2;
 } else {
   void Promise.resolve(run(argv, process.env, io)).then((code) => {
