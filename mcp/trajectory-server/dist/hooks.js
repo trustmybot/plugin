@@ -3983,17 +3983,17 @@ __export(loader_exports, {
   wasmDir: () => wasmDir
 });
 import { existsSync as existsSync8 } from "node:fs";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { dirname as dirname3, join as join5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 function parserLoadCount() {
   return loads;
 }
 function wasmDir() {
-  const here = dirname2(fileURLToPath3(import.meta.url));
-  for (const dir of [join4(here, "parsing"), here]) {
-    if (existsSync8(join4(dir, RUNTIME_WASM))) return dir;
+  const here = dirname3(fileURLToPath3(import.meta.url));
+  for (const dir of [join5(here, "parsing"), here]) {
+    if (existsSync8(join5(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join4(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join5(here, "parsing")} or ${here}`);
 }
 function memo(promise, forget2) {
   promise.catch(forget2);
@@ -4004,7 +4004,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file) => join4(dir, file) });
+      await mod.Parser.init({ locateFile: (file) => join5(dir, file) });
       return mod;
     })(),
     () => {
@@ -4020,7 +4020,7 @@ function loadParser(name3) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join4(wasmDir(), GRAMMAR_WASM[name3])));
+        p.setLanguage(await Language2.load(join5(wasmDir(), GRAMMAR_WASM[name3])));
         return p;
       })(),
       () => grammars.delete(name3)
@@ -7362,6 +7362,11 @@ var sweDownstreamContext = (payload, env) => {
 // src/hooks/reviewer-downstream-context.ts
 import { open, stat } from "node:fs/promises";
 
+// src/hooks/code-reviewer-preflight.ts
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname as dirname2, join as join4 } from "node:path";
+
 // src/hooks/lib/git.ts
 import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
 import { spawn as spawn2 } from "node:child_process";
@@ -7596,6 +7601,8 @@ var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
 var REGEN_DRIVER = "tmb-regen";
+var GITIGNORE = /(?:^|\/)\.gitignore$/;
+var REPO_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_NAMESPACE"];
 async function git2(repo, args2, env) {
   const r = await gitSpawn(repo, args2, { env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
   return { code: r.code, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") || (r.error?.message ?? "") };
@@ -7713,12 +7720,44 @@ async function removedInDiff(repo, base2, commit, env) {
   const kept = toolNames(after2, contents);
   return { paths, tools: [...toolNames(before2, contents)].filter((t) => !kept.has(t)).sort() };
 }
+async function ignoredByTree(repo, blobs, paths, env) {
+  const rules = [...blobs].filter(([p]) => GITIGNORE.test(p));
+  if (rules.length === 0 || paths.length === 0) return /* @__PURE__ */ new Set();
+  const contents = await readBlobs(repo, rules.map(([, oid]) => oid), env);
+  if (!contents) return null;
+  const scratchEnv = { ...env };
+  for (const key2 of REPO_ENV) delete scratchEnv[key2];
+  let scratch = null;
+  try {
+    scratch = await mkdtemp(join4(tmpdir(), "tmb-preflight-ignore-"));
+    for (const [path, oid] of rules) {
+      await mkdir(dirname2(join4(scratch, path)), { recursive: true });
+      await writeFile(join4(scratch, path), contents.get(oid) ?? "");
+    }
+    if ((await git2(scratch, ["init", "-q", "--template="], scratchEnv)).code !== 0) return null;
+    const r = await gitSpawn(
+      scratch,
+      ["-c", `core.excludesFile=${join4(scratch, ".no-excludes")}`, "check-ignore", "--no-index", "-z", "--stdin"],
+      { input: `${paths.join("\0")}\0`, env: { ...scratchEnv, GIT_OPTIONAL_LOCKS: "0" }, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS }
+    );
+    if (r.code === 1) return /* @__PURE__ */ new Set();
+    if (r.code !== 0) return null;
+    return new Set(nulFields(r.stdout.toString("utf8")));
+  } catch {
+    return null;
+  } finally {
+    if (scratch !== null) await rm(scratch, { recursive: true, force: true }).catch(() => void 0);
+  }
+}
 async function staleDocRefs(repo, base2, commit, env) {
   const removed = await removedInDiff(repo, base2, commit, env);
   if (typeof removed === "string") return removed;
   if (removed.paths.length === 0 && removed.tools.length === 0) return [];
   const blobs = await treeBlobs(repo, commit, env);
   if (!blobs) return `git ls-tree of ${commit} failed`;
+  const ignored = await ignoredByTree(repo, blobs, removed.paths, env);
+  if (ignored) removed.paths = removed.paths.filter((p) => !ignored.has(p));
+  if (removed.paths.length === 0 && removed.tools.length === 0) return [];
   const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const contents = await readBlobs(repo, docs.map(([, oid]) => oid), env);
   if (!contents) return "git cat-file of the docs failed";
@@ -16142,9 +16181,9 @@ async function guard(input, env, analyze2) {
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
   g.harnessTmpC = harnessTmp(g.uid);
-  const tmpdir3 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
-  if (tmpdir3 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir3 };
-  if (/^\/./s.test(tmpdir3)) g.hostTmpC = canonical(tmpdir3);
+  const tmpdir4 = runTmpdir(input, g.toolName, env, g.uid, g.harnessTmpC);
+  if (tmpdir4 !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir4 };
+  if (/^\/./s.test(tmpdir4)) g.hostTmpC = canonical(tmpdir4);
   if (agentType === "" || agentType === "bro") {
     const ccHome = env.CLAUDE_CONFIG_DIR || `${g.home()}/.claude`;
     g.ccProjectC = ccProjectDir(ccHome, g.root, env);
@@ -18369,7 +18408,7 @@ import { availableParallelism, loadavg } from "node:os";
 
 // src/hooks/lib/persona.ts
 import { accessSync as accessSync8, constants as constants8, lstatSync as lstatSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync5, readFileSync as readFileSync12, realpathSync as realpathSync5, statSync as statSync19, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join6 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 var STALE_MINUTES = 1440;
 var OLD_BLOCK = "<!-- tmb:persona start";
@@ -18389,7 +18428,7 @@ function commandOnPath2(name3, env = process.env) {
 }
 function physicalDir2(dir) {
   if (dir === "") return "";
-  const abs = isAbsolute3(dir) ? dir : join5(process.cwd(), dir);
+  const abs = isAbsolute3(dir) ? dir : join6(process.cwd(), dir);
   try {
     if (!statSync19(abs).isDirectory()) return "";
     accessSync8(abs, constants8.X_OK);
@@ -20630,7 +20669,7 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 // src/hooks/swe-verification-gate.ts
 import { spawn as spawn4, spawnSync as spawnSync9 } from "node:child_process";
 import { accessSync as accessSync9, closeSync as closeSync4, constants as constants9, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, openSync as openSync4, readFileSync as readFileSync18, rmSync as rmSync6, statSync as statSync26, writeFileSync as writeFileSync7 } from "node:fs";
-import { constants as osConstants2, tmpdir as tmpdir2 } from "node:os";
+import { constants as osConstants2, tmpdir as tmpdir3 } from "node:os";
 import { resolve as resolve3 } from "node:path";
 
 // src/hooks/lib/verification-carry.ts
@@ -20931,7 +20970,7 @@ var sweBriefGate = (payload, env) => {
 // src/suite-lock.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
 import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readdirSync as readdirSync7, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var SUITE_LOCK_POLL_MS = 500;
 var SUITE_LOCK_NOTICE_MS = 6e4;
 var SUITE_LOCK_STALE_MS = 1e4;
@@ -21007,7 +21046,7 @@ function suiteLockRoot(env) {
   const uid = process.geteuid?.();
   if (uid === void 0) return null;
   const base2 = ownedDir(`/tmp/claude-${uid}`, false);
-  return base2 === null ? null : ownedDir(join6(base2, "tmb-suite-lock"), false);
+  return base2 === null ? null : ownedDir(join7(base2, "tmb-suite-lock"), false);
 }
 var warnedUnusable = false;
 function pidAlive(pid) {
@@ -21020,7 +21059,7 @@ function pidAlive(pid) {
 }
 function readHolderText(slot) {
   try {
-    return readFileSync16(join6(slot, "holder"), "utf8");
+    return readFileSync16(join7(slot, "holder"), "utf8");
   } catch {
     return null;
   }
@@ -21087,8 +21126,8 @@ function claim2(slot, opts, pgid) {
   const text = `${JSON.stringify({ pid: process.pid, pgid, worktree: opts.worktree, command: opts.command, started: (/* @__PURE__ */ new Date()).toISOString() })}
 `;
   try {
-    writeFileSync6(join6(slot, "holder.tmp"), text);
-    renameSync4(join6(slot, "holder.tmp"), join6(slot, "holder"));
+    writeFileSync6(join7(slot, "holder.tmp"), text);
+    renameSync4(join7(slot, "holder.tmp"), join7(slot, "holder"));
   } catch {
   }
   return () => {
@@ -21120,7 +21159,7 @@ function ticketName() {
 function writeTicket(queue, ticket, opts) {
   try {
     mkdirSync8(queue, { recursive: true, mode: 448 });
-    writeFileSync6(join6(queue, ticket), `${JSON.stringify({ pid: process.pid, worktree: opts.worktree, command: opts.command })}
+    writeFileSync6(join7(queue, ticket), `${JSON.stringify({ pid: process.pid, worktree: opts.worktree, command: opts.command })}
 `);
     return true;
   } catch {
@@ -21143,9 +21182,9 @@ function ticketsAhead(queue, own) {
   let ahead = 0;
   for (const name3 of names) {
     if (!TICKET_NAME.test(name3) || own !== null && name3 >= own) continue;
-    const mtime = mtimeMs(join6(queue, name3));
+    const mtime = mtimeMs(join7(queue, name3));
     if (mtime === null) continue;
-    if (Date.now() - mtime > SUITE_LOCK_STALE_MS) removeTicket(join6(queue, name3));
+    if (Date.now() - mtime > SUITE_LOCK_STALE_MS) removeTicket(join7(queue, name3));
     else ahead++;
   }
   return ahead;
@@ -21175,8 +21214,8 @@ async function acquireSuiteSlot(opts) {
     }
     return { kind: "unlocked" };
   }
-  const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join6(root, `slot-${i2}`));
-  const queue = join6(root, "queue");
+  const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join7(root, `slot-${i2}`));
+  const queue = join7(root, "queue");
   const pgid = processGroup();
   const begun = Date.now();
   let noticeAt = 0;
@@ -21208,15 +21247,15 @@ async function acquireSuiteSlot(opts) {
       await sleep2(SUITE_LOCK_POLL_MS);
     }
   } finally {
-    if (ticket !== null) removeTicket(join6(queue, ticket));
+    if (ticket !== null) removeTicket(join7(queue, ticket));
   }
 }
 
 // src/utils/worktree-setup.ts
 import { spawn as spawn3 } from "node:child_process";
 import { closeSync as closeSync3, mkdtempSync, openSync as openSync3, readFileSync as readFileSync17, rmSync as rmSync5 } from "node:fs";
-import { constants as osConstants, tmpdir } from "node:os";
-import { join as join7 } from "node:path";
+import { constants as osConstants, tmpdir as tmpdir2 } from "node:os";
+import { join as join8 } from "node:path";
 
 // src/utils/timeouts.ts
 var WORKTREE_SETUP_COMMAND_TIMEOUT_MS = 10 * 60 * 1e3;
@@ -21230,7 +21269,7 @@ var signals = osConstants.signals;
 function readSetupFile(worktreePath) {
   let raw;
   try {
-    raw = readFileSync17(join7(worktreePath, WORKTREE_SETUP_FILE), "utf8");
+    raw = readFileSync17(join8(worktreePath, WORKTREE_SETUP_FILE), "utf8");
   } catch (e) {
     if (e.code === "ENOENT") return null;
     return { error: `${WORKTREE_SETUP_FILE}: cannot read: ${e.message}` };
@@ -21300,13 +21339,13 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
   const result = { ran: false, commands: [] };
   let scratch;
   try {
-    scratch = mkdtempSync(join7(tmpdir(), "tmb-worktree-setup-"));
+    scratch = mkdtempSync(join8(tmpdir2(), "tmb-worktree-setup-"));
   } catch (e) {
     return { ran: false, commands: [], error: `worktree setup: cannot create a scratch dir: ${e.message}` };
   }
   try {
     for (const [i2, command] of parsed.commands.entries()) {
-      const outPath = join7(scratch, `out-${i2 + 1}`);
+      const outPath = join8(scratch, `out-${i2 + 1}`);
       const left = total === void 0 ? Infinity : total - (Date.now() - totalStart);
       if (left <= 0) {
         result.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
@@ -21811,7 +21850,7 @@ function makeScratch(db) {
   try {
     return resolve3(mkdtempSync2(`${posixDirname(db)}/verify-run.`));
   } catch {
-    return mkdtempSync2(`${tmpdir2()}/verify-run.`);
+    return mkdtempSync2(`${tmpdir3()}/verify-run.`);
   }
 }
 function waive(db, taskId, reason, field7, env) {
@@ -25298,17 +25337,17 @@ function under4(path, dir) {
 function inScratchFolder(canonical3, env) {
   return canonical3.includes(`/${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch/`);
 }
-function tmpRoots(tmpdir3) {
+function tmpRoots(tmpdir4) {
   const roots = [capture6(pathCanonical("/tmp"))];
-  if (!/^\/./s.test(tmpdir3)) return roots;
-  const canonical3 = capture6(pathCanonical(tmpdir3));
+  if (!/^\/./s.test(tmpdir4)) return roots;
+  const canonical3 = capture6(pathCanonical(tmpdir4));
   return canonical3 === "/" ? roots : [...roots, canonical3];
 }
-async function deniedProse(path, tmpdir3, env) {
+async function deniedProse(path, tmpdir4, env) {
   if (!isProseFile(path)) return false;
   const canonical3 = capture6(pathCanonical(path));
   if (inScratchFolder(canonical3, env)) return true;
-  if (!tmpRoots(tmpdir3).some((root) => under4(canonical3, root))) return false;
+  if (!tmpRoots(tmpdir4).some((root) => under4(canonical3, root))) return false;
   return await repoGitRoot(posixDirname(canonical3), env) === "";
 }
 function effectiveTmpdir(input, toolName2, env) {
@@ -25436,8 +25475,8 @@ function proseTargets(lines2) {
 async function bashRule2(input, env) {
   const command = await joinContinuations(field6(input, ["tool_input", "command"]));
   if (command === "") return ALLOW;
-  const tmpdir3 = effectiveTmpdir(input, "Bash", env);
-  const runEnv = tmpdir3 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir3 };
+  const tmpdir4 = effectiveTmpdir(input, "Bash", env);
+  const runEnv = tmpdir4 === (env.TMPDIR ?? "") ? env : { ...env, TMPDIR: tmpdir4 };
   const cwd = payloadCwd(input, env);
   const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
   if (lines2.some(isCapLine)) return ALLOW;
@@ -25450,7 +25489,7 @@ async function bashRule2(input, env) {
   const blanked = capture6((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join("\n")).split("\n");
   const authored = blanked.some((line) => isCapLine(line) || line.startsWith("UNRESOLVED:$(parse)")) ? prose : proseTargets(blanked);
   for (const path of await withoutRmTargets(authored, listed2.statements, cwd, runEnv)) {
-    if (await deniedProse(path, tmpdir3, env)) return deny11(proseReason(path));
+    if (await deniedProse(path, tmpdir4, env)) return deny11(proseReason(path));
   }
   return ALLOW;
 }
@@ -26812,7 +26851,7 @@ function routerTimeoutS(group) {
 // src/hooks/router/main.ts
 import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync16, mkdirSync as mkdirSync14, readFileSync as readFileSync25 } from "node:fs";
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname4 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
 
 // src/hooks/router/decide.ts
@@ -27462,7 +27501,7 @@ var ROUTER_MANIFEST = "mcp/trajectory-server/dist/hooks-router.txt";
 var BUNDLE = "mcp/trajectory-server/dist/hooks.js";
 var HOP_ENV = "TMB_ROUTER_HOP";
 function ownRoot(env) {
-  return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
+  return installRoot(dirname4(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, part, payload, env) {
   const r = spawnSync12(process.execPath, [`${root}/${BUNDLE}`, event, ...part === void 0 ? [] : [part]], {
