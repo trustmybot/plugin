@@ -46252,7 +46252,7 @@ function requireProjectRoot(projectRoot2) {
 function isObject5(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
-var INSTALL_SCOPE_RANK = /* @__PURE__ */ new Map([["local", 3], ["project", 2], ["user", 1]]);
+var PROJECT_SCOPE_RANK = /* @__PURE__ */ new Map([["local", 3], ["project", 2]]);
 function canonicalDir(dir) {
   try {
     return realpathSync8(dir);
@@ -46266,10 +46266,10 @@ function selectProjectInstalls(list, projectRoot2) {
   for (const entry of list) {
     if (!isObject5(entry)) continue;
     const id = typeof entry["id"] === "string" ? entry["id"] : "";
-    const scope = typeof entry["scope"] === "string" && entry["scope"] !== "" ? entry["scope"] : "user";
+    const scopeRank = PROJECT_SCOPE_RANK.get(typeof entry["scope"] === "string" ? entry["scope"] : "");
     const projectPath = entry["projectPath"];
-    const here = scope === "user" || root !== null && typeof projectPath === "string" && projectPath !== "" && canonicalDir(projectPath) === root;
-    const rank = here ? INSTALL_SCOPE_RANK.get(scope) ?? 0 : 0;
+    const here = scopeRank === void 0 || root !== null && typeof projectPath === "string" && projectPath !== "" && canonicalDir(projectPath) === root;
+    const rank = here ? scopeRank ?? 1 : 0;
     const prev = chosen.get(id);
     if (prev === void 0 || rank > prev.rank) chosen.set(id, { rank, entry: rank > 0 ? entry : null });
   }

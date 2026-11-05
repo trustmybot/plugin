@@ -483,6 +483,27 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
     assert.deepEqual({ ...row(away) }, { version: '5.0.0', status: 'broken' });
   });
 
+  it('GH 2136: reconcileNow keeps a synced or managed plugin active and refreshes its version', async () => {
+    const synced = addRow('dc', 'plugin', 'active', 'dc@synced');
+    const managed = addRow('mg', 'plugin', 'active', 'mg@m');
+    db.run("UPDATE cheatcodes SET version = '0.1.0' WHERE id IN (?, ?)", [synced, managed]);
+    const listing = JSON.stringify([
+      { id: 'dc@synced', version: '0.2.0', scope: 'synced', enabled: true, mcpServers: { 'dc-server': {} } },
+      { id: 'mg@m', version: '0.3.0', scope: 'managed', enabled: true },
+    ]);
+    writeFileSync(join(dirname(root), 'listing.json'), listing);
+    writeFileSync(
+      join(dirname(root), 'bin', 'claude'),
+      ['#!/bin/sh', `if [ "$1" = mcp ]; then echo ""; else cat '${join(dirname(root), 'listing.json')}'; fi`, ''].join('\n'),
+    );
+
+    await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
+
+    const row = (id: number) => db.get<{ version: string; status: string }>('SELECT version, status FROM cheatcodes WHERE id = ?', [id])!;
+    assert.deepEqual({ ...row(synced) }, { version: '0.2.0', status: 'active' });
+    assert.deepEqual({ ...row(managed) }, { version: '0.3.0', status: 'active' });
+  });
+
   it('reconcileNow always probes and refreshes the cache', async () => {
     await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
     assert.equal(invocations().length, 2);
@@ -518,6 +539,22 @@ describe('selectProjectInstalls (GH 2136)', () => {
       ]),
       { 'a@m': 'local-here', 'b@m': 'project-here', 'c@m': 'user', 'd@m': 'unscoped', 'e@m': null },
     );
+  });
+
+  it('GH 2136: synced, managed and other non-project scopes apply everywhere like user; local and project still win', () => {
+    assert.deepEqual(
+      pick([
+        { id: 'a@synced', version: 'synced', scope: 'synced' },
+        { id: 'b@m', version: 'managed', scope: 'managed' },
+        { id: 'c@m', version: 'empty', scope: '' },
+        { id: 'd@m', version: 'synced', scope: 'synced' },
+        { id: 'd@m', version: 'local-here', scope: 'local', projectPath: root },
+        { id: 'e@m', version: 'local-other', scope: 'local', projectPath: other },
+        { id: 'e@m', version: 'managed', scope: 'managed' },
+      ]),
+      { 'a@synced': 'synced', 'b@m': 'managed', 'c@m': 'empty', 'd@m': 'local-here', 'e@m': 'managed' },
+    );
+    assert.deepEqual(pick([{ id: 'a@synced', version: 'synced', scope: 'synced' }], null), { 'a@synced': 'synced' });
   });
 
   it('GH 2136: with no project root only user installs apply', () => {

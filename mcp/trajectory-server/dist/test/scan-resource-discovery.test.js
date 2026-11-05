@@ -368,5 +368,29 @@ describe('scan plugin version follows this project\'s install (GH 2136)', () => 
             rmSync(ws, { recursive: true, force: true });
         }
     });
+    it('GH 2136: an enabled synced or managed install registers active at its version with its bundled MCP row', async () => {
+        const ws = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-scan-gh2136-synced-')));
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const db = new TrajectoryDB(join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const fixture = join(ws, 'plugins.json');
+        writeFileSync(fixture, JSON.stringify([
+            { id: 'dc@synced', version: '0.2.0', scope: 'synced', enabled: true, mcpServers: { 'dc-server': {} } },
+            { id: 'mg@m', version: '0.3.0', scope: 'managed', enabled: true },
+        ]));
+        const env = { HOME: join(ws, 'home'), PATH: process.env['PATH'], TMB_FORBID_LIVE_SYNC: '1', TMB_SCAN_PLUGIN_JSON: fixture };
+        try {
+            await walkProject(db, ws, { timeoutMs: TIMEOUT_MS, env });
+            const rows = db.all("SELECT name, kind, status, version FROM cheatcodes WHERE kind IN ('plugin', 'mcp') ORDER BY kind, name").map((r) => ({ ...r }));
+            assert.deepEqual(rows, [
+                { name: 'dc-server', kind: 'mcp', status: 'active', version: '0.2.0' },
+                { name: 'dc', kind: 'plugin', status: 'active', version: '0.2.0' },
+                { name: 'mg', kind: 'plugin', status: 'active', version: '0.3.0' },
+            ]);
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
 });
 //# sourceMappingURL=scan-resource-discovery.test.js.map
