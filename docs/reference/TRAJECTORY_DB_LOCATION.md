@@ -37,7 +37,7 @@ Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`
 
 ## What the hooks do with the result
 
-| State (`tmb_db_state`) | Meaning | Deny-capable gates | Advisory hooks |
+| State (`dbState` in `src/hooks/lib/db.ts`) | Meaning | Deny-capable gates | Advisory hooks |
 |---|---|---|---|
 | `unresolved` | No DB anywhere — the project is not onboarded (or `sqlite3` is missing) | Allow. TMB never bricks a non-TMB repo. | Silent no-op |
 | `ok` | The DB answers a read | Decide normally | Run normally |
