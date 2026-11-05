@@ -145,7 +145,8 @@ describe('no-prose-in-scratch', () => {
         it('judge each statement: an rm next to a prose write leaves the write denied', async () => {
             assert.match(await shell('rm /tmp/a.md; echo hi > /tmp/b.md'), /b\.md/);
             assert.match(await shell('rm /tmp/x.md; echo hi > /tmp/x.md'), /x\.md/);
-            assert.match(await shell('rm /tmp/m.md > /tmp/n.md'), /n\.md/);
+            assert.match(await shell('rm /tmp/m.md; printf x > /tmp/m.md'), /m\.md/);
+            assert.equal(await shell('rm /tmp/m.md > /tmp/n.md'), '', 'rm output captured in a prose file (GH 2405)');
         });
         it('leave a capped command and an unparseable one to the other gates', async () => {
             assert.equal(await shell(`${'echo $('.repeat(2000)}x${')'.repeat(2000)} > /tmp/x.md`), '');
@@ -172,6 +173,71 @@ describe('no-prose-in-scratch', () => {
             assert.match(await shell("cat <<'EOF'\nx \\\nEOF\necho hi > /tmp/b.md"), /b\.md/, 'a heredoc body ends at its delimiter');
             assert.match(await shell('# note \\\necho hi > /tmp/b.md'), /b\.md/, 'a comment does not continue');
             assert.match(await shell('echo a\\\\\necho hi > /tmp/b.md'), /b\.md/, 'an escaped backslash does not continue');
+        });
+        describe('GH 2405: command output captured in a prose file', () => {
+            const S = '/tmp/tmb-no-prose-2405';
+            it('allows piped git diff output in a .txt', async () => {
+                assert.equal(await shell(`git diff A B | grep x > ${S}/a.txt`), '');
+            });
+            it('allows gh issue view output in a .md', async () => {
+                assert.equal(await shell(`gh issue view 1 --json body -q .body > ${S}/i.md`), '');
+            });
+            it('allows sort output in a $TMPDIR .txt', async () => {
+                assert.equal(await shell('sort -u f > $TMPDIR/block.txt'), '');
+            });
+            it('allows a program run with stderr joined', async () => {
+                assert.equal(await shell(`node x.mjs > ${S}/p.txt 2>&1`), '');
+            });
+            it('allows an append', async () => {
+                assert.equal(await shell(`cmd >> ${S}/o.txt`), '');
+            });
+            it('allows each capture operator and cat of a file', async () => {
+                for (const command of [`git log &> ${S}/a.md`, `git log &>> ${S}/a.md`, `git log >| ${S}/a.md`, `git log 2> ${S}/e.txt`, `cat a.txt > ${S}/x.md`, `cd ${S} && git log > a.md`]) {
+                    assert.equal(await shell(command), '', command);
+                }
+            });
+            it('denies a heredoc into cat', async () => {
+                assert.match(await shell(`cat > ${S}/plan.md <<EOF\nplan\nEOF`), /^BLOCKED: prose file.*plan\.md/);
+            });
+            it('denies echo and printf', async () => {
+                assert.match(await shell(`echo plan > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+                assert.match(await shell(`printf '%s' plan > ${S}/x.md`), /^BLOCKED: prose file.*x\.md/);
+            });
+            it('denies a heredoc piped into tee', async () => {
+                assert.match(await shell(`cat <<EOF | tee ${S}/s.md\nplan\nEOF`), /^BLOCKED: prose file.*s\.md/);
+            });
+            it('denies a pipeline whose first command authors', async () => {
+                assert.match(await shell(`printf x | sort > ${S}/x.md`), /^BLOCKED: prose file.*x\.md/);
+                assert.match(await shell(`cat <<EOF | sort > ${S}/x.md\nplan\nEOF`), /^BLOCKED: prose file.*x\.md/);
+            });
+            it('denies cp, a here-string and the Write tool', async () => {
+                assert.match(await shell(`cp spec.md ${S}/spec.md`), /^BLOCKED: prose file.*spec\.md/);
+                assert.match(await shell(`tr a b <<< plan > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+                assert.match(await write(`${S}/spec.md`), /^BLOCKED: prose file.*spec\.md/);
+            });
+            it('keeps judged what it cannot pin to one plain command', async () => {
+                for (const command of [
+                    `{ echo a; git log; } > ${S}/a.md`,
+                    `(echo plan) > ${S}/a.md`,
+                    `command echo plan > ${S}/a.md`,
+                    `bash -c 'echo plan' > ${S}/a.md`,
+                    `$CMD > ${S}/a.md`,
+                    `cat > ${S}/a.md`,
+                    `git log > ${S}/a.md$(echo plan > ${S}/b.txt)`,
+                    `git log && echo plan > ${S}/a.md`,
+                    `cp x > ${S}/a.log ${S}/b.md`,
+                ]) {
+                    assert.match(await shell(command), /^BLOCKED: prose file/, command);
+                }
+            });
+            it('denies the authored write beside a capture', async () => {
+                const text = await shell(`git log > ${S}/log.txt; echo plan > ${S}/p.md`);
+                assert.match(text, /^BLOCKED: prose file.*p\.md/);
+                assert.doesNotMatch(text, /log\.txt/);
+            });
+            it('still denies a gh body file', async () => {
+                assert.match(await shell(`gh issue create --body-file ${S}/b.md`), /--body, or with --body-file - on stdin/);
+            });
         });
         it('leave an UNRESOLVED target to containment-guard', async () => {
             assert.equal(await shell('echo hi > "$(pick-a-name)"'), '');
