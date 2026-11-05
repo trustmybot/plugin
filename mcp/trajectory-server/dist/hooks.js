@@ -9870,7 +9870,6 @@ function listing(parser2, cmd, base2, depth, home) {
   if (!encoded.ok) return null;
   const out2 = [];
   for (const record of statementsEnc(encoded.text, base2, home, false)) {
-    if (record.tail) continue;
     const stmt = readStmt(record.stmt);
     if (stmt === "") continue;
     const body2 = depth < MAX_DEPTH && !record.dir.startsWith("=") ? inner(stmt) : "";
@@ -9967,12 +9966,11 @@ function statements(parser2, cmd, base2, depth, home) {
   if (!encoded.ok) return null;
   const out2 = [];
   for (const record of statementsEnc(encoded.text, base2, home, false)) {
-    if (record.tail) continue;
     const stmt = readStmt2(record.stmt);
     if (stmt === "") continue;
     const body2 = depth < MAX_DEPTH2 && !record.dir.startsWith("=") ? inner2(stmt) : "";
     if (body2 === "") {
-      out2.push(stmt);
+      out2.push({ stmt, tail: record.tail === true });
       continue;
     }
     const nested = statements(parser2, decode(body2).replace(/\n+$/, ""), record.dir, depth + 1, home);
@@ -9996,14 +9994,12 @@ async function gitCommitMessage(command, env = process.env) {
   const parser2 = await bashParser();
   const listed2 = statements(parser2, command, "-", 0, env.HOME ?? "");
   if (listed2 === null) return { ok: false };
-  for (const stmt of listed2) {
-    const subcommand = gitSubcommand(stmt);
-    if (subcommand !== "commit" && !subcommand.startsWith("commit ")) continue;
-    const message = decode(messageArg(subcommand)).replace(/\n+$/, "");
-    const built = message.includes("$(") || message.includes("`");
-    return { ok: true, subcommand, message: built ? "" : message };
-  }
-  return { ok: true, subcommand: "", message: "" };
+  const commits = listed2.map(({ stmt, tail }) => ({ subcommand: gitSubcommand(stmt), tail })).filter(({ subcommand }) => subcommand === "commit" || subcommand.startsWith("commit "));
+  const first = commits.find(({ tail }) => !tail) ?? commits[0];
+  if (first === void 0) return { ok: true, subcommand: "", message: "" };
+  const message = decode(messageArg(first.subcommand)).replace(/\n+$/, "");
+  const built = message.includes("$(") || message.includes("`");
+  return { ok: true, subcommand: first.subcommand, message: built ? "" : message };
 }
 
 // src/hooks/git-guards.ts

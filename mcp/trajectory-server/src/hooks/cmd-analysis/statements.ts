@@ -47,7 +47,7 @@ const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A
 export interface Record {
   dir: string;
   stmt: string;
-  /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable (GH 2377) and are no command of their own (GH 2381). */
+  /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable in either mode (GH 2377, GH 2381). */
   tail?: boolean;
 }
 

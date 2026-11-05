@@ -27,7 +27,7 @@ function inner(stmt) {
         return (stmt.startsWith('eval') ? stmt.slice(4) : stmt).replace(/^ /, '');
     return '';
 }
-/** _tmb_cmd_statements_enc <cmd> <base> <depth>: the encoded statements, null when a body does not parse. */
+/** _tmb_cmd_statements_enc <cmd> <base> <depth>: the encoded statements with their tail flag, null when a body does not parse. */
 function statements(parser, cmd, base, depth, home) {
     if (cmd.trim() === '')
         return [];
@@ -36,14 +36,12 @@ function statements(parser, cmd, base, depth, home) {
         return null;
     const out = [];
     for (const record of statementsEnc(encoded.text, base, home, false)) {
-        if (record.tail)
-            continue;
         const stmt = readStmt(record.stmt);
         if (stmt === '')
             continue;
         const body = depth < MAX_DEPTH && !record.dir.startsWith('=') ? inner(stmt) : '';
         if (body === '') {
-            out.push(stmt);
+            out.push({ stmt, tail: record.tail === true });
             continue;
         }
         const nested = statements(parser, decode(body).replace(/\n+$/, ''), record.dir, depth + 1, home);
@@ -72,21 +70,23 @@ function messageArg(subcommand) {
 /**
  * The first `git commit` statement's subcommand ("" when the command has
  * none) and its decoded message ("" when there is none or it is built by
- * $( ) or backticks); ok false when tree-sitter-bash cannot parse it.
+ * $( ) or backticks); ok false when tree-sitter-bash cannot parse it. A
+ * commit in the words after a substitution (`xargs $(true) git commit`) is
+ * read only when no other statement is a commit (GH 2381).
  */
 export async function gitCommitMessage(command, env = process.env) {
     const parser = await bashParser();
     const listed = statements(parser, command, '-', 0, env.HOME ?? '');
     if (listed === null)
         return { ok: false };
-    for (const stmt of listed) {
-        const subcommand = gitSubcommand(stmt);
-        if (subcommand !== 'commit' && !subcommand.startsWith('commit '))
-            continue;
-        const message = decode(messageArg(subcommand)).replace(/\n+$/, '');
-        const built = message.includes('$(') || message.includes('`');
-        return { ok: true, subcommand, message: built ? '' : message };
-    }
-    return { ok: true, subcommand: '', message: '' };
+    const commits = listed
+        .map(({ stmt, tail }) => ({ subcommand: gitSubcommand(stmt), tail }))
+        .filter(({ subcommand }) => subcommand === 'commit' || subcommand.startsWith('commit '));
+    const first = commits.find(({ tail }) => !tail) ?? commits[0];
+    if (first === undefined)
+        return { ok: true, subcommand: '', message: '' };
+    const message = decode(messageArg(first.subcommand)).replace(/\n+$/, '');
+    const built = message.includes('$(') || message.includes('`');
+    return { ok: true, subcommand: first.subcommand, message: built ? '' : message };
 }
 //# sourceMappingURL=commit-message.js.map

@@ -56,7 +56,6 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   if (!encoded.ok) return null;
   const out: Statement[] = [];
   for (const record of statementsEnc(encoded.text, base, home, false)) {
-    if (record.tail) continue;
     const stmt = readStmt(record.stmt);
     if (stmt === '') continue;
     const body = depth < MAX_DEPTH && !record.dir.startsWith('=') ? inner(stmt) : '';
