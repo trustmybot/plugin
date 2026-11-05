@@ -19,7 +19,6 @@ SLOW_TIMEOUT_S=240
 # Files measured at 30s or more on an idle machine (`run.sh -v`); under a
 # sibling's load they can exceed the default budget.
 SLOW_FILES=(
-  swe-boundary.test.sh
   merge-driver.test.sh
 )
 

@@ -6,7 +6,7 @@
       "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
     },
     {
-      "match": "bash tests/l3-integration/hooks/swe-boundary.test.sh",
+      "match": "cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/swe-boundary-l3-*.test.js",
       "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
     },
     {
