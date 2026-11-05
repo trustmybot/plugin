@@ -1,0 +1,2 @@
+### Changed
+- **swe runs the stale-docs check before it closes a task** (GH 1955): the swe self-review checklist now has a Stale docs step. Before closing, swe runs `stale-docs @{upstream}` in its worktree, which checks the uncommitted work too, and for each `path:line: token` line it prints either fixes the doc or comment that still names what the change touched, or gives the reason it stands in its completion report. The check only advises; when it cannot resolve the base (exit 2, for example a branch with no upstream), swe reruns it with the base branch named.
