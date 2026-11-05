@@ -151,6 +151,8 @@ function scan(buf, base, home, assign, frames, charge) {
     let sp = 0;
     let bt = false;
     let stmt = '';
+    let tail = false;
+    let owns = false;
     let qsp = 0;
     const stack = [];
     const ostack = [];
@@ -158,10 +160,11 @@ function scan(buf, base, home, assign, frames, charge) {
     const owstack = [];
     const astack = [];
     const oastack = [];
+    const sstack = [];
     const q = [];
-    const emit = (dir, text) => {
+    const emit = (dir, text, args = false) => {
         charge(dir.length);
-        records.push({ dir, stmt: text });
+        records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
     };
     const loops = [];
     const fids = [];
@@ -536,7 +539,11 @@ function scan(buf, base, home, assign, frames, charge) {
                 return false;
         return plainDollars(text);
     }
+    /** Sets `owns`: the statement's command word comes before its last word, or it is itself a tail. */
     function flush() {
+        const args = tail;
+        tail = false;
+        owns = args;
         const chained = fsep === '&&';
         fsep = '';
         vtop = sp === 0 && qsp === 0 && !bt;
@@ -621,6 +628,8 @@ function scan(buf, base, home, assign, frames, charge) {
             return;
         }
         let a0 = w[first];
+        if (!args)
+            owns = w.slice(first + 1).some((x) => x !== '');
         if (assign && !wq[first] && (a0 === 'for' || a0 === 'select'))
             forhead(w, first);
         else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function'))
@@ -725,7 +734,7 @@ function scan(buf, base, home, assign, frames, charge) {
                 break;
             }
         }
-        emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
+        emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
         if (!chained) {
             old = '-';
             owhy = '';
@@ -757,9 +766,10 @@ function scan(buf, base, home, assign, frames, charge) {
         const prev = i > 0 ? buf[i - 1] : '';
         if (c === QO) {
             qsp++;
-            q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
+            q[qsp] = { stmt, tail, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
             vkill = true;
             stmt = '';
+            tail = false;
             continue;
         }
         if (c === QC) {
@@ -768,6 +778,7 @@ function scan(buf, base, home, assign, frames, charge) {
             flush();
             const f = q[qsp];
             stmt = f.stmt + '$' + ENC[8] + rawword(buf.slice(f.start, i)) + ENC[9];
+            tail = f.tail;
             cur = f.cur;
             old = f.old;
             sp = f.sp;
@@ -827,13 +838,16 @@ function scan(buf, base, home, assign, frames, charge) {
             cut = true;
             flush();
             push();
+            sstack[sp] = assign && last === '$' && owns;
             continue;
         }
         if (c === ')') {
             flush();
             if (sp === 0)
                 vok = false;
+            const closes = sp > 0 && sstack[sp];
             pop();
+            tail = closes;
             continue;
         }
         if (c === '`') {
@@ -844,11 +858,14 @@ function scan(buf, base, home, assign, frames, charge) {
             flush();
             if (bt) {
                 bt = false;
+                const closes = sp > 0 && sstack[sp];
                 pop();
+                tail = closes;
             }
             else {
                 bt = true;
                 push();
+                sstack[sp] = assign && owns;
             }
             continue;
         }
