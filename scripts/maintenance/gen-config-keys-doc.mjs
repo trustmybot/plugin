@@ -130,6 +130,13 @@ export const KEYS = [
     effect: 'The opt-in swe effort A/B (GH 1745): while fewer than `target` tasks carry `label`, a new task from `task_provision` / `task_create_batch` whose computed effort is the default or an explicit `medium` runs at the arm of its id\'s parity (even `high`, odd `medium`, `effort_reason` `ab_arm`) with one `effort_ab_enrolled` audit row. Reworks, explicit `high` / `low`, prompt-bearing and `high_effort_paths` tasks are never enrolled. `node scripts/maintenance/effort-ab-report.ts --label <label>` reports the arms. Unset or malformed is off.',
   },
   {
+    name: 'downstream_context_ab',
+    type: 'object: `{label: string, target: positive integer, tools_shipped_at: ISO timestamp}`',
+    defaultText: 'unset (off)',
+    setBy: 'bro via `config_set` (`{}` is off; any other shape is refused)',
+    effect: 'The opt-in downstream-context A/B (GH 1990): the first `swe-downstream-context` or `reviewer-downstream-context` call for a task enrolls it while fewer than `target` tasks carry `label`, at arm `on` when `floor(task_id / 2)` is odd, else `off`, with one `downstream_context_ab_enrolled` audit row. Only `on` tasks get the hooks\' direct-downstream context. `tools_shipped_at` bounds the report\'s baseline: the 20 most recent closed tasks before it (`src/downstream-context-ab-report.ts`). Unset, `{}` or malformed is off.',
+  },
+  {
     name: 'reviewer_effort',
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `high`)',

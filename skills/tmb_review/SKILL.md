@@ -43,7 +43,7 @@ Spend the review budget on checks that complement the recorded run:
 
 - Adversarial inputs against the changed code paths.
 - Dry runs on a `cp` of the data, leaving the live DB untouched.
-- Cross-file semantics — callers and readers of whatever the diff renamed or reshaped agree with it.
+- Cross-file semantics — for each symbol the diff renamed or reshaped, run `world_model_symbol(agent='code-reviewer', qualified_name, path, impact: 2)` and check each caller and table reader it reaches; one the diff left broken is a finding.
 - Doc/code agreement — the docs describing the change say what the code now does.
 - For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
 

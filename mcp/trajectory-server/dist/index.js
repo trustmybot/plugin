@@ -25218,6 +25218,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
   { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
   { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "downstream_context_ab_enrolled", writers: ["hook"], description: "`swe-downstream-context` or `reviewer-downstream-context` enrolled a task in the opt-in downstream-context A/B (`plugin_config.downstream_context_ab`, GH 1990) on the first hook call for it while fewer than `target` tasks carried the label; its arm is `on` when floor(task_id / 2) is odd, else `off`; one row per task and label on the task's issue, from_node `hook:<gate>`; `content_json` carries `label`, `arm`, `task_id`" },
+  { type: "downstream_context_injected", writers: ["hook"], description: "`swe-downstream-context` (on a swe's first Edit/Write/MultiEdit/NotebookEdit of an indexed file per run) or `reviewer-downstream-context` (on a code-reviewer start) emitted the direct downstream of the symbols in play, callers and readers of the tables they write, tests excluded, as additionalContext for a task in the A/B's `on` arm (GH 1990); one row per injection on the task's issue; `content_json` carries `task_id`, `role`, `agent_id`, `path` (swe) or `symbols` (code-reviewer), `refs_shown`, `refs_total`" },
   { type: "effort_ab_enrolled", writers: ["bro"], description: "`task_provision` or `task_create_batch` enrolled a new task in the opt-in swe effort A/B (`plugin_config.swe_effort_ab`, GH 1745): its computed effort was the default or an explicit `medium` and fewer than `target` tasks carried the label, so its effort became the arm of its id's parity (even `high`, odd `medium`) with `effort_reason` `ab_arm`; one row per task on its issue, in the insert's transaction; `content_json` carries `label`, `arm`, `task_id`" },
   { type: "effort_inputs_recorded", writers: ["bro"], description: "`task_provision` or `task_create_batch` recorded, in shadow mode (GH 1904), what the world model knows about the code a new task's spec names in backticks and the effort tier those inputs suggest; the task's effort is unchanged; one row per task on its issue, in the insert's transaction, after any `effort_ab_enrolled` row; `content_json` carries `task_id`, `inputs` (`files_in_scope`, `symbols_named`, `symbols_resolved`, `direct_callers`, `caller_files_outside_scope`, `tables_written`, `outside_table_readers`, `tests_reached`, `enforcement`, `prompt_bearing`, `rework`, `wm_available` \u2014 false with zero world-model counts when the repo has no world model or a lookup failed), `suggested_tier` (`low`, `medium`, `high`), `reason`, `effort` (the effort the task runs at)" },
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
@@ -33717,6 +33719,15 @@ function readEffortAb(db2) {
   }
   return null;
 }
+var DOWNSTREAM_CONTEXT_AB_KEY = "downstream_context_ab";
+function isDownstreamContextAbConfig(value) {
+  if (!isEffortAbConfig(value)) return false;
+  const shipped = value["tools_shipped_at"];
+  return typeof shipped === "string" && !Number.isNaN(Date.parse(shipped));
+}
+function isEmptyObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+}
 function computeEffort(db2, input) {
   if (isEffort(input.effort)) return { effort: input.effort, reason: "explicit" };
   const base = input.rework && input.current ? input.current : resolveEffortDefaults(db2).swe;
@@ -33760,6 +33771,11 @@ function validateKnownConfigValue(key, value) {
   if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`
+    );
+  }
+  if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`
     );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {

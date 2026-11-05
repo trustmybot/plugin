@@ -71,10 +71,10 @@ function isJson(text: string): boolean {
 }
 
 async function oneByOne(c: RouterCase, event: string, part: string | undefined): Promise<Expected> {
-  const tool = payloadTool(c.input);
+  const tool = payloadTool(c.input, event);
   if (tool === null) {
     if (stdoutIsPath(event)) return { decision: 'allow', gate: null, stdout: null, code: 1 };
-    if (!eventHoldsEnforcement(event)) return { decision: 'allow', gate: null, stdout: null, code: 0 };
+    if (!eventHoldsEnforcement(event, ROUTER_GROUPS, part)) return { decision: 'allow', gate: null, stdout: null, code: 0 };
     return { decision: 'deny', gate: 'router', stdout: parsed(denyOutput(failClosedReason('router', 'got an unparseable payload'), event)), code: 0 };
   }
   const outputs: (GateOutput | string)[] = [];

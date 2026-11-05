@@ -45,6 +45,7 @@ remote-id-guard
 require-feature-branch-active
 require-spawn-effort
 require-task-spec
+reviewer-downstream-context
 reviewer-identity-observe
 rework-limit
 rework-waiver-capture
@@ -60,6 +61,7 @@ substrate-preflight
 swe-atomic-close
 swe-boundary
 swe-brief-gate
+swe-downstream-context
 swe-resume-gate
 swe-scope-fence
 swe-spawn-bind

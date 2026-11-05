@@ -7,6 +7,7 @@ swe-scope-fence 6948 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 naming-lint 4000 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 code-quality-lint 8072 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
 debug-trajectory 7486 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit *
+swe-downstream-context 4000 advisory PreToolUse Write|Edit|MultiEdit|NotebookEdit * swe-downstream-context
 containment-guard 5000 enforcement PreToolUse Bash *
 git-guards 11000 enforcement PreToolUse Bash *
 git-push-guard 6000 enforcement PreToolUse Bash *
@@ -49,6 +50,7 @@ swe-spawn-bind 6000 advisory PostToolUse Agent *
 swe-spawn-rollback 6000 advisory PermissionDenied Agent *
 bro-turn-usage 6000 advisory Stop - *
 session-handoff 6000 advisory PreCompact - *
+reviewer-downstream-context 6000 advisory SubagentStart ^tmb:code-reviewer$ * reviewer-downstream-context
 consultant-persistence-gate 6000 enforcement SubagentStop - *
 swe-atomic-close 11350 advisory SubagentStop - *
 ensure-gitignore 6000 advisory SessionStart - *

@@ -228,7 +228,7 @@ function readTask(db, taskId, env) {
     return { commitSha, parentBranch, branch: branch.join('|') };
 }
 /** The ref of the task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
-async function prTargetRef(repo, targetBranch, parentBranch, env) {
+export async function prTargetRef(repo, targetBranch, parentBranch, env) {
     for (const candidate of [targetBranch, parentBranch]) {
         if (candidate === '')
             continue;

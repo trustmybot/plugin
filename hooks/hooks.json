@@ -53,6 +53,11 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
             "timeout": 12,
             "onFailure": "block"
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse swe-downstream-context",
+            "timeout": 7
           }
         ]
       },
@@ -185,6 +190,18 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" liveness-sentinel",
             "asyncRewake": true,
             "timeout": 86400
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^tmb:code-reviewer$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" SubagentStart reviewer-downstream-context",
+            "timeout": 9
           }
         ]
       }

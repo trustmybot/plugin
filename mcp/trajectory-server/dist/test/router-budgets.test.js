@@ -123,7 +123,9 @@ describe('router budgets.json (GH 1861)', () => {
             assert.deepEqual(namesOf('PreCompact'), ['session-handoff']);
             assert.deepEqual(namesOf('Stop'), ['bro-turn-usage']);
             assert.deepEqual(namesOf('WorktreeCreate'), ['worktree-create']);
-            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['persona', 'prescan', 'roundtable', undefined]);
+            assert.deepEqual(namesOf('PreToolUse', 'swe-downstream-context'), ['swe-downstream-context']);
+            assert.deepEqual(namesOf('SubagentStart', 'reviewer-downstream-context'), ['reviewer-downstream-context']);
+            assert.deepEqual([...new Set(rows.map((f) => f[6]))].sort(), ['persona', 'prescan', 'reviewer-downstream-context', 'roundtable', 'swe-downstream-context', undefined]);
         });
         it('hooks.json holds one command per group of the event', () => {
             const commands = (event) => routerEntries(event).flatMap((g) => g.hooks.map((h) => h.command.replace(/^.*dist\/hooks\.js" /, '')));
@@ -132,6 +134,7 @@ describe('router budgets.json (GH 1861)', () => {
             assert.deepEqual(commands('Stop'), ['Stop']);
             assert.deepEqual(commands('PreCompact'), ['PreCompact']);
             assert.deepEqual(commands('WorktreeCreate'), ['WorktreeCreate']);
+            assert.deepEqual(commands('SubagentStart'), ['SubagentStart reviewer-downstream-context']);
         });
     });
     it('the post-tool and stop groups keep one registration per matcher', () => {

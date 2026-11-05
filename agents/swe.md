@@ -5,7 +5,7 @@ description: Executor. Implements task specs in isolated worktrees with atomic c
 model: opus
 maxTurns: 150
 effort: medium
-tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__task_update_status
+tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__task_update_status, mcp__plugin_tmb_trajectory-server__world_model_symbol, mcp__plugin_tmb_trajectory-server__world_model_search, mcp__plugin_tmb_trajectory-server__world_model_get
 skills: [tmb_swe-checklist, tmb_docs-conventions]
 experimental:
   cacheTtl: 1h
@@ -21,7 +21,7 @@ Every run ends through `task_update_status` (`running`, `completed` or `failed`)
 
 Your final message starts with the `return_line` that `task_update_status` returns, verbatim, then at most 4 short lines, only for what bro must decide or act on: a question, or the hook deny the boundary above has you quote, verbatim. Everything else lives in the report.
 
-The brief arrives via `task_brief`; the spec's `## Commit` line is the commit message. The brief's `locations` gives each named file's symbols with `start_line`/`end_line`: read that range with `offset`/`limit`, and read the whole file only when no range covers what you need. The session cwd belongs to bro: every file path and git command targets the brief's `worktree_path` (absolute paths or `git -C`).
+The brief arrives via `task_brief`; the spec's `## Commit` line is the commit message. The brief's `locations` gives each named file's symbols with `start_line`/`end_line`: read that range with `offset`/`limit`, and read the whole file only when no range covers what you need. The session cwd belongs to bro: every file path and git command targets the brief's `worktree_path` (absolute paths or `git -C`). Before you reshape a symbol's signature, return value or a table it writes, run `world_model_symbol(agent='swe', qualified_name, path, impact: 2)` and check each caller and table reader it reaches: fix it, or name it in the completion report.
 
 Scratch and tmp folders hold throwaway scripts, logs and data dumps only; a hook denies prose files there, so findings and notes go in the completion report.
 

@@ -107,6 +107,16 @@
       "max_budget_ms": 16000,
       "p99_sum_ms": 1208.5,
       "group_budget_ms": 16000
+    },
+    "PreToolUse:Write|Edit|MultiEdit|NotebookEdit:swe-downstream-context": {
+      "max_budget_ms": 4000,
+      "p99_sum_ms": 0.1,
+      "group_budget_ms": 4000
+    },
+    "SubagentStart:^tmb:code-reviewer$:reviewer-downstream-context": {
+      "max_budget_ms": 6000,
+      "p99_sum_ms": 0,
+      "group_budget_ms": 6000
     }
   },
   "gates": {
@@ -1023,6 +1033,38 @@
       "floor_ms": 16000,
       "budget_ms": 16000,
       "date": "2026-11-01"
+    },
+    "swe-downstream-context": {
+      "kind": "advisory",
+      "bench_p50": 0,
+      "bench_p95": 0,
+      "bench_p99": 0.1,
+      "bench_runs": 640,
+      "bench_load_avg": 41.61,
+      "transcript_p99": null,
+      "reason": "no swe-downstream-context PreToolUse hook attachment: born in GH 1990, benched alone with the router-p99 worker (4 workers x 20 rounds)",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 4000,
+      "budget_ms": 4000,
+      "date": "2026-11-02"
+    },
+    "reviewer-downstream-context": {
+      "kind": "advisory",
+      "bench_p50": 0,
+      "bench_p95": 0,
+      "bench_p99": 0,
+      "bench_runs": 640,
+      "bench_load_avg": 3.51,
+      "transcript_p99": null,
+      "reason": "no reviewer-downstream-context SubagentStart hook attachment in 1201 transcript files of the last 14 days",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
+      "date": "2026-11-02"
     }
   }
 }

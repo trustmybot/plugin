@@ -28,13 +28,13 @@ interface HooksJson {
   hooks: Record<string, Group[]>;
 }
 
-const ROUTER = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
+const ROUTER = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)(?: ([a-z-]+))?$/;
 const FORBIDDEN = ['mcp_tool', 'prompt', 'agent', 'if'] as const;
 
 function denyCapable(event: string, r: Registration): boolean {
   if (r.onFailure === 'block') return true;
   const m = ROUTER.exec(r.command ?? '');
-  return m !== null && m[1] === event && ROUTER_GROUPS.some((grp) => grp.event === event && grp.gates.some((g) => g.kind === 'enforcement'));
+  return m !== null && m[1] === event && ROUTER_GROUPS.some((grp) => grp.event === event && grp.part === m[2] && grp.gates.some((g) => g.kind === 'enforcement'));
 }
 
 function shapeViolations(h: HooksJson): string[] {
@@ -72,16 +72,17 @@ describe('hooks.json registration shape', () => {
     assert.equal(shapeViolations({ hooks: { Stop: [{ matcher: '', hooks: [{ type: 'prompt', onFailure: 'block' }] }] } }).length, 1, 'a prompt-type hook');
   });
 
-  it('every PreToolUse entry is one router group: its matcher, timeout and onFailure are the registry\'s, in exec form with no if', () => {
+  it('every PreToolUse entry is its matcher\'s router groups, one hook per part: its timeout and onFailure are the registry\'s, in exec form with no if', () => {
     const groups = ROUTER_GROUPS.filter((g) => g.event === 'PreToolUse');
-    assert.deepEqual(HOOKS.hooks.PreToolUse.map((g) => g.matcher).sort(), groups.map((g) => g.matcher).sort());
+    assert.deepEqual(HOOKS.hooks.PreToolUse.map((g) => g.matcher).sort(), [...new Set(groups.map((g) => g.matcher))].sort());
     for (const group of groups) {
       const [entry] = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === group.matcher);
-      assert.equal(entry.hooks.length, 1, group.matcher);
-      const [r] = entry.hooks;
+      assert.equal(entry.hooks.length, groups.filter((g) => g.matcher === group.matcher).length, group.matcher);
+      const suffix = group.part === undefined ? 'dist/hooks.js" PreToolUse' : `dist/hooks.js" PreToolUse ${group.part}`;
+      const [r] = entry.hooks.filter((h) => h.command?.endsWith(suffix));
+      assert.ok(r, `${group.matcher} ${group.part ?? ''}`);
       assert.equal(r.type, 'command');
       assert.match(r.command ?? '', ROUTER);
-      assert.ok(r.command?.endsWith('dist/hooks.js" PreToolUse'), group.matcher);
       assert.equal(r.timeout, routerTimeoutS(group), group.matcher);
       assert.equal(r.onFailure, group.gates.some((g) => g.kind === 'enforcement') ? 'block' : undefined, group.matcher);
       assert.equal('if' in r, false, group.matcher);

@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff and bash-output-trim have no hook-corpus
+ * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context and reviewer-downstream-context have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -77,6 +77,8 @@ export const ROUTER_CORPUS_GATES = [
   'task-overrun-alert',
   'liveness-alert',
   'bash-output-trim',
+  'swe-downstream-context',
+  'reviewer-downstream-context',
   'attribution-footer',
   'clean-merged-branch',
   'close-issue-on-merge',
@@ -487,6 +489,8 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('swe-resume-gate')) cases.push(...sweResumeCases(join(root, 'swe-resume'), emptyProject));
   if (want('no-prose-in-scratch')) cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
   if (want('bash-output-trim')) cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
+  if (want('swe-downstream-context')) cases.push(...sweDownstreamCases(join(root, 'swe-downstream-context'), emptyProject));
+  if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
@@ -779,6 +783,44 @@ function bashOutputTrimCases(dir: string, cwd: string): RouterCase[] {
     ['unlisted', post('npm test')],
   ];
   return scenarios.map(([file, input]) => ({ gate: 'bash-output-trim', file, input, env, cwd, fakeUid: false }));
+}
+
+/** swe-downstream-context's cases: each edit tool and the calls it stays silent on, with no trajectory DB. */
+function sweDownstreamCases(dir: string, cwd: string): RouterCase[] {
+  mkdirSync(dir, { recursive: true });
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });
+  const pre = (tool: string, toolInput: object, extra: object = { agent_id: 'a1', agent_type: 'tmb:swe' }): string =>
+    JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd, tool_name: tool, tool_input: toolInput, tool_use_id: 't', ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['edit', pre('Edit', { file_path: join(cwd, 'src/a.ts'), old_string: 'a', new_string: 'b' })],
+    ['write', pre('Write', { file_path: join(cwd, 'src/a.ts'), content: 'x' })],
+    ['multi-edit', pre('MultiEdit', { file_path: join(cwd, 'src/a.ts'), edits: [] })],
+    ['notebook-edit', pre('NotebookEdit', { notebook_path: join(cwd, 'n.ipynb'), new_source: 'x' })],
+    ['bro', pre('Edit', { file_path: join(cwd, 'src/a.ts') }, {})],
+    ['code-reviewer', pre('Edit', { file_path: join(cwd, 'src/a.ts') }, { agent_id: 'a2', agent_type: 'tmb:code-reviewer' })],
+    ['no-path', pre('Write', {})],
+    ['no-agent-id', pre('Edit', { file_path: join(cwd, 'src/a.ts') }, { agent_type: 'tmb:swe' })],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'swe-downstream-context', file, input, env, cwd, fakeUid: false }));
+}
+
+/** reviewer-downstream-context's cases: a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */
+function reviewerDownstreamCases(dir: string, cwd: string): RouterCase[] {
+  mkdirSync(dir, { recursive: true });
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });
+  const start = (agentType: string, extra: object = {}): string =>
+    JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 's', cwd, transcript_path: join(dir, 'absent.jsonl'), agent_id: 'a1', agent_type: agentType, ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['reviewer', start('tmb:code-reviewer')],
+    ['reviewer-task-id', start('tmb:code-reviewer', { prompt: 'task_id=7' })],
+    ['reviewer-no-agent-id', start('tmb:code-reviewer', { agent_id: '' })],
+    ['reviewer-no-transcript', start('tmb:code-reviewer', { transcript_path: '' })],
+    ['swe', start('tmb:swe')],
+    ['explore', start('Explore')],
+    ['other-plugin', start('other:code-reviewer')],
+    ['no-agent-type', start('')],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'reviewer-downstream-context', file, input, env, cwd, fakeUid: false }));
 }
 
 /** worktree-adopt-guard's cases: a main checkout, a linked worktree and a non-git root, each with adopt_worktree missing, matching or mismatched. */

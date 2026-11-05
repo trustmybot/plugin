@@ -22,6 +22,8 @@ consultant_spawn_nudged	hook
 containment_denied	hook
 decision_gate_waived	bro
 deep_scan_completed	bro
+downstream_context_ab_enrolled	hook
+downstream_context_injected	hook
 effort_ab_enrolled	bro
 effort_inputs_recorded	bro
 embeddings_degraded	server

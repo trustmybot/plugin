@@ -487,6 +487,9 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
         assert.deepEqual(names('Stop', ''), ['bro-turn-usage']);
         assert.deepEqual(names('PreCompact', ''), ['session-handoff']);
         assert.deepEqual(names('SubagentStop', ''), ['consultant-persistence-gate', 'swe-atomic-close']);
+        assert.deepEqual(routerGates('SubagentStart', 'tmb:code-reviewer', undefined, 'reviewer-downstream-context').map((g) => g.name), ['reviewer-downstream-context']);
+        assert.deepEqual(routerGates('SubagentStart', 'tmb:swe', undefined, 'reviewer-downstream-context'), []);
+        assert.deepEqual(routerGates('PreToolUse', 'Edit', undefined, 'swe-downstream-context').map((g) => g.name), ['swe-downstream-context']);
     });
     it('the post-tool groups run in the order the spec names, each tool-filtered gate only for its tools', () => {
         assert.deepEqual(names('PostToolUse', mcp('task_update_status')), ['cleanup-worktree-on-task-close', 'task-overrun-alert', 'liveness-alert']);

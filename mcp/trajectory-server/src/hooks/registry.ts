@@ -5,6 +5,8 @@
 import type { Gate } from './gate.js';
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
 import { GATE_NAME as BASH_OUTPUT_TRIM_GATE, bashOutputTrim } from './bash-output-trim.js';
+import { GATE_NAME as SWE_DOWNSTREAM_GATE, sweDownstreamContext } from './swe-downstream-context.js';
+import { GATE_NAME as REVIEWER_DOWNSTREAM_GATE, reviewerDownstreamContext } from './reviewer-downstream-context.js';
 import { GATE_NAME as BRO_TURN_USAGE_GATE, broTurnUsage } from './bro-turn-usage.js';
 import { GATE_NAME as FOOTER_GATE, attributionFooter } from './attribution-footer.js';
 import { GATE_NAME as CQ_LINT_GATE, codeQualityLint } from './code-quality-lint.js';
@@ -80,6 +82,8 @@ import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
   [BASH_OUTPUT_TRIM_GATE, bashOutputTrim],
+  [SWE_DOWNSTREAM_GATE, sweDownstreamContext],
+  [REVIEWER_DOWNSTREAM_GATE, reviewerDownstreamContext],
   [BRO_TURN_USAGE_GATE, broTurnUsage],
   [FOOTER_GATE, attributionFooter],
   [CQ_LINT_GATE, codeQualityLint],
@@ -240,6 +244,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(CQ_LINT_GATE, 'advisory'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
   ], { concurrent: true }),
+  eventGroup('PreToolUse', 'Write|Edit|MultiEdit|NotebookEdit', [routerGate(SWE_DOWNSTREAM_GATE, 'advisory')], { part: SWE_DOWNSTREAM_GATE }),
   preToolUseGroup('Bash', [
     routerGate('containment-guard', 'enforcement'),
     routerGate(GIT_GUARDS_GATE, 'enforcement'),
@@ -287,6 +292,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
   eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),
   eventGroup('PreCompact', '', [routerGate(SESSION_HANDOFF_GATE, 'advisory')]),
+  eventGroup('SubagentStart', '^tmb:code-reviewer$', [routerGate(REVIEWER_DOWNSTREAM_GATE, 'advisory')], { part: REVIEWER_DOWNSTREAM_GATE }),
   eventGroup('SubagentStop', '', [routerGate(CONSULTANT_PERSISTENCE_GATE, 'enforcement'), routerGate(SWE_ATOMIC_CLOSE_GATE, 'advisory')]),
   eventGroup('SessionStart', '', [
     routerGate(ENSURE_GITIGNORE_GATE, 'advisory'),
@@ -316,9 +322,9 @@ export function routerEvents(): ReadonlySet<string> {
   return new Set(ROUTER_GROUPS.map((g) => g.event));
 }
 
-/** Whether an enforcement gate serves <event>: only then can a call that reaches no gate be refused. */
-export function eventHoldsEnforcement(event: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): boolean {
-  return groups.some((g) => g.event === event && g.gates.some((x) => x.kind === 'enforcement'));
+/** Whether an enforcement gate serves <event> in <part>: only then can a call that reaches no gate be refused. */
+export function eventHoldsEnforcement(event: string, groups: readonly RouterGroup[] = ROUTER_GROUPS, part?: string): boolean {
+  return groups.some((g) => g.event === event && g.part === part && g.gates.some((x) => x.kind === 'enforcement'));
 }
 
 /** Whether <matcher>, hooks.json regex text, matches the whole of <tool>; empty matches every call. */
