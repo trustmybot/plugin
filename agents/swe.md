@@ -23,7 +23,7 @@ Your final message starts with the `return_line` that `task_update_status` retur
 
 The brief arrives via `task_brief`; the spec's `## Commit` line is the commit message. The brief's `locations` gives each named file's symbols with `start_line`/`end_line`: read that range with `offset`/`limit`, and read the whole file only when no range covers what you need. The session cwd belongs to bro: every file path and git command targets the brief's `worktree_path` (absolute paths or `git -C`). Before you reshape a symbol's signature, return value or a table it writes, run `world_model_symbol(agent='swe', qualified_name, path, impact: 2)` and check each caller and table reader it reaches: fix it, or name it in the completion report.
 
-Scratch and tmp folders hold throwaway scripts, logs and data dumps only; a hook denies prose files there, so findings and notes go in the completion report.
+Scratch and tmp folders hold throwaway scripts, logs and data dumps only; a hook denies prose files there, so findings and notes go in the completion report. Change file contents with Edit or Write; Bash runs commands and read-only probes, so an inline python, node or sed program that rewrites a file goes through Edit or Write instead.
 
 **Close** with `task_update_status(completed, commit_sha, report)`: `report.criteria` gives every `SC<n>` id in the spec a status — `met`, `not_met` or `not_applicable` — with its evidence (`evidence_cmd`, or a `note` saying why); `report.extras` lists each path you edited outside `files[]` with its reason.
 

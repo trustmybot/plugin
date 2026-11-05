@@ -13,9 +13,15 @@
  * after a re-read; a slot with no holder file is live for its first 10 s. The
  * holder exports TMB_SUITE_LOCK_HELD=<slot> to its children, and an acquirer
  * that finds it pointing at a live holder's slot skips the lock.
+ *
+ * Waiters queue first come first served (GH 2297): a waiter that finds every
+ * slot busy writes a ticket in queue/, named by arrival, rewrites it each poll
+ * as a heartbeat, and tries the slots only while fewer than N live tickets rank
+ * ahead of its own. A ticket unrefreshed for 10 s is removed. A waiter that
+ * can't write its ticket polls unordered, with one stderr line.
  */
 import { spawnSync } from 'node:child_process';
-import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const SUITE_LOCK_POLL_MS = 500;
@@ -251,9 +257,66 @@ export function describeHolder(holder: SlotHolder | null): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
+const TICKET_NAME = /^[0-9]{15}-[0-9]{10}-[0-9]{6}$/;
+let ticketSeq = 0;
+
+function ticketName(): string {
+  return `${String(Date.now()).padStart(15, '0')}-${String(process.pid).padStart(10, '0')}-${String(ticketSeq++ % 1_000_000).padStart(6, '0')}`;
+}
+
+/** Writes the ticket, or rewrites it to refresh its mtime; false when it can't. */
+function writeTicket(queue: string, ticket: string, opts: AcquireOptions): boolean {
+  try {
+    mkdirSync(queue, { recursive: true, mode: 0o700 });
+    writeFileSync(join(queue, ticket), `${JSON.stringify({ pid: process.pid, worktree: opts.worktree, command: opts.command })}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeTicket(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    /* a ticket left behind goes stale in SUITE_LOCK_STALE_MS */
+  }
+}
+
+/** The live tickets that rank ahead of <own> (all of them when it is null), removing each stale one. */
+function ticketsAhead(queue: string, own: string | null): number {
+  let names: string[];
+  try {
+    names = readdirSync(queue);
+  } catch {
+    return 0;
+  }
+  let ahead = 0;
+  for (const name of names) {
+    if (!TICKET_NAME.test(name) || (own !== null && name >= own)) continue;
+    const mtime = mtimeMs(join(queue, name));
+    if (mtime === null) continue;
+    if (Date.now() - mtime > SUITE_LOCK_STALE_MS) removeTicket(join(queue, name));
+    else ahead++;
+  }
+  return ahead;
+}
+
+function trySlots(slots: string[], opts: AcquireOptions, pgid: number | null): SlotResult | null {
+  for (const slot of slots) {
+    if (tryMkdir(slot)) return { kind: 'held', slot, release: claim(slot, opts, pgid) };
+    if (stale(slot)) {
+      reclaim(slot);
+      if (tryMkdir(slot)) return { kind: 'held', slot, release: claim(slot, opts, pgid) };
+    }
+  }
+  return null;
+}
+
 /**
- * Takes a free suite slot, waiting for one (polling every 500 ms, a waiting
- * line on stderr at the start and every 60 s), until <maxWaitS> when given.
+ * Takes a free suite slot, waiting for one in arrival order (polling every
+ * 500 ms, a waiting line on stderr at the start and every 60 s), until
+ * <maxWaitS> when given.
  */
 export async function acquireSuiteSlot(opts: AcquireOptions): Promise<SlotResult> {
   const stderr = opts.stderr ?? ((text: string) => process.stderr.write(text));
@@ -271,25 +334,36 @@ export async function acquireSuiteSlot(opts: AcquireOptions): Promise<SlotResult
     return { kind: 'unlocked' };
   }
   const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i) => join(root, `slot-${i}`));
+  const queue = join(root, 'queue');
   const pgid = processGroup();
   const begun = Date.now();
   let noticeAt = 0;
-  for (;;) {
-    for (const slot of slots) {
-      if (tryMkdir(slot)) return { kind: 'held', slot, release: claim(slot, opts, pgid) };
-      if (stale(slot)) {
-        reclaim(slot);
-        if (tryMkdir(slot)) return { kind: 'held', slot, release: claim(slot, opts, pgid) };
+  let ticket: string | null = null;
+  let ordered = true;
+  try {
+    for (;;) {
+      if (!ordered || ticketsAhead(queue, ticket) < slots.length) {
+        const got = trySlots(slots, opts, pgid);
+        if (got !== null) return got;
       }
+      if (ordered) {
+        ticket ??= ticketName();
+        if (!writeTicket(queue, ticket, opts)) {
+          ordered = false;
+          stderr(`suite-lock: could not write a queue ticket under ${queue}; waiting for a suite slot unordered\n`);
+        }
+      }
+      const waited = Date.now() - begun;
+      if (opts.maxWaitS !== undefined && waited >= opts.maxWaitS * 1000) {
+        return { kind: 'busy', holder: oldestHolder(slots), waitedS: Math.round(waited / 1000) };
+      }
+      if (waited >= noticeAt) {
+        stderr(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}\n`);
+        noticeAt += SUITE_LOCK_NOTICE_MS;
+      }
+      await sleep(SUITE_LOCK_POLL_MS);
     }
-    const waited = Date.now() - begun;
-    if (opts.maxWaitS !== undefined && waited >= opts.maxWaitS * 1000) {
-      return { kind: 'busy', holder: oldestHolder(slots), waitedS: Math.round(waited / 1000) };
-    }
-    if (waited >= noticeAt) {
-      stderr(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}\n`);
-      noticeAt += SUITE_LOCK_NOTICE_MS;
-    }
-    await sleep(SUITE_LOCK_POLL_MS);
+  } finally {
+    if (ticket !== null) removeTicket(join(queue, ticket));
   }
 }

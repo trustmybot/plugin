@@ -31,11 +31,16 @@ ENV PATH="/root/.bun/bin:${PATH}"
 WORKDIR /plugin
 COPY . /plugin
 
-# Strip local node_modules + bun artifacts so we test cold-start.
-# DELIBERATELY KEEP the committed dist/ — that's what the published artifact
-# actually contains, and what CC sees on install.
+# Build the generated payload the way CI publishes it (GH 2054), then strip
+# node_modules + bun artifacts so we test cold-start. DELIBERATELY KEEP the
+# built dist/ — that's what the published artifact contains, and what CC sees
+# on install.
+RUN bun install --frozen-lockfile --ignore-scripts \
+ && (cd dashboard && bun install --frozen-lockfile) \
+ && bun run build:payload
 RUN rm -rf node_modules \
-           mcp/trajectory-server/node_modules
+           mcp/trajectory-server/node_modules \
+           dashboard/node_modules
 
 # A0: COLD MCP — the shipped entrypoint must boot with ZERO node_modules.
 # A fresh `claude plugin install` leaves no node_modules (CC skips lifecycle

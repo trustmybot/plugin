@@ -74,7 +74,7 @@
 {"cmd":"R=/a; true *(e:R=0:); git -C $R status","dirs":["@","@","-"],"why":"unresolved since GH 1595 / GH 1610","parse":false}
 {"cmd":"R=/a; echo x?(e:R=0:); git -C $R status","dirs":["@","@","-"],"why":"unresolved since GH 1595 / GH 1610","parse":false}
 {"cmd":"R=/a; ls (x); git -C $R status","dirs":["@","@","-"],"why":"unresolved since GH 1595 / GH 1610"}
-{"cmd":"R=/a; echo a > f; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
+{"cmd":"R=/a; echo a > f; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610","ts_dirs":["@","/a"]}
 {"cmd":"R=/a; echo {a,b}; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
 {"cmd":"R=/a; echo x*; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
 {"cmd":"R=/a; ls x?; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
@@ -83,3 +83,16 @@
 {"cmd":"O=/b; R=$O; git -C $R status","dirs":["-"],"why":"unresolved since GH 1595 / GH 1610"}
 {"cmd":"W=/w/r; cat <<E\"M\"\nx\nEM\ngit -C $W status","dirs":["@","/w/r"],"why":"GH 1927: tree-sitter-bash runs a mid-word-quoted delimiter's body to EOF","parse":false}
 {"cmd":"W=/w/r; cat <<EOF\n$\nEOF\ngit -C $W status","dirs":["@","-"],"why":"GH 1927: a lone $ body line swallows the delimiter in tree-sitter-bash","parse":false}
+{"cmd":"W=/w/r; git -C $W merge x 2>&1","dirs":["-"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r"]}
+{"cmd":"W=/w/r; git -C $W merge x 2>/dev/null","dirs":["-"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r"]}
+{"cmd":"W=/w/r; git -C $W merge x >out.log","dirs":["-"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r"]}
+{"cmd":"W=/w/r; git -C $W merge x &>/dev/null","dirs":["-"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r"]}
+{"cmd":"W=/w/r; git -C \"$W\" commit -m x 2>&1 | tail -3","dirs":["-","@"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r","@"]}
+{"cmd":"W=/w/r; git -C $W merge x > out.log 1>&- >&2 2>>f; git -C $W status","dirs":["-","-"],"why":"GH 2404: a literal redirect keeps the TS literal, the bash lib drops it","ts_dirs":["/w/r","/w/r"]}
+{"cmd":"W=/w/r; git -C $W merge x >$(W=0)","dirs":["-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x 2>$((W=0))","dirs":["-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x >\"$W\"/log","dirs":["-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x 2>$[W=0]","dirs":["-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x >f$(W=0); git -C $W status","dirs":["-","-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x >f`W=0`; git -C $W status","dirs":["-","-"],"why":"GH 2404: a redirect target that can reassign fails closed"}
+{"cmd":"W=/w/r; git -C $W merge x {W}>f","dirs":["-"],"why":"GH 2404: a redirect target that can reassign fails closed"}

@@ -628,8 +628,8 @@ tmb_resolve_task_id_for_target() {
 
 # tmb_caller_run <input_json> <db>
 # The run of the swe making this tool call, keyed on who it is, not where it
-# stands: for a payload whose role (tmb_agent_role, lib/cmd-analysis.sh — the
-# caller sources it) is swe and that carries agent_id, prints
+# stands: for a payload whose role (tmb_agent_role, which the caller defines;
+# the TS port is callerRun in src/hooks/lib/db.ts) is swe and that carries agent_id, prints
 # `<task_id>|<root_dir>` of the newest swe agent_runs row with spawn_id =
 # agent_id, open or closed (swe-brief-gate.sh binds it at the swe's first
 # task_brief). Prints nothing for another role, no agent_id or no such row;

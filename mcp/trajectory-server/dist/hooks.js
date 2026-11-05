@@ -5389,8 +5389,8 @@ function segmentsOf(command) {
   return segments.filter((s) => s.length > 0);
 }
 function isRoutineRead(command) {
-  const present = segmentsOf(command);
-  return present !== null && present.length > 0 && present.every(segmentRead);
+  const present2 = segmentsOf(command);
+  return present2 !== null && present2.length > 0 && present2.every(segmentRead);
 }
 function asksFullOutput(command) {
   return segmentsOf(command)?.some(endsInBareCat) ?? false;
@@ -8935,6 +8935,26 @@ function heldWords(encoder, root) {
   }
   return held;
 }
+var PLAIN_EXPANSIONS = ["simple_expansion", "expansion"];
+var CODE_EXPANSIONS = ["command_substitution", "arithmetic_expansion", "process_substitution"];
+function splicedWords(encoder, root) {
+  const plain = /* @__PURE__ */ new Set();
+  const opaque = /* @__PURE__ */ new Set();
+  const classify = (word, redirect) => {
+    const key2 = heldKey(encoder.word(word));
+    const dollars = key2.split("$").length - 1;
+    if (dollars === 0 && !key2.includes("`")) return;
+    const spliced = !redirect && !key2.includes("`") && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+    (spliced ? plain : opaque).add(key2);
+  };
+  for (const node of root.descendantsOfType(["command", "file_redirect", "herestring_redirect"])) {
+    if (!node) continue;
+    const redirect = node.type !== "command";
+    for (const word of node.namedChildren) if (word && !/^(file|herestring)_redirect$/.test(word.type)) classify(word, redirect);
+  }
+  for (const key2 of opaque) plain.delete(key2);
+  return plain;
+}
 function broken(node) {
   if (node.isError || node.isMissing) return true;
   if (!node.hasError) return false;
@@ -8988,7 +9008,7 @@ function encode(parser2, command, charge = NO_CHARGE) {
     if (command.includes("<<") && heredocMisread(command, root)) return { ok: false };
     const encoder = new Encoder(command, charge);
     const text = encoder.range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [], held: heldWords(encoder, root) };
+    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
   } finally {
     tree.delete();
   }
@@ -9149,6 +9169,7 @@ var VSPECIAL = /^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOC
 var KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 var NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 var BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+var LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 var FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 function norm(p) {
   let lead = "";
@@ -9224,6 +9245,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
   let lastdir = "";
   let piped = false;
   let pipesrc = "";
+  let cut4 = false;
   let i2 = 0;
   let s = base2.indexOf(SEP);
   if (s >= 0) {
@@ -9533,7 +9555,8 @@ function scan2(buf, base2, home, assign, frames, charge) {
       vkill = false;
     }
   }
-  function vplainexp(text) {
+  function vplainexp(text, whole) {
+    if (whole) text = text.replace(LITERAL_REDIRECT, "$1");
     const parts2 = text.split("<<");
     for (let k = 1; k < parts2.length; k++) {
       if (!parts2[k].startsWith(HD_DATA)) return false;
@@ -9551,7 +9574,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt.replaceAll(QM, ""))) vok = false;
+    const whole = !cut4;
+    cut4 = false;
+    if (!vplainexp(stmt.replaceAll(QM, ""), whole)) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
@@ -9803,6 +9828,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         if (assign && last === "$") stmt = stmt + ENC[8] + ENC[9] + forsrc(i2);
         else stmt = stmt.slice(0, -1);
       }
+      cut4 = true;
       flush(!assign && last === "$");
       push();
       sstack[sp] = last === "$" && owns;
@@ -9819,6 +9845,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     if (c === "`") {
       vkill = true;
       if (assign && !bt) stmt += "$" + ENC[8] + ENC[9];
+      cut4 = true;
       flush(!assign && !bt);
       if (bt) {
         bt = false;
@@ -14643,10 +14670,53 @@ var WritePaths = class _WritePaths {
   }
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   held = /* @__PURE__ */ new Set();
+  /** The `Encoded.spliced` keys of the command `run` is in. */
+  spliced = /* @__PURE__ */ new Set();
   /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
   unbalanced = false;
   isHeld(word) {
     return this.held.has(heldKey(word));
+  }
+  /**
+   * GH 1913: each text an eval with held arguments runs, when the shell fills
+   * them in only from `$NAME` / `${NAME}` variables whose every value is a
+   * literal tracked in this command (no glob, brace, newline or tab, IFS
+   * untouched), one per combination of values (at most 16), none changing
+   * the directory; else null.
+   */
+  evalExpansions(level, args2, body2) {
+    if (this.unbalanced || this.varGet(level.vars, "IFS") !== null) return null;
+    if (args2.some((w) => /[$`]/.test(heldKey(w)) && !this.spliced.has(heldKey(w)))) return null;
+    const text = dec(body2);
+    if (/[`\x07\x08]/.test(text) || !plainDollars(text)) return null;
+    const ref = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+    let combos = [/* @__PURE__ */ new Map()];
+    for (const name3 of new Set([...text.matchAll(ref)].map((m) => m[1] ?? m[2]))) {
+      const vals = this.varGet(level.vars, name3);
+      if (vals === null) return null;
+      const values = vals.split("\n");
+      if (values.some((v) => /[\x01$`*?[{\t\n\r]|[!@+]\(/.test(v))) return null;
+      combos = combos.flatMap((c) => values.map((v) => new Map(c).set(name3, v)));
+      if (combos.length > 16) return null;
+    }
+    const texts = combos.map((c) => text.replace(ref, (_, braced, plain) => c.get(braced ?? plain ?? "") ?? ""));
+    for (const t of texts) {
+      for (const record of this.listing(t, "@", 0)) {
+        if (/^(cd|pushd|popd)$/.test(basename5(unwrapStatement(record.stmt).words[0] ?? ""))) return null;
+      }
+    }
+    return texts;
+  }
+  /** The texts an eval runs: its own when no argument is held, else `evalExpansions`. */
+  evalTexts(level, args2, body2) {
+    return args2.some((w) => this.isHeld(w)) ? this.evalExpansions(level, args2, body2) : [dec(body2)];
+  }
+  /** Runs one eval text at depth + 1 in this shell: a name it sets is poisoned in `level`. */
+  evalRun(level, text, tok, depth) {
+    const seen = new Set(level.vars.split("\n"));
+    for (const line of this.run(text, tok, depth + 1, level.vars).split("\n")) {
+      if (line !== "" && !seen.has(line)) this.poison(level, before(line, "	"));
+    }
   }
   interp = (words3) => interpWrites(
     words3,
@@ -14726,22 +14796,23 @@ var WritePaths = class _WritePaths {
         return;
     }
   }
-  /** _tmb_cmd_write_paths_in */
+  /** _tmb_cmd_write_paths_in; the TS returns the variables tracked when it ends. */
   run(cmd, base2, depth, vars) {
     this.charge(cmd.length);
     const encoded = encode(this.parser, cmd, this.charge);
     if (!encoded.ok) {
       this.print(parseLine(cmd));
-      return;
+      return vars;
     }
-    const outer = this.held;
-    const unbalanced = this.unbalanced;
+    const outer = { held: this.held, spliced: this.spliced, unbalanced: this.unbalanced };
     this.held = encoded.held;
+    this.spliced = encoded.spliced;
     try {
-      this.runEncoded(encoded.text, encoded.heredocs, base2, depth, vars);
+      return this.runEncoded(encoded.text, encoded.heredocs, base2, depth, vars);
     } finally {
-      this.held = outer;
-      this.unbalanced = unbalanced;
+      this.held = outer.held;
+      this.spliced = outer.spliced;
+      this.unbalanced = outer.unbalanced;
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
@@ -14794,7 +14865,14 @@ var WritePaths = class _WritePaths {
         this.poisonSet(level, words3);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner3(record.stmt);
-        if (record.tail || body2 !== "" && (!evalArgs(words3) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
+        const evaluated = evalArgs(words3);
+        if (body2 !== "" && evaluated && depth < MAX_DEPTH3) {
+          const out2 = this.out;
+          const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
+          for (const text of this.evalTexts(level, evaluated, body2) ?? []) this.evalRun(level, text, tok, depth);
+          this.out = out2;
+        }
+        if (record.tail || body2 !== "" && (!evaluated && heldProgram(body2) || depth < MAX_DEPTH3)) return;
         this.eachDir(level, dir.split(ALT), why, (d) => {
           this.pwd = dirPath(d, cwd);
           this.trackVars(level, words3);
@@ -14869,9 +14947,10 @@ var WritePaths = class _WritePaths {
       const evaluated = evalArgs(words3);
       this.poisonSet(level, words3);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
+      const texts = evaluated && body2 !== "" ? this.evalTexts(level, evaluated, body2) : null;
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
       if (!record.tail && /[$`\x07]/.test(decode(argv0))) this.print(unprovenLine(dec(record.stmt)));
-      if (evaluated?.some((w) => this.isHeld(w))) this.print(unprovenLine(dec(record.stmt)));
+      if (evaluated?.some((w) => this.isHeld(w)) && texts === null) this.print(unprovenLine(dec(record.stmt)));
       else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.print(unprovenLine(`${basename5(dec(words3[0]))} ${dec(body2)}`));
       const ownWords = body2 !== "" && !evaluated && basename5(words3[0]) !== "watch";
       if (ownWords) {
@@ -14884,7 +14963,8 @@ var WritePaths = class _WritePaths {
         continue;
       }
       if (body2 !== "" && depth < MAX_DEPTH3) {
-        this.run(dec(body2), tok, depth + 1, level.vars);
+        if (texts) for (const t of texts) this.evalRun(level, t, tok, depth);
+        else this.run(dec(body2), tok, depth + 1, level.vars);
         continue;
       }
       if (body2 !== "") this.print(computedLine(dec(body2)));
@@ -14936,6 +15016,7 @@ var WritePaths = class _WritePaths {
           this.trackVars(level, words3);
         });
     }
+    return level.vars;
   }
 };
 function loopBody(records2, from) {
@@ -15783,7 +15864,7 @@ var UNJUDGED_PHRASE = "cannot be judged:";
 var NEVER_JUDGED = {
   "$(parse)": "the command could not be parsed, so its write targets are unknown; split it or fix its quoting.",
   "$(computed)": "the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.",
-  "$(unproven)": "the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file."
+  "$(unproven)": "the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file; for eval, run each command directly instead of through eval."
 };
 function capture(text) {
   return stripTrailingNewlines(text.replace(/\0/g, ""));
@@ -20830,7 +20911,7 @@ var sweBriefGate = (payload, env) => {
 
 // src/suite-lock.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readdirSync as readdirSync7, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
 import { join as join6 } from "node:path";
 var SUITE_LOCK_POLL_MS = 500;
 var SUITE_LOCK_NOTICE_MS = 6e4;
@@ -21012,6 +21093,54 @@ function describeHolder(holder) {
   return `held by pid ${holder.pid} (worktree ${holder.worktree || "?"}) for ${ageS(holder)}s`;
 }
 var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+var TICKET_NAME = /^[0-9]{15}-[0-9]{10}-[0-9]{6}$/;
+var ticketSeq = 0;
+function ticketName() {
+  return `${String(Date.now()).padStart(15, "0")}-${String(process.pid).padStart(10, "0")}-${String(ticketSeq++ % 1e6).padStart(6, "0")}`;
+}
+function writeTicket(queue, ticket, opts) {
+  try {
+    mkdirSync8(queue, { recursive: true, mode: 448 });
+    writeFileSync6(join6(queue, ticket), `${JSON.stringify({ pid: process.pid, worktree: opts.worktree, command: opts.command })}
+`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function removeTicket(path) {
+  try {
+    rmSync4(path, { force: true });
+  } catch {
+  }
+}
+function ticketsAhead(queue, own) {
+  let names;
+  try {
+    names = readdirSync7(queue);
+  } catch {
+    return 0;
+  }
+  let ahead = 0;
+  for (const name3 of names) {
+    if (!TICKET_NAME.test(name3) || own !== null && name3 >= own) continue;
+    const mtime = mtimeMs(join6(queue, name3));
+    if (mtime === null) continue;
+    if (Date.now() - mtime > SUITE_LOCK_STALE_MS) removeTicket(join6(queue, name3));
+    else ahead++;
+  }
+  return ahead;
+}
+function trySlots(slots, opts, pgid) {
+  for (const slot of slots) {
+    if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+    if (stale(slot)) {
+      reclaim(slot);
+      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+    }
+  }
+  return null;
+}
 async function acquireSuiteSlot(opts) {
   const stderr2 = opts.stderr ?? ((text) => process.stderr.write(text));
   const inherited = opts.env[SUITE_LOCK_HELD_ENV] ?? "";
@@ -21028,34 +21157,49 @@ async function acquireSuiteSlot(opts) {
     return { kind: "unlocked" };
   }
   const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join6(root, `slot-${i2}`));
+  const queue = join6(root, "queue");
   const pgid = processGroup();
   const begun = Date.now();
   let noticeAt = 0;
-  for (; ; ) {
-    for (const slot of slots) {
-      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
-      if (stale(slot)) {
-        reclaim(slot);
-        if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+  let ticket = null;
+  let ordered = true;
+  try {
+    for (; ; ) {
+      if (!ordered || ticketsAhead(queue, ticket) < slots.length) {
+        const got = trySlots(slots, opts, pgid);
+        if (got !== null) return got;
       }
-    }
-    const waited = Date.now() - begun;
-    if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
-      return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
-    }
-    if (waited >= noticeAt) {
-      stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+      if (ordered) {
+        ticket ??= ticketName();
+        if (!writeTicket(queue, ticket, opts)) {
+          ordered = false;
+          stderr2(`suite-lock: could not write a queue ticket under ${queue}; waiting for a suite slot unordered
 `);
-      noticeAt += SUITE_LOCK_NOTICE_MS;
+        }
+      }
+      const waited = Date.now() - begun;
+      if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
+        return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
+      }
+      if (waited >= noticeAt) {
+        stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+`);
+        noticeAt += SUITE_LOCK_NOTICE_MS;
+      }
+      await sleep2(SUITE_LOCK_POLL_MS);
     }
-    await sleep2(SUITE_LOCK_POLL_MS);
+  } finally {
+    if (ticket !== null) removeTicket(join6(queue, ticket));
   }
 }
 
 // src/hooks/swe-verification-gate.ts
 var GATE_NAME48 = "swe-verification-gate";
-var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 3630;
 var SUITE_WAIT_MARGIN_S = 30;
+function suiteWaitCapS(budgetS) {
+  return TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budgetS;
+}
 var VERIFICATION_DEFAULT_S = 900;
 var VERIFICATION_MAX_S = 1800;
 var RECORD_BUDGET_MS = 3e3;
@@ -21619,11 +21763,14 @@ var sweVerificationGate = async (payload, env) => {
     const suiteCommand = [...commands, ...findings.map((f) => typeof f.probe_cmd === "string" ? f.probe_cmd : "")].find(isFullSuite);
     const verify = async () => {
       if (suiteCommand === void 0) return new VerificationRun(ctx).run();
-      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const fullCapS = suiteWaitCapS(budget.timeoutS);
+      const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? "";
+      const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
+      const capWhy = capS === fullCapS ? `the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget` : "set by TMB_SUITE_WAIT_CAP_S";
       const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
       if (slot.kind === "busy") {
         return deny7(
-          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
+          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
         );
       }
       try {
@@ -22525,7 +22672,7 @@ var orphanScan = (_payload, env) => {
 
 // src/hooks/session-start-prescan.ts
 import { spawn as spawn4 } from "node:child_process";
-import { readdirSync as readdirSync7, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
+import { readdirSync as readdirSync8, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME59 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
@@ -22629,7 +22776,7 @@ function sortVMax(a, b) {
 function globNames(dir, env, suffix = "") {
   let names;
   try {
-    names = readdirSync7(dir);
+    names = readdirSync8(dir);
   } catch {
     return [];
   }
@@ -22667,7 +22814,7 @@ function versionSkew(env) {
   let highest = "";
   let names = [];
   try {
-    names = readdirSync7(versionsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    names = readdirSync8(versionsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch {
     names = [];
   }
@@ -24964,6 +25111,10 @@ var GH_VALUE_FLAGS = /* @__PURE__ */ new Set([
 var REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
 var FLATTENED = /[ \t\n<>|;&()`]/g;
 var LITERAL_NODES = ["raw_string", "ansi_c_string", "heredoc_body", "comment"];
+var CAPTURE_OPERATORS = /* @__PURE__ */ new Set([">", ">>", ">|", "&>", "&>>"]);
+var INLINE_BODIES = ["heredoc_redirect", "herestring_redirect"];
+var AUTHORS = /* @__PURE__ */ new Set(["echo", "printf", "cat"]);
+var WRAPPERS2 = /* @__PURE__ */ new Set(["command", "builtin", "env", "exec", "nohup", "sudo", "time", "nice", "timeout", "stdbuf", "xargs", "eval", "bash", "sh", "zsh", "dash", "ksh"]);
 var BODY_FILE_REASON = "BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.";
 function proseReason(target) {
   return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
@@ -25063,6 +25214,63 @@ async function withoutRmTargets(lines2, statements2, cwd, env) {
   }
   return kept;
 }
+function present(nodes) {
+  return nodes.filter((node) => node !== null);
+}
+function hasInlineBody(node) {
+  return present(node.descendantsOfType(INLINE_BODIES)).length > 0;
+}
+function authors(command) {
+  if (hasInlineBody(command)) return true;
+  const name3 = command.childForFieldName("name");
+  if (name3 === null || name3.namedChildCount !== 1 || name3.namedChildren[0]?.type !== "word") return true;
+  const program = posixBasename(name3.text);
+  const operands = present(command.childrenForFieldName("argument")).map((arg) => arg.text);
+  if (WRAPPERS2.has(program)) return operands.some((word) => /\b(?:echo|printf|cat)\b/.test(word));
+  if (program !== "cat") return AUTHORS.has(program);
+  return operands.every((word) => word.startsWith("-"));
+}
+function capturesOnly(node) {
+  return node !== null && node !== void 0 && node.type === "command" && !authors(node);
+}
+function ownerCapturesOnly(redirect) {
+  const owner = redirect.parent;
+  if (owner === null) return false;
+  if (owner.type === "command") return capturesOnly(owner);
+  if (owner.type !== "redirected_statement" || hasInlineBody(owner)) return false;
+  let body2 = owner.childForFieldName("body");
+  while (body2?.type === "list") body2 = body2.namedChildren.at(-1) ?? null;
+  if (body2 === null || body2 === void 0) return false;
+  const members = body2.type === "pipeline" ? present(body2.namedChildren) : [body2];
+  if (!members.every((member2) => member2.type === "command") || !capturesOnly(members[0]) || !capturesOnly(members.at(-1))) return false;
+  const outer = owner.parent;
+  if (outer?.type !== "pipeline") return true;
+  const head = outer.namedChildren[0];
+  return head?.id === owner.id || capturesOnly(head);
+}
+function captureSpan(redirect) {
+  const operator = redirect.children.find((child) => child !== null && !child.isNamed);
+  if (operator === void 0 || operator === null || !CAPTURE_OPERATORS.has(operator.type)) return null;
+  const destination = redirect.childForFieldName("destination");
+  if (destination === null || present(destination.descendantsOfType(["command_substitution", "process_substitution"])).length > 0) return null;
+  for (let up = redirect.parent; up !== null; up = up.parent) if (INLINE_BODIES.includes(up.type)) return null;
+  return ownerCapturesOnly(redirect) ? [redirect.startIndex, destination.endIndex] : null;
+}
+async function withoutOutputCapture(command) {
+  const tree = (await bashParser()).parse(command);
+  if (tree === null) return command;
+  const spans = present(tree.rootNode.descendantsOfType("file_redirect")).flatMap((redirect) => {
+    const span = captureSpan(redirect);
+    return span === null ? [] : [span];
+  });
+  tree.delete();
+  let blanked = command;
+  for (const [start2, end] of spans) blanked = blanked.slice(0, start2) + " ".repeat(end - start2) + blanked.slice(end);
+  return blanked;
+}
+function proseTargets(lines2) {
+  return lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+}
 async function bashRule2(input, env) {
   const command = await joinContinuations(field6(input, ["tool_input", "command"]));
   if (command === "") return ALLOW;
@@ -25071,12 +25279,15 @@ async function bashRule2(input, env) {
   const cwd = payloadCwd(input, env);
   const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
   if (lines2.some(isCapLine)) return ALLOW;
-  const prose = lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+  const prose = proseTargets(lines2);
   if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
   const listed2 = await cmdStatements(command, cwd, env);
   if (!listed2.ok) return ALLOW;
   if (listed2.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny11(BODY_FILE_REASON);
-  for (const path of await withoutRmTargets(prose, listed2.statements, cwd, runEnv)) {
+  if (prose.length === 0) return ALLOW;
+  const blanked = capture6((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join("\n")).split("\n");
+  const authored = blanked.some((line) => isCapLine(line) || line.startsWith("UNRESOLVED:$(parse)")) ? prose : proseTargets(blanked);
+  for (const path of await withoutRmTargets(authored, listed2.statements, cwd, runEnv)) {
     if (await deniedProse(path, tmpdir2, env)) return deny11(proseReason(path));
   }
   return ALLOW;
@@ -25190,9 +25401,9 @@ var budgets_default = {
       group_budget_ms: 6e3
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
-      max_budget_ms: 183e4,
+      max_budget_ms: 3627e3,
       p99_sum_ms: 7359.5,
-      group_budget_ms: 183e4
+      group_budget_ms: 3627e3
     },
     "PreToolUse:AskUserQuestion": {
       max_budget_ms: 6e3,
@@ -25604,8 +25815,8 @@ var budgets_default = {
       transcript_samples: 0,
       transcript_timed_out: 0,
       window_days: 14,
-      floor_ms: 183e4,
-      budget_ms: 183e4,
+      floor_ms: 3627e3,
+      budget_ms: 3627e3,
       date: "2026-10-31"
     },
     "reviewer-identity-observe": {
@@ -26754,7 +26965,7 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync8, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync9, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
 import { setTimeout as sleep4 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -26839,7 +27050,7 @@ var Dedupe = class {
     }
     let names;
     try {
-      names = readdirSync8(this.base);
+      names = readdirSync9(this.base);
     } catch {
       return;
     }
@@ -26948,7 +27159,7 @@ var Dedupe = class {
 };
 
 // src/hooks/router/records.ts
-import { mkdirSync as mkdirSync13, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
+import { mkdirSync as mkdirSync13, readdirSync as readdirSync10, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
 var CALLER = "router";
 function parse(payload) {
   try {
@@ -27031,7 +27242,7 @@ function unjudgedDeny(reason) {
 function prune(dir, cutoffMs) {
   let names;
   try {
-    names = readdirSync9(dir);
+    names = readdirSync10(dir);
   } catch {
     return false;
   }

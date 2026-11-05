@@ -4,9 +4,11 @@
  * any command-position word; reads, quoted text and heredocs are data; bro is
  * never judged (GH 1196, GH 1281).
  */
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { ghMutation } from '../hooks/cmd-analysis/forge.js';
 import { PLUGIN_ROOT } from './hook-sandbox.js';
 import { bashInput, DENY, has, hasNot, makeFixture, runBro, runSwe, type Fixture } from './swe-boundary-l3.js';
 
@@ -159,15 +161,19 @@ describe('swe-boundary l3: push and forge writes', () => {
       });
     }
 
-    it('(b) tmb_gh_mutation keeps no wrapper allowlist', () => {
-      const lib = readFileSync(join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh'), 'utf8');
-      const start = lib.indexOf('\ntmb_gh_mutation() {\n');
-      const end = lib.indexOf('\n}\n', start + 1);
-      const fn = start < 0 ? '' : lib.slice(start + 1, end + 2);
-      has(fn, 'tmb_gh_mutation() {', 'the function is found');
-      hasNot(fn, 'nohup', 'no wrapper list in tmb_gh_mutation');
-      hasNot(fn, '*/sudo', 'no wrapper list in tmb_gh_mutation');
-      hasNot(fn, '--split-string', 'no wrapper option list in tmb_gh_mutation');
+    it('(b) ghMutation keeps no wrapper allowlist', () => {
+      const src = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/cmd-analysis/forge.ts'), 'utf8');
+      for (const head of ['export function ghMutation(stmt: string): string {', 'export function ghMutationFrom(', 'function ghMutationIn(']) {
+        const start = src.indexOf(`\n${head}`);
+        const end = src.indexOf('\n}\n', start + 1);
+        const fn = start < 0 ? '' : src.slice(start + 1, end + 2);
+        has(fn, head, 'the function is found');
+        hasNot(fn, 'nohup', `no wrapper list in ${head}`);
+        hasNot(fn, 'sudo', `no wrapper list in ${head}`);
+        hasNot(fn, 'split-string', `no wrapper option list in ${head}`);
+        hasNot(fn, 'WRAPPER', `no wrapper pattern in ${head}`);
+      }
+      assert.equal(ghMutation('frobnicate --opt gh pr merge 3'), 'pr merge', 'an unknown wrapper still finds the forge write');
     });
   });
 

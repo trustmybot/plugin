@@ -42,6 +42,8 @@ const KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 const ENCODED = /[\x01-\x06\x0e-\x13]/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 const BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+/** A redirect whose target is a literal word or an fd duplication (GH 2404): it expands nothing, so it cannot reassign a variable. */
+const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 
 export interface Record {
@@ -140,6 +142,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   let lastdir = '';
   let piped = false;
   let pipesrc = '';
+  let cut = false;
   let i = 0;
 
   let s = base.indexOf(SEP);
@@ -493,8 +496,13 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
   }
 
-  /** Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA mark. */
-  function vplainexp(text: string): boolean {
+  /**
+   * Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA
+   * mark. A literal redirect is plain unless a `(` or backtick cut the
+   * statement short, where its target runs on into the substitution.
+   */
+  function vplainexp(text: string, whole: boolean): boolean {
+    if (whole) text = text.replace(LITERAL_REDIRECT, '$1');
     const parts = text.split('<<');
     for (let k = 1; k < parts.length; k++) {
       if (!parts[k].startsWith(HD_DATA)) return false;
@@ -519,7 +527,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     const chained = fsep === '&&';
     fsep = '';
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt.replaceAll(QM, ''))) vok = false;
+    const whole = !cut;
+    cut = false;
+    if (!vplainexp(stmt.replaceAll(QM, ''), whole)) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
@@ -772,6 +782,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         if (assign && last === '$') stmt = stmt + ENC[8] + ENC[9] + forsrc(i);
         else stmt = stmt.slice(0, -1);
       }
+      cut = true;
       flush(!assign && last === '$');
       push();
       sstack[sp] = last === '$' && owns;
@@ -788,6 +799,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     if (c === '`') {
       vkill = true;
       if (assign && !bt) stmt += '$' + ENC[8] + ENC[9];
+      cut = true;
       flush(!assign && !bt);
       if (bt) {
         bt = false;

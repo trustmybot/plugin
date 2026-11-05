@@ -235,6 +235,31 @@ function heldWords(encoder, root) {
     }
     return held;
 }
+const PLAIN_EXPANSIONS = ['simple_expansion', 'expansion'];
+const CODE_EXPANSIONS = ['command_substitution', 'arithmetic_expansion', 'process_substitution'];
+function splicedWords(encoder, root) {
+    const plain = new Set();
+    const opaque = new Set();
+    const classify = (word, redirect) => {
+        const key = heldKey(encoder.word(word));
+        const dollars = key.split('$').length - 1;
+        if (dollars === 0 && !key.includes('`'))
+            return;
+        const spliced = !redirect && !key.includes('`') && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+        (spliced ? plain : opaque).add(key);
+    };
+    for (const node of root.descendantsOfType(['command', 'file_redirect', 'herestring_redirect'])) {
+        if (!node)
+            continue;
+        const redirect = node.type !== 'command';
+        for (const word of node.namedChildren)
+            if (word && !/^(file|herestring)_redirect$/.test(word.type))
+                classify(word, redirect);
+    }
+    for (const key of opaque)
+        plain.delete(key);
+    return plain;
+}
 function broken(node) {
     if (node.isError || node.isMissing)
         return true;
@@ -312,7 +337,7 @@ export function encode(parser, command, charge = NO_CHARGE) {
             return { ok: false };
         const encoder = new Encoder(command, charge);
         const text = encoder.range(root, 0, command.length);
-        return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
+        return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
     }
     finally {
         tree.delete();

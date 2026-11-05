@@ -3,8 +3,8 @@
 #
 # SQLite's datetime('now') yields "YYYY-MM-DD HH:MM:SS" — a different shape from
 # the 24-char ms-ISO every timestamp column holds, so string comparisons across
-# rows silently misorder. Hooks and scripts stamp rows with tmb_now_iso
-# (scripts/hooks/lib/db-write.sh); server code binds nowISO() (src/db.ts); SQL
+# rows silently misorder. Hooks stamp rows with nowIso
+# (src/hooks/lib/audit.ts); server code binds nowISO() (src/db.ts); SQL
 # DEFAULTs use strftime('%Y-%m-%dT%H:%M:%fZ','now').
 #
 # Scope: every file under scripts/, and every *.ts / *.sql under
@@ -42,5 +42,5 @@ fi
 COUNT=$(printf '%s\n' "$HITS" | grep -c .)
 echo "No-datetime-now-in-hooks: FAIL — ${COUNT} datetime('now') use(s) outside db.ts migrations:" >&2
 printf '%s\n' "$HITS" | sed 's/^/  /' >&2
-echo "  Use tmb_now_iso (scripts/hooks/lib/db-write.sh), nowISO() (src/db.ts), or strftime('%Y-%m-%dT%H:%M:%fZ','now') in SQL." >&2
+echo "  Use nowIso (src/hooks/lib/audit.ts), nowISO() (src/db.ts), or strftime('%Y-%m-%dT%H:%M:%fZ','now') in SQL." >&2
 exit 1

@@ -1,12 +1,13 @@
 /**
- * The helpers of scripts/hooks/lib/cmd-analysis.sh (GH 1692), ported from the
- * bash cmd-analysis l3 test: tmb_cmd_strip_literals, tmb_cmd_write_targets,
+ * The cmd-analysis helpers (GH 1692), ported from the bash cmd-analysis l3
+ * test: tmb_cmd_strip_literals, tmb_cmd_write_targets,
  * tmb_cmd_heredoc_bodies, tmb_cmd_write_shapes, tmb_is_prompt_surface_path,
  * tmb_path_canonical, tmb_cmd_statements, tmb_stmt_repo_root, the git and gh
  * helpers, tmb_agent_role, tmb_is_harness_turn,
  * tmb_deny_ambiguous_git_target and tmb_strip_quoted_spans, plus the
- * run_bounded watchdog (run-bounded-child.ts). Each case runs on the bash lib
- * and, where the TS module has the same function, on the TS too.
+ * run_bounded watchdog (run-bounded-child.ts). Each case is judged on the
+ * frozen answers of the shell lib and, where the TS module has the same
+ * function, on the TS too.
  */
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,6 +31,7 @@ import { stripQuotedSpans } from '../hooks/prompt-intent-hints.js';
 import {
   DIVERGENT,
   PLUGIN_ROOT,
+  SH_ONLY,
   Suite,
   canonical,
   dropFirst,
@@ -39,13 +41,11 @@ import {
   paste,
   runBounded,
   runSuite,
-  shFn,
   spawnBounded,
   stmts,
   strip,
   surface,
   targets,
-  withTs,
   type Probe,
 } from './cmd-analysis-l3.js';
 
@@ -65,18 +65,13 @@ function git(cwd: string, ...args: string[]): void {
 }
 
 function stripJoined(cmd: string): Probe {
-  return { ...strip(cmd), fromSh: (r) => paste(r.out, '|'), ts: () => paste(stripLiterals(cmd), '|') };
+  return { ts: () => paste(stripLiterals(cmd), '|') };
 }
 
-function bodies(cmd: string): Probe {
-  return {
-    call: { fn: 'tmb_cmd_heredoc_bodies', args: [cmd] },
-    fromSh: (r) => paste(r.out.replace(/\t/g, '#').replace(/\x1f/g, '|'), ';'),
-  };
-}
+const bodies = (_cmd: string): Probe => SH_ONLY;
 
-function status(fn: string, ts: (arg: string) => boolean, arg: string): Probe {
-  return { call: { fn, args: [arg] }, fromSh: (r) => String(r.status === 0), ts: () => String(ts(arg)) };
+function status(ts: (arg: string) => boolean, arg: string): Probe {
+  return { ts: () => String(ts(arg)) };
 }
 
 const P = (cmd: string): Probe => stmts(cmd, PLAIN);
@@ -84,15 +79,17 @@ const G = (cmd: string): Probe => ghs(cmd, PLAIN);
 const HEREDOC_CMD = lines("cat > notes.md <<'EOF'", 'git commit -m x', 'gh pr merge 1', 'EOF');
 
 const commitMessage = (cmd: string): Probe =>
-  withTs(shFn('tmb_git_commit_message', cmd), async () => {
-    const m = await gitCommitMessage(cmd);
-    return m.ok ? m.message : '';
+  ({
+    ts: async () => {
+      const m = await gitCommitMessage(cmd);
+      return m.ok ? m.message : '';
+    },
   });
 
 const reason = (json: string): string =>
   (JSON.parse(json) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason;
 
-const s = new Suite();
+const s = new Suite('helpers').token('<TMP>', TMP).token('<REAL>', REAL);
 
 s.group('tmb_cmd_strip_literals drops heredoc bodies and neutralizes quoted operators')
   .eq('cat <<EOF > out.txt|echo done', stripJoined(lines("cat <<'EOF' > out.txt", 'x > /tmp/z', 'EOF', 'echo done')), 'the heredoc body is gone, the operator line stays')
@@ -143,7 +140,7 @@ s.group('tmb_cmd_heredoc_bodies: every form, with its delimiter and statement (G
   .eq('', bodies('cat <<< "here string"'), 'a here-string is not a heredoc')
   .eq('', bodies('echo "<<EOF"'), 'quoted text is not a heredoc');
 
-const shapes = withTs(shFn('tmb_cmd_write_shapes'), () => writeShapes());
+const shapes: Probe = { ts: () => writeShapes() };
 s.group('tmb_cmd_write_shapes lists the shapes once')
   .has(shapes, 'sed -i', 'sed -i')
   .has(shapes, 'dd of=', 'dd of=')
@@ -227,13 +224,13 @@ s.group('tmb_cmd_statements effective dir')
   .step(() => git(REPO, 'worktree', 'add', '-q', '-b', 'feat/x', `${REPO}/.claude/worktrees/x`))
   .eq('?#git commit', stmts('git commit', REPO), 'cwd in a repo with worktrees is ambiguous')
   .eq(`${REPO}/.claude/worktrees/x#git commit`, stmts(`cd ${REPO}/.claude/worktrees/x && git commit`, REPO), 'explicit cd resolves the ambiguity', dropFirst)
-  .eq(`${REAL}/repo`, withTs(shFn('tmb_stmt_repo_root', '?', REPO), () => stmtRepoRoot('?', REPO)), 'an ambiguous dir still names its repo')
-  .eq(`${REAL}/repo`, withTs(shFn('tmb_stmt_repo_root', `${REPO}/.claude/worktrees/x`), () => stmtRepoRoot(`${REPO}/.claude/worktrees/x`, '')), "a worktree's repo is the main checkout")
-  .eq('', withTs(shFn('tmb_stmt_repo_root', '-'), () => stmtRepoRoot('-', '')), 'unknown dir names no repo');
+  .eq(`${REAL}/repo`, { ts: () => stmtRepoRoot('?', REPO) }, 'an ambiguous dir still names its repo')
+  .eq(`${REAL}/repo`, { ts: () => stmtRepoRoot(`${REPO}/.claude/worktrees/x`, '') }, "a worktree's repo is the main checkout")
+  .eq('', { ts: () => stmtRepoRoot('-', '') }, 'unknown dir names no repo');
 
 s.group('tmb_git_subcommand / tmb_git_commit_message')
-  .eq('push origin main', withTs(shFn('tmb_git_subcommand', 'git -C /x -c a=b --no-pager push origin main'), () => gitSubcommand('git -C /x -c a=b --no-pager push origin main')), 'global options dropped')
-  .eq('', withTs(shFn('tmb_git_subcommand', 'gh pr create'), () => gitSubcommand('gh pr create')), 'not git')
+  .eq('push origin main', { ts: () => gitSubcommand('git -C /x -c a=b --no-pager push origin main') }, 'global options dropped')
+  .eq('', { ts: () => gitSubcommand('gh pr create') }, 'not git')
   .eq('✨ feat(x): a b', commitMessage('cd /w && git commit -m "✨ feat(x): a b" -m body'), 'first -m from argv')
   .eq('fix: y', commitMessage("git commit -am 'fix: y'"), '-am')
   .eq('', commitMessage(HEREDOC_CMD), 'a heredoc mentioning git commit has no message')
@@ -297,7 +294,7 @@ s.group('tmb_gh_mutation judges command-position words only (GH 1281)')
   .eq('', G('git rebase -i --autosquash main'), 'a rebase without -x runs nothing')
   .eq('', G('git log --grep="gh pr merge"'), 'other git subcommands only read their words');
 
-const role = (json: string): Probe => withTs(shFn('tmb_agent_role', json), () => agentRole(json));
+const role = (json: string): Probe => ({ ts: () => agentRole(json) });
 s.group('tmb_agent_role reads identity only')
   .eq('swe', role('{"agent_type":"tmb:swe","cwd":"/r"}'), 'prefixed agent_type')
   .eq('bro', role('{"cwd":"/r/.claude/worktrees/x"}'), 'no agent_type is the main thread, whatever the cwd');
@@ -311,8 +308,8 @@ for (const framing of [
   '<agent-message from="swe">done</agent-message>',
   '<cross-session-message from="x">y</cross-session-message>',
 ])
-  s.eq('true', status('tmb_is_harness_turn', isHarnessTurn, framing), `not a harness turn: ${framing}`);
-s.eq('false', status('tmb_is_harness_turn', isHarnessTurn, 'port the parser to Rust'), 'a Human prompt is not a harness turn');
+  s.eq('true', status(isHarnessTurn, framing), `not a harness turn: ${framing}`);
+s.eq('false', status(isHarnessTurn, 'port the parser to Rust'), 'a Human prompt is not a harness turn');
 
 const lastTwo = (v: string): string => v.split('|').slice(-2).join('|');
 s.group('GH 1595/1610: a same-command VAR=<literal> resolves a cd or -C dir')
@@ -340,36 +337,34 @@ s.group('GH 1911: VAR=<literal> survives quoted operators and data heredocs, and
   .eq('/w/r#git -C $W commit -q -m a__b_|/w/r#git -C $W status', P('W=/w/r; git -C $W commit -q -m "a (b)"; git -C $W status'), '-m "a (b)" and the git after it')
   .eq('/w/r#git -C $W commit -q -F - <<EOM|/w/r#git -C $W status', P('W=/w/r; git -C $W commit -q -F - <<EOM\nmsg\nEOM\ngit -C $W status'), '-F - <<EOM, its <<EOM unmarked')
   .eq(`${PLAIN}#cat <<EOM|-#git -C $W status`, P('W=/w/r; cat <<EOM\n$((W=0))\nEOM\ngit -C $W status'), 'an unquoted $((W=0)) body')
-  .eq('true', { call: { fn: 'true', args: [] }, fromSh: () => String(holdsBothKinds) }, 'the shared fixture holds both kinds');
+  .eq('true', SH_ONLY, 'the shared fixture holds both kinds');
 for (const row of stmtVars) {
   const want = row.dirs.map((d) => (d === '@' ? PLAIN : d)).join('|');
-  const dirsOnly: Probe = {
-    call: { fn: 'tmb_cmd_statements', args: [row.cmd, PLAIN] },
-    fromSh: (r) => paste(r.out.split('\n').map((l) => l.split('\t')[0]).join('\n'), '|'),
-  };
-  s.eq(want, dirsOnly, `${row.why}: ${row.cmd}`);
+  s.eq(want, SH_ONLY, `${row.why}: ${row.cmd}`);
 }
 
-const deny = (stmt: string, unresolved: boolean): Probe =>
-  withTs(shFn('tmb_deny_ambiguous_git_target', ...(unresolved ? [stmt, 'unresolved'] : [stmt])), () => denyAmbiguousGitTarget(stmt, unresolved));
-const denyReason = (stmt: string): Probe => {
-  const p = deny(stmt, true);
-  return { ...p, fromSh: (r) => reason(r.out), ts: () => reason(denyAmbiguousGitTarget(stmt, true)) };
-};
+const deny = (stmt: string, unresolved: boolean): Probe => ({ ts: () => denyAmbiguousGitTarget(stmt, unresolved) });
+const denyReason = (stmt: string): Probe => ({ ts: () => reason(denyAmbiguousGitTarget(stmt, true)) });
 s.group('GH 1595: tmb_deny_ambiguous_git_target names an unresolvable dir')
   .has(denyReason('git commit'), 'ambiguous_git_target', 'keeps the token')
   .has(denyReason('git commit'), 'comes through a variable', 'says the dir is unresolvable')
   .lacks(denyReason('git commit'), 'names no directory', 'not the no-directory reason')
   .has(deny('git commit', false), 'names no directory', 'the plain form is unchanged');
 
-const spans = (text: string): Probe => withTs(shFn('tmb_strip_quoted_spans', text), () => stripQuotedSpans(text));
+const spans = (text: string): Probe => ({ ts: () => stripQuotedSpans(text) });
 s.group('tmb_strip_quoted_spans')
   .eq('see   and   then', spans('see `git push` and "push it" then'), 'backticks and double quotes')
   .eq('x   y', spans("x 'still open' y"), 'single quotes')
   .eq("let's keep users' words", spans("let's keep users' words"), 'apostrophes are not quotes')
   .eq('an "unclosed quote', spans('an "unclosed quote'), 'an unclosed quote stays');
 
-runSuite('cmd-analysis.sh helpers (GH 1692)', s);
+runSuite('cmd-analysis helpers (GH 1692)', s);
+
+describe('tests/fixtures/cmd-analysis/statement-vars.jsonl', () => {
+  it('holds both kinds: rows that fail closed and rows that resolve a dir', () => {
+    assert.ok(holdsBothKinds);
+  });
+});
 
 describe('cmdStatements on a recorded divergence (decision 703)', () => {
   it('refuses two heredocs opened on one line, which tree-sitter-bash cannot parse', async () => {

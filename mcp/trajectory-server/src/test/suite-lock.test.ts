@@ -2,13 +2,15 @@
  * The suite-slot lock (GH 2092): isFullSuite's denylist, the slot count, the
  * lock root rule, reclaim of a dead holder's slot under the reclaim mutex,
  * nesting through TMB_SUITE_LOCK_HELD, and dist/test-run.js serializing full
- * suites while a targeted command runs straight away. Every case points
- * TMB_SUITE_LOCK_DIR at its own temp dir.
+ * suites while a targeted command runs straight away. Then the waiter queue
+ * (GH 2297): waiters take the slot first come first served, a stale ticket is
+ * skipped and removed, and a waiter that can't write a ticket still acquires.
+ * Every case points TMB_SUITE_LOCK_DIR at its own temp dir.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,6 +255,85 @@ describe('acquireSuiteSlot', () => {
     });
     writeFileSync(join(a.slot, 'holder'), JSON.stringify({ pid: deadPid(), worktree: '/w/dead', command: 'npm test', started: new Date().toISOString() }));
     held(await acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root, { [SUITE_LOCK_HELD_ENV]: a.slot }), maxWaitS: 0 })).release();
+  });
+});
+
+describe('the suite-slot waiter queue (GH 2297)', { timeout: 60_000 }, () => {
+  const tickets = (root: string): string[] => {
+    const queue = join(root, 'queue');
+    return existsSync(queue) ? readdirSync(queue).sort().map((name) => join(queue, name)) : [];
+  };
+  const mtime = (path: string): number => statSync(path).mtimeMs;
+  const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+  it('gives the slot to the earlier waiter when the holder releases, even though the later one polls first', async () => {
+    const root = freshDir('lock');
+    const holder = held(await acquireSuiteSlot({ command: 'npm test', worktree: '/w/holder', env: lockEnv(root) }));
+    const order: string[] = [];
+    let ticketB = '';
+    let bPolledAt = 0;
+    const a = acquireSuiteSlot({ command: 'npm test', worktree: '/w/a', env: lockEnv(root), stderr: () => {} }).then((r) => {
+      order.push('A');
+      bPolledAt = mtime(ticketB);
+      return r;
+    });
+    await waitFor('A to queue', () => tickets(root).length === 1, 5_000);
+    const [ticketA] = tickets(root);
+    await sleep(250);
+    const b = acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root), stderr: () => {} }).then((r) => {
+      order.push('B');
+      return r;
+    });
+    await waitFor('B to queue', () => tickets(root).length === 2, 5_000);
+    ticketB = tickets(root)[1];
+    assert.notEqual(ticketB, ticketA);
+    const aBefore = mtime(ticketA);
+    await waitFor('A to poll', () => mtime(ticketA) > aBefore, 5_000);
+    const releasedAt = Date.now();
+    holder.release();
+    const first = held(await a);
+    assert.ok(bPolledAt >= releasedAt, `B did not poll between the release and A taking the slot: ${bPolledAt} < ${releasedAt}`);
+    assert.deepEqual(order, ['A']);
+    assert.equal(readHolder(first.slot)?.worktree, '/w/a');
+    assert.equal(existsSync(ticketA), false);
+    first.release();
+    const second = held(await b);
+    assert.equal(readHolder(second.slot)?.worktree, '/w/b');
+    second.release();
+    assert.deepEqual(tickets(root), []);
+  });
+  it('waits behind a live ticket ahead of it, and skips and removes one unrefreshed for 10 s', async () => {
+    const root = freshDir('lock');
+    mkdirSync(join(root, 'queue'));
+    const ahead = join(root, 'queue', '000000000000001-0000000001-000000');
+    writeFileSync(ahead, '{}\n');
+    assert.equal((await acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root), maxWaitS: 1, stderr: () => {} })).kind, 'busy');
+    assert.equal(existsSync(join(root, 'slot-0')), false);
+    assert.deepEqual(tickets(root), [ahead]);
+    ago(ahead, 60);
+    held(await acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root), maxWaitS: 0 })).release();
+    assert.deepEqual(tickets(root), []);
+  });
+  it('removes its ticket when it returns busy', async () => {
+    const root = freshDir('lock');
+    const holder = held(await acquireSuiteSlot({ command: 'npm test', worktree: '/w/holder', env: lockEnv(root) }));
+    assert.equal((await acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root), maxWaitS: 1, stderr: () => {} })).kind, 'busy');
+    assert.deepEqual(tickets(root), []);
+    holder.release();
+  });
+  it('acquires by unordered polling, with one stderr line, when it cannot write a ticket', async () => {
+    const root = freshDir('lock');
+    writeFileSync(join(root, 'queue'), 'not a dir\n');
+    const holder = held(await acquireSuiteSlot({ command: 'npm test', worktree: '/w/holder', env: lockEnv(root) }));
+    let err = '';
+    const waiter = acquireSuiteSlot({ command: 'npm test', worktree: '/w/b', env: lockEnv(root), stderr: (t) => (err += t) });
+    await waitFor('the waiter to wait', () => err.includes('waiting for a suite slot'), 5_000);
+    await sleep(1_100);
+    holder.release();
+    const got = held(await waiter);
+    assert.equal(readHolder(got.slot)?.worktree, '/w/b');
+    got.release();
+    assert.equal(err.match(/could not write a queue ticket/g)?.length, 1);
   });
 });
 
