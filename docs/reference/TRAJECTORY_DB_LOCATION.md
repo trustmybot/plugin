@@ -1,6 +1,6 @@
 # Where the trajectory DB lives
 
-One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in exactly two places — the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `tmb_db_path` in [`scripts/hooks/lib/query-task.sh`](../../scripts/hooks/lib/query-task.sh) — and [`tests/l1-lint/no-private-db-path.sh`](../../tests/l1-lint/no-private-db-path.sh) fails on a third copy.
+One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). `tmb_db_path` in [`scripts/hooks/lib/query-task.sh`](../../scripts/hooks/lib/query-task.sh) is the copy the Codex L5/L6 shell chain sources, and among the shell scripts [`tests/l1-lint/no-private-db-path.sh`](../../tests/l1-lint/no-private-db-path.sh) fails on a third copy.
 
 ## Resolution order
 
@@ -13,7 +13,7 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
    - Otherwise the **outermost** candidate wins (the workspace root beats a nested repo).
 3. Otherwise **unresolved**. The server then creates a fresh DB at `<CLAUDE_PROJECT_DIR or cwd>/.claude/<plugin>/trajectory.db`.
 
-Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks (`tmb_db_path`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
+Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks (`dbPath`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
 
 Nothing under `$HOME` takes part in the rule.
 
@@ -25,7 +25,7 @@ The project root is the directory holding the resolved DB (`<root>` in `<root>/.
 
 Only the trajectory-server migrates the DB. Its two entries (`src/index.ts` for Claude Code, the Codex runtime behind `src/codex.ts`) open it with `new TrajectoryDB(path, deps, { migrate: true })`. Every other opener — maintenance scripts, smoke scripts, tests — opens without `migrate`, and on a DB whose `plugin_meta.schema_version` is older than the code's it throws `TrajectoryDB: schema v<stored> is older than this code's v<target>; only the trajectory-server migrates the DB. …` before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
 
-Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`, `run-scan-initial.mjs` and `mcp/trajectory-server/scripts/smoke-world-model.mjs` require `TRAJECTORY_DB_PATH` and exit 2 without it; the hooks that launch the scan invokers (`post-task-close-rescan.sh`, `session-start-prescan.sh`) resolve the path with `tmb_db_path` and pass it explicitly. To run one by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy.
+Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`, `run-scan-initial.mjs` and `mcp/trajectory-server/scripts/smoke-world-model.mjs` require `TRAJECTORY_DB_PATH` and exit 2 without it; the hooks that launch the scan invokers (`post-task-close-rescan`, `session-start-prescan`) resolve the path with `dbPath` and `dbPathAdvisory` and pass it explicitly. To run one by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy.
 
 ## Other DBs
 
@@ -37,7 +37,7 @@ Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`
 
 ## What the hooks do with the result
 
-| State (`tmb_db_state`) | Meaning | Deny-capable gates | Advisory hooks |
+| State (`dbState` in `src/hooks/lib/db.ts`) | Meaning | Deny-capable gates | Advisory hooks |
 |---|---|---|---|
 | `unresolved` | No DB anywhere — the project is not onboarded (or `sqlite3` is missing) | Allow. TMB never bricks a non-TMB repo. | Silent no-op |
 | `ok` | The DB answers a read | Decide normally | Run normally |

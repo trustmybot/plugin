@@ -6,7 +6,7 @@
 # without one fails at once with "database is locked", and the hook fails open
 # or closed at random. Route reads through tmb_gate_read / tmb_sqlite_ro /
 # tmb_db_read_budget (scripts/hooks/lib/query-task.sh) and writes through
-# tmb_db_write (scripts/hooks/lib/db-write.sh); where a helper does not fit,
+# dbWrite (mcp/trajectory-server/src/hooks/lib/audit.ts); where a helper does not fit,
 # pass `-cmd ".timeout ${TMB_DB_WRITE_TIMEOUT_MS:-1500}"` yourself.
 #
 # Scanned: *.sh / *.bash / extensionless files under scripts/, skills/, hooks/.

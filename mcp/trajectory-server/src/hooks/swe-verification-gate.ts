@@ -25,8 +25,10 @@
  * When a command or probe is a full suite (isFullSuite), the run first takes a
  * suite slot (suite-lock.ts, GH 2092), exported to the commands as
  * TMB_SUITE_LOCK_HELD. The wait comes before the budget timer and is capped at
- * the hook timeout less 30 s and the budget; past the cap the gate denies with
- * `suite slot busy` and records no run.
+ * the hook timeout less 30 s and the budget (1800 s at the 1800 s budget;
+ * TMB_SUITE_WAIT_CAP_S lowers it for tests); waiters queue first come first
+ * served (GH 2297). Past the cap the gate denies with `suite slot busy` and
+ * records no run.
  *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
  * still runs verification[] and denies a failing command where the .sh let
@@ -55,8 +57,13 @@ export { shellLength, shellTail } from './lib/verification-runs.js';
 export const GATE_NAME = 'swe-verification-gate';
 
 /** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
-export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+export const TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 3630;
 const SUITE_WAIT_MARGIN_S = 30;
+
+/** The suite-slot wait cap: the hook timeout less 30 s and the verification budget. */
+export function suiteWaitCapS(budgetS: number): number {
+  return TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budgetS;
+}
 
 export const VERIFICATION_DEFAULT_S = 900;
 export const VERIFICATION_MAX_S = 1800;
@@ -699,11 +706,17 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     const suiteCommand = [...commands, ...findings.map((f) => (typeof f.probe_cmd === 'string' ? f.probe_cmd : ''))].find(isFullSuite);
     const verify = async (): Promise<string> => {
       if (suiteCommand === undefined) return new VerificationRun(ctx).run();
-      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const fullCapS = suiteWaitCapS(budget.timeoutS);
+      const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? '';
+      const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
+      const capWhy =
+        capS === fullCapS
+          ? `the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget`
+          : 'set by TMB_SUITE_WAIT_CAP_S';
       const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
       if (slot.kind === 'busy') {
         return deny(
-          `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`,
+          `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`,
         );
       }
       try {

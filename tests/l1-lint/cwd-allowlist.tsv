@@ -20,14 +20,6 @@ mcp/trajectory-server/src/tools/world_model.ts	cwd: string = process.cwd(),	fall
 mcp/trajectory-server/src/tools/onboard.ts	], opts);	anchored-cd	probeGit's opts carry cwd, set two lines above the call
 mcp/trajectory-server/src/tools/onboard.ts	spawnSync('command', ['-v', cmd]	not-location	`command -v` finds a CLI on PATH; reads no repo
 mcp/trajectory-server/src/tools/onboard.ts	['auth', 'status']	not-location	gh / glab `auth status` probe; reads no repo
-scripts/hooks/lib/cmd-analysis.sh	tmb_payload_cwd() {	join-base	the definition: the payload cwd is the dir a Bash command starts in, the join base of its relative paths
-scripts/hooks/lib/cmd-analysis.sh	jq -r '.cwd // empty'	join-base	tmb_payload_cwd reads the dir the command starts in
-scripts/hooks/lib/cmd-analysis.sh	[ -n "$c" ] || c="$PWD"	join-base	tmb_payload_cwd: a payload without .cwd runs the command in the hook's own dir
-scripts/hooks/lib/cmd-analysis.sh	local cmd="${1:-}" cwd="${2:-$PWD}" state="" dir stmt	join-base	tmb_cmd_statements: the start dir of a command whose caller passes none; only joins its cd targets
-scripts/hooks/lib/cmd-analysis.sh	local dir="${1:-}" cwd="${2:-$PWD}" common	join-base	tmb_stmt_repo_root: the start dir of a statement with no cd; it names the repo that statement's git runs in
-scripts/hooks/lib/resolve-repo.sh	tmb_cmd_cwd() {	join-base	the definition: the dir a command runs in (its leading cd or git -C joined to the payload cwd)
-scripts/hooks/lib/resolve-repo.sh	declare -F tmb_payload_cwd	join-base	sources the helper tmb_cmd_cwd joins to
-scripts/hooks/lib/resolve-repo.sh	base=$(tmb_payload_cwd "$input")	join-base	tmb_cmd_cwd: the join base of a relative cd / git -C path
 scripts/hooks/lib/query-task.sh	start="$(pwd)"	fallback	_tmb_db_resolve: DB walk-up discovery, reached only when TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR are both unset and no test flag is set
 scripts/release.ts	spawnSync(cmd, args	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
 scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
@@ -54,9 +46,6 @@ mcp/trajectory-server/src/hooks/swe-scope-fence.ts	const cwd = jqFirst(input, [[
 mcp/trajectory-server/src/hooks/swe-downstream-context.ts	const cwd = str(input.cwd) || env.PWD || process.cwd();	join-base	the dir a relative Edit / Write target joins to, before the hook maps it into the swe's worktree from agent-context
 mcp/trajectory-server/src/startup-catchup.ts	const child = spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {	anchored-cd	run-scan.mjs gets decision.projectRoot as its argument and the DB as TRAJECTORY_DB_PATH
 scripts/await-payload-tag.ts	const r = spawnSync('git', ['ls-remote', '--tags', remote, ref,	not-location	ls-remote against an explicit URL (the default or --remote) and a full ref; reads no checkout
-scripts/hooks/lib/cmd-analysis.sh	vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"	not-location	awk regex of command names whose variable assignments are plain; `pwd` is matched, not run
-scripts/hooks/lib/cmd-analysis.sh	printf 'UNRESOLVED:PWD:$PWD	not-location	_tmb_cmd_join prints the literal marker text UNRESOLVED:PWD:$PWD (single-quoted, never expanded) for an unknown dir
-scripts/hooks/lib/cmd-analysis.sh	p="\$PWD/$p"	not-location	an escaped literal $PWD in the UNRESOLVED marker for a path under an unknown dir; never expanded
 scripts/hooks/lib/query-task.sh	case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac	canonicalize	_tmb_db_immutable_uri makes a relative DB path absolute for its file: URI; the DB is already chosen
 mcp/trajectory-server/src/cli/health.ts	const r = spawnSync('pgrep', ['-f', pattern],	not-location	the server-reachable check counts MCP server processes from the process table; reads no project or repo
 mcp/trajectory-server/src/tools/bug-report.ts	resolveClaudeProjectRoot(env) ?? process.cwd()	fallback	the redaction root falls back to the server's start dir only when neither the DB nor CLAUDE_PROJECT_DIR names a project (an in-memory DB in tests)

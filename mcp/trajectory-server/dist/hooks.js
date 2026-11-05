@@ -20814,7 +20814,7 @@ var sweBriefGate = (payload, env) => {
 
 // src/suite-lock.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
+import { lstatSync as lstatSync8, mkdirSync as mkdirSync8, readdirSync as readdirSync7, readFileSync as readFileSync16, renameSync as renameSync4, rmSync as rmSync4, statSync as statSync25, writeFileSync as writeFileSync6 } from "node:fs";
 import { join as join6 } from "node:path";
 var SUITE_LOCK_POLL_MS = 500;
 var SUITE_LOCK_NOTICE_MS = 6e4;
@@ -20996,6 +20996,54 @@ function describeHolder(holder) {
   return `held by pid ${holder.pid} (worktree ${holder.worktree || "?"}) for ${ageS(holder)}s`;
 }
 var sleep2 = (ms) => new Promise((done) => setTimeout(done, ms));
+var TICKET_NAME = /^[0-9]{15}-[0-9]{10}-[0-9]{6}$/;
+var ticketSeq = 0;
+function ticketName() {
+  return `${String(Date.now()).padStart(15, "0")}-${String(process.pid).padStart(10, "0")}-${String(ticketSeq++ % 1e6).padStart(6, "0")}`;
+}
+function writeTicket(queue, ticket, opts) {
+  try {
+    mkdirSync8(queue, { recursive: true, mode: 448 });
+    writeFileSync6(join6(queue, ticket), `${JSON.stringify({ pid: process.pid, worktree: opts.worktree, command: opts.command })}
+`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function removeTicket(path) {
+  try {
+    rmSync4(path, { force: true });
+  } catch {
+  }
+}
+function ticketsAhead(queue, own) {
+  let names;
+  try {
+    names = readdirSync7(queue);
+  } catch {
+    return 0;
+  }
+  let ahead = 0;
+  for (const name3 of names) {
+    if (!TICKET_NAME.test(name3) || own !== null && name3 >= own) continue;
+    const mtime = mtimeMs(join6(queue, name3));
+    if (mtime === null) continue;
+    if (Date.now() - mtime > SUITE_LOCK_STALE_MS) removeTicket(join6(queue, name3));
+    else ahead++;
+  }
+  return ahead;
+}
+function trySlots(slots, opts, pgid) {
+  for (const slot of slots) {
+    if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+    if (stale(slot)) {
+      reclaim(slot);
+      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+    }
+  }
+  return null;
+}
 async function acquireSuiteSlot(opts) {
   const stderr2 = opts.stderr ?? ((text) => process.stderr.write(text));
   const inherited = opts.env[SUITE_LOCK_HELD_ENV] ?? "";
@@ -21012,34 +21060,49 @@ async function acquireSuiteSlot(opts) {
     return { kind: "unlocked" };
   }
   const slots = Array.from({ length: suiteSlots(opts.env) }, (_, i2) => join6(root, `slot-${i2}`));
+  const queue = join6(root, "queue");
   const pgid = processGroup();
   const begun = Date.now();
   let noticeAt = 0;
-  for (; ; ) {
-    for (const slot of slots) {
-      if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
-      if (stale(slot)) {
-        reclaim(slot);
-        if (tryMkdir(slot)) return { kind: "held", slot, release: claim2(slot, opts, pgid) };
+  let ticket = null;
+  let ordered = true;
+  try {
+    for (; ; ) {
+      if (!ordered || ticketsAhead(queue, ticket) < slots.length) {
+        const got = trySlots(slots, opts, pgid);
+        if (got !== null) return got;
       }
-    }
-    const waited = Date.now() - begun;
-    if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
-      return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
-    }
-    if (waited >= noticeAt) {
-      stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+      if (ordered) {
+        ticket ??= ticketName();
+        if (!writeTicket(queue, ticket, opts)) {
+          ordered = false;
+          stderr2(`suite-lock: could not write a queue ticket under ${queue}; waiting for a suite slot unordered
 `);
-      noticeAt += SUITE_LOCK_NOTICE_MS;
+        }
+      }
+      const waited = Date.now() - begun;
+      if (opts.maxWaitS !== void 0 && waited >= opts.maxWaitS * 1e3) {
+        return { kind: "busy", holder: oldestHolder(slots), waitedS: Math.round(waited / 1e3) };
+      }
+      if (waited >= noticeAt) {
+        stderr2(`waiting for a suite slot: ${describeHolder(oldestHolder(slots))}
+`);
+        noticeAt += SUITE_LOCK_NOTICE_MS;
+      }
+      await sleep2(SUITE_LOCK_POLL_MS);
     }
-    await sleep2(SUITE_LOCK_POLL_MS);
+  } finally {
+    if (ticket !== null) removeTicket(join6(queue, ticket));
   }
 }
 
 // src/hooks/swe-verification-gate.ts
 var GATE_NAME48 = "swe-verification-gate";
-var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 1833;
+var TRAJECTORY_PRETOOLUSE_TIMEOUT_S = 3630;
 var SUITE_WAIT_MARGIN_S = 30;
+function suiteWaitCapS(budgetS) {
+  return TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budgetS;
+}
 var VERIFICATION_DEFAULT_S = 900;
 var VERIFICATION_MAX_S = 1800;
 var RECORD_BUDGET_MS = 3e3;
@@ -21603,11 +21666,14 @@ var sweVerificationGate = async (payload, env) => {
     const suiteCommand = [...commands, ...findings.map((f) => typeof f.probe_cmd === "string" ? f.probe_cmd : "")].find(isFullSuite);
     const verify = async () => {
       if (suiteCommand === void 0) return new VerificationRun(ctx).run();
-      const capS = TRAJECTORY_PRETOOLUSE_TIMEOUT_S - SUITE_WAIT_MARGIN_S - budget.timeoutS;
+      const fullCapS = suiteWaitCapS(budget.timeoutS);
+      const capOverride = genv.TMB_SUITE_WAIT_CAP_S ?? "";
+      const capS = /^[0-9]{1,6}$/.test(capOverride) ? Math.min(Number(capOverride), fullCapS) : fullCapS;
+      const capWhy = capS === fullCapS ? `the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget` : "set by TMB_SUITE_WAIT_CAP_S";
       const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
       if (slot.kind === "busy") {
         return deny7(
-          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (the ${TRAJECTORY_PRETOOLUSE_TIMEOUT_S}s hook timeout less ${SUITE_WAIT_MARGIN_S}s and the ${budget.timeoutS}s verification budget). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
+          `BLOCKED: suite slot busy \u2014 every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`
         );
       }
       try {
@@ -22509,7 +22575,7 @@ var orphanScan = (_payload, env) => {
 
 // src/hooks/session-start-prescan.ts
 import { spawn as spawn4 } from "node:child_process";
-import { readdirSync as readdirSync7, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
+import { readdirSync as readdirSync8, readFileSync as readFileSync19, statSync as statSync29 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 var GATE_NAME59 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
@@ -22613,7 +22679,7 @@ function sortVMax(a, b) {
 function globNames(dir, env, suffix = "") {
   let names;
   try {
-    names = readdirSync7(dir);
+    names = readdirSync8(dir);
   } catch {
     return [];
   }
@@ -22651,7 +22717,7 @@ function versionSkew(env) {
   let highest = "";
   let names = [];
   try {
-    names = readdirSync7(versionsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    names = readdirSync8(versionsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch {
     names = [];
   }
@@ -25174,9 +25240,9 @@ var budgets_default = {
       group_budget_ms: 6e3
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
-      max_budget_ms: 183e4,
+      max_budget_ms: 3627e3,
       p99_sum_ms: 7359.5,
-      group_budget_ms: 183e4
+      group_budget_ms: 3627e3
     },
     "PreToolUse:AskUserQuestion": {
       max_budget_ms: 6e3,
@@ -25588,8 +25654,8 @@ var budgets_default = {
       transcript_samples: 0,
       transcript_timed_out: 0,
       window_days: 14,
-      floor_ms: 183e4,
-      budget_ms: 183e4,
+      floor_ms: 3627e3,
+      budget_ms: 3627e3,
       date: "2026-10-31"
     },
     "reviewer-identity-observe": {
@@ -26738,7 +26804,7 @@ function judgeUnknown(gate, event) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync8, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12, readdirSync as readdirSync9, readFileSync as readFileSync23, renameSync as renameSync6, rmSync as rmSync7, statSync as statSync39, writeFileSync as writeFileSync8 } from "node:fs";
 import { setTimeout as sleep4 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -26823,7 +26889,7 @@ var Dedupe = class {
     }
     let names;
     try {
-      names = readdirSync8(this.base);
+      names = readdirSync9(this.base);
     } catch {
       return;
     }
@@ -26932,7 +26998,7 @@ var Dedupe = class {
 };
 
 // src/hooks/router/records.ts
-import { mkdirSync as mkdirSync13, readdirSync as readdirSync9, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
+import { mkdirSync as mkdirSync13, readdirSync as readdirSync10, rmdirSync as rmdirSync2, statSync as statSync40, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
 var CALLER = "router";
 function parse(payload) {
   try {
@@ -27015,7 +27081,7 @@ function unjudgedDeny(reason) {
 function prune(dir, cutoffMs) {
   let names;
   try {
-    names = readdirSync9(dir);
+    names = readdirSync10(dir);
   } catch {
     return false;
   }

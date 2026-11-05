@@ -33,7 +33,7 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 
 ## B. Trajectory-server unreachable
 
-Two distinct sub-cases — read the `additionalContext` warning from `mcp-health-check.sh` at session start to tell which one you have.
+Two distinct sub-cases — read the `additionalContext` warning from `mcp-health-check` at session start to tell which one you have.
 
 ### B.1 — MCP absent this session
 
