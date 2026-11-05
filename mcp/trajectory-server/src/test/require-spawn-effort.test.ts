@@ -1,8 +1,8 @@
 /**
  * require-spawn-effort (GH 1692): a swe spawn's effort must equal tasks.effort
  * of its task, naming the expected value and the fix when it does not; a
- * code-reviewer spawn's must equal plugin_config.reviewer_effort (medium when
- * unset or invalid); any other agent passes without one; and a DB from before
+ * code-reviewer spawn's must equal its task's assigned reviewer effort (GH
+ * 1955), else plugin_config.reviewer_effort (medium when unset or invalid); any other agent passes without one; and a DB from before
  * tasks.effort gets the restart-to-migrate remedy. Each case runs
  * `node dist/hooks.js require-spawn-effort` in a sandbox with its own HOME.
  * The no-task-id, missing-row, corrupt-DB, absent-DB and no-jq cases are the
@@ -99,6 +99,76 @@ describe('require-spawn-effort: the Agent call carries the effort the DB holds',
     } finally {
       exec(db, `DELETE FROM plugin_config WHERE key = 'reviewer_effort';`);
     }
+  });
+
+  describe("a code-reviewer spawn expects the task's assigned reviewer effort (GH 1955)", () => {
+    const assign = (taskId: number, effort: string) =>
+      exec(
+        db,
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES
+          (1, 'feat/medium', 'bro', 'reviewer_effort_assigned', 's', '${JSON.stringify({ task_id: taskId, commit_sha: 'abc1234', effort, reason: 'x' })}', '${NOW}');`,
+      );
+    const clear = () => exec(db, `DELETE FROM audit WHERE event_type = 'reviewer_effort_assigned';`);
+
+    it('assigned match: the newest assigned effort passes', () => {
+      assign(1, 'high');
+      assign(1, 'low');
+      try {
+        assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'low')), '', 'the newest row (low) passes');
+      } finally {
+        clear();
+      }
+    });
+
+    it('assigned mismatch: any other effort, or none, is denied naming the assignment as the source', () => {
+      assign(1, 'high');
+      try {
+        for (const given of ['medium', 'low', undefined]) {
+          const out = run(payload('code-reviewer', REVIEW_PROMPT, given));
+          assert.ok(out.includes(DENY), `deny for ${given ?? 'no effort'}`);
+          assert.ok(out.includes('Pass effort=\\"high\\" on the Agent call'), 'names the assigned value');
+          assert.ok(out.includes("the task's assigned reviewer effort, returned by bro_atomic_close"), 'names the source');
+          assert.ok(!out.includes('config_set(key=\\"reviewer_effort\\"'), 'not the config remedy');
+        }
+      } finally {
+        clear();
+      }
+    });
+
+    it('no row for the task: the config effort applies, with the config remedy', () => {
+      assign(2, 'high');
+      try {
+        assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'medium')), '', 'task 1 has no row: medium passes');
+        const out = run(payload('code-reviewer', REVIEW_PROMPT, 'high'));
+        assert.ok(out.includes(DENY), 'high denied for task 1');
+        assert.ok(out.includes('config_set(key=\\"reviewer_effort\\"'), 'names the config key');
+      } finally {
+        clear();
+      }
+    });
+
+    it('a newest row with an invalid effort reads as the config', () => {
+      assign(1, 'high');
+      assign(1, 'max');
+      try {
+        assert.equal(run(payload('code-reviewer', REVIEW_PROMPT, 'medium')), '', 'invalid newest row: config medium passes');
+      } finally {
+        clear();
+      }
+    });
+
+    it('no task id in the prompt: the config effort applies', () => {
+      assign(1, 'high');
+      try {
+        const prompt = 'commit_sha=abc1234 branch_id=feat/medium repo=plugin';
+        assert.equal(run(payload('code-reviewer', prompt, 'medium')), '', 'config medium passes');
+        const out = run(payload('code-reviewer', prompt, 'high'));
+        assert.ok(out.includes(DENY), 'the assigned high of task 1 does not apply');
+        assert.ok(out.includes('config_set(key=\\"reviewer_effort\\"'), 'names the config key');
+      } finally {
+        clear();
+      }
+    });
   });
 
   it('a consultant or other agent passes without an effort', () => {

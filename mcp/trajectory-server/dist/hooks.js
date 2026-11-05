@@ -17267,12 +17267,19 @@ var requireFeatureBranchActive = async (payload, env) => {
 var configuredEffort = (key2, fallback) => `COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '$') END AS v
                                FROM plugin_config WHERE key = '${key2}')
                WHERE v IN ('low','medium','high')), '${fallback}')`;
-function effortDefaults(db, env = process.env) {
-  return gateRead(
-    db,
-    `SELECT ${configuredEffort("swe_default_effort", "medium")} || '|' || ${configuredEffort("reviewer_effort", "medium")};`,
-    env
-  );
+function reviewerEffortFor(db, taskId, env = process.env) {
+  const id = sqlInt(taskId);
+  const assigned = id === "" ? "NULL" : `(SELECT 'assigned|' || v FROM (SELECT CASE WHEN json_valid(content_json) THEN json_extract(content_json, '$.effort') END AS v
+                                          FROM audit
+                                         WHERE event_type = 'reviewer_effort_assigned'
+                                           AND CASE WHEN json_valid(content_json) THEN json_extract(content_json, '$.task_id') END = ${id}
+                                         ORDER BY id DESC LIMIT 1)
+           WHERE v IN ('low','medium','high'))`;
+  const out2 = gateRead(db, `SELECT COALESCE(${assigned}, 'config|' || ${configuredEffort("reviewer_effort", "medium")});`, env);
+  if (out2 === GATE_READ_ERROR) return null;
+  const [source, effort] = out2.trim().split("|");
+  if (source !== "assigned" && source !== "config" || effort === void 0 || effort === "") return null;
+  return { effort, source };
 }
 
 // src/hooks/require-task-spec.ts
@@ -17505,17 +17512,24 @@ function sweVerdict(payload, given, env) {
     `To run it at another effort, change the task first: task_reopen(task_id=${taskId}, effort=...) for rework, task_retry(effort=...) for a retry.`
   );
 }
-function reviewerVerdict(given, env) {
+function reviewerVerdict(payload, given, env) {
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
-  const defaults = effortDefaults(db, env);
-  if (defaults === GATE_READ_ERROR || defaults === "") return denyUnreadable(GATE_NAME21, env);
-  const bar = defaults.indexOf("|");
-  const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
-  if (given === expected) return ALLOW;
+  const taskId = sqlInt(promptTaskId(toolInputRaw(payload, "prompt")));
+  const expected = reviewerEffortFor(db, taskId, env);
+  if (expected === null) return denyUnreadable(GATE_NAME21, env);
+  if (given === expected.effort) return ALLOW;
+  if (expected.source === "assigned") {
+    return denyMismatch(
+      `code-reviewer for task_id=${taskId} (the task's assigned reviewer effort, returned by bro_atomic_close as reviewer_effort)`,
+      expected.effort,
+      given,
+      "The assignment is the task's newest reviewer_effort_assigned audit row; the next bro_atomic_close of the task assigns it again."
+    );
+  }
   return denyMismatch(
     "code-reviewer (plugin_config.reviewer_effort, medium when unset)",
-    expected,
+    expected.effort,
     given,
     'To change it for every review, config_set(key="reviewer_effort", value=...).'
   );
@@ -17524,7 +17538,7 @@ var requireSpawnEffort = (payload, env) => {
   const subagent = toolInputRaw(payload, "subagent_type");
   const given = givenEffort(payload);
   if (/(^|:)swe$/.test(subagent)) return sweVerdict(payload, given, env);
-  if (normalizeRole(subagent.slice(subagent.lastIndexOf(":") + 1)) === CODE_REVIEWER_ROLE) return reviewerVerdict(given, env);
+  if (normalizeRole(subagent.slice(subagent.lastIndexOf(":") + 1)) === CODE_REVIEWER_ROLE) return reviewerVerdict(payload, given, env);
   return ALLOW;
 };
 
@@ -23735,8 +23749,7 @@ SELECT CASE WHEN resumed_from IS NOT NULL THEN started_at END FROM agent_runs
   const usageSetSql = measured ? "usage_source = 'subagent_stop'" : RUN_UNMEASURED_SQL2;
   const usageInsertSql = measured ? "'subagent_stop'" : "'unmeasured'";
   if (agentType === "code-reviewer") {
-    const defaults = effortDefaults(db, env);
-    const reviewerEffort = defaults.includes("|") ? defaults.slice(defaults.indexOf("|") + 1) : defaults;
+    const reviewerEffort = reviewerEffortFor(db, taskId, env)?.effort ?? "";
     const effortSql = ["low", "medium", "high"].includes(reviewerEffort) ? `'${reviewerEffort}'` : "NULL";
     const safeProjectRoot = sqlQuote(physicalDir3(`${posixDirname(db)}/../..`, env));
     const ok = write(

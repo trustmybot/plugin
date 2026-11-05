@@ -25257,6 +25257,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_effort_assigned", writers: ["bro"], description: "`bro_atomic_close` assigned the effort the task's code-reviewer spawn runs at (GH 1955), returned as `reviewer_effort`; one row per close, in the close transaction right after `bro_verification_pass`, on the task's issue, from_node `bro`. The risk tier is `high` for a prompt-bearing task or a changed path overlapping a `high_effort_paths` prefix, `low` when every changed path is docs or tests, else `medium`; it applies with `plugin_config.reviewer_effort_tiers` true or in the `tiered` arm of `plugin_config.reviewer_effort_ab` (even task ids; odd ids are `fixed`), else the effort is `reviewer_effort` (reason `config`, also when the scope check did not run). `require-spawn-effort` and `swe-atomic-close` read the newest row for the task; `task_recover` writes none. `content_json` carries `task_id`, `commit_sha`, `effort` (`low`, `medium`, `high`), `reason` (`prompt_bearing`, `high_effort_paths`, `docs_tests`, `default`, `config`) and, for a task enrolled in the A/B, `label` and `arm`" },
   { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
@@ -33744,6 +33745,22 @@ function readEffortAb(db2) {
   }
   return null;
 }
+var REVIEWER_EFFORT_TIERS_KEY = "reviewer_effort_tiers";
+var REVIEWER_EFFORT_AB_KEY = "reviewer_effort_ab";
+function readReviewerEffortTiers(db2) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_EFFORT_TIERS_KEY]);
+  return row?.value_json.trim() === "true";
+}
+function readReviewerEffortAb(db2) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [REVIEWER_EFFORT_AB_KEY]);
+  if (!row) return null;
+  try {
+    const value = JSON.parse(row.value_json);
+    if (isEffortAbConfig(value)) return { label: value.label, target: value.target };
+  } catch {
+  }
+  return null;
+}
 var DOWNSTREAM_CONTEXT_AB_KEY = "downstream_context_ab";
 function isDownstreamContextAbConfig(value) {
   if (!isEffortAbConfig(value)) return false;
@@ -33793,7 +33810,12 @@ function validateKnownConfigValue(key, value) {
     }
     return;
   }
-  if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+  if (key === REVIEWER_EFFORT_TIERS_KEY && typeof value !== "boolean") {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be a boolean, got ${JSON.stringify(value)}.`
+    );
+  }
+  if ((key === SWE_EFFORT_AB_KEY || key === REVIEWER_EFFORT_AB_KEY) && !isEffortAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`
     );
@@ -39732,6 +39754,67 @@ if (isMainModule()) {
   process.exit(0);
 }
 
+// src/reviewer-effort.ts
+var REVIEWER_EFFORT_EVENT = "reviewer_effort_assigned";
+var TEST_SEGMENTS2 = /* @__PURE__ */ new Set(["test", "tests", "__tests__"]);
+function isDocsOrTestPath(path2) {
+  const segments = path2.split("/").filter((s) => s.length > 0);
+  const base = segments.at(-1) ?? "";
+  const dirs = segments.slice(0, -1);
+  if (base.endsWith(".md") || dirs.includes("docs")) return true;
+  return dirs.some((s) => TEST_SEGMENTS2.has(s)) || base.includes(".test.") || base.includes(".spec.");
+}
+function reviewerEffortTier(input) {
+  if (input.prompt_bearing) return { effort: "high", reason: "prompt_bearing" };
+  if (input.changed.some((file2) => input.high_effort_paths.some((prefix) => pathsOverlap(file2, prefix)))) {
+    return { effort: "high", reason: "high_effort_paths" };
+  }
+  if (input.changed.length > 0 && input.changed.every(isDocsOrTestPath)) return { effort: "low", reason: "docs_tests" };
+  return { effort: "medium", reason: "default" };
+}
+function reviewerEffortAbArm(taskId) {
+  return taskId % 2 === 0 ? "tiered" : "fixed";
+}
+var LABEL_SQL2 = `event_type = ? AND json_valid(content_json) AND json_extract(content_json, '$.label') = ?`;
+function enrolledArm(db2, taskId, label) {
+  const row = db2.get(
+    `SELECT json_extract(content_json, '$.arm') AS arm FROM audit
+      WHERE ${LABEL_SQL2} AND json_extract(content_json, '$.task_id') = ?
+      ORDER BY id DESC LIMIT 1`,
+    [REVIEWER_EFFORT_EVENT, label, taskId]
+  );
+  return row?.arm === "tiered" || row?.arm === "fixed" ? row.arm : null;
+}
+function enrolledTaskCount(db2, label) {
+  return db2.get(
+    `SELECT COUNT(DISTINCT json_extract(content_json, '$.task_id')) AS n FROM audit WHERE ${LABEL_SQL2}`,
+    [REVIEWER_EFFORT_EVENT, label]
+  )?.n ?? 0;
+}
+function assignReviewerEffort(db2, task, commitSha, scope, now2) {
+  const fixed = { effort: resolveEffortDefaults(db2).reviewer, reason: "config" };
+  const tier = scope.checked ? reviewerEffortTier({ prompt_bearing: task.prompt_bearing === 1, changed: scope.changed, high_effort_paths: readHighEffortPaths(db2) }) : fixed;
+  const ab = readReviewerEffortAb(db2);
+  let arm = null;
+  if (ab) {
+    arm = enrolledArm(db2, task.id, ab.label);
+    if (arm === null && enrolledTaskCount(db2, ab.label) < ab.target) arm = reviewerEffortAbArm(task.id);
+  }
+  const useTier = arm !== null ? arm === "tiered" : readReviewerEffortTiers(db2);
+  const chosen = useTier ? tier : fixed;
+  const assignment = arm !== null && ab ? { ...chosen, label: ab.label, arm } : chosen;
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: REVIEWER_EFFORT_EVENT,
+    summary: `Task ${task.id} review assigned effort ${assignment.effort} (${assignment.reason}${assignment.arm ? `, arm ${assignment.arm}` : ""}).`,
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...assignment }),
+    created_at: now2
+  });
+  return assignment;
+}
+
 // src/graph.ts
 var SUBTREE_MAX_DEPTH = 256;
 var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs";
@@ -41469,12 +41552,14 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
   } catch (e) {
     return scopeUnchecked(e);
   }
-  const outOfScope = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0 && !pathInFiles(l, files));
-  return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+  const changed = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  const outOfScope = changed.filter((l) => !pathInFiles(l, files));
+  return { outOfScope, changed, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 function scopeUnchecked(e) {
   return {
     outOfScope: [],
+    changed: [],
     checked: false,
     reason: e.message.split("\n")[0] || "git diff failed"
   };
@@ -42141,7 +42226,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: `Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one \`[probe <id>]\` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. spawn_note (\u2264${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. PostToolUse hooks fire on bro_atomic_close (not task_update_status).`,
+      description: `Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (recorded in a reviewer_effort_assigned row). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one \`[probe <id>]\` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. spawn_note (\u2264${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. PostToolUse hooks fire on bro_atomic_close (not task_update_status).`,
       inputSchema: {
         type: "object",
         properties: {
@@ -43634,7 +43719,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const waiveScopeGate = args2["waive_scope_gate"] === true;
         const spawnNote = parseSpawnNote(args2["spawn_note"], "bro_atomic_close");
         const task = db2.get(
-          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`,
           [taskId]
         );
@@ -43675,6 +43760,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const recordedBaseRef = repoPath && task.parent_branch_id ? resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null : null;
         const scope = repoPath && targetRef ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef) : {
           outOfScope: [],
+          changed: [],
           checked: false,
           reason: repoPath ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(", ")} and their local branches)` : `cannot resolve a path for repo '${task.repo ?? ""}'`
         };
@@ -43734,11 +43820,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             });
           }
           const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, null, scopeRecord);
+          const reviewerEffort = assignReviewerEffort(db2, task, commitSha, scope, now2);
           db2.run("UPDATE tasks SET spawn_note = ? WHERE id = ?", [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
             review_pending: true,
+            reviewer_effort: reviewerEffort.effort,
             base_moved: baseMoved,
             ...baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {},
             ...waiveScopeGate ? { extras_accepted: scope.outOfScope } : {},
