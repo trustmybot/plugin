@@ -4561,7 +4561,7 @@ var init_config = __esm({
     REVIEWER_EFFORT_KEY = "reviewer_effort";
     EFFORT_DEFAULTS = {
       [SWE_DEFAULT_EFFORT_KEY]: "medium",
-      [REVIEWER_EFFORT_KEY]: "high"
+      [REVIEWER_EFFORT_KEY]: "medium"
     };
   }
 });

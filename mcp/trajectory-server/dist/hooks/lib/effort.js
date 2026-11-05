@@ -9,9 +9,9 @@ const configuredEffort = (key, fallback) => `COALESCE((SELECT v FROM (SELECT CAS
 /**
  * tmb_effort_defaults <db>: "<swe_default_effort>|<reviewer_effort>" from
  * plugin_config, an unset key or a value other than low|medium|high reading as
- * medium and high; __ERR__ when the read fails.
+ * medium; __ERR__ when the read fails.
  */
 export function effortDefaults(db, env = process.env) {
-    return gateRead(db, `SELECT ${configuredEffort('swe_default_effort', 'medium')} || '|' || ${configuredEffort('reviewer_effort', 'high')};`, env);
+    return gateRead(db, `SELECT ${configuredEffort('swe_default_effort', 'medium')} || '|' || ${configuredEffort('reviewer_effort', 'medium')};`, env);
 }
 //# sourceMappingURL=effort.js.map

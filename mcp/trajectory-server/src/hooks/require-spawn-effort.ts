@@ -2,7 +2,7 @@
  * The require-spawn-effort gate (GH 1692): the
  * Agent call's `effort` must be the effort the trajectory DB holds for the
  * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
- * code-reviewer spawn needs plugin_config.reviewer_effort (high when unset);
+ * code-reviewer spawn needs plugin_config.reviewer_effort (medium when unset);
  * any other agent is allowed. A missing effort is a mismatch. No resolvable
  * DB allows; a DB read failure denies, and a DB without tasks.effort gets the
  * restart-to-migrate remedy. Unlike the .sh, it needs no jq, so it decides
@@ -79,7 +79,7 @@ function reviewerVerdict(given: string, env: NodeJS.ProcessEnv): GateResult {
   const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
   if (given === expected) return ALLOW;
   return denyMismatch(
-    'code-reviewer (plugin_config.reviewer_effort, high when unset)',
+    'code-reviewer (plugin_config.reviewer_effort, medium when unset)',
     expected,
     given,
     'To change it for every review, config_set(key="reviewer_effort", value=...).',

@@ -111,16 +111,16 @@ describe('task-DB Agent-spawn gates (TS)', () => {
   });
 
   describe('effortDefaults', () => {
-    it('reads medium|high with no plugin_config rows', () => {
-      assert.equal(effortDefaults(freshDb(), {}), 'medium|high');
+    it('reads medium|medium with no plugin_config rows (GH 2344)', () => {
+      assert.equal(effortDefaults(freshDb(), {}), 'medium|medium');
     });
 
     it('reads the configured swe_default_effort and reviewer_effort', () => {
       const db = freshDb((d) => {
         config(d, 'swe_default_effort', '"low"');
-        config(d, 'reviewer_effort', '"medium"');
+        config(d, 'reviewer_effort', '"high"');
       });
-      assert.equal(effortDefaults(db, {}), 'low|medium');
+      assert.equal(effortDefaults(db, {}), 'low|high');
     });
 
     it('falls back per key on a value outside low|medium|high or invalid JSON', () => {
@@ -128,7 +128,7 @@ describe('task-DB Agent-spawn gates (TS)', () => {
         config(d, 'swe_default_effort', '"extreme"');
         config(d, 'reviewer_effort', 'not json');
       });
-      assert.equal(effortDefaults(db, {}), 'medium|high');
+      assert.equal(effortDefaults(db, {}), 'medium|medium');
     });
 
     it('returns __ERR__ when the DB cannot be read', () => {

@@ -12,7 +12,7 @@
  *      duplicates.
  *   4. Measures: every token column is a per-message sum.
  *   5. Effort: swe rows copy tasks.effort; code-reviewer rows carry
- *      plugin_config.reviewer_effort (high when unset).
+ *      plugin_config.reviewer_effort (medium when unset).
  *   6. No usage: closes the row unmeasured and keeps earlier metering.
  *   7. Plugin version (GH 1884): the insert writes the manifest version, an
  *      UPDATE leaves it, no CLAUDE_PLUGIN_ROOT writes NULL.
@@ -316,7 +316,7 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
       assert.equal(q(db, 'SELECT agent_type, effort FROM agent_runs WHERE task_id=144'), 'swe|high', 'the swe row copies tasks.effort high');
     });
 
-    it('a code-reviewer spawn gets one metering row carrying reviewer_effort (high when unset)', () => {
+    it('a code-reviewer spawn gets one metering row carrying reviewer_effort (medium when unset)', () => {
       tr1 = writeTranscript(join(sb.dir, 'tr1.jsonl'), [
         '{"type":"user","timestamp":"2026-06-16T19:50:00.000Z","message":{"role":"user","content":"task_id=144 commit_sha=abc1234 branch_id=fix/task-144 repo=plugin attempt_n=1 subagent_session_id=s"}}',
         '{"type":"assistant","timestamp":"2026-06-16T19:50:09.000Z","message":{"id":"r1","model":"claude-opus-9","usage":{"input_tokens":70,"output_tokens":7},"content":[]}}',
@@ -328,8 +328,8 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
           db,
           "SELECT spawn_id, tokens_in, tokens_out, usage_source, model, host, root_dir, exit_reason, effort, started_at FROM agent_runs WHERE task_id=144 AND agent_type='code-reviewer'",
         ),
-        `agent-rev-1|70|7|subagent_stop|claude-opus-9|claude|${repo}|completed|high|2026-06-16T19:50:00.000Z`,
-        'metered, root_dir = the project root, effort = reviewer_effort default high',
+        `agent-rev-1|70|7|subagent_stop|claude-opus-9|claude|${repo}|completed|medium|2026-06-16T19:50:00.000Z`,
+        'metered, root_dir = the project root, effort = reviewer_effort default medium',
       );
       assert.equal(q(db, "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=144"), 'completed|', 'no task status side effect');
     });
@@ -340,12 +340,12 @@ describe('swe-atomic-close l3: agent_runs write path', () => {
     });
 
     it('a configured reviewer_effort lands on the next code-reviewer row', () => {
-      sql(db, `INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '"medium"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
+      sql(db, `INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '"high"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
       hook(prStopInput(tr1, 'agent-rev-2'));
       assert.equal(
         q(db, "SELECT effort FROM agent_runs WHERE task_id=144 AND agent_type='code-reviewer' ORDER BY id"),
-        'high\nmedium',
-        'the earlier row keeps high, the new one carries medium',
+        'medium\nhigh',
+        'the earlier row keeps medium, the new one carries high',
       );
     });
 

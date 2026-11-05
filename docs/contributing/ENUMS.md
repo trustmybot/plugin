@@ -334,7 +334,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 ### `agent_runs.effort` — the effort a run was spawned at
 
-Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`high` when unset). NULL on other agent types and on runs recorded before schema v37.
+Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`medium` when unset). NULL on other agent types and on runs recorded before schema v37.
 
 ### Timestamp format
 

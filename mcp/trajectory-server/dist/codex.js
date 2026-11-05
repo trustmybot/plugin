@@ -31265,7 +31265,7 @@ var SWE_DEFAULT_EFFORT_KEY = "swe_default_effort";
 var REVIEWER_EFFORT_KEY = "reviewer_effort";
 var EFFORT_DEFAULTS = {
   [SWE_DEFAULT_EFFORT_KEY]: "medium",
-  [REVIEWER_EFFORT_KEY]: "high"
+  [REVIEWER_EFFORT_KEY]: "medium"
 };
 function isEffort(value) {
   return typeof value === "string" && EFFORT_LEVELS.includes(value);

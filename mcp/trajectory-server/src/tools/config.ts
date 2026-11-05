@@ -42,7 +42,7 @@ export const REVIEWER_EFFORT_KEY = 'reviewer_effort';
 
 const EFFORT_DEFAULTS: Readonly<Record<string, Effort>> = {
   [SWE_DEFAULT_EFFORT_KEY]: 'medium',
-  [REVIEWER_EFFORT_KEY]: 'high',
+  [REVIEWER_EFFORT_KEY]: 'medium',
 };
 
 export function isEffort(value: unknown): value is Effort {
@@ -56,7 +56,7 @@ export function effortRank(value: Effort): number {
 /**
  * The effort a new swe task runs at when its creator names none, and the
  * effort every code-reviewer spawn runs at. An unset or unreadable key reads as
- * its default (medium, high). The hooks' twin is tmb_effort_defaults in
+ * its default (medium for both). The hooks' twin is tmb_effort_defaults in
  * scripts/hooks/lib/query-task.sh.
  */
 export function resolveEffortDefaults(db: TrajectoryDB): { swe: Effort; reviewer: Effort } {

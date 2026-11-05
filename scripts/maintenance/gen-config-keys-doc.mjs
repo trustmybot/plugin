@@ -139,7 +139,7 @@ export const KEYS = [
   {
     name: 'reviewer_effort',
     type: 'string: `low` \\| `medium` \\| `high`',
-    defaultText: 'unset (read as `high`)',
+    defaultText: 'unset (read as `medium`)',
     setBy: 'bro via `config_set` (any other value is refused)',
     effect: 'The effort every code-reviewer spawn runs at: `require-spawn-effort` denies a code-reviewer spawn whose Agent `effort` differs; `swe-atomic-close` records it on the code-reviewer `agent_runs` row.',
   },

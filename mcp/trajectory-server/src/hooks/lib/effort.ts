@@ -12,12 +12,12 @@ const configuredEffort = (key: string, fallback: string): string =>
 /**
  * tmb_effort_defaults <db>: "<swe_default_effort>|<reviewer_effort>" from
  * plugin_config, an unset key or a value other than low|medium|high reading as
- * medium and high; __ERR__ when the read fails.
+ * medium; __ERR__ when the read fails.
  */
 export function effortDefaults(db: string, env: NodeJS.ProcessEnv = process.env): string {
   return gateRead(
     db,
-    `SELECT ${configuredEffort('swe_default_effort', 'medium')} || '|' || ${configuredEffort('reviewer_effort', 'high')};`,
+    `SELECT ${configuredEffort('swe_default_effort', 'medium')} || '|' || ${configuredEffort('reviewer_effort', 'medium')};`,
     env,
   );
 }
