@@ -141,6 +141,46 @@ describe('git-push-guard l3: the review gate', () => {
     hasNot(out, 'task_id=1 ', 'the anchored and passed task is signed');
   });
 
+  it('GH 2412: the newest verdict gates: a fail after a pass BLOCKS, a newer pass allows', () => {
+    const db = bothSigned(r);
+    const verdict = (attempt: number, v: string) =>
+      sql(
+        db,
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+           VALUES (2, ?, 'code-reviewer', ?, 1, 'review', ?)`,
+        attempt,
+        v,
+        new Date().toISOString(),
+      );
+    verdict(2, 'fail');
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a newest fail must block despite the older pass');
+    has(out, 'task_id=2', 'the task whose newest verdict is a fail is listed');
+    hasNot(out, 'task_id=1 ', 'task 1, newest verdict pass, is not listed');
+    verdict(3, 'pass');
+    hasNot(run('git push origin main', db), DENY, 'a newer pass allows the push');
+  });
+
+  it('GH 2412 + GH 2413: a newer fail on top of a same-SHA pass BLOCKS the push', () => {
+    const db = newDb(r.repo);
+    insertTask(db, 1, r.sha1);
+    signTask(db, 1);
+    insertTask(db, 2, r.sha2);
+    anchorTask(db, 2, '2026-10-19T00:00:00.000Z');
+    passTask(db, 2, '2026-10-19T00:01:00.000Z');
+    hasNot(run('git push origin main', db), DENY, 'an anchored pass for the pushed SHA admits the push');
+    sql(
+      db,
+      `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+         VALUES (2, 2, 'code-reviewer', 'fail', 1, 'regressed', '2026-10-19T00:02:00.000Z')`,
+    );
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a newer fail must block despite the anchored same-SHA pass');
+    has(out, 'unsigned commit(s)', 'the deny is the unsigned-commit deny');
+    has(out, 'task_id=2', 'the task whose newest verdict is a fail is listed');
+    hasNot(out, 'task_id=1 ', 'task 1 stays signed');
+  });
+
   it('SWE caller (tmb:swe): git push BLOCKED regardless of unsigned status', () => {
     const out = run('git push origin main', bothSigned(r), 'tmb:swe');
     has(out, DENY, 'SWE push must be blocked even with all-signed commits');

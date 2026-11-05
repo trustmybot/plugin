@@ -16420,12 +16420,13 @@ var ensureGitignore = async (_payload, env) => {
 };
 
 // src/review-sql.ts
-var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+var HAS_PASS_SQL = `(EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
       WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))
+  AND ${newestVerdictPassSql("t")})`;
 var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
       OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
@@ -16433,6 +16434,9 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function newestVerdictPassSql(alias) {
+  return `COALESCE((SELECT v.verdict FROM validation_attempts v WHERE v.task_id = ${alias}.id ORDER BY v.id DESC LIMIT 1), '') = 'pass'`;
+}
 
 // src/hooks/git-push-guard.ts
 var GATE_NAME15 = "git-push-guard";

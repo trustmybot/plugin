@@ -175,7 +175,7 @@ For each task, trust the swe's checklist of what changed and read the records: t
 
 | Hook | When | Effect |
 |---|---|---|
-| `git-push-guard` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every pushed task commit has a passing `validation_attempts` row recorded at or after its `bro_verification_pass` anchor |
+| `git-push-guard` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every pushed task commit's newest `validation_attempts` row is a `pass` recorded at or after its review anchor, the first `bro_verification_pass` or `task_integrated` row for its current `commit_sha` |
 
 ### Forbidden
 
