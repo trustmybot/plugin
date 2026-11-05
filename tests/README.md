@@ -325,14 +325,14 @@ When `$TMB_TEST_REMOTE` is set (test/sandbox mode), `origin` is a local bare rep
 
 ### L3 isolation test
 
-`tests/l3-integration/hooks/sandbox-isolation.test.sh` is the acceptance gate. It verifies:
+`mcp/trajectory-server/src/test/sandbox-isolation-l3.test.ts` is the acceptance gate. It verifies:
 
 1. `gh repo create` → exit 1 + "tmb sandbox" in stderr
 2. `glab repo create` → exit 1 + "tmb sandbox" in stderr
 3. `git push https://github.com/...` → exit 1 + sandbox-blocked message
 4. After teardown: `PATH`, `HOME`, `TMB_TEST_REMOTE` all restored / unset
 
-Run it directly: `bash tests/l3-integration/hooks/sandbox-isolation.test.sh`. It runs automatically as part of `bash tests/l3-integration/hooks/run.sh` (L3).
+Run it directly: `cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/sandbox-isolation-l3.test.js`. It runs automatically as part of `npm test` in `mcp/trajectory-server`.
 
 ## Anti-patterns
 
