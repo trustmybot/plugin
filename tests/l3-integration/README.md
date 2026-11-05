@@ -5,7 +5,7 @@ Deterministic integration tests that exercise the real wiring — the MCP server
 | Subdir | Purpose |
 |---|---|
 | [`mcp/`](./mcp/) | Real server subprocess + JSON-RPC tests — role matrix, schema contract, scope gate, search tools, and per-agent workflow sequences. Shared harness in `harness.mjs`; run via `mcp/run.sh` |
-| [`hooks/`](./hooks/) | Hook-script tests — one `*.test.sh` per hook asserting deny/inject/pass-through behavior (git guards, swe gates, sandbox isolation, cheatcode flow, …). Run via `hooks/run.sh`; shared fixtures in `hooks/fixtures/` |
+| [`hooks/fixtures/`](./hooks/fixtures/) | Fixtures (goldens, legacy settings, changelog fragments, enums-stable sources) read by the hook suites, which are node:test `mcp/trajectory-server/src/test/*-l3.test.ts` files built on `src/test/hook-sandbox.ts` |
 
 ## Hermetic hook tests
 
