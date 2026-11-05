@@ -39789,6 +39789,9 @@ function readSetupFile(worktreePath) {
   }
   return { commands };
 }
+function seconds(ms) {
+  return Math.round(ms / 1e3);
+}
 function tail(text) {
   return text.replace(/\n+$/, "").split("\n").slice(-TAIL_LINES).join("\n").slice(-TAIL_CHARS);
 }
@@ -39830,6 +39833,8 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
   if ("error" in parsed) return { ran: false, commands: [], error: parsed.error };
   const env = opts.env ?? process.env;
   const timeoutMs = opts.timeoutMs ?? WORKTREE_SETUP_COMMAND_TIMEOUT_MS;
+  const total = opts.totalTimeoutMs;
+  const totalStart = Date.now();
   const result2 = { ran: false, commands: [] };
   let scratch;
   try {
@@ -39840,10 +39845,17 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
   try {
     for (const [i2, command] of parsed.commands.entries()) {
       const outPath = join14(scratch, `out-${i2 + 1}`);
+      const left = total === void 0 ? Infinity : total - (Date.now() - totalStart);
+      if (left <= 0) {
+        result2.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
+        result2.error = `worktree setup ran out of its ${seconds(total ?? 0)}s budget before command ${i2 + 1}/${parsed.commands.length}: ${command}`;
+        return result2;
+      }
+      const budgetBound = left < timeoutMs;
       const started = Date.now();
       let run3;
       try {
-        run3 = await runCommand(command, worktreePath, env, timeoutMs, outPath);
+        run3 = await runCommand(command, worktreePath, env, budgetBound ? left : timeoutMs, outPath);
       } catch (e) {
         result2.commands.push({ command, exit_code: 127, timed_out: false, elapsed_ms: Date.now() - started });
         result2.error = `worktree setup command failed to start: ${command}: ${e.message}`;
@@ -39857,7 +39869,9 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
         out2 = readFileSync7(outPath, "utf8");
       } catch {
       }
-      result2.error = run3.timedOut ? `worktree setup command timed out after ${Math.round(timeoutMs / 1e3)}s: ${command}` : `worktree setup command exited ${run3.exitCode}: ${command}`;
+      if (!run3.timedOut) result2.error = `worktree setup command exited ${run3.exitCode}: ${command}`;
+      else if (budgetBound) result2.error = `worktree setup command timed out: its ${seconds(total ?? 0)}s budget ran out: ${command}`;
+      else result2.error = `worktree setup command timed out after ${seconds(timeoutMs)}s: ${command}`;
       result2.output_tail = tail(out2);
       return result2;
     }
@@ -48217,8 +48231,8 @@ async function pluginList(sessionDir, env, deadline) {
       note = "TMB_FORBID_LIVE_SYNC=1 or TMB_TEST_RUN_ID set and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped";
     }
   } else if (commandOnPath("claude", env)) {
-    const seconds = Number(env["TMB_SCAN_DISCOVERY_TIMEOUT"] ?? DEFAULT_DISCOVERY_TIMEOUT_S);
-    const limitS = Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_DISCOVERY_TIMEOUT_S;
+    const seconds2 = Number(env["TMB_SCAN_DISCOVERY_TIMEOUT"] ?? DEFAULT_DISCOVERY_TIMEOUT_S);
+    const limitS = Number.isFinite(seconds2) && seconds2 > 0 ? seconds2 : DEFAULT_DISCOVERY_TIMEOUT_S;
     deadline.check();
     raw = (await run2("claude", ["plugin", "list", "--json"], {
       env,

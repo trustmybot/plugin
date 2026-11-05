@@ -36,7 +36,7 @@ A repo opts in to a build step for every worktree TMB makes with `.config/tmb/wo
 - `task_provision`, `task_reopen`, `task_retry`: fail-soft; the result carries `worktree_setup` (`ran`, `commands[]` with `exit_code` / `timed_out` / `elapsed_ms`, `error`, `output_tail`) and provisioning still succeeds.
 - `cli.js integrate`: before `verification[]`; a failure exits 1 with the failing command and its output tail on stderr.
 - `pr_monitor_worktree`: before the reviewer's command; a failure returns an error naming the command, and the worktree is still removed.
-- `swe-verification-gate`: before a run that is not reused; a failure denies the close with the command and its output tail. Setup is not recorded as a verification command.
+- `swe-verification-gate`: before a run that is not reused; a failure denies the close with the command and its output tail. Setup counts against the verification budget: each command gets at most what is left of it, `verification[]` gets what setup leaves, and a setup that spends it denies. Setup is not recorded as a verification command.
 
 This repo's own file runs `bun run build:payload`.
 

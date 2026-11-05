@@ -126,6 +126,28 @@ describe('runWorktreeSetup', () => {
     assert.equal(existsSync(join(wt, 'next.txt')), false);
   });
 
+  it('a total budget cuts the command running when it runs out', async () => {
+    const wt = join(dir, 'total-budget');
+    mkdirSync(wt);
+    writeSetup(wt, { version: 1, commands: ['sleep 0.3', 'sleep 5; touch late.txt', 'touch next.txt'] });
+    const r = await runWorktreeSetup(wt, { totalTimeoutMs: 800 });
+    assert.deepEqual(r.commands.map((c) => [c.exit_code, c.timed_out]), [[0, false], [124, true]]);
+    assert.ok(r.commands[1]!.elapsed_ms < 4000, `elapsed ${r.commands[1]!.elapsed_ms}ms`);
+    assert.match(r.error ?? '', /timed out: its 1s budget ran out: sleep 5; touch late\.txt/);
+    assert.equal(existsSync(join(wt, 'next.txt')), false);
+  });
+
+  it('a spent total budget starts no command', async () => {
+    const wt = join(dir, 'spent-budget');
+    mkdirSync(wt);
+    writeSetup(wt, { version: 1, commands: ['touch first.txt'] });
+    const r = await runWorktreeSetup(wt, { totalTimeoutMs: 0 });
+    assert.equal(r.ran, false);
+    assert.deepEqual(r.commands.map((c) => [c.command, c.exit_code, c.timed_out]), [['touch first.txt', 124, true]]);
+    assert.match(r.error ?? '', /ran out of its 0s budget before command 1\/1: touch first\.txt/);
+    assert.equal(existsSync(join(wt, 'first.txt')), false);
+  });
+
   it('gets the env it is given', async () => {
     const wt = join(dir, 'env');
     mkdirSync(wt);
@@ -272,6 +294,9 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
     const tasks = [
       { id: 60, slug: 'setup-ok', setup: ['touch setup-ran'] },
       { id: 61, slug: 'setup-broke', setup: ['echo gate-setup-broke; exit 9'] },
+      { id: 62, slug: 'setup-slow', setup: ['sleep 5'] },
+      { id: 63, slug: 'setup-spends', setup: ['sleep 0.2'] },
+      { id: 64, slug: 'setup-shares', setup: ['sleep 1.2'], verification: ['sleep 2'] },
     ];
     for (const t of tasks) {
       const wt = worktreeOf(t.slug);
@@ -290,14 +315,15 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
       db.prepare('INSERT INTO repos (name, path, last_scanned_at) VALUES (?, ?, ?)').run('plugin', join(base, 'project/checkout'), T1);
       db.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'setup', 'open', ?, ?)").run(T1, T1);
       const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, verification, created_at, updated_at) VALUES (?, 1, ?, 'd', 'running', 'plugin', ?, ?, ?)");
-      for (const t of tasks) task.run(t.id, `feat/${t.slug}`, JSON.stringify(VERIFICATION), T1, T1);
+      for (const t of tasks) task.run(t.id, `feat/${t.slug}`, JSON.stringify('verification' in t ? t.verification : VERIFICATION), T1, T1);
     } finally {
       db.close();
     }
   });
   after(() => rmSync(base, { recursive: true, force: true }));
 
-  const env = (): NodeJS.ProcessEnv => ({
+  const env = (budgetS?: number): NodeJS.ProcessEnv => ({
+    ...(budgetS === undefined ? {} : { TMB_VERIFICATION_TIMEOUT_S: String(budgetS) }),
     HOME: join(base, 'home'),
     CLAUDE_PROJECT_DIR: join(base, 'project'),
     TRAJECTORY_DB_PATH: dbFile,
@@ -334,6 +360,34 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
       60,
     );
     assert.deepEqual(rows, VERIFICATION.map((command) => ({ command, exit_code: 0 })));
+  });
+
+  const reasonOf = (r: { stdout: string }): string => {
+    const out = JSON.parse(r.stdout) as { hookSpecificOutput: { permissionDecision?: string; permissionDecisionReason?: string } };
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+    return out.hookSpecificOutput.permissionDecisionReason ?? '';
+  };
+
+  it('setup is cut off when the verification budget runs out, and the close is denied', async () => {
+    const started = Date.now();
+    const reason = reasonOf(await sweVerificationGate(completion(62), env(1)));
+    assert.ok(Date.now() - started < 4000, `gate took ${Date.now() - started}ms`);
+    assert.match(reason, /^BLOCKED: worktree setup failed/);
+    assert.match(reason, /timed out: its 1s budget ran out: sleep 5/);
+    assert.match(reason, /counts against the 1s verification budget/);
+    assert.deepEqual(read('SELECT id FROM verification_runs WHERE task_id = ?', 62), []);
+  });
+
+  it('a setup that uses up the verification budget denies without running verification[]', async () => {
+    const reason = reasonOf(await sweVerificationGate(completion(63), env(1)));
+    assert.match(reason, /^BLOCKED: worktree setup used up the 1s verification budget \(1s\)/);
+    assert.deepEqual(read('SELECT id FROM verification_runs WHERE task_id = ?', 63), []);
+  });
+
+  it('verification[] gets only the budget setup leaves', async () => {
+    const reason = reasonOf(await sweVerificationGate(completion(64), env(3)));
+    assert.match(reason, /^BLOCKED: verification timed out — the 1s budget left after 2s of worktree setup ran out/);
+    assert.deepEqual(read('SELECT budget_s, timed_out FROM verification_runs WHERE task_id = ?', 64), [{ budget_s: 1, timed_out: 1 }]);
   });
 
   it('a reused passing run does not run setup', async () => {

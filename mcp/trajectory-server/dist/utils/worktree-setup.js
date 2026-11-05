@@ -41,6 +41,9 @@ function readSetupFile(worktreePath) {
     }
     return { commands: commands };
 }
+function seconds(ms) {
+    return Math.round(ms / 1000);
+}
 function tail(text) {
     return text.replace(/\n+$/, '').split('\n').slice(-TAIL_LINES).join('\n').slice(-TAIL_CHARS);
 }
@@ -92,6 +95,8 @@ export async function runWorktreeSetup(worktreePath, opts = {}) {
         return { ran: false, commands: [], error: parsed.error };
     const env = opts.env ?? process.env;
     const timeoutMs = opts.timeoutMs ?? WORKTREE_SETUP_COMMAND_TIMEOUT_MS;
+    const total = opts.totalTimeoutMs;
+    const totalStart = Date.now();
     const result = { ran: false, commands: [] };
     let scratch;
     try {
@@ -103,10 +108,17 @@ export async function runWorktreeSetup(worktreePath, opts = {}) {
     try {
         for (const [i, command] of parsed.commands.entries()) {
             const outPath = join(scratch, `out-${i + 1}`);
+            const left = total === undefined ? Infinity : total - (Date.now() - totalStart);
+            if (left <= 0) {
+                result.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
+                result.error = `worktree setup ran out of its ${seconds(total ?? 0)}s budget before command ${i + 1}/${parsed.commands.length}: ${command}`;
+                return result;
+            }
+            const budgetBound = left < timeoutMs;
             const started = Date.now();
             let run;
             try {
-                run = await runCommand(command, worktreePath, env, timeoutMs, outPath);
+                run = await runCommand(command, worktreePath, env, budgetBound ? left : timeoutMs, outPath);
             }
             catch (e) {
                 result.commands.push({ command, exit_code: 127, timed_out: false, elapsed_ms: Date.now() - started });
@@ -124,9 +136,12 @@ export async function runWorktreeSetup(worktreePath, opts = {}) {
             catch {
                 /* no output file */
             }
-            result.error = run.timedOut
-                ? `worktree setup command timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`
-                : `worktree setup command exited ${run.exitCode}: ${command}`;
+            if (!run.timedOut)
+                result.error = `worktree setup command exited ${run.exitCode}: ${command}`;
+            else if (budgetBound)
+                result.error = `worktree setup command timed out: its ${seconds(total ?? 0)}s budget ran out: ${command}`;
+            else
+                result.error = `worktree setup command timed out after ${seconds(timeoutMs)}s: ${command}`;
             result.output_tail = tail(out);
             return result;
         }

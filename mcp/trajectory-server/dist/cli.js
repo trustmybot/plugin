@@ -5952,6 +5952,9 @@ function readSetupFile(worktreePath) {
   }
   return { commands };
 }
+function seconds(ms) {
+  return Math.round(ms / 1e3);
+}
 function tail(text) {
   return text.replace(/\n+$/, "").split("\n").slice(-TAIL_LINES).join("\n").slice(-TAIL_CHARS);
 }
@@ -5993,6 +5996,8 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
   if ("error" in parsed) return { ran: false, commands: [], error: parsed.error };
   const env = opts.env ?? process.env;
   const timeoutMs = opts.timeoutMs ?? WORKTREE_SETUP_COMMAND_TIMEOUT_MS;
+  const total = opts.totalTimeoutMs;
+  const totalStart = Date.now();
   const result = { ran: false, commands: [] };
   let scratch;
   try {
@@ -6003,10 +6008,17 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
   try {
     for (const [i, command] of parsed.commands.entries()) {
       const outPath = join10(scratch, `out-${i + 1}`);
+      const left = total === void 0 ? Infinity : total - (Date.now() - totalStart);
+      if (left <= 0) {
+        result.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
+        result.error = `worktree setup ran out of its ${seconds(total ?? 0)}s budget before command ${i + 1}/${parsed.commands.length}: ${command}`;
+        return result;
+      }
+      const budgetBound = left < timeoutMs;
       const started = Date.now();
       let run2;
       try {
-        run2 = await runCommand(command, worktreePath, env, timeoutMs, outPath);
+        run2 = await runCommand(command, worktreePath, env, budgetBound ? left : timeoutMs, outPath);
       } catch (e) {
         result.commands.push({ command, exit_code: 127, timed_out: false, elapsed_ms: Date.now() - started });
         result.error = `worktree setup command failed to start: ${command}: ${e.message}`;
@@ -6020,7 +6032,9 @@ async function runWorktreeSetup(worktreePath, opts = {}) {
         out = readFileSync6(outPath, "utf8");
       } catch {
       }
-      result.error = run2.timedOut ? `worktree setup command timed out after ${Math.round(timeoutMs / 1e3)}s: ${command}` : `worktree setup command exited ${run2.exitCode}: ${command}`;
+      if (!run2.timedOut) result.error = `worktree setup command exited ${run2.exitCode}: ${command}`;
+      else if (budgetBound) result.error = `worktree setup command timed out: its ${seconds(total ?? 0)}s budget ran out: ${command}`;
+      else result.error = `worktree setup command timed out after ${seconds(timeoutMs)}s: ${command}`;
       result.output_tail = tail(out);
       return result;
     }
@@ -10024,8 +10038,8 @@ var Exit2 = class extends Error {
 function nowS() {
   return Math.floor(Date.now() / 1e3);
 }
-function sleepS(seconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1e3);
+function sleepS(seconds2) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds2 * 1e3);
 }
 function verificationCommands(json2) {
   const { values, complete } = jsonStream(json2);
@@ -10138,7 +10152,7 @@ var Integration = class {
     this.wt = "";
   }
   /** Runs <cmd> in the worktree, output captured, killed with its process group after <seconds>. */
-  execute(cmd, seconds, env) {
+  execute(cmd, seconds2, env) {
     if (this.scratch === "") this.scratch = mkdtempSync5(join12(this.env.TMPDIR || tmpdir4(), "tmb-integrate-"));
     const outPath = join12(this.scratch, "out");
     return new Promise((done) => {
@@ -10167,7 +10181,7 @@ var Integration = class {
           if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
         } catch {
         }
-      }, seconds * 1e3);
+      }, seconds2 * 1e3);
       child.on("error", () => settle(127));
       child.on("exit", (code, signal) => {
         if (fired) settle(TIMED_OUT_CODE2);

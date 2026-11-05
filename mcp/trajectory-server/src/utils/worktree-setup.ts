@@ -33,6 +33,7 @@ export interface WorktreeSetupResult {
 export interface WorktreeSetupOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  totalTimeoutMs?: number;
 }
 
 type Parsed = { commands: string[] } | { error: string } | null;
@@ -60,6 +61,10 @@ function readSetupFile(worktreePath: string): Parsed {
     return { error: `${WORKTREE_SETUP_FILE}: commands must be a non-empty array of non-empty strings` };
   }
   return { commands: commands as string[] };
+}
+
+function seconds(ms: number): number {
+  return Math.round(ms / 1000);
 }
 
 function tail(text: string): string {
@@ -114,6 +119,8 @@ export async function runWorktreeSetup(worktreePath: string, opts: WorktreeSetup
 
   const env = opts.env ?? process.env;
   const timeoutMs = opts.timeoutMs ?? WORKTREE_SETUP_COMMAND_TIMEOUT_MS;
+  const total = opts.totalTimeoutMs;
+  const totalStart = Date.now();
   const result: WorktreeSetupResult = { ran: false, commands: [] };
   let scratch: string;
   try {
@@ -124,10 +131,17 @@ export async function runWorktreeSetup(worktreePath: string, opts: WorktreeSetup
   try {
     for (const [i, command] of parsed.commands.entries()) {
       const outPath = join(scratch, `out-${i + 1}`);
+      const left = total === undefined ? Infinity : total - (Date.now() - totalStart);
+      if (left <= 0) {
+        result.commands.push({ command, exit_code: TIMED_OUT_CODE, timed_out: true, elapsed_ms: 0 });
+        result.error = `worktree setup ran out of its ${seconds(total ?? 0)}s budget before command ${i + 1}/${parsed.commands.length}: ${command}`;
+        return result;
+      }
+      const budgetBound = left < timeoutMs;
       const started = Date.now();
       let run: { exitCode: number; timedOut: boolean };
       try {
-        run = await runCommand(command, worktreePath, env, timeoutMs, outPath);
+        run = await runCommand(command, worktreePath, env, budgetBound ? left : timeoutMs, outPath);
       } catch (e) {
         result.commands.push({ command, exit_code: 127, timed_out: false, elapsed_ms: Date.now() - started });
         result.error = `worktree setup command failed to start: ${command}: ${(e as Error).message}`;
@@ -142,9 +156,9 @@ export async function runWorktreeSetup(worktreePath: string, opts: WorktreeSetup
       } catch {
         /* no output file */
       }
-      result.error = run.timedOut
-        ? `worktree setup command timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`
-        : `worktree setup command exited ${run.exitCode}: ${command}`;
+      if (!run.timedOut) result.error = `worktree setup command exited ${run.exitCode}: ${command}`;
+      else if (budgetBound) result.error = `worktree setup command timed out: its ${seconds(total ?? 0)}s budget ran out: ${command}`;
+      else result.error = `worktree setup command timed out after ${seconds(timeoutMs)}s: ${command}`;
       result.output_tail = tail(out);
       return result;
     }
