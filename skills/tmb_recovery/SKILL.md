@@ -2,6 +2,7 @@
 name: tmb_recovery
 description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan); when the failure is a TMB bug, offering an opt-in bug report the Human previews before bro files it. Loaded reactively on the first failure of a session.
 allowed-tools: Bash(node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" bro-sqlite-readonly:*), mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__bug_report_draft, mcp__plugin_tmb_trajectory-server__audit_append
+effort: high
 ---
 
 # Recovery — three failure modes, three responses, and a bug report
