@@ -315,6 +315,21 @@ describe('git-push-guard l3: GH 1196 role from identity, dir from the command', 
     hasNot(out, 'SWE must never push', 'bro is never told an SWE rule');
   });
 
+  it("GH 2404: bro 'P=<main>; git -C $P push origin <sha>:refs/heads/x 2>&1' reaches the review gate, not ambiguous_git_target", () => {
+    const cmd = `P=${r.repo}; git -C $P push origin ${r.sha2}:refs/heads/x`;
+    const db = newDb(r.repo);
+    insertTask(db, 1, r.sha1);
+    signTask(db, 1);
+    insertTask(db, 2, r.sha2);
+    let out = run(undefined, r.repo, `${cmd} 2>&1`, db);
+    hasNot(out, 'ambiguous_git_target', 'an fd duplication cannot reassign the variable');
+    has(out, 'task_id=2', 'the unsigned task commit is gated as usual');
+    has(run(undefined, r.repo, `${cmd} 2>$((P=0))`, db), 'ambiguous_git_target', 'a redirect that can reassign stays unresolved');
+    signTask(db, 2);
+    out = run(undefined, r.repo, `${cmd} 2>&1`, db);
+    hasNot(out, DENY, 'both commits signed: the push passes');
+  });
+
   it('SWE push is denied by identity, whatever the dir', () =>
     has(run('swe', r.repo, `git -C ${r.repo} push origin main`), 'SWE must never push', 'identity decides the role'));
 

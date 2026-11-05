@@ -5389,8 +5389,8 @@ function segmentsOf(command) {
   return segments.filter((s) => s.length > 0);
 }
 function isRoutineRead(command) {
-  const present = segmentsOf(command);
-  return present !== null && present.length > 0 && present.every(segmentRead);
+  const present2 = segmentsOf(command);
+  return present2 !== null && present2.length > 0 && present2.every(segmentRead);
 }
 function asksFullOutput(command) {
   return segmentsOf(command)?.some(endsInBareCat) ?? false;
@@ -9169,6 +9169,7 @@ var VSPECIAL = /^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOC
 var KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 var NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 var BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
+var LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
 var FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 function norm(p) {
   let lead = "";
@@ -9244,6 +9245,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
   let lastdir = "";
   let piped = false;
   let pipesrc = "";
+  let cut4 = false;
   let i2 = 0;
   let s = base2.indexOf(SEP);
   if (s >= 0) {
@@ -9550,7 +9552,8 @@ function scan2(buf, base2, home, assign, frames, charge) {
       vkill = false;
     }
   }
-  function vplainexp(text) {
+  function vplainexp(text, whole) {
+    if (whole) text = text.replace(LITERAL_REDIRECT, "$1");
     const parts2 = text.split("<<");
     for (let k = 1; k < parts2.length; k++) {
       if (!parts2[k].startsWith(HD_DATA)) return false;
@@ -9565,7 +9568,9 @@ function scan2(buf, base2, home, assign, frames, charge) {
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt.replaceAll(QM, ""))) vok = false;
+    const whole = !cut4;
+    cut4 = false;
+    if (!vplainexp(stmt.replaceAll(QM, ""), whole)) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
@@ -9814,6 +9819,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
         if (assign && last === "$") stmt = stmt + ENC[8] + ENC[9] + forsrc(i2);
         else stmt = stmt.slice(0, -1);
       }
+      cut4 = true;
       flush();
       push();
       continue;
@@ -9827,6 +9833,7 @@ function scan2(buf, base2, home, assign, frames, charge) {
     if (c === "`") {
       vkill = true;
       if (assign && !bt) stmt += "$" + ENC[8] + ENC[9];
+      cut4 = true;
       flush();
       if (bt) {
         bt = false;
@@ -25088,6 +25095,10 @@ var GH_VALUE_FLAGS = /* @__PURE__ */ new Set([
 var REDIRECT = /(^|[ \t])(\d*|&)(>>?|>\||<)[ \t]*\S+/g;
 var FLATTENED = /[ \t\n<>|;&()`]/g;
 var LITERAL_NODES = ["raw_string", "ansi_c_string", "heredoc_body", "comment"];
+var CAPTURE_OPERATORS = /* @__PURE__ */ new Set([">", ">>", ">|", "&>", "&>>"]);
+var INLINE_BODIES = ["heredoc_redirect", "herestring_redirect"];
+var AUTHORS = /* @__PURE__ */ new Set(["echo", "printf", "cat"]);
+var WRAPPERS2 = /* @__PURE__ */ new Set(["command", "builtin", "env", "exec", "nohup", "sudo", "time", "nice", "timeout", "stdbuf", "xargs", "eval", "bash", "sh", "zsh", "dash", "ksh"]);
 var BODY_FILE_REASON = "BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.";
 function proseReason(target) {
   return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
@@ -25187,6 +25198,63 @@ async function withoutRmTargets(lines2, statements2, cwd, env) {
   }
   return kept;
 }
+function present(nodes) {
+  return nodes.filter((node) => node !== null);
+}
+function hasInlineBody(node) {
+  return present(node.descendantsOfType(INLINE_BODIES)).length > 0;
+}
+function authors(command) {
+  if (hasInlineBody(command)) return true;
+  const name3 = command.childForFieldName("name");
+  if (name3 === null || name3.namedChildCount !== 1 || name3.namedChildren[0]?.type !== "word") return true;
+  const program = posixBasename(name3.text);
+  const operands = present(command.childrenForFieldName("argument")).map((arg) => arg.text);
+  if (WRAPPERS2.has(program)) return operands.some((word) => /\b(?:echo|printf|cat)\b/.test(word));
+  if (program !== "cat") return AUTHORS.has(program);
+  return operands.every((word) => word.startsWith("-"));
+}
+function capturesOnly(node) {
+  return node !== null && node !== void 0 && node.type === "command" && !authors(node);
+}
+function ownerCapturesOnly(redirect) {
+  const owner = redirect.parent;
+  if (owner === null) return false;
+  if (owner.type === "command") return capturesOnly(owner);
+  if (owner.type !== "redirected_statement" || hasInlineBody(owner)) return false;
+  let body2 = owner.childForFieldName("body");
+  while (body2?.type === "list") body2 = body2.namedChildren.at(-1) ?? null;
+  if (body2 === null || body2 === void 0) return false;
+  const members = body2.type === "pipeline" ? present(body2.namedChildren) : [body2];
+  if (!members.every((member2) => member2.type === "command") || !capturesOnly(members[0]) || !capturesOnly(members.at(-1))) return false;
+  const outer = owner.parent;
+  if (outer?.type !== "pipeline") return true;
+  const head = outer.namedChildren[0];
+  return head?.id === owner.id || capturesOnly(head);
+}
+function captureSpan(redirect) {
+  const operator = redirect.children.find((child) => child !== null && !child.isNamed);
+  if (operator === void 0 || operator === null || !CAPTURE_OPERATORS.has(operator.type)) return null;
+  const destination = redirect.childForFieldName("destination");
+  if (destination === null || present(destination.descendantsOfType(["command_substitution", "process_substitution"])).length > 0) return null;
+  for (let up = redirect.parent; up !== null; up = up.parent) if (INLINE_BODIES.includes(up.type)) return null;
+  return ownerCapturesOnly(redirect) ? [redirect.startIndex, destination.endIndex] : null;
+}
+async function withoutOutputCapture(command) {
+  const tree = (await bashParser()).parse(command);
+  if (tree === null) return command;
+  const spans = present(tree.rootNode.descendantsOfType("file_redirect")).flatMap((redirect) => {
+    const span = captureSpan(redirect);
+    return span === null ? [] : [span];
+  });
+  tree.delete();
+  let blanked = command;
+  for (const [start2, end] of spans) blanked = blanked.slice(0, start2) + " ".repeat(end - start2) + blanked.slice(end);
+  return blanked;
+}
+function proseTargets(lines2) {
+  return lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+}
 async function bashRule2(input, env) {
   const command = await joinContinuations(field6(input, ["tool_input", "command"]));
   if (command === "") return ALLOW;
@@ -25195,12 +25263,15 @@ async function bashRule2(input, env) {
   const cwd = payloadCwd(input, env);
   const lines2 = capture6((await writePaths(command, { cwd, env: runEnv })).join("\n")).split("\n");
   if (lines2.some(isCapLine)) return ALLOW;
-  const prose = lines2.filter((line) => line !== "" && !line.startsWith("UNRESOLVED:") && isProseFile(line));
+  const prose = proseTargets(lines2);
   if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
   const listed2 = await cmdStatements(command, cwd, env);
   if (!listed2.ok) return ALLOW;
   if (listed2.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny11(BODY_FILE_REASON);
-  for (const path of await withoutRmTargets(prose, listed2.statements, cwd, runEnv)) {
+  if (prose.length === 0) return ALLOW;
+  const blanked = capture6((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join("\n")).split("\n");
+  const authored = blanked.some((line) => isCapLine(line) || line.startsWith("UNRESOLVED:$(parse)")) ? prose : proseTargets(blanked);
+  for (const path of await withoutRmTargets(authored, listed2.statements, cwd, runEnv)) {
     if (await deniedProse(path, tmpdir2, env)) return deny11(proseReason(path));
   }
   return ALLOW;
