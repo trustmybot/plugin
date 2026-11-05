@@ -21,7 +21,6 @@ SLOW_TIMEOUT_S=240
 SLOW_FILES=(
   swe-boundary.test.sh
   cmd-analysis.test.sh
-  containment-guard.test.sh
   merge-driver.test.sh
 )
 

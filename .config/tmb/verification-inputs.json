@@ -2,7 +2,7 @@
   "version": 1,
   "commands": [
     {
-      "match": "bash tests/l3-integration/hooks/containment-guard.test.sh",
+      "match": "cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/containment-guard-l3.test.js",
       "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
     },
     {
