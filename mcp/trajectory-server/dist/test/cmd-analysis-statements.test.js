@@ -2,7 +2,7 @@
  * Same-command VAR=<literal> tracking in statementsEnc against
  * _tmb_cmd_statements_enc (GH 1911): every row of
  * tests/fixtures/cmd-analysis/statement-vars.jsonl, which
- * tests/l3-integration/hooks/cmd-analysis.test.sh asserts on the bash side,
+ * cmd-analysis-l3-helpers.test.ts asserts on the bash side,
  * gives the same dir token per statement after encode(). A `parse: false` row
  * is one tree-sitter-bash rejects, so the TS refuses it outright; a `ts_dirs`
  * row records where the TS splits statements differently.
