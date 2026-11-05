@@ -183,8 +183,8 @@ describe('validation_record review findings (GH 1737)', () => {
       (await call(compositeTools(db, '').handlers, 'task_brief', { agent: 'swe', task_id: taskId })) as RawResult,
     ) as { open_findings: unknown };
     assert.deepEqual(brief.open_findings, [
-      { id: `F${taskId}-3`, criterion_id: null, probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1' },
-      { id: `F${taskId}-4`, criterion_id: 'SC2', probe_cmd: 'exit 3', expected: 'exit 0', observed: 'exit 1: 2 failing' },
+      { id: `F${taskId}-3`, criterion_id: null, probe_cmd: 'npm run lint', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: null },
+      { id: `F${taskId}-4`, criterion_id: 'SC2', probe_cmd: 'exit 3', expected: 'exit 0', observed: 'exit 1: 2 failing', severity: 'blocking', class: null },
     ]);
   });
 
@@ -206,6 +206,145 @@ describe('validation_record review findings (GH 1737)', () => {
     assert.ok(!result.isError, JSON.stringify(parseResult(result)));
     assert.deepEqual(parseResult(result).findings, []);
     assert.deepEqual(findingRows(), before);
+  });
+});
+
+describe('validation_record finding severity and class (GH 1955)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+
+  before(async () => {
+    db = tempDB();
+    taskId = await createTask(db, await createIssue(db));
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  function record(attemptN: number, extra: Record<string, unknown>): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-agent-${String(attemptN).padStart(4, '0')}` });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer',
+      task_id: taskId,
+      attempt_n: attemptN,
+      feedback: '# Review',
+      mcp_available: true,
+      ...extra,
+    });
+  }
+
+  const attempts = (attemptN: number): number =>
+    db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND attempt_n = ?', [taskId, attemptN])!.n;
+  const rowsOf = (attemptN: number): Array<Record<string, unknown>> =>
+    db
+      .all<Record<string, unknown>>(
+        'SELECT id, severity, class, status FROM review_findings WHERE task_id = ? AND attempt_n = ? ORDER BY id',
+        [taskId, attemptN],
+      )
+      .map((r) => ({ ...r }));
+
+  it('GH 1955: a fail verdict records a nit and a blocking finding with their severity and class', async () => {
+    const result = await record(1, {
+      verdict: 'fail',
+      findings: [
+        { ...FINDING, severity: 'blocking', class: 'unquoted SQL' },
+        { ...FINDING, probe_cmd: 'npm run lint', severity: 'nit', class: '  naming  ' },
+      ],
+    });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    const rows = rowsOf(1);
+    assert.deepEqual(rows, [
+      { id: `F${taskId}-1`, severity: 'blocking', class: 'unquoted SQL', status: 'open' },
+      { id: `F${taskId}-2`, severity: 'nit', class: 'naming', status: 'open' },
+    ]);
+    for (const row of rows) {
+      assert.notEqual(row['severity'], null);
+      assert.notEqual(row['class'], null);
+    }
+    const returned = parseResult(result).findings as Array<Record<string, unknown>>;
+    assert.deepEqual(returned.map((f) => [f['severity'], f['class']]), [['blocking', 'unquoted SQL'], ['nit', 'naming']]);
+  });
+
+  it('GH 1955: an omitted severity stores blocking and an omitted class NULL', async () => {
+    const result = await record(2, { verdict: 'fail', findings: [FINDING] });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.deepEqual(rowsOf(2), [{ id: `F${taskId}-3`, severity: 'blocking', class: null, status: 'open' }]);
+  });
+
+  it('GH 1955: a fail verdict with only nit and pre_existing findings is refused as findings_required naming severity', async () => {
+    const result = await record(3, {
+      verdict: 'fail',
+      findings: [{ ...FINDING, severity: 'nit' }, { ...FINDING, severity: 'pre_existing' }],
+    });
+    assert.ok(result.isError);
+    const error = parseResult(result).error as string;
+    assert.match(error, /^findings_required/);
+    assert.match(error, /severity blocking/);
+    assert.equal(attempts(3), 0);
+    assert.deepEqual(rowsOf(3), []);
+  });
+
+  it('GH 1955: a pass verdict records nit and pre_existing findings as open findings with that severity', async () => {
+    const result = await record(4, {
+      verdict: 'pass',
+      findings: [
+        { ...FINDING, severity: 'nit', class: 'style' },
+        { ...FINDING, severity: 'pre_existing' },
+      ],
+    });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.equal(parseResult(result).verdict, 'pass');
+    assert.deepEqual(rowsOf(4), [
+      { id: `F${taskId}-4`, severity: 'nit', class: 'style', status: 'open' },
+      { id: `F${taskId}-5`, severity: 'pre_existing', class: null, status: 'open' },
+    ]);
+  });
+
+  it('GH 1955: a pass verdict with a blocking finding, explicit or by default, is refused as findings_refused', async () => {
+    for (const [n, findings] of [
+      [5, [{ ...FINDING, severity: 'nit' }, { ...FINDING, severity: 'blocking' }]],
+      [6, [FINDING]],
+    ] as const) {
+      const result = await record(n, { verdict: 'pass', findings });
+      assert.ok(result.isError);
+      assert.match(parseResult(result).error as string, /^findings_refused/);
+      assert.equal(attempts(n), 0);
+    }
+  });
+
+  it('GH 1955: an escalate verdict keeps needing a non-empty list and takes any severity', async () => {
+    const empty = await record(7, { verdict: 'escalate', findings: [] });
+    assert.match(parseResult(empty).error as string, /^findings_required/);
+    const nitOnly = await record(8, { verdict: 'escalate', findings: [{ ...FINDING, severity: 'nit' }] });
+    assert.ok(!nitOnly.isError, JSON.stringify(parseResult(nitOnly)));
+  });
+
+  it('GH 1955: refuses an unknown severity and a non-string or empty class', async () => {
+    for (const [n, bad, pattern] of [
+      [9, { ...FINDING, severity: 'major' }, /severity must be one of blocking, nit, pre_existing/],
+      [10, { ...FINDING, severity: 3 }, /severity must be one of/],
+      [11, { ...FINDING, class: 7 }, /class must be a non-empty string or null/],
+      [12, { ...FINDING, class: '   ' }, /class must be a non-empty string or null/],
+    ] as const) {
+      const result = await record(n, { verdict: 'fail', findings: [bad] });
+      assert.ok(result.isError, JSON.stringify(parseResult(result)));
+      assert.match(parseResult(result).error as string, pattern);
+      assert.equal(attempts(n), 0);
+    }
+  });
+
+  it('GH 1955: task_brief.open_findings lists only open blocking findings, each with severity and class', async () => {
+    const brief = parseResult(
+      (await call(compositeTools(db, '').handlers, 'task_brief', { agent: 'swe', task_id: taskId })) as RawResult,
+    ) as { open_findings: Array<Record<string, unknown>> };
+    assert.deepEqual(
+      brief.open_findings.map((f) => [f['id'], f['severity'], f['class']]),
+      [
+        [`F${taskId}-1`, 'blocking', 'unquoted SQL'],
+        [`F${taskId}-3`, 'blocking', null],
+      ],
+    );
   });
 });
 
