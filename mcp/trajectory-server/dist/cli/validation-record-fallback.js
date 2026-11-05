@@ -5,8 +5,10 @@
  * functions, then writes the validation_attempts row with mcp_available = 0
  * and the attempt's review_findings through tmb_db_write's port (busy timeout,
  * foreign keys on, one BEGIN IMMEDIATE transaction, a retry on a busy DB).
- * Re-recording an attempt replaces its row and its open findings; each finding
- * gets id F<task_id>-<n>, n continuing after the task's highest.
+ * Rows are append-only: an attempt_n that already has a row is stored as the
+ * task's highest attempt_n + 1, and the JSON reports the stored attempt; each
+ * finding attaches to it with id F<task_id>-<n>, n continuing after the task's
+ * highest.
  */
 import { dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { sqlQuote } from '../hooks/lib/db.js';
@@ -82,24 +84,19 @@ export function findingsCheck(findings, verdict) {
 function writeSql(taskId, attemptN, verdict, feedback, session, findings, createdAt) {
     const safeFindings = sqlQuote(findings);
     const findingsArray = `CASE json_type('${safeFindings}') WHEN 'array' THEN json('${safeFindings}') ELSE '[]' END`;
-    return `INSERT INTO validation_attempts
+    return `CREATE TEMP TABLE fallback_attempt AS
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ${taskId} AND attempt_n = ${attemptN})
+    THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ${taskId})
+    ELSE ${attemptN} END AS n;
+INSERT INTO validation_attempts
   (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
 VALUES
-  (${taskId}, ${attemptN}, 'code-reviewer', '${verdict}', '${sqlQuote(feedback)}', 0, '${sqlQuote(session)}', '${createdAt}')
-ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-  agent = excluded.agent,
-  verdict = excluded.verdict,
-  feedback = excluded.feedback,
-  mcp_available = excluded.mcp_available,
-  subagent_session_id = excluded.subagent_session_id,
-  reviewer_agent_id = NULL,
-  created_at = excluded.created_at;
+  (${taskId}, (SELECT n FROM fallback_attempt), 'code-reviewer', '${verdict}', '${sqlQuote(feedback)}', 0, '${sqlQuote(session)}', '${createdAt}');
 CREATE TEMP TABLE fallback_last_finding AS
   SELECT COALESCE(MAX(CAST(substr(id, instr(id, '-') + 1) AS INTEGER)), 0) AS n
   FROM review_findings WHERE task_id = ${taskId};
-DELETE FROM review_findings WHERE task_id = ${taskId} AND attempt_n = ${attemptN} AND status = 'open';
 INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
-  SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1), ${taskId}, ${attemptN},
+  SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1), ${taskId}, (SELECT n FROM fallback_attempt),
     CASE WHEN json_type(e.value, '$.criterion_id') = 'text' THEN trim(json_extract(e.value, '$.criterion_id'), ${WS}) END,
     trim(json_extract(e.value, '$.probe_cmd'), ${WS}),
     trim(json_extract(e.value, '$.expected'), ${WS}),
@@ -109,11 +106,13 @@ INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, ex
     CASE WHEN json_type(e.value, '$.class') = 'text' THEN trim(json_extract(e.value, '$.class'), ${WS}) END
   FROM json_each(${findingsArray}) e
   ORDER BY e.key;
+SELECT n FROM fallback_attempt;
 SELECT json_group_array(id) FROM (
   SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1) AS id
   FROM json_each(${findingsArray}) e
   ORDER BY e.key);
-DROP TABLE fallback_last_finding;`;
+DROP TABLE fallback_last_finding;
+DROP TABLE fallback_attempt;`;
 }
 /** Runs the subcommand on <argv> (the arguments after its name); returns the exit code. */
 export function validationRecordFallback(argv, env, io) {
@@ -157,8 +156,10 @@ export function validationRecordFallback(argv, env, io) {
         io.out(`{"error":"db-write-failed","path":"${db}","hint":"tmb_db_write reported the cause on stderr."}\n`);
         return 1;
     }
-    const ids = r.stdout.replace(/\n+$/, '').split('\n').pop() || '[]';
-    io.out(`{"ok":true,"task_id":${taskId},"attempt_n":${attemptN},"verdict":"${verdict}","findings":${ids}}\n`);
+    const out = r.stdout.replace(/\n+$/, '').split('\n');
+    const ids = out.pop() || '[]';
+    const stored = out.pop() || attemptN;
+    io.out(`{"ok":true,"task_id":${taskId},"attempt_n":${stored},"verdict":"${verdict}","findings":${ids}}\n`);
     return 0;
 }
 //# sourceMappingURL=validation-record-fallback.js.map

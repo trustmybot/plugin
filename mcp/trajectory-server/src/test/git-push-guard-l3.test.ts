@@ -111,6 +111,25 @@ describe('git-push-guard l3: the review gate', () => {
     hasNot(out, 'task_id=1 ', 'signed task 1 should not appear in block list');
   });
 
+  it('GH 2412: the newest verdict gates: a fail after a pass BLOCKS, a newer pass allows', () => {
+    const db = bothSigned(r);
+    const verdict = (attempt: number, v: string) =>
+      sql(
+        db,
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+           VALUES (2, ?, 'code-reviewer', ?, 1, 'review', datetime('now'))`,
+        attempt,
+        v,
+      );
+    verdict(2, 'fail');
+    const out = run('git push origin main', db);
+    has(out, DENY, 'a newest fail must block despite the older pass');
+    has(out, 'task_id=2', 'the task whose newest verdict is a fail is listed');
+    hasNot(out, 'task_id=1 ', 'task 1, newest verdict pass, is not listed');
+    verdict(3, 'pass');
+    hasNot(run('git push origin main', db), DENY, 'a newer pass allows the push');
+  });
+
   it('SWE caller (tmb:swe): git push BLOCKED regardless of unsigned status', () => {
     const out = run('git push origin main', bothSigned(r), 'tmb:swe');
     has(out, DENY, 'SWE push must be blocked even with all-signed commits');

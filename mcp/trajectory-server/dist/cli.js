@@ -481,7 +481,7 @@ var init_audit_events = __esm({
       { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
       { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate stops probing it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
       { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
-      { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+      { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`, and the task's newest `validation_attempts` row (highest `id`) is a pass: a newer `fail` or `escalate` row cancels it" },
       { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
       { type: "reviewer_effort_assigned", writers: ["bro"], description: "`bro_atomic_close` assigned the effort the task's code-reviewer spawn runs at (GH 1955), returned as `reviewer_effort`; one row per close, in the close transaction right after `bro_verification_pass`, on the task's issue, from_node `bro`. The risk tier is `high` for a prompt-bearing task or a changed path overlapping a `high_effort_paths` prefix, `low` when every changed path is docs or tests, else `medium`; it applies with `plugin_config.reviewer_effort_tiers` true or in the `tiered` arm of `plugin_config.reviewer_effort_ab` (even task ids; odd ids are `fixed`), else the effort is `reviewer_effort` (reason `config`, also when the scope check did not run). `require-spawn-effort` and `swe-atomic-close` read the newest row for the task; `task_recover` writes none. `content_json` carries `task_id`, `commit_sha`, `effort` (`low`, `medium`, `high`), `reason` (`prompt_bearing`, `high_effort_paths`, `docs_tests`, `default`, `config`) and, for a task enrolled in the A/B, `label` and `arm`" },
       { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
@@ -4474,16 +4474,20 @@ var init_agent_runs = __esm({
 });
 
 // src/review-sql.ts
+function newestVerdictPassSql(alias) {
+  return `COALESCE((SELECT v.verdict FROM validation_attempts v WHERE v.task_id = ${alias}.id ORDER BY v.id DESC LIMIT 1), '') = 'pass'`;
+}
 var HAS_PASS_SQL, reviewSkipAuthoredSql, GATE_SKIP_RECORDED_SQL;
 var init_review_sql = __esm({
   "src/review-sql.ts"() {
     "use strict";
-    HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+    HAS_PASS_SQL = `(EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
       WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))
+  AND ${newestVerdictPassSql("t")})`;
     reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
       OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
     GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
@@ -10536,24 +10540,19 @@ function findingsCheck(findings, verdict) {
 function writeSql(taskId, attemptN, verdict, feedback, session, findings, createdAt) {
   const safeFindings = sqlQuote(findings);
   const findingsArray = `CASE json_type('${safeFindings}') WHEN 'array' THEN json('${safeFindings}') ELSE '[]' END`;
-  return `INSERT INTO validation_attempts
+  return `CREATE TEMP TABLE fallback_attempt AS
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ${taskId} AND attempt_n = ${attemptN})
+    THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ${taskId})
+    ELSE ${attemptN} END AS n;
+INSERT INTO validation_attempts
   (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
 VALUES
-  (${taskId}, ${attemptN}, 'code-reviewer', '${verdict}', '${sqlQuote(feedback)}', 0, '${sqlQuote(session)}', '${createdAt}')
-ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-  agent = excluded.agent,
-  verdict = excluded.verdict,
-  feedback = excluded.feedback,
-  mcp_available = excluded.mcp_available,
-  subagent_session_id = excluded.subagent_session_id,
-  reviewer_agent_id = NULL,
-  created_at = excluded.created_at;
+  (${taskId}, (SELECT n FROM fallback_attempt), 'code-reviewer', '${verdict}', '${sqlQuote(feedback)}', 0, '${sqlQuote(session)}', '${createdAt}');
 CREATE TEMP TABLE fallback_last_finding AS
   SELECT COALESCE(MAX(CAST(substr(id, instr(id, '-') + 1) AS INTEGER)), 0) AS n
   FROM review_findings WHERE task_id = ${taskId};
-DELETE FROM review_findings WHERE task_id = ${taskId} AND attempt_n = ${attemptN} AND status = 'open';
 INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
-  SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1), ${taskId}, ${attemptN},
+  SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1), ${taskId}, (SELECT n FROM fallback_attempt),
     CASE WHEN json_type(e.value, '$.criterion_id') = 'text' THEN trim(json_extract(e.value, '$.criterion_id'), ${WS}) END,
     trim(json_extract(e.value, '$.probe_cmd'), ${WS}),
     trim(json_extract(e.value, '$.expected'), ${WS}),
@@ -10563,11 +10562,13 @@ INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, ex
     CASE WHEN json_type(e.value, '$.class') = 'text' THEN trim(json_extract(e.value, '$.class'), ${WS}) END
   FROM json_each(${findingsArray}) e
   ORDER BY e.key;
+SELECT n FROM fallback_attempt;
 SELECT json_group_array(id) FROM (
   SELECT 'F${taskId}-' || ((SELECT n FROM fallback_last_finding) + e.key + 1) AS id
   FROM json_each(${findingsArray}) e
   ORDER BY e.key);
-DROP TABLE fallback_last_finding;`;
+DROP TABLE fallback_last_finding;
+DROP TABLE fallback_attempt;`;
 }
 function validationRecordFallback(argv2, env, io2) {
   if (argv2.length < 5 || argv2.length > 6) {
@@ -10616,8 +10617,10 @@ function validationRecordFallback(argv2, env, io2) {
 `);
     return 1;
   }
-  const ids = r.stdout.replace(/\n+$/, "").split("\n").pop() || "[]";
-  io2.out(`{"ok":true,"task_id":${taskId},"attempt_n":${attemptN},"verdict":"${verdict}","findings":${ids}}
+  const out = r.stdout.replace(/\n+$/, "").split("\n");
+  const ids = out.pop() || "[]";
+  const stored = out.pop() || attemptN;
+  io2.out(`{"ok":true,"task_id":${taskId},"attempt_n":${stored},"verdict":"${verdict}","findings":${ids}}
 `);
   return 0;
 }

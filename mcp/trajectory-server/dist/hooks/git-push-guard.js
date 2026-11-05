@@ -19,6 +19,7 @@ import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath } from './lib/repo.js';
 import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
+import { newestVerdictPassSql } from '../review-sql.js';
 export const GATE_NAME = 'git-push-guard';
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
@@ -164,7 +165,7 @@ class Guard {
             return '';
         const name = repoNameForRoot(this.db, await repoGitRoot(dir, this.env), this.env);
         const repoFilter = name === '' ? '' : `AND (t.repo IS NULL OR t.repo = '${sqlQuote(name)}')`;
-        const tasks = this.read(`SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass') FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`);
+        const tasks = this.read(`SELECT t.commit_sha || '|' || t.id || '|' || COALESCE(t.branch_id, '') || '|' || (${newestVerdictPassSql('t')}) FROM tasks t WHERE length(t.commit_sha) >= 7 AND t.commit_sha NOT GLOB '*[^0-9a-f]*' ${repoFilter} ORDER BY t.id;`);
         if (tasks === GATE_READ_ERROR)
             return GATE_READ_ERROR;
         if (tasks === '')
@@ -250,7 +251,7 @@ class Guard {
         const shaList = hexLines(pushed).map((sha) => `'${sha}'`);
         if (shaList.length === 0)
             return null;
-        const unsigned = this.read(`SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(',')}) AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass');`);
+        const unsigned = this.read(`SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(',')}) AND NOT (${newestVerdictPassSql('t')});`);
         if (unsigned === GATE_READ_ERROR)
             return deny(DB_REASON);
         if (unsigned !== '') {

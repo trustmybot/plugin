@@ -12,12 +12,13 @@
 // row records which sha a completion carried. validation_attempts carries no
 // commit_sha, so time is the only link. close-issue-on-merge and
 // cleanup-worktree-on-task-close read it from here.
-export const HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+export const HAS_PASS_SQL = `(EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
       WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))
+  AND ${newestVerdictPassSql('t')})`;
 
 // A recorded bypass or waiver for the task's current commit means the
 // trajectory already says the review gate was skipped. Only bro authors a
@@ -34,3 +35,10 @@ export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// validation_attempts is append-only, so a task's verdict is its newest row
+// (highest id): an older pass under a newer fail or escalate does not count,
+// and a task with no rows has no pass.
+export function newestVerdictPassSql(alias: string): string {
+  return `COALESCE((SELECT v.verdict FROM validation_attempts v WHERE v.task_id = ${alias}.id ORDER BY v.id DESC LIMIT 1), '') = 'pass'`;
+}

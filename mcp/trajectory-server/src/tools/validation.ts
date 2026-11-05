@@ -198,7 +198,7 @@ export function validationTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'validation_record',
-      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones.',
+      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -213,7 +213,7 @@ export function validationTools(db: TrajectoryDB): {
             type: 'array',
             description:
               'One entry per defect. A fail verdict needs at least one blocking finding; escalate needs a non-empty list; pass takes only nit and pre_existing findings (absent or [] when there are none). ' +
-              'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt\'s open findings. ' +
+              'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; findings attach to the stored attempt and are never deleted.' +
               'On every later task_update_status(completed) the swe verification gate runs each non-wontfix blocking finding\'s probe_cmd after verification[]: ' +
               'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
               'task_brief.open_findings shows the open blocking ones to the swe; nit and pre_existing findings stay on record and block nothing.',
@@ -306,21 +306,10 @@ export function validationTools(db: TrajectoryDB): {
       const now = nowISO();
       const callerSessionId = typeof args['subagent_session_id'] === 'string' ? (args['subagent_session_id'] as string) : null;
       const findingIds: string[] = [];
+      let storedAttempt = attemptN;
+      let rowId: number | bigint = 0;
 
       db.transaction(() => {
-        if (mcpAvailable === 0) {
-          const verified = db.get<{ verdict: string; reviewer_agent_id: string | null; created_at: string }>(
-            `SELECT verdict, reviewer_agent_id, created_at FROM validation_attempts
-              WHERE task_id = ? AND attempt_n = ? AND mcp_available = 1`,
-            [taskId, attemptN],
-          );
-          if (verified) {
-            throw new Error(
-              `verified_verdict_exists: task ${taskId} attempt ${attemptN} already holds a verified ${verified.verdict} verdict (reviewer_agent_id ${verified.reviewer_agent_id ?? 'null'}, recorded ${verified.created_at}); an honor-system call (mcp_available:false) cannot overwrite it.`,
-            );
-          }
-        }
-
         const latest = latestObservation(db, taskId, attemptN);
         const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
         const staleRow = latest !== undefined && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : undefined;
@@ -378,45 +367,38 @@ export function validationTools(db: TrajectoryDB): {
           );
         }
 
-        db.run(
+        storedAttempt = db.get<{ n: number }>(
+          `SELECT CASE WHEN EXISTS (SELECT 1 FROM validation_attempts WHERE task_id = ?1 AND attempt_n = ?2)
+                  THEN (SELECT MAX(attempt_n) + 1 FROM validation_attempts WHERE task_id = ?1)
+                  ELSE ?2 END AS n`,
+          [taskId, attemptN],
+        )?.n ?? attemptN;
+        rowId = db.run(
           `INSERT INTO validation_attempts
              (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-             agent = excluded.agent,
-             verdict = excluded.verdict,
-             feedback = excluded.feedback,
-             mcp_available = excluded.mcp_available,
-             subagent_session_id = excluded.subagent_session_id,
-             reviewer_agent_id = excluded.reviewer_agent_id,
-             created_at = excluded.created_at,
-             repo = excluded.repo`,
-          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo],
-        );
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo],
+        ).lastInsertRowid;
 
         const lastN =
           db.get<{ n: number | null }>(
             `SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`,
             [taskId],
           )?.n ?? 0;
-        db.run(
-          `DELETE FROM review_findings WHERE task_id = ? AND attempt_n = ? AND status = 'open'`,
-          [taskId, attemptN],
-        );
         findings.forEach((f, i) => {
           const id = `F${taskId}-${lastN + i + 1}`;
           db.run(
             `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
              VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
-            [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class],
+            [id, taskId, storedAttempt, f.criterion_id, f.probe_cmd, f.expected, f.observed, now, f.severity, f.class],
           );
           findingIds.push(id);
         });
       });
 
       const row = db.get<ValidationAttempt>(
-        `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
-        [taskId, attemptN],
+        `SELECT * FROM validation_attempts WHERE rowid = ?`,
+        [rowId],
       );
       const recorded = findingIds.map((id) => ({ ...db.get<ReviewFinding>('SELECT * FROM review_findings WHERE id = ?', [id]) }));
 
