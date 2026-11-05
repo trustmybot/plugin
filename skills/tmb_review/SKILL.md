@@ -20,7 +20,7 @@ Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <s
 
 Trust the swe's checklist of what changed, and take the facts from the records:
 
-- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per review finding — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
+- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per open blocking finding (nit and pre_existing findings are not probed) — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
 - **Scope** comes from `task_brief.scope`: `files`, the `extras_accepted` bro accepted at close, and `base_moved`. Read it as given.
 - **Criteria claims** come from `task_brief.completion_report`: one `met` / `not_met` / `not_applicable` entry per `SC<n>` id, with its `evidence_cmd` or `note`. Treat them as claims to check against the diff; a `not_met`, or a `not_applicable` the spec does not support, is a FAIL.
 - **Case sweep** comes from `task_brief.completion_report.case_sweep`: one `{class, checked}` entry per rule or pattern the diff changes and per open finding's class. Check it against the diff: a changed class with no entry, or a sibling its `checked` list missed, is a blocking finding.
@@ -75,7 +75,7 @@ A `fail` or `escalate` verdict lists `findings[]`, one entry per defect class, a
 | `expected` | What correct behaviour looks like — what the probe checks for |
 | `observed` | What you saw instead, with the file:line or output that shows it |
 
-Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The gate re-runs every probe on each later close attempt, so a probe that passes on broken code waves the defect through. You record probes; the rework swe commits each one as a test.
+Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The close gate re-runs the probe of every open blocking finding on each later close attempt (nit and pre_existing findings are not probed), so a probe that passes on broken code waves the defect through. You record probes; the rework swe commits each one as a test.
 
 ## Writing the validation_attempts row — YOU write it yourself
 
