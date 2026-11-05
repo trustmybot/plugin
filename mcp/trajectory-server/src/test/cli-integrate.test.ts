@@ -45,6 +45,20 @@ const src = path.join(root, "src");
 const names = fs.readdirSync(src).filter((n) => n.endsWith(".txt")).sort();
 fs.writeFileSync(path.join(root, "gen/out.txt"), names.map((n) => fs.readFileSync(path.join(src, n), "utf8")).join(""));
 `;
+const REGEN_HASHED = `const fs = process.getBuiltinModule("node:fs");
+const path = process.getBuiltinModule("node:path");
+const crypto = process.getBuiltinModule("node:crypto");
+const root = path.resolve(path.dirname(process.argv[1]), "../..");
+const src = path.join(root, "src");
+const gen = path.join(root, "gen");
+const names = fs.readdirSync(src).filter((n) => n.endsWith(".txt")).sort();
+const body = names.map((n) => fs.readFileSync(path.join(src, n), "utf8")).join("");
+const hash = crypto.createHash("sha1").update(body).digest("hex").slice(0, 8);
+for (const n of fs.readdirSync(gen)) fs.rmSync(path.join(gen, n));
+fs.writeFileSync(path.join(gen, "chunk-" + hash + ".txt"), hash + "\\n");
+fs.writeFileSync(path.join(gen, "out.txt"), "chunk-" + hash + ".txt\\n" + body);
+fs.writeFileSync(path.join(root, "regen.log"), "regenerated\\n");
+`;
 const REGEN_FAIL = `process.stderr.write("regen-generated: toolchain missing\\n");
 process.exit(2);
 `;
@@ -416,13 +430,23 @@ describe('cli.js integrate', () => {
   //              context changes)
   //   conflict — l4 of src/s.txt (a real source conflict)
   //   absorbed — the task's own l4 change (the rebase drops the task commit)
-  // The regen mode "fail" commits a regen script that exits 2.
+  // The regen mode "fail" commits a regen script that exits 2; "hashed" one
+  // that replaces gen/ with gen/out.txt naming a new gen/chunk-<content hash>.txt
+  // (a content-hashed chunk, GH 2353) and writes an untracked regen.log outside gen/.
   describe('generated files', () => {
+    let regenMode: 'ok' | 'fail' | 'hashed' = 'ok';
+
     function regenCommit(msg: string): void {
       mkdirSync(join(repo, 'gen'), { recursive: true });
-      const src = join(repo, 'src');
-      const names = readdirSync(src).filter((n) => n.endsWith('.txt')).sort();
-      writeFileSync(join(repo, 'gen/out.txt'), names.map((n) => readFileSync(join(src, n), 'utf8')).join(''));
+      if (regenMode === 'hashed') {
+        const r = spawnSync(process.execPath, ['scripts/maintenance/regen-generated.ts'], { cwd: repo, encoding: 'utf8', env: GIT_ENV });
+        assert.equal(r.status, 0, `hashed regen: ${r.stderr}`);
+        rmSync(join(repo, 'regen.log'));
+      } else {
+        const src = join(repo, 'src');
+        const names = readdirSync(src).filter((n) => n.endsWith('.txt')).sort();
+        writeFileSync(join(repo, 'gen/out.txt'), names.map((n) => readFileSync(join(src, n), 'utf8')).join(''));
+      }
       git('add', '-A', 'src', 'gen');
       git('commit', '-qm', msg);
     }
@@ -432,7 +456,8 @@ describe('cli.js integrate', () => {
       writeFileSync(join(repo, 'src/s.txt'), `${lines.join('\n')}\n`);
     }
 
-    function setupRegen(move: 'gen' | 'drift' | 'conflict' | 'absorbed', regen: 'ok' | 'fail' = 'ok'): void {
+    function setupRegen(move: 'gen' | 'drift' | 'conflict' | 'absorbed', regen: 'ok' | 'fail' | 'hashed' = 'ok'): void {
+      regenMode = regen;
       setup('none', REGEN_PASSING);
       const r = spawnSync(process.execPath, [HOOKS, 'install-merge-driver', repo], { cwd: repo, encoding: 'utf8', env: GIT_ENV });
       assert.equal(r.status, 0, `install-merge-driver: ${r.stderr}`);
@@ -441,7 +466,7 @@ describe('cli.js integrate', () => {
       writeFileSync(join(repo, '.gitattributes'), 'gen/** merge=tmb-regen\n');
       mkdirSync(join(repo, 'scripts/maintenance'), { recursive: true });
       mkdirSync(join(repo, 'src'), { recursive: true });
-      writeFileSync(join(repo, 'scripts/maintenance/regen-generated.ts'), regen === 'fail' ? REGEN_FAIL : REGEN_OK);
+      writeFileSync(join(repo, 'scripts/maintenance/regen-generated.ts'), { ok: REGEN_OK, fail: REGEN_FAIL, hashed: REGEN_HASHED }[regen]);
       sLines(0, '');
       git('add', '.gitattributes', 'scripts');
       regenCommit('chore: generated gen/out.txt');
@@ -485,6 +510,32 @@ describe('cli.js integrate', () => {
         q(`SELECT COUNT(*) || '|' || MAX(source) || '|' || MAX(exit_code) FROM verification_runs WHERE commit_sha = '${next}'`),
         '1|manual|0',
         'a passing manual run on the printed SHA',
+      );
+    });
+
+    it('regen renames a generated file: the amended commit tracks the new name only (GH 2353)', () => {
+      setupRegen('gen', 'hashed');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      const next = r.out;
+      const [chunk, ...body] = git('show', `${next}:gen/out.txt`).split('\n');
+      assert.equal(body.join('\n'), 'base\nl1\nl2\nl3\nl4-task\nl5\nl6\nl7', "gen/out.txt holds both sides' sources");
+      assert.match(chunk, /^chunk-[0-9a-f]{8}\.txt$/);
+      assert.deepEqual(git('ls-tree', '-r', '--name-only', next, '--', 'gen').split('\n'), [`gen/${chunk}`, 'gen/out.txt'], 'gen/ tracks the new chunk only');
+      assert.equal(git('log', '-1', '--format=%s|%an', next), 'feat: l4|Test', "the amended commit keeps the task's message and author");
+      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
+      assertNoTempWorktree();
+    });
+
+    it('regen writes an untracked file outside merge=tmb-regen paths: not committed', () => {
+      setupRegen('gen', 'hashed');
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      assert.equal(git('ls-tree', '--name-only', r.out, '--', 'regen.log'), '', 'regen.log is not in the amended commit');
+      assert.deepEqual(
+        git('diff', '--name-only', 'main', r.out, '--', '.', ':(exclude)gen').split('\n'),
+        ['src/s.txt'],
+        'outside gen/ the commit changes only the task source',
       );
     });
 

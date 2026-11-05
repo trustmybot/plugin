@@ -1,0 +1,2 @@
+### Fixed
+- **`cli.js integrate` keeps new regenerated files** (GH 2353): when the regen step renamed a generated file (such as a content-hashed `dashboard/dist/web/chunks/*.js` chunk), the amend staged the old name's deletion but not the new file, so the integrated commit imported missing chunks. The amend now stages every change under the `merge=tmb-regen` paths, new files included, and still leaves everything outside those paths out of the commit.
