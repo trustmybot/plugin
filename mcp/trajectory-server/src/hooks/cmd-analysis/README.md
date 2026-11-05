@@ -1,6 +1,6 @@
 # src/hooks/cmd-analysis
 
-The TypeScript write-path analyzer (GH 1692): `tmb_cmd_write_paths` of `scripts/hooks/lib/cmd-analysis.sh` rebuilt on a tree-sitter-bash parse. Given a Bash command, it lists every path the command may write. Where it cannot name a path it prints an `UNRESOLVED:` line, so a gate can deny rather than allow. `cmd-analysis.sh` is frozen: the TS matches it line for line, except on the recorded cases where it is stricter.
+The TypeScript write-path analyzer (GH 1692): `tmb_cmd_write_paths` of the retired shell lib `cmd-analysis.sh` rebuilt on a tree-sitter-bash parse. Given a Bash command, it lists every path the command may write. Where it cannot name a path it prints an `UNRESOLVED:` line, so a gate can deny rather than allow. `cmd-analysis.sh` is retired: every hook runs on this port, which matched it line for line, except on the recorded cases where it is stricter.
 
 ## API
 
