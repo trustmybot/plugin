@@ -649,4 +649,49 @@ describe('validation_record return_line (GH 1959)', () => {
         assert.match(data.return_line, /^[\x20-\x7e]+$/);
     });
 });
+describe('validation_history findings per attempt (GH 1955)', () => {
+    let db;
+    let taskId;
+    let otherTaskId;
+    before(async () => {
+        db = tempDB();
+        const issueId = await createIssue(db);
+        taskId = await createTask(db, issueId);
+        otherTaskId = Number(db.run(`INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, 'fix/other', 'd', 'pending', datetime('now'), datetime('now'))`, [issueId]).lastInsertRowid);
+        const now = new Date().toISOString();
+        for (const [n, verdict] of [[1, 'fail'], [2, 'pass']]) {
+            db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
+         VALUES (?, ?, 'code-reviewer', ?, '# fb', 1, ?)`, [taskId, n, verdict, now]);
+        }
+        db.run(`INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity, class)
+       VALUES (?, ?, 1, 'SC1', 'npm test', 'exit 0', 'exit 1', 'fixed', ?, 'blocking', 'off-by-one'),
+              (?, ?, 2, NULL, 'npm run lint', 'clean', '1 warning', 'open', ?, 'nit', NULL)`, [`F${taskId}-1`, taskId, now, `F${taskId}-2`, taskId, now]);
+    });
+    after(() => db.close());
+    const history = (args) => call(validationTools(db).handlers, 'validation_history', { task_id: taskId, ...args });
+    it('each row carries the findings of its attempt with their text, severity and class', async () => {
+        const rows = parseResult(await history({ agent: 'bro' }));
+        assert.deepEqual(rows.map((r) => r.findings), [
+            [{ id: `F${taskId}-1`, criterion_id: 'SC1', status: 'fixed', probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1', severity: 'blocking', class: 'off-by-one' }],
+            [{ id: `F${taskId}-2`, criterion_id: null, status: 'open', probe_cmd: 'npm run lint', expected: 'clean', observed: '1 warning', severity: 'nit', class: null }],
+        ]);
+    });
+    it("fields: ['findings'] projects the array, also on the paged form", async () => {
+        const rows = parseResult(await history({ agent: 'bro', fields: ['findings'] }));
+        assert.deepEqual(Object.keys(rows[0]), ['findings']);
+        assert.equal(rows[0]['findings'].length, 1);
+        const paged = parseResult(await history({ agent: 'bro', fields: ['attempt_n', 'findings'], limit: 1 }));
+        assert.equal(paged.rows[0]['findings'][0].id, `F${taskId}-1`);
+    });
+    it('swe gets findings exactly where it gets feedback', async () => {
+        const own = parseResult(await history({ agent: 'swe', own_task_id: taskId }));
+        assert.ok(own.every((r) => 'feedback' in r && Array.isArray(r['findings'])));
+        const other = parseResult(await history({ agent: 'swe', own_task_id: otherTaskId }));
+        assert.ok(other.length === 2 && other.every((r) => !('feedback' in r) && !('findings' in r)));
+    });
+    it('the tool description names findings', () => {
+        const def = validationTools(db).definitions.find((d) => d.name === 'validation_history');
+        assert.match(def.description ?? '', /findings, the review_findings rows of that attempt/);
+    });
+});
 //# sourceMappingURL=validation.test.js.map
