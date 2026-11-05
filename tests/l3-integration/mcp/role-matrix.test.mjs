@@ -8,14 +8,14 @@ import { startClient, call, seedReviewerObservation } from './harness.mjs';
 // Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
 // registered tool, gated or not, rejects a missing or invalid `agent`.
 
-test('onboard_apply — bro allowed, others forbidden, missing agent forbidden', async (t) => {
+test('onboard_apply — bro allowed, others forbidden, missing agent a missing argument', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   const missing = await call(client, 'onboard_apply', { shape: 'local' });
   assert.equal(missing.ok, false, 'call without agent must fail');
-  assert.equal(missing.error?.error, 'forbidden');
-  assert.equal(missing.error?.caller_role, 'unknown');
+  assert.equal(missing.error?.error, 'missing_argument');
+  assert.equal(missing.error?.argument, 'agent');
 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
@@ -97,6 +97,8 @@ test('missing agent is rejected on a tool with no role gate', async (t) => {
 
   const res = await call(client, 'issue_list', {});
   assert.equal(res.ok, false, 'issue_list without agent must fail');
+  assert.equal(res.error?.error, 'missing_argument');
+  assert.equal(res.error?.argument, 'agent');
   assert.equal(res.error?.reason, 'agent_missing_or_invalid');
   assert.equal(res.error?.tool, 'issue_list');
 
