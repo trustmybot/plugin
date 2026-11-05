@@ -7,6 +7,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { selectProjectInstalls } from './cheatcode-runtime.js';
 import { projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 import type { Writer } from '../audit-events.js';
 
@@ -92,7 +93,8 @@ function claudeJsonMcpKeys(): Set<string> {
   return new Set();
 }
 
-function parsePluginListing(text: string): Map<string, PluginEvidence> | null {
+/** Evidence per listed plugin id, from the install in effect for `projectRoot`; an id with none is disabled and unversioned. */
+function parsePluginListing(text: string, projectRoot: string | null): Map<string, PluginEvidence> | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -101,15 +103,9 @@ function parsePluginListing(text: string): Map<string, PluginEvidence> | null {
   }
   if (!Array.isArray(parsed)) return null;
   const plugins = new Map<string, PluginEvidence>();
-  for (const entry of parsed) {
-    if (!entry || typeof entry !== 'object') continue;
-    const { id, enabled, mcpServers, version } = entry as {
-      id?: unknown;
-      enabled?: unknown;
-      mcpServers?: unknown;
-      version?: unknown;
-    };
-    plugins.set(typeof id === 'string' ? id : '', {
+  for (const [id, entry] of selectProjectInstalls(parsed, projectRoot)) {
+    const { enabled, mcpServers, version } = entry ?? {};
+    plugins.set(id, {
       enabled: enabled === true,
       mcpServers: new Set(mcpServers && typeof mcpServers === 'object' ? Object.keys(mcpServers) : []),
       version: typeof version === 'string' && version !== '' ? version : null,
@@ -127,7 +123,7 @@ async function probeListings(
     runClaude(['plugin', 'list', '--json'], timeoutSec, projectRoot),
   ]);
   const mcpNames = new Set([...(mcpText === null ? [] : parseMcpListing(mcpText)), ...claudeJsonMcpKeys()]);
-  const plugins = pluginText === null ? null : parsePluginListing(pluginText);
+  const plugins = pluginText === null ? null : parsePluginListing(pluginText, projectRoot);
   return {
     evidence: { mcpServers: mcpNames.size > 0 ? mcpNames : null, plugins },
     listed: mcpText !== null || plugins !== null,

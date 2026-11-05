@@ -45479,8 +45479,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync13, readFileSync as readFileSync11, realpathSync as realpathSync9, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
-import { dirname as dirname13, join as join22 } from "node:path";
+import { existsSync as existsSync13, readFileSync as readFileSync12, realpathSync as realpathSync10, writeFileSync as writeFileSync6, unlinkSync } from "node:fs";
+import { dirname as dirname13, join as join23 } from "node:path";
 
 // src/file-purpose.ts
 var PURPOSE_HEAD_BYTES = 4096;
@@ -46205,12 +46205,12 @@ function cleanReadme(raw) {
 }
 
 // src/tools/scan-walk.ts
-import { spawn } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
-import { accessSync as accessSync3, constants as constants4, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync10, realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
+import { accessSync as accessSync4, constants as constants5, createReadStream, existsSync as existsSync12, lstatSync as lstatSync7, readdirSync as readdirSync5, readFileSync as readFileSync11, realpathSync as realpathSync9, statSync as statSync8 } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename10, dirname as dirname12, join as join21, resolve as resolve7 } from "node:path";
+import { basename as basename10, dirname as dirname12, join as join22, resolve as resolve8 } from "node:path";
 
 // src/hooks/lib/host.ts
 import { accessSync as accessSync2, constants as constants3, statSync as statSync6 } from "node:fs";
@@ -46225,6 +46225,274 @@ function commandOnPath(name2, env = process.env) {
     }
   }
   return false;
+}
+
+// src/tools/cheatcode-runtime.ts
+import { spawn } from "node:child_process";
+import { accessSync as accessSync3, constants as constants4, readFileSync as readFileSync10, realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
+import { constants as osConstants } from "node:os";
+import { join as join21, resolve as resolve7 } from "node:path";
+var CheatcodeInputError = class extends Error {
+  constructor(payload) {
+    super(JSON.stringify(payload));
+    this.payload = payload;
+    this.name = "CheatcodeInputError";
+  }
+  payload;
+};
+var FETCH_TIMEOUT_MS = 8e3;
+var CLI_TIMEOUT_MS = 3e4;
+function requireProjectRoot(projectRoot2) {
+  if (!projectRoot2) {
+    throw new CheatcodeInputError({
+      error: "TMB_PROJECT_ROOT is unset \u2014 the trajectory server sets it to the project root"
+    });
+  }
+}
+function isObject5(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+var INSTALL_SCOPE_RANK = /* @__PURE__ */ new Map([["local", 3], ["project", 2], ["user", 1]]);
+function canonicalDir(dir) {
+  try {
+    return realpathSync8(dir);
+  } catch {
+    return resolve7(dir);
+  }
+}
+function selectProjectInstalls(list, projectRoot2) {
+  const root = projectRoot2 ? canonicalDir(projectRoot2) : null;
+  const chosen = /* @__PURE__ */ new Map();
+  for (const entry of list) {
+    if (!isObject5(entry)) continue;
+    const id = typeof entry["id"] === "string" ? entry["id"] : "";
+    const scope = typeof entry["scope"] === "string" && entry["scope"] !== "" ? entry["scope"] : "user";
+    const projectPath = entry["projectPath"];
+    const here = scope === "user" || root !== null && typeof projectPath === "string" && projectPath !== "" && canonicalDir(projectPath) === root;
+    const rank = here ? INSTALL_SCOPE_RANK.get(scope) ?? 0 : 0;
+    const prev = chosen.get(id);
+    if (prev === void 0 || rank > prev.rank) chosen.set(id, { rank, entry: rank > 0 ? entry : null });
+  }
+  return new Map([...chosen].map(([id, c]) => [id, c.entry]));
+}
+function jqType(v) {
+  if (v === null || v === void 0) return "null";
+  if (typeof v === "boolean") return "boolean";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+function get(v, key) {
+  if (v === null || v === void 0) return null;
+  if (!isObject5(v)) throw new Error(`Cannot index ${jqType(v)} with "${key}"`);
+  return Object.prototype.hasOwnProperty.call(v, key) ? v[key] : null;
+}
+function truthy(v) {
+  return v !== null && v !== void 0 && v !== false;
+}
+function alt(...values) {
+  for (const v of values.slice(0, -1)) if (truthy(v)) return v;
+  return values[values.length - 1] ?? null;
+}
+function iterate(v) {
+  if (Array.isArray(v)) return v;
+  if (isObject5(v)) return Object.values(v);
+  throw new Error(`Cannot iterate over ${jqType(v)}`);
+}
+function iterateOpt(v) {
+  if (Array.isArray(v)) return v;
+  if (isObject5(v)) return Object.values(v);
+  return [];
+}
+function jqLength(v) {
+  if (v === null) return 0;
+  if (typeof v === "boolean") throw new Error("boolean has no length");
+  if (typeof v === "number") return Math.abs(v);
+  if (typeof v === "string") return Array.from(v).length;
+  if (Array.isArray(v)) return v.length;
+  return Object.keys(v).length;
+}
+function typeRank(v) {
+  if (v === null) return 0;
+  if (v === false) return 1;
+  if (v === true) return 2;
+  if (typeof v === "number") return 3;
+  if (typeof v === "string") return 4;
+  if (Array.isArray(v)) return 5;
+  return 6;
+}
+function jqCmp(a, b) {
+  const ra = typeRank(a);
+  const rb = typeRank(b);
+  if (ra !== rb) return ra - rb;
+  if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === "string" && typeof b === "string") return Buffer.compare(Buffer.from(a), Buffer.from(b));
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i2 = 0; i2 < Math.min(a.length, b.length); i2++) {
+      const c = jqCmp(a[i2], b[i2]);
+      if (c !== 0) return c;
+    }
+    return a.length - b.length;
+  }
+  if (isObject5(a) && isObject5(b)) {
+    const ka = Object.keys(a).sort((x, y) => jqCmp(x, y));
+    const kb = Object.keys(b).sort((x, y) => jqCmp(x, y));
+    const keys = jqCmp(ka, kb);
+    if (keys !== 0) return keys;
+    for (const k of ka) {
+      const c = jqCmp(a[k], b[k]);
+      if (c !== 0) return c;
+    }
+  }
+  return 0;
+}
+function jqEq(a, b) {
+  return jqCmp(a, b) === 0;
+}
+function asciiLower(s) {
+  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+function jqSplit(s, sep6) {
+  return s === "" ? [] : s.split(sep6);
+}
+function concatStrings(...parts2) {
+  for (const p of parts2) if (typeof p !== "string") throw new Error(`${jqType(p)} cannot be added to a string`);
+  return parts2.join("");
+}
+function interpolate(v) {
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+function rawText(v) {
+  const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  return text.replace(/\n+$/, "");
+}
+function parseJson(text) {
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return null;
+  }
+}
+function isRegularFile(path2) {
+  try {
+    return statSync7(path2).isFile();
+  } catch {
+    return false;
+  }
+}
+function fixturePath(envVar, defaultName, opts) {
+  const fromEnv = (opts.env ?? process.env)[envVar] ?? "";
+  if (fromEnv) return fromEnv;
+  const fallback = `${opts.projectRoot}/${defaultName}`;
+  return isRegularFile(fallback) ? fallback : null;
+}
+function readFixture(path2, projectRoot2) {
+  const abs = resolve7(projectRoot2, path2);
+  if (!isRegularFile(abs)) throw new CheatcodeInputError({ error: `fixture not found: ${path2}` });
+  try {
+    return readFileSync10(abs, "utf8");
+  } catch {
+    return "";
+  }
+}
+function tierFromFlag(tier) {
+  if (tier.length === 0) return null;
+  const parsed = parseJson(tier);
+  if (parsed === null || typeof parsed.value !== "number") throw new Error(`Cannot parse '${tier}' as a number`);
+  return parsed.value;
+}
+function normalizeCandidate(input, defaultKind) {
+  const raw = input.candidate;
+  if (raw !== void 0 && raw !== "") {
+    const value = typeof raw === "string" ? parseJson(raw)?.value : raw;
+    if (!isObject5(value)) throw new CheatcodeInputError({ error: "--candidate is not a JSON object" });
+    const tier = get(value, "tier");
+    return {
+      name: alt(get(value, "name"), ""),
+      kind: alt(get(value, "kind"), defaultKind),
+      source_url: alt(get(value, "source_url"), ""),
+      tier: typeof tier === "number" ? tier : null
+    };
+  }
+  if (!input.sourceUrl) throw new CheatcodeInputError({ error: "--source-url or --candidate is required" });
+  return {
+    name: input.name ?? "",
+    kind: input.kind || defaultKind,
+    source_url: input.sourceUrl,
+    tier: tierFromFlag(input.tier ?? "")
+  };
+}
+async function fetchText(url2, opts, headers) {
+  const signals = [AbortSignal.timeout(FETCH_TIMEOUT_MS), ...opts.signal ? [opts.signal] : []];
+  try {
+    const res = await (opts.fetchImpl ?? fetch)(url2, { headers, redirect: "follow", signal: AbortSignal.any(signals) });
+    if (res.status >= 400) return "";
+    return await res.text();
+  } catch {
+    return "";
+  }
+}
+function uriEncode(s) {
+  const wellFormed = s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+  return encodeURIComponent(wellFormed).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+function findOnPath(name2, opts) {
+  const path2 = (opts.env ?? process.env)["PATH"] ?? "";
+  for (const dir of path2.split(":")) {
+    const candidate = dir === "" ? join21(opts.projectRoot, name2) : join21(dir, name2);
+    try {
+      if (!statSync7(candidate).isFile()) continue;
+      accessSync3(candidate, constants4.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+function runCli(bin, args2, output, opts) {
+  return new Promise((done) => {
+    try {
+      if (!statSync7(opts.projectRoot).isDirectory()) return done({ code: 1, out: "" });
+    } catch {
+      return done({ code: 1, out: "" });
+    }
+    const env = { ...opts.env ?? process.env, TMB_PROJECT_ROOT: opts.projectRoot };
+    const stdio = output === "none" ? ["ignore", "ignore", "ignore"] : ["ignore", "pipe", output === "merged" ? "pipe" : "ignore"];
+    const chunks = [];
+    let timedOut = false;
+    let settled = false;
+    let timer;
+    let child;
+    const onAbort = () => {
+      child?.kill("SIGKILL");
+    };
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+      done({ code, out: Buffer.concat(chunks).toString("utf8") });
+    };
+    try {
+      child = spawn(bin, args2, { cwd: opts.projectRoot, env, stdio });
+    } catch {
+      return finish(126);
+    }
+    const running = child;
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      timedOut = true;
+      running.kill("SIGTERM");
+    }, CLI_TIMEOUT_MS);
+    running.stdout?.on("data", (c) => chunks.push(c));
+    running.stderr?.on("data", (c) => chunks.push(c));
+    running.on("error", (e) => finish(e.code === "ENOENT" ? 127 : 126));
+    running.on("close", (code, signal) => {
+      if (timedOut) return finish(124);
+      if (signal) return finish(128 + (osConstants.signals[signal] ?? 0));
+      finish(code ?? 1);
+    });
+  });
 }
 
 // src/tools/scan-walk.ts
@@ -46315,7 +46583,7 @@ var Deadline = class {
 };
 function run2(cmd, args2, opts) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, args2, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "ignore"] });
+    const child = spawn2(cmd, args2, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "ignore"] });
     let stdout = "";
     let pending2 = "";
     let settled = false;
@@ -46371,14 +46639,14 @@ function captured(text) {
 }
 function isDir(path2) {
   try {
-    return statSync7(path2).isDirectory();
+    return statSync8(path2).isDirectory();
   } catch {
     return false;
   }
 }
 function isReadable(path2) {
   try {
-    accessSync3(path2, constants4.R_OK);
+    accessSync4(path2, constants5.R_OK);
     return true;
   } catch {
     return false;
@@ -46404,7 +46672,7 @@ function findGitParents(sessionDir) {
       const childRel = `${rel}/${e.name}`;
       if (PRUNED_TAIL.test(childRel) || childRel.includes("/.claude/worktrees")) continue;
       if (e.name === ".git") parents.push(rel);
-      if (e.isDirectory()) walk(join21(abs, e.name), childRel, depth + 1);
+      if (e.isDirectory()) walk(join22(abs, e.name), childRel, depth + 1);
     }
   };
   walk(sessionDir, ".", 0);
@@ -46416,7 +46684,7 @@ async function isLinkedWorktree(repo, env, deadline) {
   const [gitDir, commonDir] = captured(out2.stdout).split("\n");
   if (!gitDir || !commonDir) return false;
   try {
-    return realpathSync8(resolve7(repo, gitDir)) !== realpathSync8(resolve7(repo, commonDir));
+    return realpathSync9(resolve8(repo, gitDir)) !== realpathSync9(resolve8(repo, commonDir));
   } catch {
     return false;
   }
@@ -46426,7 +46694,7 @@ async function skipReason(repo, sessionDir, env, deadline) {
   if (`/${rel}`.includes("/.")) return "dot_dir";
   let enclosing = dirname12(repo);
   for (; ; ) {
-    if (existsSync12(join21(enclosing, ".git"))) {
+    if (existsSync12(join22(enclosing, ".git"))) {
       if ((await git4(["-C", enclosing, "check-ignore", "-q", repo], env, deadline)).code === 0) return "git_ignored";
       break;
     }
@@ -46548,10 +46816,10 @@ function scalar(v) {
   if (typeof v === "number" || v === true) return String(v);
   return "";
 }
-function isObject5(v) {
+function isObject6(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
-function parseJson(text) {
+function parseJson2(text) {
   try {
     return JSON.parse(text);
   } catch {
@@ -46573,7 +46841,7 @@ function register(db2, r) {
   }
 }
 function registerSkills(db2, sessionDir) {
-  const skillsDir = join21(sessionDir, ".claude", "skills");
+  const skillsDir = join22(sessionDir, ".claude", "skills");
   let entries;
   try {
     if (lstatSync7(skillsDir).isSymbolicLink()) return;
@@ -46584,7 +46852,7 @@ function registerSkills(db2, sessionDir) {
   const names = entries.filter((e) => {
     if (!e.isDirectory()) return false;
     try {
-      lstatSync7(join21(skillsDir, e.name, "SKILL.md"));
+      lstatSync7(join22(skillsDir, e.name, "SKILL.md"));
       return true;
     } catch {
       return false;
@@ -46609,7 +46877,7 @@ async function pluginList(sessionDir, env, deadline) {
     const fixture = env["TMB_SCAN_PLUGIN_JSON"] ?? "";
     if (fixture !== "" && isReadable(fixture)) {
       try {
-        raw = readFileSync10(fixture, "utf8");
+        raw = readFileSync11(fixture, "utf8");
       } catch {
         raw = "";
       }
@@ -46631,7 +46899,7 @@ async function pluginList(sessionDir, env, deadline) {
   } else {
     note = "claude CLI not on PATH";
   }
-  const parsed = source ? parseJson(raw) : void 0;
+  const parsed = source ? parseJson2(raw) : void 0;
   if (source && !Array.isArray(parsed)) {
     return { list: null, inventory: { status: "unavailable", note: `${source} plugin list is not a JSON array` } };
   }
@@ -46639,21 +46907,29 @@ async function pluginList(sessionDir, env, deadline) {
   return { list: parsed, inventory: { status: source, note: "" } };
 }
 function manifestDescription(installPath) {
-  const manifest = join21(installPath, ".claude-plugin", "plugin.json");
+  const manifest = join22(installPath, ".claude-plugin", "plugin.json");
   try {
-    if (!statSync7(manifest).isFile()) return "";
-    const parsed = parseJson(readFileSync10(manifest, "utf8"));
-    return isObject5(parsed) ? captured(scalar(parsed["description"])) : "";
+    if (!statSync8(manifest).isFile()) return "";
+    const parsed = parseJson2(readFileSync11(manifest, "utf8"));
+    return isObject6(parsed) ? captured(scalar(parsed["description"])) : "";
   } catch {
     return "";
   }
 }
-function registerPlugins(db2, list) {
-  const entries = list.filter(isObject5).map((p) => {
+function registerPlugins(db2, list, projectRoot2) {
+  const firstListed = /* @__PURE__ */ new Map();
+  for (const p of list.filter(isObject6)) {
     const id = typeof p["id"] === "string" ? p["id"] : "";
-    return { p, id, name: id.split("@")[0] ?? "", version: scalar(p["version"]) };
-  });
-  for (const { p, id, name: name2, version: version2 } of entries) {
+    if (!firstListed.has(id)) firstListed.set(id, p);
+  }
+  const entries = [...selectProjectInstalls(list, projectRoot2)].map(([id, selected]) => ({
+    id,
+    name: id.split("@")[0] ?? "",
+    p: selected ?? firstListed.get(id) ?? {},
+    selected,
+    version: selected ? scalar(selected["version"]) : ""
+  }));
+  for (const { p, id, name: name2, selected, version: version2 } of entries) {
     if (name2 === "") continue;
     const listed2 = typeof p["description"] === "string" ? p["description"].replace(/[\t\n\r]/g, " ") : "";
     const installPath = scalar(p["installPath"]);
@@ -46663,14 +46939,14 @@ function registerPlugins(db2, list) {
       name: name2,
       origin: "marketplace",
       source_url: id,
-      status: p["enabled"] === true ? "active" : "installed",
+      status: selected?.["enabled"] === true ? "active" : "installed",
       description,
       version: version2
     });
   }
-  for (const { p, name: plugin, version: version2 } of entries) {
-    const servers = p["mcpServers"];
-    if (!isObject5(servers) || !VALID_NAME.test(plugin)) continue;
+  for (const { selected, name: plugin, version: version2 } of entries) {
+    const servers = selected?.["mcpServers"];
+    if (!isObject6(servers) || !VALID_NAME.test(plugin)) continue;
     for (const server2 of Object.keys(servers).sort()) {
       if (server2 === "") continue;
       register(db2, {
@@ -46694,7 +46970,7 @@ function mcpServers(env) {
     const fixture = env["TMB_SCAN_MCP_JSON"] ?? "";
     if (fixture !== "" && isReadable(fixture)) {
       try {
-        servers = parseJson(readFileSync10(fixture, "utf8"));
+        servers = parseJson2(readFileSync11(fixture, "utf8"));
       } catch {
         servers = void 0;
       }
@@ -46703,18 +46979,18 @@ function mcpServers(env) {
       note = "TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID set and no readable TMB_SCAN_MCP_JSON: ~/.claude.json skipped";
     }
   } else {
-    const home = join21(env["HOME"] ?? homedir3(), ".claude.json");
+    const home = join22(env["HOME"] ?? homedir3(), ".claude.json");
     let homeIsFile = false;
     try {
-      homeIsFile = statSync7(home).isFile();
+      homeIsFile = statSync8(home).isFile();
     } catch {
       homeIsFile = false;
     }
     if (homeIsFile) {
       try {
-        const parsed = parseJson(readFileSync10(home, "utf8"));
-        const value = isObject5(parsed) ? parsed["mcpServers"] : void 0;
-        servers = isObject5(parsed) ? value === null || value === void 0 || value === false ? {} : value : void 0;
+        const parsed = parseJson2(readFileSync11(home, "utf8"));
+        const value = isObject6(parsed) ? parsed["mcpServers"] : void 0;
+        servers = isObject6(parsed) ? value === null || value === void 0 || value === false ? {} : value : void 0;
       } catch {
         servers = void 0;
       }
@@ -46723,7 +46999,7 @@ function mcpServers(env) {
       note = "no ~/.claude.json";
     }
   }
-  if (source && !isObject5(servers)) {
+  if (source && !isObject6(servers)) {
     return { servers: null, inventory: { status: "unavailable", note: `${source} mcpServers is not a JSON object` } };
   }
   if (!source) return { servers: null, inventory: { status: "unavailable", note } };
@@ -46737,7 +47013,7 @@ async function discoverResources(db2, sessionDir, env, deadline) {
     registerSkills(db2, sessionDir);
     const plugins = await pluginList(sessionDir, env, deadline);
     result2.plugin = plugins.inventory;
-    if (plugins.list) registerPlugins(db2, plugins.list);
+    if (plugins.list) registerPlugins(db2, plugins.list, sessionDir);
     const mcp = mcpServers(env);
     result2.mcp = mcp.inventory;
     for (const key of Object.keys(mcp.servers ?? {}).sort()) {
@@ -46751,7 +47027,7 @@ async function discoverResources(db2, sessionDir, env, deadline) {
 async function walkProject(db2, sessionDir, opts) {
   const env = opts.env ?? process.env;
   const deadline = new Deadline(opts.timeoutMs);
-  const root = resolve7(sessionDir);
+  const root = resolve8(sessionDir);
   if (!isDir(root)) throw new Error("session_dir does not exist");
   deadline.check();
   const repos = [];
@@ -46879,10 +47155,10 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join22(absDirPath, name2);
+    const readmePath = join23(absDirPath, name2);
     if (!existsSync13(readmePath)) continue;
     try {
-      return { name: name2, text: readFileSync11(readmePath, "utf8") };
+      return { name: name2, text: readFileSync12(readmePath, "utf8") };
     } catch {
     }
   }
@@ -46914,7 +47190,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join22(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join23(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -46939,7 +47215,7 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join22(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join23(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -46993,7 +47269,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join22(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join23(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -47018,7 +47294,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join22(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join23(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -47073,7 +47349,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath3(p) {
   try {
-    return realpathSync9(p);
+    return realpathSync10(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -47294,7 +47570,7 @@ async function persistScan(db2, graph, out2, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync11(lockPath, "utf8"));
+    return JSON.parse(readFileSync12(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -47372,7 +47648,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         if (!graph && graphOpenError) {
           return err18(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join22(dirname13(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join23(dirname13(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -47655,9 +47931,9 @@ import { fileURLToPath as fileURLToPath6 } from "node:url";
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
 import { createHash as createHash4 } from "node:crypto";
-import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync13, writeFileSync as writeFileSync7 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { dirname as dirname14, isAbsolute as isAbsolute7, join as join23 } from "node:path";
+import { dirname as dirname14, isAbsolute as isAbsolute7, join as join24 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -47700,7 +47976,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync12(join23(homedir4(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync13(join24(homedir4(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -47708,7 +47984,7 @@ function claudeJsonMcpKeys() {
   }
   return /* @__PURE__ */ new Set();
 }
-function parsePluginListing(text) {
+function parsePluginListing(text, projectRoot2) {
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -47717,10 +47993,9 @@ function parsePluginListing(text) {
   }
   if (!Array.isArray(parsed)) return null;
   const plugins = /* @__PURE__ */ new Map();
-  for (const entry of parsed) {
-    if (!entry || typeof entry !== "object") continue;
-    const { id, enabled, mcpServers: mcpServers2, version: version2 } = entry;
-    plugins.set(typeof id === "string" ? id : "", {
+  for (const [id, entry] of selectProjectInstalls(parsed, projectRoot2)) {
+    const { enabled, mcpServers: mcpServers2, version: version2 } = entry ?? {};
+    plugins.set(id, {
       enabled: enabled === true,
       mcpServers: new Set(mcpServers2 && typeof mcpServers2 === "object" ? Object.keys(mcpServers2) : []),
       version: typeof version2 === "string" && version2 !== "" ? version2 : null
@@ -47734,7 +48009,7 @@ async function probeListings(timeoutSec, projectRoot2) {
     runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot2)
   ]);
   const mcpNames = /* @__PURE__ */ new Set([...mcpText === null ? [] : parseMcpListing(mcpText), ...claudeJsonMcpKeys()]);
-  const plugins = pluginText === null ? null : parsePluginListing(pluginText);
+  const plugins = pluginText === null ? null : parsePluginListing(pluginText, projectRoot2);
   return {
     evidence: { mcpServers: mcpNames.size > 0 ? mcpNames : null, plugins },
     listed: mcpText !== null || plugins !== null
@@ -47743,7 +48018,7 @@ async function probeListings(timeoutSec, projectRoot2) {
 var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
 function readJson(path2) {
   try {
-    return JSON.parse(readFileSync12(path2, "utf8"));
+    return JSON.parse(readFileSync13(path2, "utf8"));
   } catch {
     return null;
   }
@@ -47761,23 +48036,23 @@ function stableJson(value) {
 }
 function cliConfigFingerprint(projectRoot2) {
   const home = homedir4();
-  const claudeJson = readJson(join23(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join23(projectRoot2, ...parts2));
+  const claudeJson = readJson(join24(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join24(projectRoot2, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot2 === null ? null : field(field(field(claudeJson, "projects"), projectRoot2), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join23(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join24(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join23(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join24(home, ".claude", "plugins", "installed_plugins.json"))
   };
   return createHash4("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot2) {
-  return join23(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
+  return join24(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot2) {
   if (projectRoot2 === null) return null;
@@ -47815,7 +48090,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute7(row.file_path) || !pluginRoot ? row.file_path : join23(pluginRoot, row.file_path);
+      const resolved = isAbsolute7(row.file_path) || !pluginRoot ? row.file_path : join24(pluginRoot, row.file_path);
       return existsSync14(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -47916,251 +48191,6 @@ async function reconcileAtStartup(db2) {
   }
 }
 
-// src/tools/cheatcode-runtime.ts
-import { spawn as spawn2 } from "node:child_process";
-import { accessSync as accessSync4, constants as constants5, readFileSync as readFileSync13, statSync as statSync8 } from "node:fs";
-import { constants as osConstants } from "node:os";
-import { join as join24, resolve as resolve8 } from "node:path";
-var CheatcodeInputError = class extends Error {
-  constructor(payload) {
-    super(JSON.stringify(payload));
-    this.payload = payload;
-    this.name = "CheatcodeInputError";
-  }
-  payload;
-};
-var FETCH_TIMEOUT_MS = 8e3;
-var CLI_TIMEOUT_MS = 3e4;
-function requireProjectRoot(projectRoot2) {
-  if (!projectRoot2) {
-    throw new CheatcodeInputError({
-      error: "TMB_PROJECT_ROOT is unset \u2014 the trajectory server sets it to the project root"
-    });
-  }
-}
-function isObject6(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function jqType(v) {
-  if (v === null || v === void 0) return "null";
-  if (typeof v === "boolean") return "boolean";
-  if (Array.isArray(v)) return "array";
-  return typeof v;
-}
-function get(v, key) {
-  if (v === null || v === void 0) return null;
-  if (!isObject6(v)) throw new Error(`Cannot index ${jqType(v)} with "${key}"`);
-  return Object.prototype.hasOwnProperty.call(v, key) ? v[key] : null;
-}
-function truthy(v) {
-  return v !== null && v !== void 0 && v !== false;
-}
-function alt(...values) {
-  for (const v of values.slice(0, -1)) if (truthy(v)) return v;
-  return values[values.length - 1] ?? null;
-}
-function iterate(v) {
-  if (Array.isArray(v)) return v;
-  if (isObject6(v)) return Object.values(v);
-  throw new Error(`Cannot iterate over ${jqType(v)}`);
-}
-function iterateOpt(v) {
-  if (Array.isArray(v)) return v;
-  if (isObject6(v)) return Object.values(v);
-  return [];
-}
-function jqLength(v) {
-  if (v === null) return 0;
-  if (typeof v === "boolean") throw new Error("boolean has no length");
-  if (typeof v === "number") return Math.abs(v);
-  if (typeof v === "string") return Array.from(v).length;
-  if (Array.isArray(v)) return v.length;
-  return Object.keys(v).length;
-}
-function typeRank(v) {
-  if (v === null) return 0;
-  if (v === false) return 1;
-  if (v === true) return 2;
-  if (typeof v === "number") return 3;
-  if (typeof v === "string") return 4;
-  if (Array.isArray(v)) return 5;
-  return 6;
-}
-function jqCmp(a, b) {
-  const ra = typeRank(a);
-  const rb = typeRank(b);
-  if (ra !== rb) return ra - rb;
-  if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
-  if (typeof a === "string" && typeof b === "string") return Buffer.compare(Buffer.from(a), Buffer.from(b));
-  if (Array.isArray(a) && Array.isArray(b)) {
-    for (let i2 = 0; i2 < Math.min(a.length, b.length); i2++) {
-      const c = jqCmp(a[i2], b[i2]);
-      if (c !== 0) return c;
-    }
-    return a.length - b.length;
-  }
-  if (isObject6(a) && isObject6(b)) {
-    const ka = Object.keys(a).sort((x, y) => jqCmp(x, y));
-    const kb = Object.keys(b).sort((x, y) => jqCmp(x, y));
-    const keys = jqCmp(ka, kb);
-    if (keys !== 0) return keys;
-    for (const k of ka) {
-      const c = jqCmp(a[k], b[k]);
-      if (c !== 0) return c;
-    }
-  }
-  return 0;
-}
-function jqEq(a, b) {
-  return jqCmp(a, b) === 0;
-}
-function asciiLower(s) {
-  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
-}
-function jqSplit(s, sep6) {
-  return s === "" ? [] : s.split(sep6);
-}
-function concatStrings(...parts2) {
-  for (const p of parts2) if (typeof p !== "string") throw new Error(`${jqType(p)} cannot be added to a string`);
-  return parts2.join("");
-}
-function interpolate(v) {
-  return typeof v === "string" ? v : JSON.stringify(v);
-}
-function rawText(v) {
-  const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
-  return text.replace(/\n+$/, "");
-}
-function parseJson2(text) {
-  try {
-    return { value: JSON.parse(text) };
-  } catch {
-    return null;
-  }
-}
-function isRegularFile(path2) {
-  try {
-    return statSync8(path2).isFile();
-  } catch {
-    return false;
-  }
-}
-function fixturePath(envVar, defaultName, opts) {
-  const fromEnv = (opts.env ?? process.env)[envVar] ?? "";
-  if (fromEnv) return fromEnv;
-  const fallback = `${opts.projectRoot}/${defaultName}`;
-  return isRegularFile(fallback) ? fallback : null;
-}
-function readFixture(path2, projectRoot2) {
-  const abs = resolve8(projectRoot2, path2);
-  if (!isRegularFile(abs)) throw new CheatcodeInputError({ error: `fixture not found: ${path2}` });
-  try {
-    return readFileSync13(abs, "utf8");
-  } catch {
-    return "";
-  }
-}
-function tierFromFlag(tier) {
-  if (tier.length === 0) return null;
-  const parsed = parseJson2(tier);
-  if (parsed === null || typeof parsed.value !== "number") throw new Error(`Cannot parse '${tier}' as a number`);
-  return parsed.value;
-}
-function normalizeCandidate(input, defaultKind) {
-  const raw = input.candidate;
-  if (raw !== void 0 && raw !== "") {
-    const value = typeof raw === "string" ? parseJson2(raw)?.value : raw;
-    if (!isObject6(value)) throw new CheatcodeInputError({ error: "--candidate is not a JSON object" });
-    const tier = get(value, "tier");
-    return {
-      name: alt(get(value, "name"), ""),
-      kind: alt(get(value, "kind"), defaultKind),
-      source_url: alt(get(value, "source_url"), ""),
-      tier: typeof tier === "number" ? tier : null
-    };
-  }
-  if (!input.sourceUrl) throw new CheatcodeInputError({ error: "--source-url or --candidate is required" });
-  return {
-    name: input.name ?? "",
-    kind: input.kind || defaultKind,
-    source_url: input.sourceUrl,
-    tier: tierFromFlag(input.tier ?? "")
-  };
-}
-async function fetchText(url2, opts, headers) {
-  const signals = [AbortSignal.timeout(FETCH_TIMEOUT_MS), ...opts.signal ? [opts.signal] : []];
-  try {
-    const res = await (opts.fetchImpl ?? fetch)(url2, { headers, redirect: "follow", signal: AbortSignal.any(signals) });
-    if (res.status >= 400) return "";
-    return await res.text();
-  } catch {
-    return "";
-  }
-}
-function uriEncode(s) {
-  const wellFormed = s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
-  return encodeURIComponent(wellFormed).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-function findOnPath(name2, opts) {
-  const path2 = (opts.env ?? process.env)["PATH"] ?? "";
-  for (const dir of path2.split(":")) {
-    const candidate = dir === "" ? join24(opts.projectRoot, name2) : join24(dir, name2);
-    try {
-      if (!statSync8(candidate).isFile()) continue;
-      accessSync4(candidate, constants5.X_OK);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-function runCli(bin, args2, output, opts) {
-  return new Promise((done) => {
-    try {
-      if (!statSync8(opts.projectRoot).isDirectory()) return done({ code: 1, out: "" });
-    } catch {
-      return done({ code: 1, out: "" });
-    }
-    const env = { ...opts.env ?? process.env, TMB_PROJECT_ROOT: opts.projectRoot };
-    const stdio = output === "none" ? ["ignore", "ignore", "ignore"] : ["ignore", "pipe", output === "merged" ? "pipe" : "ignore"];
-    const chunks = [];
-    let timedOut = false;
-    let settled = false;
-    let timer;
-    let child;
-    const onAbort = () => {
-      child?.kill("SIGKILL");
-    };
-    const finish = (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      opts.signal?.removeEventListener("abort", onAbort);
-      done({ code, out: Buffer.concat(chunks).toString("utf8") });
-    };
-    try {
-      child = spawn2(bin, args2, { cwd: opts.projectRoot, env, stdio });
-    } catch {
-      return finish(126);
-    }
-    const running = child;
-    opts.signal?.addEventListener("abort", onAbort, { once: true });
-    timer = setTimeout(() => {
-      timedOut = true;
-      running.kill("SIGTERM");
-    }, CLI_TIMEOUT_MS);
-    running.stdout?.on("data", (c) => chunks.push(c));
-    running.stderr?.on("data", (c) => chunks.push(c));
-    running.on("error", (e) => finish(e.code === "ENOENT" ? 127 : 126));
-    running.on("close", (code, signal) => {
-      if (timedOut) return finish(124);
-      if (signal) return finish(128 + (osConstants.signals[signal] ?? 0));
-      finish(code ?? 1);
-    });
-  });
-}
-
 // src/tools/cheatcode-search.ts
 var SEARCH_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
 var SEARCH_FIXTURE_ENV = "TMB_CHEATCODE_SEARCH_FIXTURE";
@@ -48169,7 +48199,7 @@ var stringOr = (v) => typeof v === "string" ? v : "";
 async function adapter(url2, opts, map2) {
   const body2 = await fetchText(url2, opts);
   if (!body2) return [];
-  const parsed = parseJson2(body2);
+  const parsed = parseJson(body2);
   if (parsed === null) return [];
   try {
     return map2(parsed.value);
@@ -48278,7 +48308,7 @@ async function cheatcodeSearch(input, opts) {
   const fixture = fixturePath(SEARCH_FIXTURE_ENV, SEARCH_FIXTURE_FILE, opts);
   let candidates;
   if (fixture !== null) {
-    const parsed = parseJson2(readFixture(fixture, opts.projectRoot));
+    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
     if (parsed === null || !Array.isArray(parsed.value)) {
       throw new CheatcodeInputError({ error: "fixture is not a JSON array of candidates" });
     }
@@ -48319,7 +48349,7 @@ function treeRefPath(url2) {
 }
 function filterTree(tree, p) {
   const plen = Array.from(p).length;
-  return iterateOpt(tree).filter((e) => isObject6(e) && typeof e["path"] === "string").filter((e) => e["path"] === p || e["path"].startsWith(`${p}/`)).map((e) => {
+  return iterateOpt(tree).filter((e) => isObject5(e) && typeof e["path"] === "string").filter((e) => e["path"] === p || e["path"].startsWith(`${p}/`)).map((e) => {
     const path2 = e["path"];
     return {
       path: path2 === p ? jqSplit(path2, "/").at(-1) ?? null : Array.from(path2).slice(plen + 1).join(""),
@@ -48328,30 +48358,30 @@ function filterTree(tree, p) {
     };
   });
 }
-var hasDir = (entries) => entries.some((e) => isObject6(e) && get(e, "type") === "dir");
+var hasDir = (entries) => entries.some((e) => isObject5(e) && get(e, "type") === "dir");
 var treeOpaque = (entries) => entries.some((e) => {
   const type = get(e, "type");
   const mode = get(e, "mode");
   return type === "commit" || mode === "160000" || mode === "120000";
 });
 var contentsOpaque = (entries) => entries.some((e) => {
-  if (!isObject6(e)) return false;
+  if (!isObject5(e)) return false;
   const type = get(e, "type");
   return type !== "file" && type !== "dir" || type === "file" && get(e, "download_url") === null;
 });
 function contentsEntries(listing) {
   return listing.map(
-    (e) => isObject6(e) ? { path: alt(get(e, "name"), get(e, "path")), type: get(e, "type") === "dir" ? "tree" : "blob", mode: null } : e
+    (e) => isObject5(e) ? { path: alt(get(e, "name"), get(e, "path")), type: get(e, "type") === "dir" ? "tree" : "blob", mode: null } : e
   );
 }
 var isContents = (v) => Array.isArray(v) && v.length > 0;
 function manifestPaths(surface) {
-  const paths = surface.map((e) => typeof e === "string" ? e : isObject6(e) ? get(e, "path") : null).filter((p) => typeof p === "string").filter((p) => /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/i.test(p));
+  const paths = surface.map((e) => typeof e === "string" ? e : isObject5(e) ? get(e, "path") : null).filter((p) => typeof p === "string").filter((p) => /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/i.test(p));
   const unique = [...new Set(paths)].sort((a, b) => jqCmp(a, b));
   return unique.flatMap((p) => p.split("\n")).filter((p) => p.length > 0);
 }
 function objectsDeep(v, out2 = []) {
-  if (isObject6(v)) {
+  if (isObject5(v)) {
     out2.push(v);
     for (const child of Object.values(v)) objectsDeep(child, out2);
   } else if (Array.isArray(v)) {
@@ -48362,10 +48392,10 @@ function objectsDeep(v, out2 = []) {
 var has = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
 function manifestFlags(m) {
   const all = objectsDeep(m);
-  const plugins = iterateOpt(get(m, "plugins")).filter(isObject6);
+  const plugins = iterateOpt(get(m, "plugins")).filter(isObject5);
   const depsOf = (o) => {
     const d = get(o, "dependencies");
-    return (Array.isArray(d) || isObject6(d) || typeof d === "string") && jqLength(d) > 0;
+    return (Array.isArray(d) || isObject5(d) || typeof d === "string") && jqLength(d) > 0;
   };
   return {
     code: all.some((o) => ["hooks", "mcpServers", "lspServers", "monitors", "settings", "subagentStatusLine"].some((k) => has(o, k))),
@@ -48382,12 +48412,12 @@ function manifestFlags(m) {
   };
 }
 function decodeManifest(body2) {
-  const parsed = parseJson2(body2);
-  if (parsed === null || !isObject6(parsed.value) || parsed.value["encoding"] !== "base64") return null;
+  const parsed = parseJson(body2);
+  if (parsed === null || !isObject5(parsed.value) || parsed.value["encoding"] !== "base64") return null;
   const content = parsed.value["content"];
   if (typeof content !== "string") return null;
-  const decoded = parseJson2(Buffer.from(content.replace(/\s/g, ""), "base64").toString("utf8"));
-  return decoded !== null && isObject6(decoded.value) ? decoded.value : null;
+  const decoded = parseJson(Buffer.from(content.replace(/\s/g, ""), "base64").toString("utf8"));
+  return decoded !== null && isObject5(decoded.value) ? decoded.value : null;
 }
 function ageDays(pushed, nowMs) {
   if (typeof pushed !== "string") throw new Error("strptime/1 requires string inputs and arguments");
@@ -48412,7 +48442,7 @@ function classify(candidate, kind, s, nowMs = Date.now()) {
   const ownerType = alt(get(get(repo, "owner"), "type"), null);
   const age = pushed === null ? null : ageDays(pushed, nowMs);
   const active = age === null ? null : archived ? false : age <= 365;
-  const entries = s.surface.map((e) => typeof e === "string" ? { path: e } : e).filter((e) => isObject6(e) && typeof e["path"] === "string");
+  const entries = s.surface.map((e) => typeof e === "string" ? { path: e } : e).filter((e) => isObject5(e) && typeof e["path"] === "string");
   const segments = entries.map((e) => jqSplit(asciiLower(e["path"]), "/"));
   const shipsLocalCode = segments.some((seg) => seg.some((x) => x === "hooks" || x === "scripts" || x === "bin" || x === ".lsp.json")) || segments.some((seg) => seg.length >= 2 && seg.at(-2) === "monitors" && seg.at(-1) === "monitors.json") || segments.some((seg) => seg.at(-1) === "settings.json") || entries.some((e) => get(e, "mode") === "100755") || entries.some(
     (e) => alt(get(e, "type"), "blob") !== "tree" && /\.(sh|bash|zsh|fish|py|js|mjs|cjs|ts|rb|pl|php|ps1|bat|cmd|exe)$/.test(asciiLower(e["path"]))
@@ -48484,8 +48514,8 @@ async function cheatcodeVet(input, opts) {
   let slug = "";
   let fixture = {};
   if (fixtureFile !== null) {
-    const parsed = parseJson2(readFixture(fixtureFile, opts.projectRoot));
-    if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    const parsed = parseJson(readFixture(fixtureFile, opts.projectRoot));
+    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
     fixture = parsed.value;
     repo = alt(get(fixture, "repo"), {});
     const tree = get(fixture, "tree");
@@ -48504,14 +48534,14 @@ async function cheatcodeVet(input, opts) {
   } else {
     slug = ownerRepo(srcUrl);
     if (slug) {
-      const body2 = parseJson2(await fetchText(`https://api.github.com/repos/${slug}`, opts, GITHUB_HEADERS));
-      if (body2 !== null && isObject6(body2.value)) repo = body2.value;
+      const body2 = parseJson(await fetchText(`https://api.github.com/repos/${slug}`, opts, GITHUB_HEADERS));
+      if (body2 !== null && isObject5(body2.value)) repo = body2.value;
       let contentsUrl;
       if (treePath) {
-        const tbody = parseJson2(
+        const tbody = parseJson(
           await fetchText(`https://api.github.com/repos/${slug}/git/trees/${treeRef}?recursive=1`, opts, GITHUB_HEADERS)
         );
-        if (tbody !== null && isObject6(tbody.value) && Array.isArray(tbody.value["tree"]) && tbody.value["truncated"] !== true) {
+        if (tbody !== null && isObject5(tbody.value) && Array.isArray(tbody.value["tree"]) && tbody.value["truncated"] !== true) {
           surface = filterTree(tbody.value["tree"], treePath);
           if (surface.length > 0) {
             listed2 = true;
@@ -48525,7 +48555,7 @@ async function cheatcodeVet(input, opts) {
         contentsUrl = `https://api.github.com/repos/${slug}/contents`;
       }
       if (!listed2) {
-        const cbody = parseJson2(await fetchText(contentsUrl, opts, GITHUB_HEADERS));
+        const cbody = parseJson(await fetchText(contentsUrl, opts, GITHUB_HEADERS));
         if (cbody !== null && isContents(cbody.value)) {
           surface = contentsEntries(cbody.value);
           listed2 = true;
@@ -48540,7 +48570,7 @@ async function cheatcodeVet(input, opts) {
       try {
         const manifests = alt(get(fixture, "manifests"), {});
         const found = alt(alt(get(manifests, m), get(manifests, `${prefix}${m}`)), null);
-        return isObject6(found) ? found : null;
+        return isObject5(found) ? found : null;
       } catch {
         return null;
       }
@@ -48595,7 +48625,7 @@ function installableCandidate(input) {
 var repoSlug = (url2) => url2.replace(/^[a-z]+:\/\/[^/]+\//i, "").replace(/\.git$/, "");
 async function listedMarketplace(claude, url2, opts) {
   const { out: out2 } = await runCli(claude, ["plugin", "marketplace", "list", "--json"], "stdout", opts);
-  const list = parseJson2(out2)?.value;
+  const list = parseJson(out2)?.value;
   if (!Array.isArray(list)) return "";
   const slug = repoSlug(url2);
   const stripGit = (s) => {
@@ -48632,10 +48662,10 @@ async function marketplaceInstall(name2, url2, opts) {
   return { installed: true, version: /v?[0-9]+\.[0-9]+\.[0-9]+/.exec(install.out)?.[0] ?? null, error: null };
 }
 function fixtureResult(path2, name2, opts) {
-  const parsed = parseJson2(readFixture(path2, opts.projectRoot));
-  if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+  const parsed = parseJson(readFixture(path2, opts.projectRoot));
+  if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
   const keyed = name2 ? get(parsed.value, name2) : null;
-  const entry = isObject6(keyed) ? keyed : parsed.value;
+  const entry = isObject5(keyed) ? keyed : parsed.value;
   const attachments = get(entry, "attachments");
   return {
     installed: alt(get(entry, "installed"), false),
@@ -48710,8 +48740,8 @@ async function cheatcodeUninstall(input, opts) {
   const fixture = fixturePath(UNINSTALL_FIXTURE_ENV, UNINSTALL_FIXTURE_FILE, opts);
   let result2 = { removed: false, error: null };
   if (fixture !== null) {
-    const parsed = parseJson2(readFixture(fixture, opts.projectRoot));
-    if (parsed === null || !isObject6(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
+    const parsed = parseJson(readFixture(fixture, opts.projectRoot));
+    if (parsed === null || !isObject5(parsed.value)) throw new CheatcodeInputError({ error: "fixture is not a JSON object" });
     result2 = { removed: alt(get(parsed.value, "removed"), false), error: alt(get(parsed.value, "error"), null) };
   } else if (kind === "plugin") result2 = await marketplaceUninstall(name2, opts);
   else if (kind === "mcp") result2 = await mcpDeregister(name2, opts);
@@ -50040,7 +50070,7 @@ function isProseFile(path2) {
 }
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync16, realpathSync as realpathSync10 } from "node:fs";
+import { readFileSync as readFileSync16, realpathSync as realpathSync11 } from "node:fs";
 import { join as join27 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join27(env["HOME"] || "", ".claude");
@@ -50048,9 +50078,9 @@ function claudeConfigDir(env) {
 function installedPluginsJsonPath(env = process.env) {
   return env["TMB_INSTALLED_JSON"] || join27(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
-function canonicalDir(dir) {
+function canonicalDir2(dir) {
   try {
-    return realpathSync10(dir);
+    return realpathSync11(dir);
   } catch {
     return dir;
   }
@@ -50083,7 +50113,7 @@ function enabledPluginCopies(env = process.env) {
   const registryPath = installedPluginsJsonPath(env);
   const registry2 = readJsonObject(registryPath);
   if (registry2 === null) return { skipped: `cannot read ${registryPath}` };
-  const project = canonicalDir(projectRoot2);
+  const project = canonicalDir2(projectRoot2);
   const enabled = enabledMap(project, env);
   const prefix = `${resolveClaudePluginName(env)}@`;
   const plugins = registry2["plugins"];
@@ -50099,7 +50129,7 @@ function enabledPluginCopies(env = process.env) {
       let rank = 1;
       if (scope === "project" || scope === "local") {
         const projectPath = str(e["projectPath"]);
-        if (projectPath === null || canonicalDir(projectPath) !== project) continue;
+        if (projectPath === null || canonicalDir2(projectPath) !== project) continue;
         rank = 0;
       }
       if (chosen !== null && chosen.rank <= rank) continue;

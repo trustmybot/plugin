@@ -31,6 +31,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
 import { insertAudit } from './audit.js';
+import { selectProjectInstalls } from './cheatcode-runtime.js';
 /**
  * The one writer for a discovered resource, keyed on (name, kind). A new row is
  * inserted with a scan_discovered audit row; an existing row only gets a blank
@@ -489,12 +490,27 @@ function manifestDescription(installPath) {
         return '';
     }
 }
-function registerPlugins(db, list) {
-    const entries = list.filter(isObject).map((p) => {
+/**
+ * One plugin row per listed id, plus one row per MCP server it bundles. Version,
+ * enabled and mcpServers come from the install in effect for `projectRoot`
+ * (selectProjectInstalls); an id with no such install registers as 'installed'
+ * with no version and no bundled servers.
+ */
+function registerPlugins(db, list, projectRoot) {
+    const firstListed = new Map();
+    for (const p of list.filter(isObject)) {
         const id = typeof p['id'] === 'string' ? p['id'] : '';
-        return { p, id, name: id.split('@')[0] ?? '', version: scalar(p['version']) };
-    });
-    for (const { p, id, name, version } of entries) {
+        if (!firstListed.has(id))
+            firstListed.set(id, p);
+    }
+    const entries = [...selectProjectInstalls(list, projectRoot)].map(([id, selected]) => ({
+        id,
+        name: id.split('@')[0] ?? '',
+        p: selected ?? firstListed.get(id) ?? {},
+        selected,
+        version: selected ? scalar(selected['version']) : '',
+    }));
+    for (const { p, id, name, selected, version } of entries) {
         if (name === '')
             continue;
         const listed = typeof p['description'] === 'string' ? p['description'].replace(/[\t\n\r]/g, ' ') : '';
@@ -502,11 +518,11 @@ function registerPlugins(db, list) {
         const description = listed === '' && installPath !== '' ? manifestDescription(installPath) : listed;
         register(db, {
             kind: 'plugin', name, origin: 'marketplace', source_url: id,
-            status: p['enabled'] === true ? 'active' : 'installed', description, version,
+            status: selected?.['enabled'] === true ? 'active' : 'installed', description, version,
         });
     }
-    for (const { p, name: plugin, version } of entries) {
-        const servers = p['mcpServers'];
+    for (const { selected, name: plugin, version } of entries) {
+        const servers = selected?.['mcpServers'];
         if (!isObject(servers) || !VALID_NAME.test(plugin))
             continue;
         for (const server of Object.keys(servers).sort()) {
@@ -585,7 +601,7 @@ async function discoverResources(db, sessionDir, env, deadline) {
         const plugins = await pluginList(sessionDir, env, deadline);
         result.plugin = plugins.inventory;
         if (plugins.list)
-            registerPlugins(db, plugins.list);
+            registerPlugins(db, plugins.list, sessionDir);
         const mcp = mcpServers(env);
         result.mcp = mcp.inventory;
         for (const key of Object.keys(mcp.servers ?? {}).sort()) {

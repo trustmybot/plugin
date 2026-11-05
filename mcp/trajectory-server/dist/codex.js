@@ -417,11 +417,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants5);
+          this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -438,10 +438,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants5);
+        this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -502,8 +502,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants5) {
-        this.code = optimizeExpr(this.code, names, constants5);
+      optimizeNames(names, constants6) {
+        this.code = optimizeExpr(this.code, names, constants6);
         return this;
       }
       get names() {
@@ -532,12 +532,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants5))
+          if (n.optimizeNames(names, constants6))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i2, 1);
@@ -590,12 +590,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants5);
-        if (!(super.optimizeNames(names, constants5) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants6);
+        if (!(super.optimizeNames(names, constants6) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants5);
+        this.condition = optimizeExpr(this.condition, names, constants6);
         return this;
       }
       get names() {
@@ -618,10 +618,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants5) {
-        if (!super.optimizeNames(names, constants5))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants5);
+        this.iteration = optimizeExpr(this.iteration, names, constants6);
         return this;
       }
       get names() {
@@ -657,10 +657,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants5) {
-        if (!super.optimizeNames(names, constants5))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants5);
+        this.iterable = optimizeExpr(this.iterable, names, constants6);
         return this;
       }
       get names() {
@@ -702,11 +702,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         var _a2, _b;
-        super.optimizeNames(names, constants5);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants5);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants5);
+        super.optimizeNames(names, constants6);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants6);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants6);
         return this;
       }
       get names() {
@@ -1007,7 +1007,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants5) {
+    function optimizeExpr(expr, names, constants6) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1022,14 +1022,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants5[n.str];
+        const c = constants6[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants5[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants6[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -2991,7 +2991,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref2];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve6.call(this, root, ref2);
+      let _sch = resolve7.call(this, root, ref2);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref2];
         const { schemaId } = this.opts;
@@ -3018,7 +3018,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve6(root, ref2) {
+    function resolve7(root, ref2) {
       let sch;
       while (typeof (sch = this.refs[ref2]) == "string")
         ref2 = sch;
@@ -3593,7 +3593,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve6(baseURI, relativeURI, options) {
+    function resolve7(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3820,7 +3820,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve6,
+      resolve: resolve7,
       resolveComponent,
       equal,
       serialize,
@@ -8884,8 +8884,8 @@ ${JSON.stringify(symbolNames, null, 2)}`);
         var moduleRtn;
         var Module = moduleArg;
         var readyPromiseResolve, readyPromiseReject;
-        var readyPromise = new Promise((resolve6, reject) => {
-          readyPromiseResolve = resolve6;
+        var readyPromise = new Promise((resolve7, reject) => {
+          readyPromiseResolve = resolve7;
           readyPromiseReject = reject;
         });
         var ENVIRONMENT_IS_WEB = typeof window == "object";
@@ -8968,13 +8968,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             }
             readAsync = /* @__PURE__ */ __name(async (url2) => {
               if (isFileURI(url2)) {
-                return new Promise((resolve6, reject) => {
+                return new Promise((resolve7, reject) => {
                   var xhr = new XMLHttpRequest();
                   xhr.open("GET", url2, true);
                   xhr.responseType = "arraybuffer";
                   xhr.onload = () => {
                     if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                      resolve6(xhr.response);
+                      resolve7(xhr.response);
                       return;
                     }
                     reject(xhr.status);
@@ -9198,10 +9198,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           __name(receiveInstantiationResult, "receiveInstantiationResult");
           var info2 = getWasmImports();
           if (Module["instantiateWasm"]) {
-            return new Promise((resolve6, reject) => {
+            return new Promise((resolve7, reject) => {
               Module["instantiateWasm"](info2, (mod, inst) => {
                 receiveInstance(mod, inst);
-                resolve6(mod.exports);
+                resolve7(mod.exports);
               });
             });
           }
@@ -17029,13 +17029,13 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     }
     return propValues;
   });
-  const isObject4 = isObject;
+  const isObject5 = isObject;
   const catchall = def.catchall;
   let value;
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject4(input)) {
+    if (!isObject5(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -17133,7 +17133,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject4 = isObject;
+  const isObject5 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -17142,7 +17142,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject4(input)) {
+    if (!isObject5(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -23556,7 +23556,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+        await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -23573,7 +23573,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -23651,7 +23651,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve6(parseResult.data);
+            resolve7(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -23912,12 +23912,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve6, interval);
+      const timeoutId = setTimeout(resolve7, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -24787,12 +24787,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve6) => {
+    return new Promise((resolve7) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve6();
+        resolve7();
       } else {
-        this._stdout.once("drain", resolve6);
+        this._stdout.once("drain", resolve7);
       }
     });
   }
@@ -29624,7 +29624,7 @@ var runGit = (cwd, args2, timeoutMs) => {
   env["GIT_CONFIG_NOSYSTEM"] = "1";
   env["GIT_CONFIG_GLOBAL"] = "/dev/null";
   env["LC_ALL"] = "C";
-  return new Promise((resolve6) => {
+  return new Promise((resolve7) => {
     let settled = false;
     const child = execFile(
       "git",
@@ -29648,7 +29648,7 @@ var runGit = (cwd, args2, timeoutMs) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve6({
+        resolve7({
           ok: error2 === null,
           stdout: stdout.trim()
         });
@@ -29658,7 +29658,7 @@ var runGit = (cwd, args2, timeoutMs) => {
       if (settled) return;
       settled = true;
       child.kill("SIGKILL");
-      resolve6({ ok: false, stdout: "", timedOut: true });
+      resolve7({ ok: false, stdout: "", timedOut: true });
     }, timeoutMs);
   });
 };
@@ -33956,8 +33956,8 @@ function issueTools(db, dbPath = "", options = {}) {
 
 // src/tools/scan.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync9, realpathSync as realpathSync6, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname9, join as join17 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync10, realpathSync as realpathSync7, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname as dirname9, join as join18 } from "node:path";
 
 // src/file-purpose.ts
 var PURPOSE_HEAD_BYTES = 4096;
@@ -36737,10 +36737,10 @@ function syncRepoMilestones(db, repo, repoPath, spawnFn) {
 // src/tools/scan-walk.ts
 import { spawn } from "node:child_process";
 import { createHash as createHash4 } from "node:crypto";
-import { accessSync as accessSync2, constants as constants4, createReadStream, existsSync as existsSync6, lstatSync as lstatSync4, readdirSync as readdirSync3, readFileSync as readFileSync8, realpathSync as realpathSync5, statSync as statSync4 } from "node:fs";
+import { accessSync as accessSync3, constants as constants5, createReadStream, existsSync as existsSync6, lstatSync as lstatSync4, readdirSync as readdirSync3, readFileSync as readFileSync9, realpathSync as realpathSync6, statSync as statSync5 } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename7, dirname as dirname8, join as join16, resolve as resolve4 } from "node:path";
+import { basename as basename7, dirname as dirname8, join as join17, resolve as resolve5 } from "node:path";
 
 // src/hooks/lib/host.ts
 import { accessSync, constants as constants3, statSync as statSync3 } from "node:fs";
@@ -36755,6 +36755,36 @@ function commandOnPath(name2, env = process.env) {
     }
   }
   return false;
+}
+
+// src/tools/cheatcode-runtime.ts
+import { accessSync as accessSync2, constants as constants4, readFileSync as readFileSync8, realpathSync as realpathSync5, statSync as statSync4 } from "node:fs";
+import { join as join16, resolve as resolve4 } from "node:path";
+function isObject3(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+var INSTALL_SCOPE_RANK = /* @__PURE__ */ new Map([["local", 3], ["project", 2], ["user", 1]]);
+function canonicalDir(dir) {
+  try {
+    return realpathSync5(dir);
+  } catch {
+    return resolve4(dir);
+  }
+}
+function selectProjectInstalls(list, projectRoot) {
+  const root = projectRoot ? canonicalDir(projectRoot) : null;
+  const chosen = /* @__PURE__ */ new Map();
+  for (const entry of list) {
+    if (!isObject3(entry)) continue;
+    const id = typeof entry["id"] === "string" ? entry["id"] : "";
+    const scope = typeof entry["scope"] === "string" && entry["scope"] !== "" ? entry["scope"] : "user";
+    const projectPath = entry["projectPath"];
+    const here = scope === "user" || root !== null && typeof projectPath === "string" && projectPath !== "" && canonicalDir(projectPath) === root;
+    const rank = here ? INSTALL_SCOPE_RANK.get(scope) ?? 0 : 0;
+    const prev = chosen.get(id);
+    if (prev === void 0 || rank > prev.rank) chosen.set(id, { rank, entry: rank > 0 ? entry : null });
+  }
+  return new Map([...chosen].map(([id, c]) => [id, c.entry]));
 }
 
 // src/tools/scan-walk.ts
@@ -36901,14 +36931,14 @@ function captured(text) {
 }
 function isDir(path) {
   try {
-    return statSync4(path).isDirectory();
+    return statSync5(path).isDirectory();
   } catch {
     return false;
   }
 }
 function isReadable(path) {
   try {
-    accessSync2(path, constants4.R_OK);
+    accessSync3(path, constants5.R_OK);
     return true;
   } catch {
     return false;
@@ -36934,7 +36964,7 @@ function findGitParents(sessionDir) {
       const childRel = `${rel}/${e.name}`;
       if (PRUNED_TAIL.test(childRel) || childRel.includes("/.claude/worktrees")) continue;
       if (e.name === ".git") parents.push(rel);
-      if (e.isDirectory()) walk(join16(abs, e.name), childRel, depth + 1);
+      if (e.isDirectory()) walk(join17(abs, e.name), childRel, depth + 1);
     }
   };
   walk(sessionDir, ".", 0);
@@ -36946,7 +36976,7 @@ async function isLinkedWorktree(repo, env, deadline) {
   const [gitDir, commonDir] = captured(out2.stdout).split("\n");
   if (!gitDir || !commonDir) return false;
   try {
-    return realpathSync5(resolve4(repo, gitDir)) !== realpathSync5(resolve4(repo, commonDir));
+    return realpathSync6(resolve5(repo, gitDir)) !== realpathSync6(resolve5(repo, commonDir));
   } catch {
     return false;
   }
@@ -36956,7 +36986,7 @@ async function skipReason(repo, sessionDir, env, deadline) {
   if (`/${rel}`.includes("/.")) return "dot_dir";
   let enclosing = dirname8(repo);
   for (; ; ) {
-    if (existsSync6(join16(enclosing, ".git"))) {
+    if (existsSync6(join17(enclosing, ".git"))) {
       if ((await git2(["-C", enclosing, "check-ignore", "-q", repo], env, deadline)).code === 0) return "git_ignored";
       break;
     }
@@ -37078,7 +37108,7 @@ function scalar(v) {
   if (typeof v === "number" || v === true) return String(v);
   return "";
 }
-function isObject3(v) {
+function isObject4(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function parseJson(text) {
@@ -37103,7 +37133,7 @@ function register(db, r) {
   }
 }
 function registerSkills(db, sessionDir) {
-  const skillsDir = join16(sessionDir, ".claude", "skills");
+  const skillsDir = join17(sessionDir, ".claude", "skills");
   let entries;
   try {
     if (lstatSync4(skillsDir).isSymbolicLink()) return;
@@ -37114,7 +37144,7 @@ function registerSkills(db, sessionDir) {
   const names = entries.filter((e) => {
     if (!e.isDirectory()) return false;
     try {
-      lstatSync4(join16(skillsDir, e.name, "SKILL.md"));
+      lstatSync4(join17(skillsDir, e.name, "SKILL.md"));
       return true;
     } catch {
       return false;
@@ -37139,7 +37169,7 @@ async function pluginList(sessionDir, env, deadline) {
     const fixture = env["TMB_SCAN_PLUGIN_JSON"] ?? "";
     if (fixture !== "" && isReadable(fixture)) {
       try {
-        raw = readFileSync8(fixture, "utf8");
+        raw = readFileSync9(fixture, "utf8");
       } catch {
         raw = "";
       }
@@ -37169,21 +37199,29 @@ async function pluginList(sessionDir, env, deadline) {
   return { list: parsed, inventory: { status: source, note: "" } };
 }
 function manifestDescription(installPath) {
-  const manifest = join16(installPath, ".claude-plugin", "plugin.json");
+  const manifest = join17(installPath, ".claude-plugin", "plugin.json");
   try {
-    if (!statSync4(manifest).isFile()) return "";
-    const parsed = parseJson(readFileSync8(manifest, "utf8"));
-    return isObject3(parsed) ? captured(scalar(parsed["description"])) : "";
+    if (!statSync5(manifest).isFile()) return "";
+    const parsed = parseJson(readFileSync9(manifest, "utf8"));
+    return isObject4(parsed) ? captured(scalar(parsed["description"])) : "";
   } catch {
     return "";
   }
 }
-function registerPlugins(db, list) {
-  const entries = list.filter(isObject3).map((p) => {
+function registerPlugins(db, list, projectRoot) {
+  const firstListed = /* @__PURE__ */ new Map();
+  for (const p of list.filter(isObject4)) {
     const id = typeof p["id"] === "string" ? p["id"] : "";
-    return { p, id, name: id.split("@")[0] ?? "", version: scalar(p["version"]) };
-  });
-  for (const { p, id, name: name2, version: version2 } of entries) {
+    if (!firstListed.has(id)) firstListed.set(id, p);
+  }
+  const entries = [...selectProjectInstalls(list, projectRoot)].map(([id, selected]) => ({
+    id,
+    name: id.split("@")[0] ?? "",
+    p: selected ?? firstListed.get(id) ?? {},
+    selected,
+    version: selected ? scalar(selected["version"]) : ""
+  }));
+  for (const { p, id, name: name2, selected, version: version2 } of entries) {
     if (name2 === "") continue;
     const listed = typeof p["description"] === "string" ? p["description"].replace(/[\t\n\r]/g, " ") : "";
     const installPath = scalar(p["installPath"]);
@@ -37193,14 +37231,14 @@ function registerPlugins(db, list) {
       name: name2,
       origin: "marketplace",
       source_url: id,
-      status: p["enabled"] === true ? "active" : "installed",
+      status: selected?.["enabled"] === true ? "active" : "installed",
       description,
       version: version2
     });
   }
-  for (const { p, name: plugin2, version: version2 } of entries) {
-    const servers = p["mcpServers"];
-    if (!isObject3(servers) || !VALID_NAME.test(plugin2)) continue;
+  for (const { selected, name: plugin2, version: version2 } of entries) {
+    const servers = selected?.["mcpServers"];
+    if (!isObject4(servers) || !VALID_NAME.test(plugin2)) continue;
     for (const server2 of Object.keys(servers).sort()) {
       if (server2 === "") continue;
       register(db, {
@@ -37224,7 +37262,7 @@ function mcpServers(env) {
     const fixture = env["TMB_SCAN_MCP_JSON"] ?? "";
     if (fixture !== "" && isReadable(fixture)) {
       try {
-        servers = parseJson(readFileSync8(fixture, "utf8"));
+        servers = parseJson(readFileSync9(fixture, "utf8"));
       } catch {
         servers = void 0;
       }
@@ -37233,18 +37271,18 @@ function mcpServers(env) {
       note = "TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID set and no readable TMB_SCAN_MCP_JSON: ~/.claude.json skipped";
     }
   } else {
-    const home = join16(env["HOME"] ?? homedir3(), ".claude.json");
+    const home = join17(env["HOME"] ?? homedir3(), ".claude.json");
     let homeIsFile = false;
     try {
-      homeIsFile = statSync4(home).isFile();
+      homeIsFile = statSync5(home).isFile();
     } catch {
       homeIsFile = false;
     }
     if (homeIsFile) {
       try {
-        const parsed = parseJson(readFileSync8(home, "utf8"));
-        const value = isObject3(parsed) ? parsed["mcpServers"] : void 0;
-        servers = isObject3(parsed) ? value === null || value === void 0 || value === false ? {} : value : void 0;
+        const parsed = parseJson(readFileSync9(home, "utf8"));
+        const value = isObject4(parsed) ? parsed["mcpServers"] : void 0;
+        servers = isObject4(parsed) ? value === null || value === void 0 || value === false ? {} : value : void 0;
       } catch {
         servers = void 0;
       }
@@ -37253,7 +37291,7 @@ function mcpServers(env) {
       note = "no ~/.claude.json";
     }
   }
-  if (source && !isObject3(servers)) {
+  if (source && !isObject4(servers)) {
     return { servers: null, inventory: { status: "unavailable", note: `${source} mcpServers is not a JSON object` } };
   }
   if (!source) return { servers: null, inventory: { status: "unavailable", note } };
@@ -37267,7 +37305,7 @@ async function discoverResources(db, sessionDir, env, deadline) {
     registerSkills(db, sessionDir);
     const plugins = await pluginList(sessionDir, env, deadline);
     result2.plugin = plugins.inventory;
-    if (plugins.list) registerPlugins(db, plugins.list);
+    if (plugins.list) registerPlugins(db, plugins.list, sessionDir);
     const mcp = mcpServers(env);
     result2.mcp = mcp.inventory;
     for (const key of Object.keys(mcp.servers ?? {}).sort()) {
@@ -37281,7 +37319,7 @@ async function discoverResources(db, sessionDir, env, deadline) {
 async function walkProject(db, sessionDir, opts) {
   const env = opts.env ?? process.env;
   const deadline = new Deadline(opts.timeoutMs);
-  const root = resolve4(sessionDir);
+  const root = resolve5(sessionDir);
   if (!isDir(root)) throw new Error("session_dir does not exist");
   deadline.check();
   const repos = [];
@@ -37389,7 +37427,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename8(dirPath);
-  const join19 = (names) => {
+  const join20 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -37400,19 +37438,19 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join19(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join20(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join19(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join20(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join17(absDirPath, name2);
+    const readmePath = join18(absDirPath, name2);
     if (!existsSync7(readmePath)) continue;
     try {
-      return { name: name2, text: readFileSync9(readmePath, "utf8") };
+      return { name: name2, text: readFileSync10(readmePath, "utf8") };
     } catch {
     }
   }
@@ -37444,7 +37482,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join17(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join18(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -37469,7 +37507,7 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join17(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join18(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -37523,7 +37561,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join17(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join18(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -37548,7 +37586,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join17(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join18(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -37603,7 +37641,7 @@ function readRepoRemotes(path) {
 }
 function canonicalPath(p) {
   try {
-    return realpathSync6(p);
+    return realpathSync7(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -37824,7 +37862,7 @@ async function persistScan(db, graph, out2, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync9(lockPath, "utf8"));
+    return JSON.parse(readFileSync10(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -37902,7 +37940,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         if (!graph && graphOpenError) {
           return err4(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join17(dirname9(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join18(dirname9(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -38043,8 +38081,8 @@ function resolveRepoDefaultBranch(repoPath) {
 }
 
 // src/tools/world_model.ts
-import { readFileSync as readFileSync10, realpathSync as realpathSync7 } from "node:fs";
-import { isAbsolute as isAbsolute7, join as join18, relative as relative5, resolve as resolve5, sep as sep4 } from "node:path";
+import { readFileSync as readFileSync11, realpathSync as realpathSync8 } from "node:fs";
+import { isAbsolute as isAbsolute7, join as join19, relative as relative5, resolve as resolve6, sep as sep4 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -38243,8 +38281,8 @@ function symbolSource(db, symbol2) {
   let root;
   let file2;
   try {
-    root = realpathSync7(rootArg);
-    file2 = realpathSync7(join18(root, symbol2.path));
+    root = realpathSync8(rootArg);
+    file2 = realpathSync8(join19(root, symbol2.path));
   } catch {
     return { source: null, source_reason: "file-missing" };
   }
@@ -38252,7 +38290,7 @@ function symbolSource(db, symbol2) {
   if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute7(rel)) return { source: null, source_reason: "outside-repo-root" };
   let lines2;
   try {
-    lines2 = readFileSync10(file2, "utf8").split("\n");
+    lines2 = readFileSync11(file2, "utf8").split("\n");
   } catch {
     return { source: null, source_reason: "file-unreadable" };
   }
@@ -38535,9 +38573,9 @@ function framedStep(step, derived) {
 var REPO_DEFAULT_DOC = "Omitted, it defaults to the registered repo whose path contains the server's cwd (the deepest one), else the sole registered repo; repo_source in the result says which ('arg', 'cwd' or 'sole'). With two or more repos and no match, returns warning 'repo-unspecified' with available_repos.";
 function realOrResolved(path) {
   try {
-    return realpathSync7(path);
+    return realpathSync8(path);
   } catch {
-    return resolve5(path);
+    return resolve6(path);
   }
 }
 function containsPath(dir, path) {

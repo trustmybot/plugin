@@ -1,9 +1,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { tempDB } from './helpers.js';
+import { selectProjectInstalls } from '../tools/cheatcode-runtime.js';
 import type { TrajectoryDB } from '../db.js';
 import {
   probeCachePath,
@@ -457,6 +458,31 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
     assert.deepEqual({ ...versionOf(kept) }, { version: '2.0.0', updated_at: 'then' });
   });
 
+  it('GH 2136: reconcileNow takes the version of the install in effect for the DB project, not the last one listed', async () => {
+    const tmb = addRow('tmb', 'plugin', 'active', 'tmb@m');
+    const away = addRow('away', 'plugin', 'active', 'away@m');
+    db.run("UPDATE cheatcodes SET version = '0.9.0' WHERE id = ?", [tmb]);
+    db.run("UPDATE cheatcodes SET version = '5.0.0' WHERE id = ?", [away]);
+    const elsewhere = join(dirname(root), 'other-project');
+    const listing = JSON.stringify([
+      { id: 'tmb@m', version: '2.0.0', scope: 'local', enabled: true, projectPath: realpathSync(root) },
+      { id: 'tmb@m', version: '3.0.0', scope: 'user', enabled: true },
+      { id: 'tmb@m', version: '1.0.0', scope: 'local', enabled: true, projectPath: elsewhere },
+      { id: 'away@m', version: '6.0.0', scope: 'local', enabled: true, projectPath: elsewhere },
+    ]);
+    writeFileSync(join(dirname(root), 'listing.json'), listing);
+    writeFileSync(
+      join(dirname(root), 'bin', 'claude'),
+      ['#!/bin/sh', `if [ "$1" = mcp ]; then echo ""; else cat '${join(dirname(root), 'listing.json')}'; fi`, ''].join('\n'),
+    );
+
+    await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
+
+    const row = (id: number) => db.get<{ version: string; status: string }>('SELECT version, status FROM cheatcodes WHERE id = ?', [id])!;
+    assert.deepEqual({ ...row(tmb) }, { version: '2.0.0', status: 'active' });
+    assert.deepEqual({ ...row(away) }, { version: '5.0.0', status: 'broken' });
+  });
+
   it('reconcileNow always probes and refreshes the cache', async () => {
     await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
     assert.equal(invocations().length, 2);
@@ -467,5 +493,37 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
     await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
     assert.equal(invocations().length, 2);
     assert.equal(readCache().fingerprint, cache.fingerprint);
+  });
+});
+
+describe('selectProjectInstalls (GH 2136)', () => {
+  const root = '/nonexistent/gh2136-project';
+  const other = join(root, 'other');
+  const pick = (list: unknown[], projectRoot: string | null = root) =>
+    Object.fromEntries([...selectProjectInstalls(list, projectRoot)].map(([id, e]) => [id, e === null ? null : e['version']]));
+
+  it('GH 2136: local at the project root beats project, which beats user; other projects never apply', () => {
+    assert.deepEqual(
+      pick([
+        { id: 'a@m', version: 'user', scope: 'user' },
+        { id: 'a@m', version: 'local-other', scope: 'local', projectPath: other },
+        { id: 'a@m', version: 'local-here', scope: 'local', projectPath: root },
+        { id: 'a@m', version: 'project-here', scope: 'project', projectPath: root },
+        { id: 'b@m', version: 'user', scope: 'user' },
+        { id: 'b@m', version: 'project-here', scope: 'project', projectPath: `${root}/` },
+        { id: 'c@m', version: 'local-other', scope: 'local', projectPath: other },
+        { id: 'c@m', version: 'user', scope: 'user' },
+        { id: 'd@m', version: 'unscoped' },
+        { id: 'e@m', version: 'local-other', scope: 'local', projectPath: other },
+      ]),
+      { 'a@m': 'local-here', 'b@m': 'project-here', 'c@m': 'user', 'd@m': 'unscoped', 'e@m': null },
+    );
+  });
+
+  it('GH 2136: with no project root only user installs apply', () => {
+    assert.deepEqual(
+      pick([{ id: 'a@m', version: 'local', scope: 'local', projectPath: root }, { id: 'b@m', version: 'user', scope: 'user' }], null),
+      { 'a@m': null, 'b@m': 'user' },
+    );
   });
 });

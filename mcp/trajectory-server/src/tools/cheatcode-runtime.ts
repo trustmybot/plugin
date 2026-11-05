@@ -1,6 +1,6 @@
 // Shared runtime of the cheatcode search/vet/install/uninstall modules: fixtures, jq value semantics, fetch and the claude CLI.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { accessSync, constants, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -49,6 +49,41 @@ export function requireProjectRoot(projectRoot: string): void {
 
 export function isObject(v: unknown): v is JsonObject {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+const INSTALL_SCOPE_RANK = new Map([['local', 3], ['project', 2], ['user', 1]]);
+
+function canonicalDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return resolve(dir);
+  }
+}
+
+/**
+ * Per plugin id of a `claude plugin list --json` listing, the install in effect
+ * for `projectRoot` by Claude Code's settings precedence: a local entry whose
+ * canonical projectPath is the canonical project root, then such a project
+ * entry, then the user entry (an entry without a scope counts as user). An id
+ * none of whose entries applies maps to null.
+ */
+export function selectProjectInstalls(list: readonly unknown[], projectRoot: string | null): Map<string, JsonObject | null> {
+  const root = projectRoot ? canonicalDir(projectRoot) : null;
+  const chosen = new Map<string, { rank: number; entry: JsonObject | null }>();
+  for (const entry of list) {
+    if (!isObject(entry)) continue;
+    const id = typeof entry['id'] === 'string' ? entry['id'] : '';
+    const scope = typeof entry['scope'] === 'string' && entry['scope'] !== '' ? entry['scope'] : 'user';
+    const projectPath = entry['projectPath'];
+    const here =
+      scope === 'user' ||
+      (root !== null && typeof projectPath === 'string' && projectPath !== '' && canonicalDir(projectPath) === root);
+    const rank = here ? (INSTALL_SCOPE_RANK.get(scope) ?? 0) : 0;
+    const prev = chosen.get(id);
+    if (prev === undefined || rank > prev.rank) chosen.set(id, { rank, entry: rank > 0 ? entry : null });
+  }
+  return new Map([...chosen].map(([id, c]) => [id, c.entry]));
 }
 
 export function jqType(v: Json | undefined): string {

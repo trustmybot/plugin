@@ -23,12 +23,15 @@
 //     from TMB_SCAN_PLUGIN_JSON, else unavailable); MCP servers come from
 //     TMB_SCAN_MCP_JSON, never ~/.claude.json; absent → mcp_inventory
 //     unavailable. Unflagged, ~/.claude.json is still read (mcp_inventory home).
+//   - one plugin listed once per install (GH 2136) → version, enabled and
+//     bundled servers come from this project's install (local > project >
+//     user); a rescan of the same listing writes nothing
 //
 // Every walk gets an explicit env (the bash suite's `env -i`), so the runner's
 // own test flags never leak into the unflagged cases.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -326,6 +329,44 @@ describe('scan resource discovery (#124/#846)', () => {
             assert.equal(out.mcp_inventory.status, 'home');
             assert.equal(ccRow('home-server', 'mcp'), 'external|mcp:home-server|active|');
         });
+    });
+});
+describe('scan plugin version follows this project\'s install (GH 2136)', () => {
+    it('GH 2136: a local install at the project root beats user and other-project installs, and a rescan writes nothing', async () => {
+        const ws = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-scan-gh2136-')));
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const db = new TrajectoryDB(join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const elsewhere = join(ws, '..', 'gh2136-other-project');
+        const fixture = join(ws, 'plugins.json');
+        const servers = { 'traj-server': {} };
+        writeFileSync(fixture, JSON.stringify([
+            { id: 'tmb@m', version: '1.0.0', scope: 'local', enabled: true, projectPath: elsewhere, mcpServers: servers },
+            { id: 'tmb@m', version: '3.0.0', scope: 'user', enabled: false, mcpServers: servers },
+            { id: 'tmb@m', version: '2.0.0', scope: 'local', enabled: true, projectPath: `${ws}/.`, mcpServers: servers },
+            { id: 'tmb@m', version: '1.5.0', scope: 'local', enabled: true, projectPath: elsewhere, mcpServers: servers },
+            { id: 'proj@m', version: '1.0.0', scope: 'user', enabled: true },
+            { id: 'proj@m', version: '1.1.0', scope: 'project', enabled: true, projectPath: ws },
+            { id: 'away@m', version: '9.0.0', scope: 'local', enabled: true, projectPath: elsewhere, mcpServers: { 'away-server': {} } },
+        ]));
+        const env = { HOME: join(ws, 'home'), PATH: process.env['PATH'], TMB_FORBID_LIVE_SYNC: '1', TMB_SCAN_PLUGIN_JSON: fixture };
+        const OLD = '2000-01-01T00:00:00.000Z';
+        const rows = () => db.all("SELECT name, kind, status, version, updated_at FROM cheatcodes WHERE kind IN ('plugin', 'mcp') ORDER BY kind, name").map((r) => ({ ...r }));
+        try {
+            await walkProject(db, ws, { timeoutMs: TIMEOUT_MS, env });
+            assert.deepEqual(rows().map(({ name, kind, status, version }) => ({ name, kind, status, version })), [
+                { name: 'traj-server', kind: 'mcp', status: 'active', version: '2.0.0' },
+                { name: 'away', kind: 'plugin', status: 'installed', version: null },
+                { name: 'proj', kind: 'plugin', status: 'active', version: '1.1.0' },
+                { name: 'tmb', kind: 'plugin', status: 'active', version: '2.0.0' },
+            ]);
+            db.run("UPDATE cheatcodes SET updated_at = ? WHERE kind IN ('plugin', 'mcp')", [OLD]);
+            await walkProject(db, ws, { timeoutMs: TIMEOUT_MS, env });
+            assert.ok(rows().every((r) => r.updated_at === OLD), JSON.stringify(rows()));
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=scan-resource-discovery.test.js.map
