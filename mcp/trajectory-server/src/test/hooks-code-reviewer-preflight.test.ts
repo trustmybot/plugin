@@ -262,14 +262,14 @@ describe('code-reviewer-preflight', () => {
     });
 
     const CHUNK_LINES = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`).join('\n');
-    const REGEN_FILES: Record<string, string> = {
+    const GENERATED_FILES: Record<string, string> = {
       ...BASE_FILES,
-      '.gitattributes': 'dist/** merge=tmb-regen\n',
+      'mcp/trajectory-server/dist/x.js': 'export const x = 1;\n',
       'dist/chunks/View-aaa111.js': `${CHUNK_LINES}\n`,
     };
 
     /** dev renames the hashed chunk; the task deletes it and adds a rebuilt one under a different hash. */
-    function regenChunkConflict(f: Fixture, alsoConflictSource = false): void {
+    function generatedChunkConflict(f: Fixture, alsoConflictSource = false): void {
       f.git('rm', '-q', 'dist/chunks/View-aaa111.js');
       f.write('dist/chunks/View-ccc333.js', 'export const rebuilt = true;\n');
       if (alsoConflictSource) f.write('src/a.txt', 'one\ntwo\nthree\nfour\n');
@@ -290,57 +290,38 @@ describe('code-reviewer-preflight', () => {
       assert.match(r.stdout, /dist\/chunks\/View-bbb222\.js/);
     }
 
-    it('allows a conflict confined to merge=tmb-regen paths (GH 2005)', async () => {
-      const f = fixture(REGEN_FILES);
-      regenChunkConflict(f);
-      assertMergeTreeConflicts(f);
-      await assertAllowed(f);
-    });
-
-    it('denies a source conflict alongside a regen chunk, naming only the source path', async () => {
-      const f = fixture(REGEN_FILES);
-      regenChunkConflict(f, true);
-      assertMergeTreeConflicts(f);
-      const d = denial((await run(f)).stdout);
-      assert.equal(d.check, 'base_conflict');
-      assert.equal(d.actual, 'conflicts in src/a.txt');
-    });
-
-    it('denies a source conflict in a repo whose dist/ is merge=tmb-regen', async () => {
-      const f = fixture(REGEN_FILES);
-      featureCommit(f);
+    it('denies a conflict on a generated build path (GH 2054)', async () => {
+      const f = fixture(GENERATED_FILES);
+      f.write('mcp/trajectory-server/dist/x.js', 'export const x = 2;\n');
+      f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
+      f.commit('feature rebuilds dist');
       f.record();
       f.git('checkout', '-q', 'dev');
-      f.write('src/a.txt', 'one\ntwo\nthree\nFOUR on dev\n');
-      f.commit('dev conflicts');
+      f.write('mcp/trajectory-server/dist/x.js', 'export const x = 3;\n');
+      f.commit('dev rebuilds dist');
       f.git('checkout', '-q', BRANCH);
       const d = denial((await run(f)).stdout);
       assert.equal(d.check, 'base_conflict');
-      assert.equal(d.actual, 'conflicts in src/a.txt');
+      assert.equal(d.actual, 'conflicts in mcp/trajectory-server/dist/x.js');
     });
 
-    it('denies a regen-only conflict when git check-attr fails (fail-closed)', async () => {
-      const f = fixture(REGEN_FILES);
-      regenChunkConflict(f);
-      const bin = join(dirname(f.repo), 'bin');
-      mkdirSync(bin);
-      const wrapper = join(bin, 'git');
-      writeFileSync(
-        wrapper,
-        [
-          '#!/usr/bin/env node',
-          "const { spawnSync } = require('node:child_process');",
-          "const args = process.argv.slice(2).map((a) => (a.startsWith('--source=') ? '--source=refs/heads/no-such-branch' : a));",
-          `const r = spawnSync(${JSON.stringify(execFileSync('which', ['git'], { encoding: 'utf8' }).trim())}, args, { stdio: 'inherit' });`,
-          'process.exit(r.status ?? 1);',
-          '',
-        ].join('\n'),
-      );
-      chmodSync(wrapper, 0o755);
-      const env = { ...f.env, PATH: `${bin}:${f.env.PATH}` };
-      const d = denial(((await codeReviewerPreflight(payload(), env)) as { stdout: string }).stdout);
+    it('denies a hashed-chunk conflict (GH 2054)', async () => {
+      const f = fixture(GENERATED_FILES);
+      generatedChunkConflict(f);
+      assertMergeTreeConflicts(f);
+      const d = denial((await run(f)).stdout);
       assert.equal(d.check, 'base_conflict');
-      assert.match(d.actual ?? '', /conflicts in .*dist\/chunks\/View-bbb222\.js.*; git check-attr of their merge attribute failed/);
+      assert.match(d.actual ?? '', /^conflicts in .*dist\/chunks\/View-bbb222\.js/);
+    });
+
+    it('denies a source conflict alongside a generated chunk, naming both paths', async () => {
+      const f = fixture(GENERATED_FILES);
+      generatedChunkConflict(f, true);
+      assertMergeTreeConflicts(f);
+      const d = denial((await run(f)).stdout);
+      assert.equal(d.check, 'base_conflict');
+      assert.match(d.actual ?? '', /dist\/chunks\/View-bbb222\.js/);
+      assert.match(d.actual ?? '', /src\/a\.txt/);
     });
   });
 

@@ -27,19 +27,4 @@ These files are generated; nobody edits them by hand. Only the `ENUMS.md` sectio
 | `scripts/hooks/lib/data-contracts.json` | `emit-data-contracts.mjs` |
 | `dashboard/dist/**` | `bun run build` in `dashboard` |
 
-Untracked, they never conflict in a merge, rebase or cherry-pick, so no path is routed to the `tmb-regen` merge driver any more. `ENUMS.md` stays text-merged because only one section of it is generated.
-
-The driver lives in the repo's own `.git/config` (shared by its worktrees, never the global config). The WorktreeCreate hook installs it for every swe worktree; anywhere else run it once:
-
-```bash
-node mcp/trajectory-server/dist/hooks.js install-merge-driver
-```
-
-After any rebase or merge, rebuild everything from the merged sources and commit the result:
-
-```bash
-node --experimental-strip-types scripts/maintenance/regen-generated.ts          # rebuild, list what changed
-node --experimental-strip-types scripts/maintenance/regen-generated.ts --check  # exit 1 naming each stale file; changes nothing
-```
-
-`regen-generated.ts` runs `npm run build`, `gen-enums-doc.mjs --doc`, `emit-data-contracts.mjs`, `gen-erd-doc.mjs` / `gen-config-keys-doc.mjs` when present, then `bun run build` in `dashboard` (it bundles trajectory-server sources, so it runs last). It needs the build toolchain: `bun install --frozen-lockfile` at the plugin root and in `dashboard/`; without it the script exits 2.
+Untracked, they never conflict in a merge, rebase or cherry-pick, and no merge driver or regen step stands between git and a conflict: what git reports locally is what GitHub reports. `ENUMS.md` stays text-merged because only one section of it is generated; when a merge or rebase changes `audit-events.ts`, rebuild (`npm run build` in `mcp/trajectory-server`), run `node scripts/maintenance/gen-enums-doc.mjs --doc` and commit the result.

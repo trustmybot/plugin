@@ -3,12 +3,12 @@
  * gates with the golden recordings of the retired shell gates (GH 1692), over
  * tests/fixtures/hook-corpus/<gate>/. Both sides must exit alike, print the
  * same stdout and stderr byte for byte and leave every sandbox repo in the
- * same state: its worktrees, branches, HEAD, merge driver config, status and
+ * same state: its worktrees, branches, HEAD, merge config, status and
  * .claude/worktrees listing.
  *
  * The sandbox holds three trajectory DBs. ws/.claude/tmb/trajectory.db
- * registers the repos project (target main, on feat/work), other (no target,
- * a merge=tmb-regen .gitattributes), dirty (target main, an uncommitted edit
+ * registers the repos project (target main, on feat/work), other (no target),
+ * dirty (target main, an uncommitted edit
  * that blocks checking main out) and nogit (no git repo); ws/ghost is a repo
  * no row registers, and ws itself is no repo. single/ registers the sole repo
  * solo, and gitws/ is a git repo whose DB registers none. nodb and nodb-git
@@ -149,7 +149,7 @@ export function buildSandbox(s: string): void {
   git(project, 'checkout', '-q', 'feat/work');
 
   const other = join(s, 'ws/other');
-  initRepo(other, { 'README.md': '# other\n', '.gitattributes': 'dist/** merge=tmb-regen\n' });
+  initRepo(other, { 'README.md': '# other\n' });
   git(other, 'branch', 'feat/existing');
   addWorktree(other, 'feat/other-task');
 
@@ -233,7 +233,7 @@ export function noCmdPath(dir: string, cmd: string, path: string): string {
     .join(':');
 }
 
-/** Every sandbox repo's worktrees, branches, HEAD, merge driver config, status and .claude/worktrees entries. */
+/** Every sandbox repo's worktrees, branches, HEAD, merge config, status and .claude/worktrees entries. */
 export function sandboxState(s: string): string {
   return REPOS.map((rel) => {
     const repo = join(s, rel);

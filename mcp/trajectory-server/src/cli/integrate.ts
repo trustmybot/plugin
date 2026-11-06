@@ -20,20 +20,12 @@
  *      → exit 2, branch and DB unchanged. Each untracked node_modules of the
  *      main checkout beside a tracked package.json is symlinked into the
  *      worktree (GH 1541).
- *   4. When scripts/maintenance/regen-generated.ts (or, on an older base, its
- *      shell predecessor) exists and either side of the rebase touched a path
- *      the worktree's .gitattributes marks merge=tmb-regen, the script runs in
- *      the worktree (GH 1652); a failure → exit 2, branch and DB unchanged.
- *      Every change it makes under a merge=tmb-regen path, new untracked files
- *      and deletions included, is staged (`git add -A` over that attr
- *      pathspec) and amended into the rebased tip, keeping its author and
- *      message (GH 2353); changes outside those paths stay out of it.
- *   5. The `git patch-id --stable` lists of the commits a rebase picks from
+ *   4. The `git patch-id --stable` lists of the commits a rebase picks from
  *      commit_sha and from <rebased> (`rev-list --cherry-pick --right-only
  *      <base>...<sha>`: a commit whose patch is already in <base>, such as a
- *      squash-merged parent branch's, is skipped), both over source paths only
- *      (every merge=tmb-regen path excluded), must match, else exit 2. No
- *      rebased commit left means the task's patch is already in <base> → exit 2.
+ *      squash-merged parent branch's, is skipped), both over every path, must
+ *      match, else exit 2. No rebased commit left means the task's patch is
+ *      already in <base> → exit 2.
  *      When the worktree holds .config/tmb/worktree-setup.json (GH 2054), its
  *      commands run first; a failure → exit 1 with the failing command and its
  *      output tail on stderr, nothing recorded, branch unmoved.
@@ -48,7 +40,7 @@
  *      write fails the branch has moved but the task row still names the
  *      reviewed SHA → exit 4, and code-reviewer-preflight denies a review of
  *      the rebased SHA (sha_mismatch).
- *   6. The temporary worktree is removed on every exit. A run still open when
+ *   5. The temporary worktree is removed on every exit. A run still open when
  *      the command exits (INT → 130, TERM → 143, or the failure it exits with)
  *      is finished with that exit code and its running command is killed; a
  *      finished run is not rewritten. A SIGKILL leaves the run open until a
@@ -57,8 +49,7 @@
  * points at commit_sha, or at a rebase of it with a passing recorded run.
  * The git-push-guard gate denies a push of a rebased task commit without such a run.
  *
- * The regen run is bounded by the whole budget on its own; each verification
- * command is bounded by what is left of the budget,
+ * Each verification command is bounded by what is left of the budget,
  * plugin_config.verification_timeout_s (default 900 s; TMB_VERIFICATION_TIMEOUT_S
  * overrides it), capped at 1800 s.
  * stdout carries only the SHA; progress and failures go to stderr.
@@ -66,7 +57,7 @@
  * 3 = no passing review, 4 = usage error or a precondition not met.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditSql, dbWrite, nowIso } from '../hooks/lib/audit.js';
@@ -86,11 +77,6 @@ const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
 const DEFAULT_TAIL_CHARS = 4000;
 const TIMED_OUT_CODE = 124;
-const REGEN_ATTR = 'attr:merge=tmb-regen';
-const REGEN_SCRIPTS = [
-  { name: 'regen-generated.ts', run: ['node', '--experimental-strip-types', '--no-warnings'] },
-  { name: 'regen-generated.sh', run: ['bash'] },
-] as const;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
@@ -351,7 +337,7 @@ SELECT changes();`,
 
   private patchIds(sha: string): string {
     const picks = this.rebasePicks(sha);
-    const diff = spawnSync('git', ['-C', this.wt, 'diff-tree', '--stdin', '-p', '-r', '--root', '--', '.', `:(exclude,${REGEN_ATTR})`], {
+    const diff = spawnSync('git', ['-C', this.wt, 'diff-tree', '--stdin', '-p', '-r', '--root'], {
       encoding: 'utf8',
       env: this.env,
       input: picks === '' ? '' : `${picks}\n`,
@@ -363,12 +349,6 @@ SELECT changes();`,
         .split('\n')
         .map((line) => line.split(' ')[0])
         .join('\n'),
-    );
-  }
-
-  private regenTouched(): boolean {
-    return [`${this.baseSha}...${this.commitSha}`, `${this.commitSha}...${this.baseSha}`].some(
-      (side) => this.git(this.wt, ['diff', '--name-only', side, '--', `:(${REGEN_ATTR})`]).out !== '',
     );
   }
 
@@ -448,7 +428,7 @@ SELECT changes();`,
       this.git(this.wt, ['rebase', '--abort']);
       this.die(2, `rebase of task ${this.taskId} onto ${this.base} conflicted; aborted, ${branch} and the DB are unchanged`);
     }
-    let newSha = this.revParse(this.wt, 'HEAD');
+    const newSha = this.revParse(this.wt, 'HEAD');
     if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
 
     try {
@@ -462,22 +442,6 @@ SELECT changes();`,
       sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", this.env);
     const timeoutS = parseBudget(budgetRaw).timeoutS;
     const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
-
-    const regen = REGEN_SCRIPTS.find((s) => existsSync(`${this.wt}/scripts/maintenance/${s.name}`));
-    if (newSha !== this.baseSha && regen !== undefined && this.regenTouched()) {
-      const script = `scripts/maintenance/${regen.name}`;
-      this.say(`regenerating generated files with ${script}`);
-      const r = await this.execute([...regen.run, script], timeoutS, { ...this.env, PATH: toolchainPath });
-      if (r.out !== '') this.io.err(`${r.out}\n`);
-      if (r.rc !== 0) this.die(2, `${script} exited ${r.rc} in the rebased worktree; ${branch} and the DB are unchanged`);
-      if (this.git(this.wt, ['status', '--porcelain', '--untracked-files=all', '--', `:(${REGEN_ATTR})`]).out !== '') {
-        if (!this.gitLoud(this.wt, ['add', '-A', '--', `:(${REGEN_ATTR})`]) || !this.gitLoud(this.wt, ['commit', '-q', '--amend', '--no-edit'])) {
-          this.die(4, `could not amend the regenerated files into the rebased commit; ${branch} and the DB are unchanged`);
-        }
-        newSha = this.revParse(this.wt, 'HEAD');
-        if (newSha === '') this.die(4, 'cannot read the amended HEAD');
-      }
-    }
 
     if (this.rebasePicks(newSha) === '') {
       this.die(2, `task ${this.taskId}'s patch is already in ${this.base}; nothing to integrate, ${branch} and the DB are unchanged`);

@@ -29,7 +29,7 @@ function execDb(path: string, statements: string): void {
 
 describe('worktree-create l3', () => {
   let sb: Sandbox;
-  /** The sandbox env with HOME's git config as the global one, so the GH 1277 case can read it. */
+  /** The sandbox env with HOME's git config as the global one, so the GH 2054 case can read it. */
   let env: NodeJS.ProcessEnv;
   let workspace: string;
   let inner: string;
@@ -63,9 +63,6 @@ describe('worktree-create l3', () => {
     git(env, worktree, '-c', 'user.email=swe@t.io', '-c', 'user.name=swe', 'commit', '-qm', msg);
     return git(env, worktree, 'rev-parse', 'HEAD');
   }
-
-  const gitDirConfig = (repo: string, key: string) =>
-    tryGit(env, repo, ['config', '-f', join(git(env, repo, 'rev-parse', '--absolute-git-dir'), 'config'), '--get', key]).stdout.trim();
 
   before(() => {
     sb = makeSandbox('worktree-create');
@@ -264,40 +261,25 @@ describe('worktree-create l3', () => {
     });
   });
 
-  describe('tmb-regen merge driver (GH 1277)', () => {
-    let gaRepo: string;
-    let gaRoot: string;
-    let gaDb: string;
-    before(() => {
-      gaRepo = join(sb.dir, 'gattr');
-      gaRoot = newRepo(gaRepo, { '.gitattributes': 'dist/** merge=tmb-regen\n' });
-      gaDb = join(gaRepo, '.claude/tmb/trajectory.db');
-      execDb(
-        gaDb,
-        `CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, status TEXT, repo TEXT);
-         CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, protected_branches TEXT);
-         INSERT INTO tasks (id, branch_id, status, repo) VALUES (1, 'feat/1277-driver', 'pending', 'gattr');`,
-      );
-      sql(gaDb, "INSERT INTO repos (name, path) VALUES ('gattr', ?)", gaRoot);
-      git(env, gaRepo, 'branch', 'feat/1277-driver', 'HEAD');
-    });
-
-    it("GH 1277: worktree creation installs the tmb-regen merge driver into the repo's .git/config", () => {
-      const gaPath = runHook(event('feat/1277-driver'), gaDb).stdout;
-      assert.equal(gaPath, join(gaRoot, '.claude/worktrees/1277-driver'), 'worktree created at the repo-rooted path');
-      const driver = gitDirConfig(gaRepo, 'merge.tmb-regen.driver');
-      has(driver, 'regen-generated.ts', '.git/config carries merge.tmb-regen.driver');
-      assert.notEqual(gitDirConfig(gaRepo, 'merge.tmb-regen.name'), '', '.git/config has no merge.tmb-regen.name');
-      assert.equal(tryGit(env, gaPath, ['config', '--get', 'merge.tmb-regen.driver']).stdout.trim(), driver, 'the worktree sees the driver');
-    });
-
-    it('GH 1277: the driver is never written to the global git config', () => {
-      assert.equal(tryGit(env, sb.dir, ['config', '--global', '--get', 'merge.tmb-regen.driver']).stdout.trim(), '', 'no global merge.tmb-regen.driver');
-    });
-
-    it('GH 1277: a repo whose .gitattributes never names tmb-regen gets no driver', () => {
-      assert.equal(gitDirConfig(inner, 'merge.tmb-regen.driver'), '', 'inner repo config untouched');
-    });
+  it("GH 2054: worktree creation leaves the repo's and the global git config untouched", () => {
+    const gaRepo = join(sb.dir, 'gattr');
+    const gaRoot = newRepo(gaRepo, { '.gitattributes': 'dist/** merge=ours\n' });
+    const gaDb = join(gaRepo, '.claude/tmb/trajectory.db');
+    execDb(
+      gaDb,
+      `CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, status TEXT, repo TEXT);
+       CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, protected_branches TEXT);
+       INSERT INTO tasks (id, branch_id, status, repo) VALUES (1, 'feat/2054-config', 'pending', 'gattr');`,
+    );
+    sql(gaDb, "INSERT INTO repos (name, path) VALUES ('gattr', ?)", gaRoot);
+    git(env, gaRepo, 'branch', 'feat/2054-config', 'HEAD');
+    const localConfig = join(git(env, gaRepo, 'rev-parse', '--absolute-git-dir'), 'config');
+    const globalConfig = () => tryGit(env, sb.dir, ['config', '--global', '--list']).stdout;
+    const localBefore = readFileSync(localConfig, 'utf8');
+    const globalBefore = globalConfig();
+    assert.equal(runHook(event('feat/2054-config'), gaDb).stdout, join(gaRoot, '.claude/worktrees/2054-config'), 'worktree created at the repo-rooted path');
+    assert.equal(readFileSync(localConfig, 'utf8'), localBefore, "the repo's .git/config is unchanged");
+    assert.equal(globalConfig(), globalBefore, 'the global git config is unchanged');
   });
 
   it('GH 1692: the hook\'s exit code and bare path on stdout pass through as they are, with no JSON', () => {

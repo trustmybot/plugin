@@ -23,7 +23,6 @@ import { HAS_PASS_SQL } from '../review-sql.js';
 
 const PLUGIN_ROOT = installRoot(dirname(fileURLToPath(import.meta.url))) as string;
 const CLI = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/cli.js');
-const HOOKS = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -39,32 +38,7 @@ const SLOW = '["test -f a.txt", "touch ../../tmb/cmd-started; sleep 2"]';
 const NODE_MODULES_PASSING = '["test -f node_modules/marker", "test -f pkg/node_modules/marker", "test ! -e other/node_modules"]';
 const NODE_MODULES_FAILING = '["test -f node_modules/marker", "test -f pkg/node_modules/marker", "exit 5"]';
 
-const REGEN_OK = `const fs = process.getBuiltinModule("node:fs");
-const path = process.getBuiltinModule("node:path");
-const root = path.resolve(path.dirname(process.argv[1]), "../..");
-const src = path.join(root, "src");
-const names = fs.readdirSync(src).filter((n) => n.endsWith(".txt")).sort();
-fs.writeFileSync(path.join(root, "gen/out.txt"), names.map((n) => fs.readFileSync(path.join(src, n), "utf8")).join(""));
-`;
-const REGEN_HASHED = `const fs = process.getBuiltinModule("node:fs");
-const path = process.getBuiltinModule("node:path");
-const crypto = process.getBuiltinModule("node:crypto");
-const root = path.resolve(path.dirname(process.argv[1]), "../..");
-const src = path.join(root, "src");
-const gen = path.join(root, "gen");
-const names = fs.readdirSync(src).filter((n) => n.endsWith(".txt")).sort();
-const body = names.map((n) => fs.readFileSync(path.join(src, n), "utf8")).join("");
-const hash = crypto.createHash("sha1").update(body).digest("hex").slice(0, 8);
-for (const n of fs.readdirSync(gen)) fs.rmSync(path.join(gen, n));
-fs.writeFileSync(path.join(gen, "chunk-" + hash + ".txt"), hash + "\\n");
-fs.writeFileSync(path.join(gen, "out.txt"), "chunk-" + hash + ".txt\\n" + body);
-fs.writeFileSync(path.join(root, "regen.log"), "regenerated\\n");
-`;
-const REGEN_FAIL = `process.stderr.write("regen-generated: toolchain missing\\n");
-process.exit(2);
-`;
-const REGEN_RUN = 'node --experimental-strip-types --no-warnings scripts/maintenance/regen-generated.ts';
-const REGEN_PASSING = JSON.stringify(['grep -q l4-task src/s.txt', `${REGEN_RUN} && git diff --exit-code -- gen`]);
+const L4_PASSING ='["grep -q l4-task src/s.txt"]';
 
 interface Run {
   code: number | null;
@@ -526,170 +500,88 @@ describe('cli.js integrate', () => {
     });
   });
 
-  // Generated files (GH 1652). .gitattributes routes gen/** to the tmb-regen
-  // merge driver (keeps ours); scripts/maintenance/regen-generated.ts rebuilds
-  // gen/out.txt from src/*.txt. src/s.txt holds l1..l7; the task changes l4 and
-  // regenerates, then main moves with its own src/ change and regenerates, so
-  // gen/out.txt conflicts on every rebase:
-  //   gen      — src/base.txt (gen/out.txt is the only conflict)
-  //   drift    — l2 of src/s.txt (merges cleanly, but the task's source patch
-  //              context changes)
-  //   conflict — l4 of src/s.txt (a real source conflict)
-  //   absorbed — the task's own l4 change (the rebase drops the task commit)
-  // The regen mode "fail" commits a regen script that exits 2; "hashed" one
-  // that replaces gen/ with gen/out.txt naming a new gen/chunk-<content hash>.txt
-  // (a content-hashed chunk, GH 2353) and writes an untracked regen.log outside gen/.
-  describe('generated files', () => {
-    let regenMode: 'ok' | 'fail' | 'hashed' = 'ok';
+  // Patch-ids over every path (GH 2054). src/s.txt and gen/out.txt each hold
+  // l1..l7; the task changes l4 of both, then main moves:
+  //   drift     — l2 of src/s.txt (merges cleanly, but the task's patch context changes)
+  //   gen-drift — l2 of gen/out.txt only (a generated path counts like any other)
+  //   gen       — l4 of gen/out.txt (a conflict on a generated path)
+  //   absorbed  — the task's own change (the rebase drops the task commit)
+  describe('patch-ids and conflicts over every path', () => {
+    function sevenLines(file: string, line: number, value: string): void {
+      const lines = [1, 2, 3, 4, 5, 6, 7].map((i) => (i === line ? value : `l${i}`));
+      writeFileSync(join(repo, file), `${lines.join('\n')}\n`);
+    }
 
-    function regenCommit(msg: string): void {
-      mkdirSync(join(repo, 'gen'), { recursive: true });
-      if (regenMode === 'hashed') {
-        const r = spawnSync(process.execPath, ['scripts/maintenance/regen-generated.ts'], { cwd: repo, encoding: 'utf8', env: GIT_ENV });
-        assert.equal(r.status, 0, `hashed regen: ${r.stderr}`);
-        rmSync(join(repo, 'regen.log'));
-      } else {
-        const src = join(repo, 'src');
-        const names = readdirSync(src).filter((n) => n.endsWith('.txt')).sort();
-        writeFileSync(join(repo, 'gen/out.txt'), names.map((n) => readFileSync(join(src, n), 'utf8')).join(''));
-      }
+    function commitAll(msg: string): void {
       git('add', '-A', 'src', 'gen');
       git('commit', '-qm', msg);
     }
 
-    function sLines(line: number, value: string): void {
-      const lines = [1, 2, 3, 4, 5, 6, 7].map((i) => (i === line ? value : `l${i}`));
-      writeFileSync(join(repo, 'src/s.txt'), `${lines.join('\n')}\n`);
-    }
-
-    function setupRegen(move: 'gen' | 'drift' | 'conflict' | 'absorbed', regen: 'ok' | 'fail' | 'hashed' = 'ok'): void {
-      regenMode = regen;
-      setup('none', REGEN_PASSING);
-      const r = spawnSync(process.execPath, [HOOKS, 'install-merge-driver', repo], { cwd: repo, encoding: 'utf8', env: GIT_ENV });
-      assert.equal(r.status, 0, `install-merge-driver: ${r.stderr}`);
+    function setupSevenLines(move: 'drift' | 'gen-drift' | 'gen' | 'absorbed'): void {
+      setup('none', L4_PASSING);
       git('checkout', '-q', 'main');
       git('branch', '-q', '-D', 'feat/x-1');
-      writeFileSync(join(repo, '.gitattributes'), 'gen/** merge=tmb-regen\n');
-      mkdirSync(join(repo, 'scripts/maintenance'), { recursive: true });
       mkdirSync(join(repo, 'src'), { recursive: true });
-      writeFileSync(join(repo, 'scripts/maintenance/regen-generated.ts'), { ok: REGEN_OK, fail: REGEN_FAIL, hashed: REGEN_HASHED }[regen]);
-      sLines(0, '');
-      git('add', '.gitattributes', 'scripts');
-      regenCommit('chore: generated gen/out.txt');
+      mkdirSync(join(repo, 'gen'), { recursive: true });
+      sevenLines('src/s.txt', 0, '');
+      sevenLines('gen/out.txt', 0, '');
+      commitAll('chore: seven lines');
       git('checkout', '-q', '-b', 'feat/x-1');
-      sLines(4, 'l4-task');
-      regenCommit('feat: l4');
+      sevenLines('src/s.txt', 4, 'l4-task');
+      sevenLines('gen/out.txt', 4, 'l4-task');
+      commitAll('feat: l4');
       commit = rev('HEAD');
       git('checkout', '-q', 'main');
-      if (move === 'gen') writeFileSync(join(repo, 'src/base.txt'), 'base\n');
-      if (move === 'drift') sLines(2, 'l2-base');
-      if (move === 'conflict') sLines(4, 'l4-base');
-      if (move === 'absorbed') sLines(4, 'l4-task');
-      regenCommit(`feat: main moves (${move})`);
+      if (move === 'drift') sevenLines('src/s.txt', 2, 'l2-base');
+      if (move === 'gen-drift') sevenLines('gen/out.txt', 2, 'l2-base');
+      if (move === 'gen') sevenLines('gen/out.txt', 4, 'l4-base');
+      if (move === 'absorbed') {
+        sevenLines('src/s.txt', 4, 'l4-task');
+        sevenLines('gen/out.txt', 4, 'l4-task');
+      }
+      commitAll(`feat: main moves (${move})`);
       pointTaskAt(commit);
     }
 
-    /** gen/ at <sha> equals a regen of <sha>'s src/. */
-    function freshRegenMatches(sha: string): boolean {
-      const check = join(repo, '.claude/regen-check');
-      git('worktree', 'add', '-q', '--detach', check, sha);
-      try {
-        return spawnSync('bash', ['-c', `${REGEN_RUN} && git diff --quiet -- gen`], { cwd: check, env: GIT_ENV }).status === 0;
-      } finally {
-        git('worktree', 'remove', '--force', check);
-      }
+    function assertUnchanged(): void {
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+      assertNotIntegrated();
+      assertNoTempWorktree();
     }
 
-    it('generated-file conflict only: regenerated, amended, verified, exit 0', () => {
-      setupRegen('gen');
-      const r = integrate('main');
-      assert.equal(r.code, 0, r.err);
-      const next = r.out;
-      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
-      assert.equal(rev(`${next}^`), rev('main'), "the rebased commit's parent is main");
-      assert.equal(git('log', '-1', '--format=%s|%an', next), 'feat: l4|Test', "the amended commit keeps the task's message and author");
-      assert.equal(git('show', `${next}:gen/out.txt`), 'base\nl1\nl2\nl3\nl4-task\nl5\nl6\nl7', "gen/out.txt holds both sides' sources");
-      assert.match(r.err, /regenerating generated files with scripts\/maintenance\/regen-generated\.ts/);
-      assertNoTempWorktree();
-      assert.ok(freshRegenMatches(next), `gen/out.txt at ${next} differs from a fresh regen`);
-      assert.equal(
-        q(`SELECT COUNT(*) || '|' || MAX(source) || '|' || MAX(exit_code) FROM verification_runs WHERE commit_sha = '${next}'`),
-        '1|manual|0',
-        'a passing manual run on the printed SHA',
-      );
-    });
-
-    it('regen renames a generated file: the amended commit tracks the new name only (GH 2353)', () => {
-      setupRegen('gen', 'hashed');
-      const r = integrate('main');
-      assert.equal(r.code, 0, r.err);
-      const next = r.out;
-      const [chunk, ...body] = git('show', `${next}:gen/out.txt`).split('\n');
-      assert.equal(body.join('\n'), 'base\nl1\nl2\nl3\nl4-task\nl5\nl6\nl7', "gen/out.txt holds both sides' sources");
-      assert.match(chunk, /^chunk-[0-9a-f]{8}\.txt$/);
-      assert.deepEqual(git('ls-tree', '-r', '--name-only', next, '--', 'gen').split('\n'), [`gen/${chunk}`, 'gen/out.txt'], 'gen/ tracks the new chunk only');
-      assert.equal(git('log', '-1', '--format=%s|%an', next), 'feat: l4|Test', "the amended commit keeps the task's message and author");
-      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
-      assertNoTempWorktree();
-    });
-
-    it('regen writes an untracked file outside merge=tmb-regen paths: not committed', () => {
-      setupRegen('gen', 'hashed');
-      const r = integrate('main');
-      assert.equal(r.code, 0, r.err);
-      assert.equal(git('ls-tree', '--name-only', r.out, '--', 'regen.log'), '', 'regen.log is not in the amended commit');
-      assert.deepEqual(
-        git('diff', '--name-only', 'main', r.out, '--', '.', ':(exclude)gen').split('\n'),
-        ['src/s.txt'],
-        'outside gen/ the commit changes only the task source',
-      );
-    });
-
-    it('generated-file conflict with source drift: exit 2, nothing recorded', () => {
-      setupRegen('drift');
+    it('source drift: exit 2, nothing recorded', () => {
+      setupSevenLines('drift');
       const r = integrate('main');
       assert.equal(r.code, 2, r.err);
       assert.match(r.err, /patch/, 'stderr names the patch-id mismatch');
-      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
-      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
-      assertNotIntegrated();
-      assertNoTempWorktree();
+      assertUnchanged();
     });
 
-    it('source conflict beside a generated-file conflict: exit 2', () => {
-      setupRegen('conflict');
+    it('drift confined to a generated path is patch drift too: exit 2', () => {
+      setupSevenLines('gen-drift');
+      const r = integrate('main');
+      assert.equal(r.code, 2, r.err);
+      assert.match(r.err, /patch/, 'stderr names the patch-id mismatch');
+      assertUnchanged();
+    });
+
+    it('a conflict on a generated path is a conflict: exit 2, nothing regenerated or amended', () => {
+      setupSevenLines('gen');
       const r = integrate('main');
       assert.equal(r.code, 2, r.err);
       assert.match(r.err, /conflicted/, 'stderr names the conflict');
-      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
-      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
-      assertNotIntegrated();
-      assertNoTempWorktree();
+      assert.doesNotMatch(r.err, /regenerat/, 'no regen step runs');
+      assertUnchanged();
     });
 
     it("task change already on main: exit 2, main's commit is not amended", () => {
-      setupRegen('absorbed');
+      setupSevenLines('absorbed');
       const mainTip = rev('main');
       const r = integrate('main');
       assert.equal(r.code, 2, r.err);
-      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
       assert.equal(rev('main'), mainTip, 'main tip');
-      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
-      assertNotIntegrated();
-      assertNoTempWorktree();
-    });
-
-    it('failing regen: exit 2 naming regen-generated.ts, branch unmoved', () => {
-      setupRegen('gen', 'fail');
-      const r = integrate('main');
-      assert.equal(r.code, 2, r.err);
-      assert.equal(r.out, '', 'nothing on stdout');
-      assert.ok(r.err.includes('regen-generated.ts exited 2'), 'stderr names the failing regen script');
-      assert.ok(r.err.includes('toolchain missing'), 'stderr carries the regen output');
-      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
-      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
-      assertNotIntegrated();
-      assertNoTempWorktree();
+      assertUnchanged();
     });
   });
 
