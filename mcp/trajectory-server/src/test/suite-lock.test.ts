@@ -140,7 +140,7 @@ describe('isFullSuite', () => {
     'node --test dist/test/x.test.js',
     'cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/suite-lock.test.js dist/test/test-run.test.js',
     'node --test --test-name-pattern "suite*" dist/test/x.test.js',
-    'bash scripts/maintenance/regen-generated.sh --check',
+    'node scripts/maintenance/gen-enums-doc.mjs --doc',
     'bash tests/l1-lint/changelog-current.sh',
     "grep -q 'suite-lock' mcp/trajectory-server/src/test-run.ts",
     'npm run test:unit',

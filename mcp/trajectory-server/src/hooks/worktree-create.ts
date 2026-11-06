@@ -4,21 +4,18 @@
  * a stderr line and exit 1, never JSON. The repo is the one the task on that
  * branch names (tasks.repo's repos.path), else the sole registered repo, else
  * the workspace root; with no trajectory DB, the cwd's git repo. A branch not
- * yet in the repo is created at HEAD. A repo whose .gitattributes declares
- * `merge=tmb-regen` gets the merge driver installed.
+ * yet in the repo is created at HEAD.
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI (decision 703).
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import type { Gate, GateResult } from './gate.js';
 import { branchSlug, dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
-import { gitOk, gitRun } from './lib/git.js';
+import { gitOk } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
-import { installMergeDriver as writeMergeDriver } from './lib/merge-driver.js';
 import { posixDirname, shellPwd } from './lib/project-env.js';
 import { repoResolvePath, repoSinglePath } from './lib/repo.js';
 
 export const GATE_NAME = 'worktree-create';
-export const MERGE_DRIVER_MARK = 'merge=tmb-regen';
 const NO_BRANCH =
   "tmb worktree-create: WorktreeCreate input has no .branch field — cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
 
@@ -35,21 +32,6 @@ function isFile(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** install_merge_driver <dir>: the tmb-regen driver in <dir>'s top level when its .gitattributes asks for it. */
-async function installMergeDriver(dir: string, env: NodeJS.ProcessEnv, stderr: StderrWriter): Promise<void> {
-  const top = await gitRun(dir, ['rev-parse', '--show-toplevel'], env);
-  if (top.code !== 0) return;
-  const root = top.stdout.replace(/\n+$/, '');
-  let attributes: string;
-  try {
-    attributes = readFileSync(`${root}/.gitattributes`, 'latin1');
-  } catch {
-    return;
-  }
-  if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  if (writeMergeDriver(root, env) === null) stderr(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}\n`);
 }
 
 /** The worktree of <branch> in <repo>: reused, or added on the branch (created at HEAD when missing). */
@@ -69,7 +51,6 @@ async function ensureWorktree(
   }
   if (existsSync(`${worktree}/.git`)) {
     stderr(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}\n`);
-    await installMergeDriver(repo, env, stderr);
     return { stdout: `${worktree}\n`, code: 0 };
   }
   if (!await gitOk(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], env)) {
@@ -80,7 +61,6 @@ async function ensureWorktree(
   }
   if (!await gitOk(repo, ['worktree', 'add', worktree, branch], env)) return fail(stderr, addFailed);
   stderr(created);
-  await installMergeDriver(repo, env, stderr);
   return { stdout: `${worktree}\n`, code: 0 };
 }
 
