@@ -1,2 +1,0 @@
-### Fixed
-- **The scan no longer indexes a linked git worktree as its own repo** (GH 2283): a checkout made by `git worktree add` under the project root used to get its own `repos` row and a full duplicate of its owning repo's files and symbols. Discovery now skips it with a `scan_skipped` audit row (reason `linked_worktree`), and a worktree indexed by an earlier scan is retired on the next one unless a task still references it.

@@ -1,2 +1,0 @@
-### Removed
-- **The dead `scripts/lib/sqlite3-fallback.sh` and `scripts/lib/resolve-plugin-name.sh` helpers** (GH 1692): nothing sourced them any more. The MCP-down fallback runs as `dist/cli.js validation-record-fallback`, and plugin-name resolution lives in TypeScript (`resolvePluginName` in `src/hooks/lib/project-env.ts`, now covered by node:test). Their l3 suites and the `sqlite3-fallback-roles` lint went with them; the `mcp_unavailable_fallback_invoked` audit event is now marked reserved, written only by an agent through `audit_append`.

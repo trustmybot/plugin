@@ -1,5 +1,0 @@
-{
-  "prompt": "go",
-  "transcript_path": "@SANDBOX@/transcripts/at-bro.jsonl",
-  "corpus_expect": "pending=#3"
-}

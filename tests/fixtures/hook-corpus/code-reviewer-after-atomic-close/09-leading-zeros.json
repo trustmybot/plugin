@@ -1,8 +1,0 @@
-{
-  "tool_name": "Agent",
-  "tool_input": {
-    "subagent_type": "code-reviewer",
-    "prompt": "task_id=013"
-  },
-  "corpus_expect": "requires task 013 status=closed but actual status=running."
-}

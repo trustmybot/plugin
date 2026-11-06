@@ -1,4 +1,0 @@
-{
-  "prompt": "hey /roundtable on this topic",
-  "corpus_expect": "audit: -1 hook:roundtable-slash-detect roundtable_slash_invoked: User typed /roundtable: hey /roundtable on this topic"
-}

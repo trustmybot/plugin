@@ -1,4 +1,0 @@
-{
-  "corpus_stdin": "\"head\" {\"tool_name\":\"mcp__plugin_tmb_trajectory-server__task_get\",\"tool_input\":{\"agent\":\"swe\"}} {\"tool_name\":\"mcp__plugin_tmb_trajectory-server__task_get\",\"tool_input\":{\"agent\":\"bro\"}}",
-  "corpus_expect": "agent='swe' but the caller is the main session (bro)"
-}

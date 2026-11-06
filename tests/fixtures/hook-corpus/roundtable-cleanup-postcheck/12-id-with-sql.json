@@ -1,7 +1,0 @@
-{
-  "tool_name": "mcp__plugin_tmb_trajectory-server__roundtable_close",
-  "tool_input": {
-    "roundtable_id": "2; DROP TABLE audit"
-  },
-  "corpus_expect": "empty"
-}

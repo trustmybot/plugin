@@ -1,8 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "gh auth login --web"
-  },
-  "corpus_cwd": "stale",
-  "corpus_expect": "Interactive 'gh auth login' will hang"
-}

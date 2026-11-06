@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"general-purpose","prompt":"task_id=2 look around","effort":"low"},"corpus_expect":"empty"}

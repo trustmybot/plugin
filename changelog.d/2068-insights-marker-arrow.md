@@ -1,2 +1,0 @@
-### Changed
-- **Insights p50 and p95 markers point at the bar top with a small arrow** (GH 2068): the histogram markers no longer draw a leader line or a tick under the axis. Each marker is now a small muted arrow resting just above the bar it falls on, with its label sitting on the arrow, so the values read as callouts on the data and the chart stays clean. Labels never overlap a bar or each other.

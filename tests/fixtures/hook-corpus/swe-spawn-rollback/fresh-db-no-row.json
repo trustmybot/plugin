@@ -1,1 +1,0 @@
-{"hook_event_name":"PermissionDenied","tool_name":"Agent","tool_use_id":"toolu_11","tool_input":{"subagent_type":"swe"},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/fresh/.claude/tmb/trajectory.db"},"corpus_expect":"empty"}

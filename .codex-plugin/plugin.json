@@ -1,6 +1,6 @@
 {
   "name": "tmb",
-  "version": "1.1.0",
+  "version": "1.2.0-dev.359.gh2427",
   "description": "Codex adapter for project-bound TMB planning and explicit installation of two advisory development Agents.",
   "author": {
     "name": "trustmybot",

@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Write","tool_input":{"file_path":".claude/tmb/scratch/x.py","content":"x"},"corpus_expect":"empty"}

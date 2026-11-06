@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TMB_ORPHAN_SCAN_HOME":"@SANDBOX@/homes/cache"},"corpus_expect":"unused cache version (pinned by no project): @SANDBOX@/homes/cache/.claude/plugins/cache/trustmybot/tmb/1.0.0"}

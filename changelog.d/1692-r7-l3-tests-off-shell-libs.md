@@ -1,2 +1,0 @@
-### Changed
-- **Three l3 test suites now test the shipped TypeScript hook helpers instead of the bash libs** (GH 1692): the slug-resolution, repo-remotes, schema-probe, home-pointer and forge-wrapper tests in `small-hooks-l3`, `swe-boundary-l3-bypass` and `swe-boundary-l3-forge` call `resolveTaskIdForTarget`, `taskBySlug`, `repoRemotes`, `dbSchemaCurrent`, `dbPath` and `ghMutation` rather than sourcing `query-task.sh`, `resolve-repo.sh` and `cmd-analysis.sh`. Every assertion and expected value is unchanged, so a later step can delete those shell libs.

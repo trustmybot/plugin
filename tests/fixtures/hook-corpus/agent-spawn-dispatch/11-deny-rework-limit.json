@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_use_id":"toolu_d11","tool_input":{"subagent_type":"swe","prompt":"task_id=21","effort":"medium"},"corpus_expect":"BLOCKED: task 21 is at the rework limit: task FAILs: 2 review FAILs on the task since its last pass"}

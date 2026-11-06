@@ -1,4 +1,0 @@
-{
-  "hook_event_name": "PreToolUse",
-  "tool_name": "AskUserQuestion"
-}

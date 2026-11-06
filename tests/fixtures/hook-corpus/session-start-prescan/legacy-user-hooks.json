@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"CLAUDE_CONFIG_DIR":"@SANDBOX@/legacy-config"},"corpus_expect":"projects on TMB < 1.1.0 lose them too: @SANDBOX@/old-project (1.0.2)"}

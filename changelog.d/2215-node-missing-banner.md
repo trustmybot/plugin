@@ -1,2 +1,0 @@
-### Fixed
-- With `node` off PATH, SessionStart and WorktreeCreate now print `TMB DEGRADED: missing node — MCP trajectory-server and every TMB hook cannot start. Install Node.js 22 or later on PATH and restart Claude Code.` and exit 2, instead of a bare `node: command not found` exit 127 before the DEGRADED banner could run (GH 2215). The fail-closed PreToolUse hooks are unchanged and still deny when node can't start.

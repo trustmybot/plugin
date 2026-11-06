@@ -1,2 +1,0 @@
-### Fixed
-- **The dist freshness lint now catches bundles built with the wrong esbuild** (GH 1628): `tests/l1-lint/dist-fresh.sh` only compared the committed `dist/` against a rebuild, so a `dist/` built with esbuild 0.25.12 from a stale or symlinked `node_modules` passed even though `bun.lock` pins 0.28.x. The lint now fails first when the installed esbuild differs from the version `bun.lock` pins, and tells you to run `bun install --frozen-lockfile` in `mcp/trajectory-server`. A `--self-test` mode checks the comparison against fixtures.

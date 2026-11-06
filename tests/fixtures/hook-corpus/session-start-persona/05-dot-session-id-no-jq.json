@@ -1,7 +1,0 @@
-{
-  "session_id": ".hidden",
-  "corpus_env": {
-    "PATH": "@NOJQ_PATH@"
-  },
-  "corpus_expect": "# You are bro"
-}

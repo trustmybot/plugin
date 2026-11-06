@@ -1,6 +1,0 @@
-{
-  "hook_event_name": "SessionStart",
-  "session_id": "s2",
-  "source": "startup",
-  "corpus_expect": "TMB: operating locally — no remote configured; remote/push ops are skipped."
-}

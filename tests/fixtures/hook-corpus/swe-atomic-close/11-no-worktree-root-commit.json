@@ -1,8 +1,0 @@
-{
-  "hook_event_name": "SubagentStop",
-  "agent_type": "swe",
-  "agent_id": "agent-40",
-  "agent_transcript_path": "@SANDBOX@/transcripts/40.jsonl",
-  "session_id": "sess-1",
-  "corpus_expect": "swe_atomic_close_auto_completed"
-}

@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=3 go"},"corpus_env":{"PATH":"@PATH_WITHOUT:sqlite3@"},"corpus_expect":"needs branch feat/missing to exist first","corpus_divergence":{"why":"without the sqlite3 CLI the .sh allows; the gate reads through node:sqlite","bash_expect":"empty"}}

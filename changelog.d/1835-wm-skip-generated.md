@@ -1,2 +1,0 @@
-### Fixed
-- **World model search no longer returns build output beside the source** (GH 1835): the scan indexed committed build output such as `dist/` next to `src/`, so `world_model_search` returned twin hits for the same code (`dist/hooks` above `src/hooks`). Files under a `dist/`, `build/`, `node_modules/` or `vendor/` directory, source maps (`*.map`) and minified bundles (`*.min.js`) now get no file row, directory or purpose, and the next scan deletes the rows an earlier scan stored for them. Lockfiles stay listed as files.

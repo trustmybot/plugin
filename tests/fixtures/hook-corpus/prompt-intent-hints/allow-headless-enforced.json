@@ -1,1 +1,0 @@
-{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"set up claude -p for CI","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/enforced/.claude/tmb/trajectory.db"},"corpus_expect":"empty"}

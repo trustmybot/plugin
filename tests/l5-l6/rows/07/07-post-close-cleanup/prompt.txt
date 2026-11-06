@@ -1,3 +1,0 @@
-@bro what does src/cli.py do? Just summarize it for me.
-
-Don't ask questions.

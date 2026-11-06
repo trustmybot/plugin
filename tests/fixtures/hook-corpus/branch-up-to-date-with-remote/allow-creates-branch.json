@@ -1,8 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git worktree add -b feat/new ../wt feat/behind"
-  },
-  "corpus_cwd": "stale",
-  "corpus_expect": "empty"
-}

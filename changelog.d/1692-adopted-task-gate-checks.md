@@ -1,2 +1,0 @@
-### Added
-- **Adopted-task checks for every gate that resolves the task worktree** (GH 1692): a new test gives swe-boundary, containment-guard, code-reviewer-preflight, ensure-swe-worktree, record-swe-spawn, post-task-create-spawn-hint, stay-on-base-guard, swe-atomic-close and cleanup-worktree-on-task-close a task with a recorded `worktree_path` and checks each acts on that path, with a control showing a task without one still uses `.claude/worktrees/<slug>`.

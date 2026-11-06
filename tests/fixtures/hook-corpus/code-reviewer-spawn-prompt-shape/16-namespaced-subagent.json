@@ -1,8 +1,0 @@
-{
-  "tool_name": "Agent",
-  "tool_input": {
-    "subagent_type": "tmb:code-reviewer",
-    "prompt": "none"
-  },
-  "corpus_expect": "missing required anchors:"
-}

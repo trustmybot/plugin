@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_use_id":"toolu_r15","tool_input":{"subagent_type":"swe","prompt":"task_id=18"},"corpus_expect":"\"repo\":\"plugin\",\"root_dir\":null"}

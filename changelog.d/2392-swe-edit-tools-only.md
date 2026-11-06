@@ -1,2 +1,0 @@
-### Changed
-- **swe changes file contents with Edit or Write** (GH 2392): swe rewrote files through Bash with inline python, node or sed programs, and the write-path guard denied about 85 of those calls over 162 swe runs. The swe agent prompt and its close checklist now say up front that file changes go through Edit or Write while Bash runs commands and read-only probes. The guard itself is unchanged.

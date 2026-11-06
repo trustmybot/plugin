@@ -1,9 +1,0 @@
-{
-  "tool_name": "mcp__plugin_tmb_trajectory-server__task_get",
-  "agent_type": "swe",
-  "tool_input": {
-    "agent": "b\nro\u001f",
-    "task_id": "042"
-  },
-  "corpus_expect": "agent='b ro ' but the caller is a swe subagent"
-}

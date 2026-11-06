@@ -1,7 +1,0 @@
-{
-  "hook_event_name": "WorktreeCreate",
-  "session_id": "sess-wt",
-  "cwd": "@SANDBOX@/ws",
-  "branch": "feat/work",
-  "corpus_expect": "tmb worktree-create: git worktree add failed for branch feat/work in repo @SANDBOX@/ws/project"
-}

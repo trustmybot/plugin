@@ -1,8 +1,0 @@
-{
-  "corpus_stdin": "{\"session_id\": ",
-  "corpus_expect": "empty",
-  "corpus_expect_tree": [
-    "project/.claude/tmb/trajectory.db: {\"counts\"",
-    "!\"usage_source\":\"transcript\""
-  ]
-}

@@ -1,2 +1,0 @@
-### Fixed
-- **Bro now hears about a dead subagent run or a hung `tail -f` watcher, even while idle** (GH 2205): a silent subagent run, or a `tail -f` watcher on `/dev/null`, a finished task or a silent file, is reported once to bro with its id, command, silent minutes and reason. A new Stop hook wakes an idle attended session, and a throttled gate reports during active turns. Reports only: nothing is killed, closed or failed. `TMB_RUN_SILENT_MIN` (default 30, scaled up under load) sets the silence threshold and `TMB_LIVENESS_POLL_S` (default 60) the idle poll.

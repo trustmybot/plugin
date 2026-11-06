@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "corpus_env": {
-    "STUB_VIEW_OUT": "x"
-  },
-  "corpus_expect": "none"
-}

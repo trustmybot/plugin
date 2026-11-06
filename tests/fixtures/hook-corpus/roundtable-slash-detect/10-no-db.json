@@ -1,7 +1,0 @@
-{
-  "prompt": "/roundtable no db",
-  "corpus_env": {
-    "TRAJECTORY_DB_PATH": "@SANDBOX@/none.db"
-  },
-  "corpus_expect": "empty"
-}

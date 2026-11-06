@@ -1,1 +1,0 @@
-{"tool_name":"Agent","session_id":"a\nb","tool_use_id":"toolu_r25","tool_input":{"subagent_type":"swe","prompt":"task_id=11"},"corpus_expect":"\"session_id\":\"a\",\"effort\":\"medium\",\"model\":null,\"spawn_id\":\"tool_use:a:<ms>\""}

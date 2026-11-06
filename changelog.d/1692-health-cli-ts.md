@@ -1,2 +1,0 @@
-### Changed
-- **The health check runs as the TypeScript `cli.js health` subcommand** (GH 1692): `scripts/health.sh` is gone; run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" health` instead. It reads the trajectory DB read-only through node:sqlite, so it no longer needs the `sqlite3` CLI or `jq`, and it still needs no server process. The checks, their order, every PASS/FAIL/WARN/INFO line, each remediation and the exit codes (0 with no FAIL, 1 otherwise) are unchanged, as are the `TMB_HEALTH_*` overrides.

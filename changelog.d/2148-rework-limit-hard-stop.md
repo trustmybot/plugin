@@ -1,2 +1,0 @@
-### Fixed
-- **The rework limit is a hard stop that only the Human lifts** (GH 2148): a decision row bro wrote waived the two-FAIL limit, so one task ran six swe runs, four failed reviews and three hours. Now a swe spawn or resume is denied at two FAILs on the task since its last pass, six swe runs of the task (budget handbacks aside), or four FAILs across its issue's tasks, each counted since the Human's latest waiver. The deny names the limit and its count, and only the Human lifts it, by typing `waive task <N>`.

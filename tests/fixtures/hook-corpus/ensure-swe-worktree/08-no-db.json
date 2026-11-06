@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=10"},"corpus_env":{"TRAJECTORY_DB_PATH":null,"CLAUDE_PROJECT_DIR":"@SANDBOX@/bare"},"corpus_cwd":"bare","corpus_expect":"ensure-swe-worktree: no trajectory DB or sqlite3 — skipping (non-isolated fallback)"}

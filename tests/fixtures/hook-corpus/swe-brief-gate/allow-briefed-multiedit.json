@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"MultiEdit","tool_input":{"file_path":"/tmp/x","edits":[],"task_id":10},"corpus_expect":"empty"}

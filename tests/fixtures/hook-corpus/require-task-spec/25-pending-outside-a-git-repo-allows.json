@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=1 go"},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/workspace/.claude/tmb/trajectory.db","CLAUDE_PROJECT_DIR":"@SANDBOX@/workspace"},"corpus_expect":"empty"}

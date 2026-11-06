@@ -1,1 +1,0 @@
-{"tool_name":"Agent","tool_use_id":"toolu_r27","tool_input":{"subagent_type":"swe","prompt":"task_id=13"},"corpus_expect":"\"root_dir\":\"@SANDBOX@/project/plugin/.claude/worktrees/gone\""}

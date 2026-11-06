@@ -1,5 +1,0 @@
-node_modules/
-# dist/ is built (`bun run build`; CI builds the published payload) and not committed.
-*.db
-*.db-journal
-*.log

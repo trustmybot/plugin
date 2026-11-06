@@ -1,7 +1,0 @@
-{
-  "expected_writes": {
-    "plugin_config WHERE key='onboarded' AND value_json='true'": "=1",
-    "audit WHERE event_type='persona_block_written'": "=0",
-    "tasks": "=0"
-  }
-}

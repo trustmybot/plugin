@@ -1,2 +1,0 @@
-### Changed
-- The swe-boundary helpers test now judges `ghMutation`, `writeShapes`, `worktreeRootForTarget`, `sqlLikeEscape`, `isPromptSurfacePath` and `resolveTaskIdForTarget` on the frozen answers of the shell lib, recorded once and inlined as literal tables, and `pathDigest` on the shell recipe (sha256 of the canonical path), instead of sourcing `scripts/hooks/lib/query-task.sh` and `cmd-analysis.sh` in a bash process (GH 1692). Every case is kept, each table checks its own length, and the `resolveTaskIdForTarget` test no longer skips without the sqlite3 CLI.

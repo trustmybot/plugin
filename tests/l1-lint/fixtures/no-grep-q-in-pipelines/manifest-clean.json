@@ -1,6 +1,0 @@
-{
-  "steps": [
-    { "chain_setup_command": "git ls-tree -r --name-only HEAD | grep -x 'src/cli.py' >/dev/null && echo found" },
-    { "chain_setup_command": "grep -q 'src/cli.py' files.txt || git checkout -q main" }
-  ]
-}

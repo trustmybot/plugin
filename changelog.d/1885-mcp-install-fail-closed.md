@@ -1,2 +1,0 @@
-### Fixed
-- **Installing an MCP-kind cheatcode no longer writes a broken server entry** (GH 1885): `cheatcode_install` used to run `claude mcp add` with the repo URL as the server's command, so `.mcp.json` got an entry that could never start, and the install was reported as successful. The candidate gives only a name and a source URL, and a URL is not a run command, so MCP-kind installs now return `installed: false` with a run-command error and leave `.mcp.json` untouched. Until run-command resolution ships, register the server by hand with `claude mcp add`.

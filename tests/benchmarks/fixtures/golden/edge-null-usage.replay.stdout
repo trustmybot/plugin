@@ -1,1 +1,0 @@
-{"turn_index": 1, "timestamp": "", "input_tokens": null, "output_tokens": 5, "cache_read_tokens": 1.5, "cache_creation_tokens": 1e-05, "hook_injected_bytes": 0, "tool_calls": ["Read"]}

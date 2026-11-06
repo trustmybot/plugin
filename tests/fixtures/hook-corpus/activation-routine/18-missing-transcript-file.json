@@ -1,5 +1,0 @@
-{
-  "prompt": "go",
-  "transcript_path": "@SANDBOX@/transcripts/none.jsonl",
-  "corpus_expect": "empty"
-}

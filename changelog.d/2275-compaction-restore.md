@@ -1,2 +1,0 @@
-### Changed
-- **bro's state comes back after a compaction, with no new-session nag** (GH 2275): the usage warning and the "start a new session" notice are gone. A PreCompact hook records the bro session's issue before each compaction, and the SessionStart that follows the compaction appends that issue, its live tasks and its newest decision, read fresh from the DB, to bro's context. Startup, `/clear` and resume add nothing, and no session takes another session's state. The hook never blocks compaction; `TMB_DISABLE_SESSION_HANDOFF_HOOK=1` turns it off.

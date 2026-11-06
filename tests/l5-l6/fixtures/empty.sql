@@ -1,2 +1,0 @@
--- No-op fixture: schema only, no data. Used by first-contact flows where
--- the entire point is bro detecting the empty state and applying defaults.

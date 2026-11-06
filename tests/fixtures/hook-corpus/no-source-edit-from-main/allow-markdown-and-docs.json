@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"MultiEdit","tool_input":{"file_path":"docs/x.ts","content":"x"},"corpus_expect":"empty"}

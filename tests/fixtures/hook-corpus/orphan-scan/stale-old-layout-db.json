@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TMB_ORPHAN_SCAN_HOME":"@SANDBOX@/homes/old-layout"},"corpus_expect":"stale trajectory DB (this project): @SANDBOX@/homes/old-layout/.claude/projects/@SLUG@/trajectory.db"}

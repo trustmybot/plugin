@@ -1,2 +1,0 @@
-### Changed
-- The cmd-analysis l3 tests and the `stripLiterals` test now judge their shell side on the frozen answers of the shell lib, recorded once into `tests/fixtures/cmd-analysis/l3/<suite>.jsonl` and `tests/fixtures/cmd-analysis/strip-literals.jsonl`, instead of running `scripts/hooks/lib/cmd-analysis.sh` in a bash process (GH 1692). Every case keeps its shell-side and TS assertion, the fixtures store machine paths as tokens expanded at run time, and each suite checks that its fixture holds exactly one line per case.

@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"Edit","tool_input":{"file_path":"/tmp/x","task_id":11},"corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/nowhere/trajectory.db"},"corpus_expect":"empty"}

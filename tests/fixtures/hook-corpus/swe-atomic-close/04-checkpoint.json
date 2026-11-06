@@ -1,8 +1,0 @@
-{
-  "hook_event_name": "SubagentStop",
-  "agent_type": "swe",
-  "agent_id": "agent-33",
-  "agent_transcript_path": "@SANDBOX@/transcripts/33.jsonl",
-  "session_id": "sess-1",
-  "corpus_expect": "handed back a checkpoint"
-}

@@ -1,1 +1,0 @@
-{"hook_event_name":"PreToolUse","session_id":"corpus","agent_type":"tmb:swe","agent_transcript_path":"@SANDBOX@/tr/task-10.jsonl","tool_name":"MultiEdit","tool_input":{"file_path":"@SANDBOX@/project/checkout/.claude/worktrees/sf-task/lib/multi.ts","edits":[]},"corpus_expect":"TMB: lib/multi.ts is outside this task's files[]"}

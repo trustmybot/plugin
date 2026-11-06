@@ -1,9 +1,0 @@
-{
-  "hook_event_name": "SessionStart",
-  "session_id": "bad-json-session",
-  "source": "startup",
-  "corpus_env": {
-    "TMB_INSTALLED_JSON": "@SANDBOX@/installs/bad.json"
-  },
-  "corpus_expect": "empty"
-}

@@ -1,7 +1,0 @@
-{
-  "corpus_stdin": "{ \"session_id\" : \"prompt-session-0004\", \"prompt\": \"hi\" }",
-  "corpus_env": {
-    "PATH": "@NOJQ_PATH@"
-  },
-  "corpus_expect": "# You are bro"
-}

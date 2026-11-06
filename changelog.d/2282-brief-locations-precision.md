@@ -1,2 +1,0 @@
-### Fixed
-- **`task_brief` locations show the files a task changes, not test helpers and local constants** (GH 2282): backticked common words such as `sqlite3` or `SELECT` used to resolve to non-exported locals and test helpers anywhere in the repo, and the size cap emptied the named files' symbol lists before dropping that noise. Now a name outside the spec's named paths and `files[]` matches only exported symbols off test and fixture paths, the cap drops those outside matches first, and a new `unresolved_paths` lists named paths the world model does not index yet.

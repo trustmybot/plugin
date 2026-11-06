@@ -1,2 +1,0 @@
-### Fixed
-- **A manual transformers install no longer frees a running background install's lock** (GH 1719): `node dist/hooks.js ensure-mcp-deps-installed --install` freed the install lock when it finished, even though it never took it, so a second install could start beside a background one. Each lock now records an owner token, and only its owner removes it. A manual `--install` run takes the lock itself, and exits 1 without installing while another install holds it.

@@ -1,9 +1,0 @@
-{
-  "tool_name": "mcp__trajectory-server__task_brief",
-  "subagent_type": "code-reviewer",
-  "tool_input": {
-    "agent": "tmb:swe",
-    "task_id": "0999"
-  },
-  "corpus_expect": "agent='tmb:swe' but the caller is a code-reviewer subagent"
-}

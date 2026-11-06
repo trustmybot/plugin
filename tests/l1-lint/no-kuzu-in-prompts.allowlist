@@ -1,2 +1,0 @@
-# Lines exempt from no-kuzu-in-prompts.sh: <path><TAB><substring of the line><TAB><reason>.
-# Keep to prompts that must name kuzu, e.g. to point at a leftover world-model.kuzu file.

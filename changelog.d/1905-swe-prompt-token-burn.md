@@ -1,2 +1,0 @@
-### Changed
-- **swe runs spend fewer tokens** (GH 1905, GH 1906, GH 1907, GH 1904, GH 1914): specs past 8 `files[]` entries, 8 `verification[]` commands, 5 success criteria or about 5000 characters are split into linked tasks so each fits one swe run; swe reads files by the brief's `locations` line ranges instead of whole, and runs tests through `test-run.js`, reporting its one-line summary rather than the output tail. The narrower effort rule (GH 1904) and hook-block handling (GH 1914) ship alongside.

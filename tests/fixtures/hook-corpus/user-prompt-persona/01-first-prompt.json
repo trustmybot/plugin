@@ -1,5 +1,0 @@
-{
-  "session_id": "prompt-session-0001",
-  "prompt": "hello",
-  "corpus_expect": "\"hookEventName\":\"UserPromptSubmit\""
-}

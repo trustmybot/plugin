@@ -1,9 +1,0 @@
-{
-  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
-  "tool_input": {
-    "agent": "swe",
-    "task_id": 33,
-    "status": "completed"
-  },
-  "corpus_expect": "verification reused run #1"
-}

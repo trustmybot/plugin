@@ -1,4 +1,0 @@
-{
-  "prompt": "from the sentinel",
-  "corpus_expect": "{\"continue\": true}"
-}

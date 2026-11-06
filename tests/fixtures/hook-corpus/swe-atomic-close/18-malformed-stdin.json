@@ -1,4 +1,0 @@
-{
-  "corpus_stdin": "{\"agent_type\": \"swe\", ",
-  "corpus_expect": "\"keys\":[]"
-}
