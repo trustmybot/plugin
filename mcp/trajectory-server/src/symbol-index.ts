@@ -13,9 +13,11 @@
 // generated bundle with a sibling source map gets a 'module' row of its own,
 // re-read only when the map changes, with a 'bundles' edge to each in-repo
 // source the map lists (GH 2284).
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join, posix } from 'node:path';
+import { promisify } from 'node:util';
 import type { TrajectoryDB } from './db.js';
 import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers, type Parsers } from './parsing/loader.js';
@@ -42,6 +44,7 @@ import type { KeywordMatch } from './graph.js';
 export const EXTRACTOR_VERSION = 5;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
+const execFileAsync = promisify(execFile);
 export const IMPACT_REF_CAP = 200;
 export const IMPACT_MAX_DEPTH = 5;
 const OR_FALLBACK_MIN_HITS = 3;
@@ -440,6 +443,32 @@ export function bundleMaps(files: ReadonlyArray<{ path: string; content_md5: str
       return f.path.endsWith('.map') && /\.[cm]?js$/.test(bundle) && isGeneratedPath(bundle) && tracked.has(bundle);
     })
     .map((f) => ({ path: f.path, content_md5: f.content_md5 }));
+}
+
+// The git-ignored source maps a build left on disk (dist/ is built, not
+// committed: GH 2054) whose generated .js, .mjs or .cjs bundle is on disk too.
+// A repo git cannot list yields none.
+export async function builtBundleMaps(repoPath: string): Promise<BundleMap[]> {
+  let listed: string;
+  try {
+    listed = (
+      await execFileAsync(
+        'git',
+        ['-C', repoPath, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ':(glob)**/*.map', ':(exclude,glob)**/node_modules/**'],
+        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+      )
+    ).stdout;
+  } catch {
+    return [];
+  }
+  const maps: BundleMap[] = [];
+  for (const path of listed.split('\0')) {
+    const bundle = path.slice(0, -'.map'.length);
+    if (!path.endsWith('.map') || !/\.[cm]?js$/.test(bundle) || !isGeneratedPath(bundle) || !existsSync(join(repoPath, bundle))) continue;
+    const content_md5 = fileMd5(join(repoPath, path));
+    if (content_md5) maps.push({ path, content_md5 });
+  }
+  return maps;
 }
 
 // The repo-relative paths an ECMA-426 source map lists in `sources`, each

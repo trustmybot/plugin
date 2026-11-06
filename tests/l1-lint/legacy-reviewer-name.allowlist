@@ -5,12 +5,9 @@ docs/reference/UPGRADE.md	the GH 1641 upgrade section explains the hard rename a
 mcp/trajectory-server/src/db.ts	migrateV50toV51 renames the stored rows
 mcp/trajectory-server/src/test/schema-upgrade.test.ts	v50 to v51 migration test seeds legacy rows
 mcp/trajectory-server/src/test/fixtures/	historical schema snapshots seed the old agent name
-mcp/trajectory-server/dist/	generated from src; dist-fresh.sh keeps it equal to the allowlisted src files
 mcp/trajectory-server/src/test/agent-scope.test.ts	SC2: validation_record rejects the pre-rename name and writes no row
 tests/fixtures/hook-corpus/git-push-guard/deny-pr-reviewer.json	SC4: a push whose payload names the pre-rename agent is denied
 tests/l1-lint/legacy-reviewer-name.sh	this lint
 tests/l1-lint/legacy-reviewer-name.allowlist	this allowlist
-dashboard/dist/server.mjs	bundles the db.ts v51 migration
-dashboard/dist/server.mjs.map	the server.mjs sourcemap embeds db.ts as sourcesContent
 research/gh1346-ab/m3/questions.ts	the v51-migration question asks about the v50 to v51 rename
 tests/fixtures/hook-golden/git-push-guard.json	golden keys name the allowlisted corpus file deny-pr-reviewer.json

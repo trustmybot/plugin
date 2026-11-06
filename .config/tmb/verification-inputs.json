@@ -16,10 +16,6 @@
     {
       "match": "bash tests/l1-lint/shellcheck-hooks.sh",
       "inputs": ["scripts/**", "tests/**", "**/*.sh", "**/.*", "**/.*/**"]
-    },
-    {
-      "match": "bash tests/l1-lint/dist-fresh.sh",
-      "inputs": ["mcp/trajectory-server/**", "tests/l1-lint/dist-fresh.sh", "tests/l1-lint/fixtures/dist-fresh/**", "package.json", "bun.lock", "**/.*", "**/.*/**"]
     }
   ]
 }

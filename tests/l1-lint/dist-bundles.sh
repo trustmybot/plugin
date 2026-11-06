@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Lint: the committed esbuild entrypoints in mcp/trajectory-server/dist/ are bundles, not tsc module output.
+# Lint: the built esbuild entrypoints in mcp/trajectory-server/dist/ are bundles, not tsc module output.
 #
 # Why this exists: dist/index.js, dist/codex.js and dist/run-scan.js ship as
 # self-contained esbuild bundles so a marketplace install with no node_modules
 # still boots (#647/GH 1157). A plain `tsc` with outDir dist used to emit the
 # same paths, replacing each bundle with a ~170-line module that imports its
-# siblings (GH 2149). dist-fresh.sh rebuilds and diffs, but only when tsc and
-# esbuild are installed; this check is cheap and always runs.
+# siblings (GH 2149). This check reads whatever dist/ the last build left.
 #
 # Allowlist: a file passes only when its first line starts with `var __` (the
 # esbuild runtime prelude) AND no line is a relative `import`/`export ... from`.

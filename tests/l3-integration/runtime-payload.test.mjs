@@ -1,11 +1,11 @@
 // L3: scripts/maintenance/runtime-payload.ts prunes a checkout to the runtime
-// allowlist (GH 1699). A synthetic repo pins the allowlist; a clone of HEAD
-// proves the pruned tree still cold-boots the MCP server.
+// allowlist (GH 1699). A synthetic repo pins the allowlist; a built clone of
+// HEAD proves the pruned tree still cold-boots the MCP server.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,10 +125,24 @@ function toolsList(entry, cwd) {
   });
 }
 
-test('SC2: a pruned clone of HEAD carries no dev-only files and cold-boots the MCP server', { timeout: 120_000 }, async (t) => {
+const GENERATED = ['mcp/trajectory-server/dist', 'dashboard/dist', 'scripts/hooks/lib/audit-events.txt', 'scripts/hooks/lib/data-contracts.json'];
+const NODE_MODULES = ['node_modules', 'mcp/trajectory-server/node_modules', 'dashboard/node_modules'];
+
+// As dev-build.yml does: build the payload, then force-add the ignored outputs.
+// The clone borrows this checkout's node_modules for the build only.
+function buildPayload(clone) {
+  for (const d of NODE_MODULES) symlinkSync(realpathSync(join(ROOT, d)), join(clone, d));
+  const b = spawnSync('bun', ['run', 'build:payload'], { cwd: clone, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  for (const d of NODE_MODULES) unlinkSync(join(clone, d));
+  assert.equal(b.status, 0, `bun run build:payload failed:\n${b.stdout}\n${b.stderr}`);
+  git(clone, 'add', '-f', ...GENERATED);
+}
+
+test('SC2: a pruned clone of HEAD carries no dev-only files and cold-boots the MCP server', { timeout: 600_000 }, async (t) => {
   const clone = join(tempDir(t), 'plugin');
   const r = spawnSync('git', ['clone', '-q', '--local', '--no-hardlinks', ROOT, clone], { env: GIT_ENV, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
+  buildPayload(clone);
 
   const run = prune(clone);
   assert.equal(run.status, 0, run.stdout + run.stderr);

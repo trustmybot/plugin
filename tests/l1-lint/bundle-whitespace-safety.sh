@@ -14,13 +14,9 @@ fail() {
 
 POSTPROCESSOR="mcp/trajectory-server/scripts/postprocess-bundle.pl"
 
-for caller in \
-  mcp/trajectory-server/package.json \
-  tests/l1-lint/dist-fresh.sh; do
-  if ! grep -F -q 'scripts/postprocess-bundle.pl' "$caller"; then
-    fail "$caller must use the shared bundle postprocessor"
-  fi
-done
+if ! grep -F -q 'scripts/postprocess-bundle.pl' mcp/trajectory-server/package.json; then
+  fail "mcp/trajectory-server/package.json must use the shared bundle postprocessor"
+fi
 
 tmpdir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-bundle-whitespace-safety.XXXXXX")
 trap 'rm -rf "$tmpdir"' EXIT
@@ -67,15 +63,7 @@ for bundle in "${BUNDLES[@]}"; do
 done
 
 if leaked=$(grep -lE '"(\.\./)+node_modules/\.bun/' mcp/trajectory-server/dist/*.js); then
-  fail "committed bundle carries a build-location module key: $leaked"
+  fail "built bundle carries a build-location module key: $leaked"
 fi
-
-for rel in "${BUNDLES[@]}"; do
-  bundle="mcp/trajectory-server/$rel"
-  attr=$(git check-attr whitespace -- "$bundle")
-  if [[ "$attr" != "$bundle: whitespace: unset" ]]; then
-    fail "$bundle must opt out of git whitespace diagnostics as a generated bundle"
-  fi
-done
 
 echo "bundle-whitespace-safety: PASS"
