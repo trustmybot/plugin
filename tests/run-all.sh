@@ -186,10 +186,10 @@ run_step "L1 lint: /onboard option wording is plain language (self-test)" bash "
 run_step "L1 lint: /onboard option wording is plain language" bash "$HERE/l1-lint/onboard-option-wording.sh"
 run_step "L1 lint: release-payload workflow safety shape" bash "$HERE/l1-lint/release-payload-workflow.sh"
 
-# Every tests/l1-lint/*.sh has a run_step line above.
+# Every tests/l1-lint/*.sh and tests/l1-lint/*.test.mjs has a run_step line above.
 l1_lints_all_wired() {
   local lint missing=0
-  for lint in "$HERE"/l1-lint/*.sh; do
+  for lint in "$HERE"/l1-lint/*.sh "$HERE"/l1-lint/*.test.mjs; do
     if ! grep -qF "l1-lint/$(basename "$lint")\"" "$HERE/run-all.sh"; then
       echo "  ✗ tests/l1-lint/$(basename "$lint") has no run_step in tests/run-all.sh" >&2
       missing=1
@@ -197,7 +197,7 @@ l1_lints_all_wired() {
   done
   return "$missing"
 }
-run_step "L1 self-check: every tests/l1-lint/*.sh runs here" l1_lints_all_wired
+run_step "L1 self-check: every tests/l1-lint/*.sh and *.test.mjs runs here" l1_lints_all_wired
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
