@@ -27,6 +27,7 @@ import {
   type SymbolRow,
 } from '../symbol-index.js';
 import {
+  CLAIM_ARGS_SCHEMA,
   CLAIMS,
   CONCEPT_KINDS,
   DERIVED_SEED_HITS,
@@ -956,7 +957,7 @@ export function worldModelTools(
             type: 'array',
             items: {
               type: 'object',
-              properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: { type: 'object' } },
+              properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: CLAIM_ARGS_SCHEMA },
               required: ['claim', 'args'],
             },
           },
