@@ -177,19 +177,39 @@ export function isRuleLine(line: string): boolean {
   return rest.length >= 3 && /^[-=#*_~/ ]+$/.test(rest);
 }
 
+// A rule line, or a framed title: three or more of one of - or =, then text,
+// then three or more of the same, e.g. `# --- Section ---`.
+export function isBannerLine(line: string): boolean {
+  if (isRuleLine(line)) return true;
+  const rest = line
+    .replace(/^\s*(\/\*\*?|\/\/|#|\*)/, '')
+    .replace(/\*\/\s*$/, '')
+    .trim();
+  return /^([-=])\1{2,}\s*\S.*?\s*\1{3,}$/.test(rest);
+}
+
+function afterLastBanner(lines: string[]): string[] {
+  let last = -1;
+  lines.forEach((l, i) => {
+    if (isBannerLine(l)) last = i;
+  });
+  return lines.slice(last + 1);
+}
+
 // The comment block whose last row is the row right above a definition (or
-// above its export), with no blank row between; '' for a section banner.
+// above its export), with no blank row between, from after its last banner
+// line on; '' when nothing follows that banner.
 export function docOf(node: Node): string {
   const anchor = node.parent?.type === 'export_statement' ? node.parent : node;
-  const lines: string[] = [];
+  const blocks: string[] = [];
   let edge = anchor.startPosition.row;
   let prev = anchor.previousNamedSibling;
   while (prev && prev.type === 'comment' && prev.endPosition.row === edge - 1) {
-    lines.unshift(prev.text);
+    blocks.unshift(prev.text);
     edge = prev.startPosition.row;
     prev = prev.previousNamedSibling;
   }
-  if (lines.some((block) => block.split('\n').some(isRuleLine))) return '';
+  const lines = afterLastBanner(blocks.flatMap((block) => block.split('\n')));
   const raw = lines
     .map((l) =>
       l
@@ -500,12 +520,12 @@ function extractBash(root: Node, out: Collector, moduleSymbol: number): void {
 }
 
 // The '#' comment block whose last row is right above row `at` (0-based),
-// with no blank row between; '' for a section banner or the shebang.
+// with no blank row between, from after its last banner line on; never the
+// shebang.
 function hashCommentDoc(lines: string[], at: number): string {
   const block: string[] = [];
   for (let i = at - 1; i >= 0 && /^\s*#/.test(lines[i]!) && !/^#!/.test(lines[i]!); i--) block.unshift(lines[i]!);
-  if (block.some(isRuleLine)) return '';
-  return clip(oneLine(block.map((l) => l.replace(/^\s*#+/, ' ')).join(' ')), DOC_MAX);
+  return clip(oneLine(afterLastBanner(block).map((l) => l.replace(/^\s*#+/, ' ')).join(' ')), DOC_MAX);
 }
 
 // The rows of Perl code: POD blocks and everything after __END__/__DATA__
