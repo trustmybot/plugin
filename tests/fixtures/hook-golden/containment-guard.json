@@ -52,15 +52,15 @@
       "audit": [
         {
           "branch_id": null,
-          "content_json": "{\"tool\":\"Bash\",\"path\":\"$(mktemp)\",\"root\":\"@SCRATCH@/containment-guard/project\",\"task_id\":null}",
+          "content_json": "{\"tool\":\"Bash\",\"path\":\"$(date +%s)\",\"root\":\"@SCRATCH@/containment-guard/project\",\"task_id\":null}",
           "event_type": "containment_denied",
           "from_node": "hook:containment-guard",
           "issue_id": -1,
-          "summary": "Bash denied: $(mktemp) is outside @SCRATCH@/containment-guard/project"
+          "summary": "Bash denied: $(date +%s) is outside @SCRATCH@/containment-guard/project"
         }
       ],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$(mktemp)\\\" cannot be judged: is built by a command substitution or backticks the guard cannot evaluate; inline the path.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: write target \\\"$(date +%s)\\\" cannot be judged: is built by a command substitution or backticks the guard cannot evaluate; inline the path.\"}}\n"
     }
   },
   "generic/bash-commit-heredoc.json": {
