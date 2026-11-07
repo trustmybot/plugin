@@ -15,7 +15,7 @@ bash tests/l1-lint/link-check.sh
 |---|---|
 | [`version-sync.test.mjs`](./version-sync.test.mjs) | Version drift across manifest/package files |
 | [`changelog-current.sh`](./changelog-current.sh) | CHANGELOG missing the current version; a malformed `changelog.d/` fragment; a feature branch that edits `CHANGELOG.md` alongside a fragment or (after the cut-over) at all, or cites a `GH <n>` with no fragment or entry |
-| [`dist-bundles.sh`](./dist-bundles.sh) | `dist/index.js`, `dist/codex.js` or `dist/run-scan.js` not an esbuild bundle (no `var __` prelude, or a relative `import`/`export ... from` line as plain `tsc` emits); `--self-test` checks `fixtures/dist-bundles/` |
+| [`dist-bundles.test.mjs`](./dist-bundles.test.mjs) | `dist/index.js`, `dist/codex.js` or `dist/run-scan.js` not an esbuild bundle (no `var __` prelude, or a relative `import`/`export ... from` line as plain `tsc` emits); every run self-tests `fixtures/dist-bundles/` |
 | [`tsc-noemit.test.mjs`](./tsc-noemit.test.mjs) | TypeScript type errors (no emit) |
 | [`release-payload-workflow.sh`](./release-payload-workflow.sh) | `.github/workflows/release-payload.yml` losing its safety shape: tag-only triggers and the ref_name refusal, top-level `permissions: {}`, unpinned actions, the concurrency group, `--check` after the first push, a force push other than `stable-build` (parsed with `ruby -ryaml`; every run self-tests `fixtures/release-payload-workflow/`) |
 | [`ci-workflow-refs-exist.sh`](./ci-workflow-refs-exist.sh) | CI workflow references that don't resolve |
@@ -43,10 +43,10 @@ bash tests/l1-lint/link-check.sh
 | [`agent-cache-ttl.sh`](./agent-cache-ttl.sh) | A shipped agent or agent template whose frontmatter lacks `experimental.cacheTtl`, has a value other than `1h` or `5m`, or gives `swe` anything but `1h`; takes an optional plugin-root argument, and `fixtures/agent-cache-ttl/` holds the failure cases |
 | [`agent-task-brief-contract.test.mjs`](./agent-task-brief-contract.test.mjs) | Agent/task-brief contract drift |
 | [`agent-template-byte-identity.test.mjs`](./agent-template-byte-identity.test.mjs) | Shipped vs template agent byte mismatch |
-| [`command-frontmatter.sh`](./command-frontmatter.sh) | Malformed command frontmatter |
-| [`skill-frontmatter.sh`](./skill-frontmatter.sh) | Malformed skill frontmatter |
-| [`skill-catalog-sync.sh`](./skill-catalog-sync.sh) | Skill catalog out of sync with skill dirs |
-| [`tool-description-budget.sh`](./tool-description-budget.sh) | MCP tool descriptions over budget |
+| [`command-frontmatter.test.mjs`](./command-frontmatter.test.mjs) | Malformed command frontmatter |
+| [`skill-frontmatter.test.mjs`](./skill-frontmatter.test.mjs) | Malformed skill frontmatter |
+| [`skill-catalog-sync.test.mjs`](./skill-catalog-sync.test.mjs) | Skill catalog out of sync with skill dirs |
+| [`tool-description-budget.test.mjs`](./tool-description-budget.test.mjs) | MCP tool descriptions over budget |
 | [`no-citations-in-prompts.sh`](./no-citations-in-prompts.sh) | Issue #s / PR URLs leaking into prompt files |
 | [`no-negative-directives.sh`](./no-negative-directives.sh) | Negative ("never…") directives in prompts |
 | [`no-kuzu-in-prompts.sh`](./no-kuzu-in-prompts.sh) | `kuzu` (any case) in `CLAUDE.md`, `agents/`, `commands/` or a `skills/` `*.md` — the world model is trajectory-DB tables (allowlist: `no-kuzu-in-prompts.allowlist`, entries `<path><TAB><substring><TAB><reason>`; `--self-test` runs `fixtures/kuzu-in-prompts/`) |
@@ -73,11 +73,11 @@ bash tests/l1-lint/link-check.sh
 | [`no-module-load-writes.sh`](./no-module-load-writes.sh) | A filesystem write (`mkdirSync`, `writeFileSync`, `appendFileSync`, `rmSync`, `renameSync`, `copyFileSync`, `openSync(..., 'w')`) that runs when a `mcp/trajectory-server/src/` module is imported — at module scope, in a top-level block, or in a top-level `const`/`let` initializer; the entry points `src/index.ts` and `src/codex.ts` are exempt (every run self-tests `fixtures/no-module-load-writes/`; `--self-test` runs only that) |
 | [`no-unpinned-scan-in-tests.sh`](./no-unpinned-scan-in-tests.sh) | A `mcp/trajectory-server/src/test/` file (outside `fixtures/`) that references `walkProject`, `scan_run` or `project_scan` without, outside comments, a `pinScanEnv(` call or a `TRAJECTORY_DB_PATH` assignment — a mention is not a pin; an unpinned walk spawns the live `claude`, reads `~/.claude.json`, and its child processes walk up to the live project trajectory DB (`--self-test` runs `fixtures/unpinned-scan/`) |
 | [`no-datetime-now-in-hooks.test.mjs`](./no-datetime-now-in-hooks.test.mjs) | `datetime('now')` timestamps under `scripts/` and in `mcp/trajectory-server/src/` `*.ts` / `*.sql` (exempt: `migrateV*` bodies in `db.ts` and the `src/test/` fixtures) — use `tmb_now_iso`, `nowISO()` or `strftime('%Y-%m-%dT%H:%M:%fZ','now')` |
-| [`no-audit-log-kind.sh`](./no-audit-log-kind.sh) | Disallowed audit-log `kind` usage |
+| [`no-audit-log-kind.test.mjs`](./no-audit-log-kind.test.mjs) | Disallowed audit-log `kind` usage; every run self-tests `fixtures/audit-log-kind/` |
 | [`single-audit-write-path.test.mjs`](./single-audit-write-path.test.mjs) | A raw `INSERT INTO audit` in `mcp/trajectory-server/src/tools/*.ts` other than the one inside `insertAudit` (`audit.ts`) |
 | [`no-audit-log-without-from-node.sh`](./no-audit-log-without-from-node.sh) | Audit-log writes missing `from_node` |
 | [`no-directories-table-refs.sh`](./no-directories-table-refs.sh) | References to the retired directories table |
-| [`no-file-registry-refs.sh`](./no-file-registry-refs.sh) | References to the retired file registry |
+| [`no-file-registry-refs.test.mjs`](./no-file-registry-refs.test.mjs) | References to the retired file registry |
 | [`rag-schema-invariants.test.mjs`](./rag-schema-invariants.test.mjs) | RAG/embedding schema invariants |
 | [`manifest-shape.sh`](./manifest-shape.sh) | Plugin manifest shape; `claude plugin validate --strict` findings when the `claude` CLI is on PATH and the run is not offline (`TMB_L1_OFFLINE` / `TMB_FORBID_LIVE_SYNC`) |
 | [`codex-scope4-contract.sh`](./codex-scope4-contract.sh) | Exact Codex Agent catalog, sandbox defaults, MCP isolation, and 15-tool surface |
