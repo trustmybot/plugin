@@ -1034,3 +1034,70 @@ describe('discussion_append supersedes: only bro or the row author (GH 1759)', (
     }
   });
 });
+
+describe('discussion_append task_id across issues: note and analysis only (GH 1869)', () => {
+  let db: TrajectoryDB;
+  let taskOfA: number;
+
+  before(() => {
+    db = tempDB();
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (81, 'issue A', 'd', 'open', datetime('now'), datetime('now')),
+              (82, 'feedback issue B', 'd', 'open', datetime('now'), datetime('now'))`,
+    );
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+       VALUES (81, 'fix/81-a', 't', 'd', 'closed', 's', datetime('now'), datetime('now'))`,
+    );
+    taskOfA = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  const appendOnB = async (kind: string, taskId: string): Promise<RawResult> =>
+    call(discussionTools(db).handlers, 'discussion_append', {
+      agent: 'swe',
+      author: 'swe',
+      issue_id: '82',
+      kind,
+      body: 'wm_feedback answered: symbol card',
+      task_id: taskId,
+    });
+  const rowsOnB = (): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = 82')!.n;
+
+  for (const kind of ['note', 'analysis']) {
+    it(`SC1: a ${kind} row on issue B may name a task of issue A and stores it`, async () => {
+      const r = await appendOnB(kind, String(taskOfA));
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      const row = parseResult(r);
+      assert.equal(row.issue_id, 82);
+      assert.equal(row.kind, kind);
+      assert.equal(row.task_id, taskOfA);
+      const stored = db.get<{ task_id: number }>('SELECT task_id FROM discussions WHERE id = ?', [row.id]);
+      assert.equal(stored?.task_id, taskOfA);
+    });
+  }
+
+  for (const kind of ['decision', 'intent', 'question', 'answer']) {
+    it(`SC2: a ${kind} row with a cross-issue task_id is refused and writes no row`, async () => {
+      const before = rowsOnB();
+      const r = await appendOnB(kind, String(taskOfA));
+      assert.equal(r.isError, true);
+      assert.equal(parseResult(r).error, `task_id ${taskOfA} belongs to issue 81, not issue 82`);
+      assert.equal(rowsOnB(), before);
+    });
+  }
+
+  for (const kind of ['note', 'decision']) {
+    it(`SC3: a ${kind} row naming a nonexistent task is refused`, async () => {
+      const before = rowsOnB();
+      const r = await appendOnB(kind, '999999');
+      assert.equal(r.isError, true);
+      assert.equal(parseResult(r).error, 'Not found: task 999999');
+      assert.equal(rowsOnB(), before);
+    });
+  }
+});
