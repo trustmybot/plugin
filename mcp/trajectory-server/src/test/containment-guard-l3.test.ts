@@ -365,7 +365,9 @@ describe('containment-guard l3', () => {
     assert.equal(bro('D=build; mkdir -p "$D/out"'), 'allow', 'a relative variable resolves against the cwd');
     assert.equal(bro('touch "build/$UNKNOWN"'), 'allow', 'the literal dir before an unknown variable is inside the root');
     assert.equal(bro('touch "/tmp/tmb-cg/$UNKNOWN"'), 'deny', 'the literal dir before an unknown variable is outside the root');
-    assert.equal(swe('OUT=$(mktemp "$TMPDIR/f.XXXXXX"); cat > "$OUT"'), 'deny', 'a value built by $( ) is unresolvable');
+    assert.equal(swe('OUT=$(mktemp -u "$TMPDIR/f.XXXXXX"); cat > "$OUT"'), 'deny', 'a value built by $( ) is unresolvable');
+    assert.equal(swe('OUT=$(mktemp "$TMPDIR/f.XXXXXX"); cat > "$OUT"'), 'allow', 'GH 1912: an allowlisted mktemp resolves to its template');
+    assert.equal(swe('OUT=$(mktemp /etc/tmb-cg/f.XXXXXX); cat > "$OUT"'), 'deny', 'GH 1912: a mktemp template outside the root');
   });
 
   it("GH 1279: $PWD is the statement's own dir", () => {
@@ -431,7 +433,8 @@ describe('containment-guard l3', () => {
 
   it('GH 1324: the GH 1279 denies hold', () => {
     assert.equal(bro('cat > "$UNKNOWN/f"'), 'deny', 'cat > $UNKNOWN/f');
-    assert.equal(bro('cat > "$(mktemp "$TMPDIR/f.XXXXXX")"'), 'deny', 'cat > $(mktemp <template>)');
+    assert.equal(bro('cat > "$(mktemp -u "$TMPDIR/f.XXXXXX")"'), 'deny', 'cat > $(mktemp -u <template>)');
+    assert.equal(bro('cat > "$(mktemp /etc/tmb-cg/f.XXXXXX)"'), 'deny', 'GH 1912: cat > $(mktemp <outside template>)');
     assert.equal(bro('OUT=/etc/tmb-cg; cat > "$OUT"'), 'deny', 'OUT=/etc/x; cat > $OUT');
     assert.equal(bro(NODE_OUT), 'deny', 'an interpreter heredoc writing outside the root');
   });

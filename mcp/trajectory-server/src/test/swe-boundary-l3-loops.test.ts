@@ -83,7 +83,8 @@ describe('swe-boundary l3: programs, variables and loops', () => {
         'write target \\"$UNKNOWN/f\\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.',
         'the deny names the variable',
       );
-      has(swe(f, wtPlain, 'F=$(mktemp); echo x > "$F"'), 'write target \\"$F\\"', 'a value built by $( ) is unresolvable');
+      has(swe(f, wtPlain, 'F=$(mktemp -u); echo x > "$F"'), 'write target \\"$F\\"', 'a value built by $( ) is unresolvable');
+      hasNot(swe(f, wtPlain, 'F=$(mktemp); echo x > "$F"'), DENY, 'GH 1912: an allowlisted mktemp resolves under $TMPDIR');
       hasNot(swe(f, wtPb, 'cat > "$UNKNOWN/f" < /dev/null'), DENY, 'a prompt-bearing swe follows the prompt-surface rules as today');
       hasNot(runBro(f, bashInput('bro', 'cat > "$UNKNOWN/f" < /dev/null')), 'cannot resolve', 'bro is not judged by swe-boundary');
     });
@@ -173,7 +174,7 @@ describe('swe-boundary l3: programs, variables and loops', () => {
 
     it('GH 1324 the GH 1279 denies hold', () => {
       has(swe(f, wtPlain, 'cat > "$UNKNOWN/f" < /dev/null'), DENY, 'cat > $UNKNOWN/f');
-      has(swe(f, wtPlain, 'cat > "$(mktemp)" < /dev/null'), DENY, 'cat > $(mktemp)');
+      has(swe(f, wtPlain, 'cat > "$(mktemp -u)" < /dev/null'), DENY, 'cat > $(mktemp -u)');
       has(runEvent(f, wtPlain, 'OUT=/etc/tmb-1324; cat > "$OUT" < /dev/null'), "/etc/tmb-1324 is outside this run's root", 'OUT=/etc/x; cat > $OUT');
     });
   });
