@@ -30,6 +30,7 @@
 import type { Parser } from 'web-tree-sitter';
 import { type Charge, type Heredoc, decode, encode, heldKey, plainDollars } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
+import { MKTEMP_MARK, mktempCall } from './mktemp.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
 import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
@@ -43,6 +44,8 @@ const PROG_DIR = '/.tmb-prog-dir';
 const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
 const WATCH_VALUE = /^(-[A-Za-z]*[nq]|--interval|--equexit)$/;
 const BODY_UNRESOLVED = /^UNRESOLVED:(?!\$\(|PWD:)/;
+const MKTEMP_TEMPLATE = /^[A-Za-z0-9._-]*XXX+$/;
+const MKTEMP_PATH = /^\/[^\s*?[\]{}~$`\\\x00-\x1f\x7f]*$/;
 /** The options that make an interpreter print information and exit, judged only among its own options. */
 const INFO: Record<Lang | 'sh', RegExp> = {
   py: /^(-V|-VV|--version|-h|--help|-\?)$/,
@@ -257,7 +260,7 @@ class WritePaths {
 
   private print(line: string): void {
     this.charge(line.length);
-    this.out += line;
+    this.out += line.replaceAll(MKTEMP_MARK, '');
   }
 
   private envVar(name: string, level: Level): string | null {
@@ -287,6 +290,39 @@ class WritePaths {
     return v === '' ? null : chomp(v);
   }
 
+  /** The run-env value a `${NAME-def}`-style default reads first, as bash does (GH 1912): undefined when unset or not an envVar name, null when PWD or OLDPWD is unknown. */
+  private envDefault(name: string, level: Level): string | null | undefined {
+    if (name === 'PWD' || name === 'OLDPWD') return this.envVar(name, level);
+    if (name !== 'HOME' && name !== 'TMPDIR' && name !== 'CLAUDE_PROJECT_DIR' && name !== 'TMB_MODEL_CACHE_DIR') return undefined;
+    const v = this.opts.env[name];
+    return v === undefined ? undefined : chomp(v);
+  }
+
+  /**
+   * GH 1912: each path a framed mktemp call prints, or null when it cannot be
+   * proven. No template: `<prefix or tmp>.XXXXXXXX` under the run env's
+   * absolute TMPDIR, which the command must not set. A template: each value it
+   * expands to, against this statement's dir when relative, its last
+   * component `[A-Za-z0-9._-]*X{3,}`.
+   */
+  private mktempPaths(body: string, level: Level): string[] | null {
+    const call = /[()]/.test(body) || body.includes(MKTEMP_MARK) ? null : mktempCall(shellWords(body));
+    if (call === null || this.unbalanced) return null;
+    let paths: string[];
+    if (call.template === null) {
+      const tmp = this.varGet(level.vars, 'TMPDIR') === null ? this.envVar('TMPDIR', level) : null;
+      if (tmp === null || !tmp.startsWith('/')) return null;
+      paths = [`${tmp.replace(/\/+$/, '')}/${call.prefix ?? 'tmp'}.XXXXXXXX`];
+    } else {
+      const e = this.expand(call.template, level);
+      if (!e.ok || !e.values.every((t) => MKTEMP_TEMPLATE.test(basename(t)))) return null;
+      const pwd = this.pwd.replace(/\/$/, '');
+      if (e.values.some((t) => !t.startsWith('/')) && !this.pwd.startsWith('/')) return null;
+      paths = e.values.map((t) => (t.startsWith('/') ? t : `${pwd}/${t}`));
+    }
+    return paths.every((p) => MKTEMP_PATH.test(p)) ? paths : null;
+  }
+
   /** _tmb_cmd_var_get: every recorded value of <name>, each once, or null when never assigned. */
   private varGet(vars: string, name: string): string | null {
     const values = new Set<string>();
@@ -310,9 +346,19 @@ class WritePaths {
       acc = acc.map((a) => a + lit);
       let name: string;
       let def: string | null = null;
+      let colon = false;
       let cut = '';
       if (rest.startsWith('$(proc)')) return fail('$(proc)');
       if (rest.startsWith('$(alias-write)')) return fail('$(alias-write)');
+      if (rest.startsWith('$(' + MKTEMP_MARK)) {
+        const close = rest.indexOf(')');
+        const paths = close < 0 ? null : this.mktempPaths(rest.slice(3, close), level);
+        if (paths === null) return fail('$()');
+        rest = rest.slice(close + 1);
+        acc = acc.flatMap((a) => paths.map((p) => a + p));
+        if (acc.length > 16) return fail('$()');
+        continue;
+      }
       if (rest.startsWith('`') || rest.startsWith('$(')) return fail('$()');
       if (rest.startsWith('${')) {
         let a = rest.slice(2);
@@ -324,8 +370,10 @@ class WritePaths {
         if (name === '' || /^[0-9]/.test(name)) return fail('${' + a + '}');
         if (op === '') {
           // plain ${NAME}
-        } else if (op.startsWith(':-') || op.startsWith(':=')) def = op.slice(2);
-        else if (op.startsWith('-') || op.startsWith('=')) def = op.slice(1);
+        } else if (op.startsWith(':-') || op.startsWith(':=')) {
+          def = op.slice(2);
+          colon = true;
+        } else if (op.startsWith('-') || op.startsWith('=')) def = op.slice(1);
         else if (op.startsWith('%')) {
           cut = op.slice(1).replace(/^%/, '');
           if (cut === '' || /[^A-Za-z0-9._-]/.test(cut)) return fail(name);
@@ -345,8 +393,11 @@ class WritePaths {
       if (vals !== null) {
         if (vals.includes(BAD)) return fail(name);
       } else if (def !== null) {
-        if (/[$`]/.test(def)) return fail(name);
-        vals = def;
+        const set = this.envDefault(name, level);
+        if (set === null) return fail(name);
+        if (set !== undefined && (set !== '' || !colon)) vals = set;
+        else if (/[$`]/.test(def)) return fail(name);
+        else vals = def;
       } else {
         vals = this.envVar(name, level);
         if (vals === null) return fail(name);
@@ -604,7 +655,7 @@ class WritePaths {
   /** _tmb_cmd_statements_enc to depth 3: bash -c / eval bodies listed as their own statements. */
   private listing(cmd: string, base: string, depth: number): Statement[] {
     this.charge(cmd.length);
-    const encoded = encode(this.parser, cmd, this.charge);
+    const encoded = encode(this.parser, cmd, this.charge, true);
     if (!encoded.ok) return [];
     const out: Statement[] = [];
     for (const record of statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true, this.charge)) {
@@ -753,7 +804,7 @@ class WritePaths {
   /** _tmb_cmd_write_paths_in; the TS returns the variables tracked when it ends. */
   run(cmd: string, base: string, depth: number, vars: string): string {
     this.charge(cmd.length);
-    const encoded = encode(this.parser, cmd, this.charge);
+    const encoded = encode(this.parser, cmd, this.charge, true);
     if (!encoded.ok) {
       this.print(parseLine(cmd));
       return vars;

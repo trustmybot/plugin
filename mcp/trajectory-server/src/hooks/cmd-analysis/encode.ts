@@ -5,9 +5,13 @@
  * quoted or backslash-escaped text turned into a reversible control byte, and
  * a $( ) or backtick inside double quotes framed by QO … QC with its body
  * encoded as shell syntax again, and each heredoc's `<<` followed by HD_DATA
- * when its body is data to the shell, else by HD_EXP (GH 1911).
+ * when its body is data to the shell, else by HD_EXP (GH 1911). With `marks`
+ * (the write-path analyzer, GH 1912), a substitution whose body is one mktemp
+ * call `mktempCall` admits is framed by QO … QC quoted or not, its body led by
+ * MKTEMP_MARK.
  */
 import type { Node, Parser } from 'web-tree-sitter';
+import { MKTEMP_MARK, mktempCall } from './mktemp.js';
 
 const NEUTRAL = ' \t<>|;&()`';
 
@@ -51,10 +55,13 @@ export function decode(text: string): string {
   return text.replace(/[\x01-\x06\x0e-\x11\x13\x15\x16]/g, (c) => DECODE.get(c) ?? c);
 }
 
+/** A literal QM, or with `marks` a literal MKTEMP_MARK, read as computed text rather than a mark. */
+const literalMark = (c: string, marks: boolean): boolean => c === QM || (marks && c === MKTEMP_MARK);
+
 /** One char of quoted or escaped text; a missing char (a line's end) is \001, as awk's index(s, "") is 1. */
-function neutral(c: string | undefined): string {
+function neutral(c: string | undefined, marks: boolean): string {
   if (c === undefined || c === '' || c === '\n') return ENC[1];
-  if (c === QM) return QM_LITERAL;
+  if (literalMark(c, marks)) return QM_LITERAL;
   const k = NEUTRAL.indexOf(c);
   return k >= 0 ? ENC[k + 1] : c;
 }
@@ -77,13 +84,25 @@ export type Charge = (units: number) => void;
 
 export const NO_CHARGE: Charge = () => {};
 
-function specials(node: Node, out: Span[], charge: Charge): Span[] {
+const MKTEMP_ARGS = new Set(['word', 'string', 'raw_string', 'simple_expansion', 'expansion', 'concatenation']);
+
+/** A substitution whose body is one plain `mktemp` call of a shape `mktempCall` admits, no argument holding a blank, paren, backtick, backslash or substitution. */
+function mktempSub(sub: Node): boolean {
+  const body = sub.namedChildren.filter((c): c is Node => c !== null);
+  if (body.length !== 1 || body[0].type !== 'command') return false;
+  const [name, ...args] = body[0].namedChildren.filter((c): c is Node => c !== null);
+  if (name?.type !== 'command_name' || name.text !== 'mktemp') return false;
+  const plain = (a: Node): boolean => MKTEMP_ARGS.has(a.type) && !/[\s()`\\]/.test(a.text) && a.descendantsOfType(CODE_EXPANSIONS).length === 0;
+  return args.every(plain) && mktempCall(['mktemp', ...args.map((a) => a.text.replace(/["']/g, ''))]) !== null;
+}
+
+function specials(node: Node, out: Span[], charge: Charge, marks: boolean): Span[] {
   charge(1);
-  if (SPECIAL.has(node.type)) {
+  if (SPECIAL.has(node.type) || (marks && node.type === 'command_substitution' && mktempSub(node))) {
     out.push({ start: node.startIndex, end: node.endIndex, node });
     return out;
   }
-  for (const child of node.children) if (child) specials(child, out, charge);
+  for (const child of node.children) if (child) specials(child, out, charge, marks);
   return out;
 }
 
@@ -101,6 +120,7 @@ export class Encoder {
   constructor(
     private readonly src: string,
     private readonly charge: Charge,
+    private readonly marks = false,
   ) {}
 
   /** Unquoted text: a backslash escapes the next char. */
@@ -110,11 +130,11 @@ export class Encoder {
     for (let i = from; i < to; i++) {
       const c = src[i];
       if (c !== '\\') {
-        out += c === QM ? QM_LITERAL : c;
+        out += literalMark(c, this.marks) ? QM_LITERAL : c;
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
-      out += QM + neutral(next);
+      out += QM + neutral(next, this.marks);
       if (next !== undefined && next !== '\n') i++;
     }
     return out;
@@ -129,11 +149,18 @@ export class Encoder {
       if (c === '\n') out += JOINER;
       else if (escapes && c === '\\') {
         const next = i + 1 < to ? src[i + 1] : undefined;
-        out += neutral(next);
+        out += neutral(next, this.marks);
         if (next !== undefined && next !== '\n') i++;
-      } else out += neutral(c);
+      } else out += neutral(c, this.marks);
     }
     return out;
+  }
+
+  /** A substitution opened at `start`, framed by QO … QC with its body encoded as shell syntax, led by MKTEMP_MARK for a mktemp call (GH 1912). */
+  private frame(sub: Node, start: number): string {
+    const open = this.src.startsWith('$(', start) ? 2 : 1;
+    const mark = this.marks && sub.type === 'command_substitution' && mktempSub(sub) ? MKTEMP_MARK : '';
+    return QO + mark + this.range(sub, start + open, sub.endIndex - 1) + QC;
   }
 
   /** Where a substitution's `$(` or backtick starts: tree-sitter-bash folds the blanks after a preceding expansion into the opener token (`"$(a) $(b)"`). */
@@ -150,9 +177,7 @@ export class Encoder {
     for (const sub of substitutions(node, [], this.charge)) {
       if (sub.startIndex < from || sub.endIndex > to) continue;
       const start = this.opener(sub);
-      out += this.quoted(at, start, true);
-      const open = this.src.startsWith('$(', start) ? 2 : 1;
-      out += QO + this.range(sub, start + open, sub.endIndex - 1) + QC;
+      out += this.quoted(at, start, true) + this.frame(sub, start);
       at = sub.endIndex;
     }
     return out + this.quoted(at, to, true);
@@ -169,7 +194,7 @@ export class Encoder {
     const rest: Span[] = [];
     const opEnd = start ? start.endIndex : node.startIndex + 2;
     for (const c of kids) {
-      if (c.startIndex >= opEnd && c !== body && c !== end) specials(c, rest, this.charge);
+      if (c.startIndex >= opEnd && c !== body && c !== end) specials(c, rest, this.charge, this.marks);
     }
     const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
@@ -179,14 +204,14 @@ export class Encoder {
 
   /** One word node, encoded as `range` encodes it inside its command. */
   word(node: Node): string {
-    return this.spans(specials(node, [], this.charge), node.startIndex, node.endIndex);
+    return this.spans(specials(node, [], this.charge, this.marks), node.startIndex, node.endIndex);
   }
 
   /** [from, to) of `node`'s source, encoded as unquoted shell text. */
   range(node: Node, from: number, to: number): string {
     const spans = node.children
       .filter((c): c is Node => c !== null)
-      .flatMap((c) => specials(c, [], this.charge))
+      .flatMap((c) => specials(c, [], this.charge, this.marks))
       .filter((s) => s.start >= from && s.end <= to);
     return this.spans(spans, from, to);
   }
@@ -225,6 +250,9 @@ export class Encoder {
           break;
         case 'ansi_c_string':
           out += QM + this.quoted(span.start + 2, span.end - 1, true);
+          break;
+        case 'command_substitution':
+          out += this.frame(node, span.start);
           break;
       }
     }
@@ -352,15 +380,15 @@ function heredocMisread(src: string, root: Node): boolean {
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927). */
-export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE): Encoded {
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912). */
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command, charge);
+    const encoder = new Encoder(command, charge, marks);
     const text = encoder.range(root, 0, command.length);
     return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
   } finally {
