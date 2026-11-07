@@ -41,7 +41,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 6;
+export const EXTRACTOR_VERSION = 7;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);

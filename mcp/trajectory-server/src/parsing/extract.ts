@@ -561,12 +561,46 @@ function perlForwardDecl(line: string): boolean {
   return /^[^{#]*;\s*(#.*)?$/.test(line);
 }
 
-// The row a sub ends on: its own row when its braces close there, else the
-// first later row that opens with `}` at or left of the sub's indent.
+// The column of the `]` closing the `[` at `open` on the same line, so a
+// regex class such as `[^}]` hides its braces; `open` when none does.
+function bracketEnd(line: string, open: number): number {
+  for (let j = open + 1; j < line.length; j++) {
+    if (line[j] === '\\') j++;
+    else if (line[j] === ']') return j;
+  }
+  return open;
+}
+
+// The row a sub ends on: the row where its braces, counted from its first `{`
+// outside '#' comments, quoted strings, same-line `[...]` and backslash
+// escapes, balance; when
+// they never do, the first later row that opens with `}` at or left of the
+// sub's indent.
 function perlSubEnd(lines: string[], start: number, indent: number): number {
-  const first = lines[start]!.replace(/#.*$/, '');
-  const opens = (first.match(/\{/g) ?? []).length;
-  if (opens > 0 && opens === (first.match(/\}/g) ?? []).length) return start;
+  let depth = 0;
+  let opened = false;
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i]!;
+    let quote: string | null = null;
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j]!;
+      if (ch === '\\') {
+        j++;
+        continue;
+      }
+      if (quote) {
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '#' && line[j - 1] !== '$') break;
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '[') j = bracketEnd(line, j);
+      else if (ch === '{') {
+        depth++;
+        opened = true;
+      } else if (ch === '}' && opened && --depth === 0) return i;
+    }
+  }
   for (let i = start + 1; i < lines.length; i++) {
     const m = /^(\s*)\}/.exec(lines[i]!);
     if (m && m[1]!.length <= indent) return i;

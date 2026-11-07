@@ -895,7 +895,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 6);
+      assert.equal(EXTRACTOR_VERSION, 7);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1155,6 +1155,67 @@ describe('Perl subs and constants (GH 2284)', () => {
     for (const s of subs) assert.equal(s.start_line, at(s.qualified_name), s.qualified_name);
     assert.equal(line('lits').end_line, line('lits').start_line);
     assert.ok(line('strip_js_comments').end_line > line('strip_js_comments').start_line);
+  });
+});
+
+describe('a Perl sub ends on the line of its own closing brace (GH 2302)', () => {
+  const spans = (lines: string[]) =>
+    extractFile(null, 'x.pl', 'perl', lines.join('\n'))
+      .symbols.filter((s) => s.kind === 'function')
+      .map((s) => [s.qualified_name, s.start_line, s.end_line]);
+
+  it('a closing brace after code on its line ends the sub there', () => {
+    assert.deepEqual(spans(['sub first {', '  my $x = 1;', '  return $x; }', '', 'sub second {', '  return 2;', '}']), [
+      ['first', 1, 3],
+      ['second', 5, 7],
+    ]);
+  });
+
+  it('a nested block closes before the sub does', () => {
+    assert.deepEqual(spans(['sub n {', '  if ($a) { return 1 }', '  return 0;', '}']), [['n', 1, 4]]);
+  });
+
+  it('a brace in a quoted string, a comment or after a backslash does not end the sub', () => {
+    assert.deepEqual(
+      spans([
+        'sub quoted {',
+        "  my $s = '}';",
+        '  my $t = "x}y";',
+        '  # } not code',
+        '  my $r = qr/\\}/;',
+        '  return $#{$s}; }',
+        'sub after { 1 }',
+      ]),
+      [
+        ['quoted', 1, 6],
+        ['after', 7, 7],
+      ],
+    );
+  });
+
+  it('a sub whose { opens on the next line ends at its closing brace', () => {
+    assert.deepEqual(spans(['sub x', '{', '  return 1;', '}', 'sub y { 2 }']), [
+      ['x', 1, 4],
+      ['y', 5, 5],
+    ]);
+  });
+
+  it('a brace inside a same-line [...] such as a regex class [^}] does not end the sub', () => {
+    assert.deepEqual(spans(['sub cls {', '  while ($c =~ /\\{([^}]*)\\}/g) {', '    1;', '  }', '}']), [['cls', 1, 5]]);
+    const src = readFileSync(join(WORKTREE, 'tests/l1-lint/enums-stable-extract.pl'), 'utf8');
+    const at = (n: string) => src.split('\n').findIndex((l) => l.startsWith(`sub ${n} `)) + 1;
+    const close = (n: string) => src.split('\n').findIndex((l, i) => i >= at(n) && l === '}') + 1;
+    const real = extractFile(null, 'tests/l1-lint/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
+    for (const n of ['slurp', 'strip_js_comments', 'const_value']) {
+      assert.equal(real.find((s) => s.qualified_name === n)!.end_line, close(n), n);
+    }
+  });
+
+  it('a sub whose braces never balance falls back to the first } at its indent', () => {
+    assert.deepEqual(spans(['sub broken {', '  if (1) {', '    return 1;', '}', '', 'sub tail {']), [
+      ['broken', 1, 4],
+      ['tail', 6, 6],
+    ]);
   });
 });
 
