@@ -837,6 +837,16 @@ describe('containment-guard l3', () => {
     assert.equal(bro(`while :; do echo > f1977; cd ${PROJECT}/src; done`), 'allow', 'a body cd that stays in the root');
   });
 
+  it('GH 2443: a literal $ in a write path is judged as the path bash writes', () => {
+    assert.equal(swe("touch '$HOME/x'"), 'allow', "'$HOME/x' is a file under the worktree");
+    assert.equal(swe('touch \\$PWD'), 'allow', '\\$PWD is a file under the worktree');
+    for (const c of ["touch '../../../../$PWD'", 'touch ../../../../\\$PWD', "touch '/etc/$x'", 'touch /etc/a$']) {
+      const OUT = run(WT, 'swe', 'Bash', bashCmd(c));
+      assert.equal(decision(OUT), 'deny', c);
+      hasNot(OUT, 'cannot be judged', `${c}: judged, not unjudged`);
+    }
+  });
+
   it('un-onboarded project → allow', () => {
     const BARE = join(SANDBOX, 'bare');
     mkdirSync(BARE, { recursive: true });

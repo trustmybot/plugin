@@ -191,13 +191,17 @@ describe('write-path analyzer: mktemp substitutions (GH 1912)', () => {
       'T=$(TMPDIR=/etc mktemp -d); touch $T/f',
       'T=$(/usr/bin/mktemp -d); touch $T/f',
       'TMPDIR=/etc; T=$(mktemp -d); touch $T/f',
-      "T='$(mktemp)'; touch $T",
-      'T="\\$(mktemp)"; touch $T',
       'T=\x18; touch $T/$(mktemp)',
     ]) {
       const got = await paths(cmd);
       assert.ok(got.length > 0 && got.every((l) => l.startsWith('UNRESOLVED:')), `${cmd}: ${JSON.stringify(got)}`);
       assert.ok(got.every((l) => !l.includes('\x18')), `${cmd}: mark leaked: ${JSON.stringify(got)}`);
+    }
+  });
+
+  it('reads a quoted or escaped $(mktemp) as the literal name bash writes, never a mktemp path (GH 2443)', async () => {
+    for (const cmd of ["T='$(mktemp)'; touch $T", 'T="\\$(mktemp)"; touch $T', "touch '$(mktemp)'"]) {
+      assert.deepEqual(await paths(cmd), ['/w/$(mktemp)'], cmd);
     }
   });
 

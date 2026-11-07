@@ -6,7 +6,7 @@
  * root.
  */
 import { statSync } from 'node:fs';
-import { decode } from './encode.js';
+import { DOLLAR, decodeKeepDollar } from './encode.js';
 import { pathCanonical } from './path.js';
 import { isPromptSurfaceUnder } from './surface.js';
 
@@ -403,7 +403,7 @@ export function listerBind(
   acts: string[],
 ): string[] | null {
   if (mode === 'loop' && (host.root === '' || !NAME.test(name))) return null;
-  const dec = mode === 'loop' ? words : words.map(decode);
+  const dec = mode === 'loop' ? words : words.map((w) => decodeKeepDollar(w));
   let dir = '';
   if (dirtok.startsWith('/')) dir = dirtok;
   else if (dirtok === '@') dir = host.cwd;
@@ -454,7 +454,7 @@ export function listerBind(
   let bound = rootc;
   const git = cmd === 'git';
   if (git) {
-    bound = pathCanonical(m.gdir);
+    bound = pathCanonical(m.gdir.replaceAll(DOLLAR, '$'));
     if (!(bound + '/').startsWith(rootTrim + '/')) return null;
   }
   if (m.paths.length === 0) m.paths = ['.'];
@@ -473,7 +473,7 @@ export function listerBind(
         if (slash >= 0) w = w.slice(0, slash);
         if (w === '') w = '/';
       }
-      w = pathCanonical(w);
+      w = pathCanonical(w.replaceAll(DOLLAR, '$'));
       if (!(w + '/').startsWith(trimSlash(bound) + '/')) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
       const at = git ? trimSlash(p) : trimSlash(v);

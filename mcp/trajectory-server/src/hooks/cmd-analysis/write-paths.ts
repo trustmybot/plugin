@@ -28,7 +28,7 @@
  * only CAP_LINE (GH 2090): a command is judged only if its analysis finishes.
  */
 import type { Parser } from 'web-tree-sitter';
-import { type Charge, type Heredoc, decode, encode, heldKey, plainDollars } from './encode.js';
+import { type Charge, DOLLAR, type Heredoc, decode, decodeKeepDollar, encode, heldKey, plainDollars } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
 import { pathCanonical } from './path.js';
@@ -93,6 +93,8 @@ type Expansion = { ok: true; values: string[] } | { ok: false; unres: string };
 const basename = (w: string): string => w.replace(/.*\//, '');
 const chomp = (s: string): string => s.replace(/\n+$/, '');
 const dec = (s: string): string => chomp(decode(s));
+/** A path or value to expand: decoded, each literal `$` kept as DOLLAR until `print` (GH 2443). */
+const decPath = (s: string): string => chomp(decodeKeepDollar(s));
 const before = (s: string, sep: string): string => {
   const k = s.indexOf(sep);
   return k < 0 ? s : s.slice(0, k);
@@ -267,7 +269,7 @@ class WritePaths {
 
   private print(line: string): void {
     this.charge(line.length);
-    this.out += line.replaceAll(MKTEMP_MARK, '');
+    this.out += line.replaceAll(MKTEMP_MARK, '').replaceAll(DOLLAR, '$');
   }
 
   private envVar(name: string, level: Level): string | null {
@@ -471,7 +473,7 @@ class WritePaths {
       return;
     }
     if (dir === '-' && why !== '' && !/^[/~$`]/.test(p)) {
-      let v = dec(after(why, WSEP));
+      let v = decPath(after(why, WSEP));
       if (p !== '.') v = `${v.replace(/\/$/, '')}/${p}`;
       this.emit(level, before(why, WSEP), v, '');
       return;
@@ -520,7 +522,7 @@ class WritePaths {
   private loopSource(level: Level, name: string, mark: string): boolean {
     let m = mark.replace(/^\x12/, '');
     const dirtok = before(m, SEP);
-    m = dec(m.slice(dirtok.length).replace(/^\x12/, ''));
+    m = decPath(m.slice(dirtok.length).replace(/^\x12/, ''));
     const fields = before(m, '\n').split(SEP);
     if (fields[fields.length - 1] === '') fields.pop();
     if (fields.length === 0) return false;
@@ -580,7 +582,7 @@ class WritePaths {
     const rv = '${' + name + '}';
     for (const act of acts) {
       if (act === 'd') this.emit(level, dir, rv);
-      else if (act.startsWith('f')) this.emit(level, dir, dec(act.slice(1)));
+      else if (act.startsWith('f')) this.emit(level, dir, decPath(act.slice(1)));
       else if (act.startsWith('x')) {
         let cmd = act.slice(1);
         if (tool === 'find') cmd = cmd.split('{}').join(rv);
@@ -588,7 +590,7 @@ class WritePaths {
           for (const ph of ['{//}', '{.}', '{}']) cmd = cmd.split(ph).join(rv);
           for (const ph of ['{/.}', '{/}']) cmd = cmd.split(ph).join('*');
         }
-        for (const p of stmtWritePaths(cmd, true, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
+        for (const p of stmtWritePaths(cmd, true, this.interp).paths) if (p !== '') this.emit(level, dir, decPath(p));
         this.execShell(level, cmd, tok, depth);
       }
     }
@@ -753,7 +755,7 @@ class WritePaths {
         const plain = words.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
         for (const w of words.slice(1)) {
           if (!/^[A-Za-z_].*=/s.test(w)) continue;
-          if (plain) this.varSet(level, before(w, '='), dec(after(w, '=')));
+          if (plain) this.varSet(level, before(w, '='), decPath(after(w, '=')));
           else this.poison(level, before(w, '='));
         }
         if (!plain) for (const w of words.slice(1)) this.poison(level, w);
@@ -780,7 +782,7 @@ class WritePaths {
           if (!this.loopSource(level, name, rest[0].slice(3))) level.vars += `${name}\t${BAD}\n`;
           return;
         }
-        for (const w of rest) this.varSet(level, name, dec(w));
+        for (const w of rest) this.varSet(level, name, decPath(w));
         return;
       }
       case 'read': {
@@ -887,7 +889,7 @@ class WritePaths {
           if (!record.tail)
             this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
               this.pwd = dirPath(d, cwd);
-              for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
+              for (const w of words) this.varSet(level, before(w, '='), decPath(after(w, '=')));
             });
           return;
         }
@@ -965,7 +967,7 @@ class WritePaths {
         if (!record.tail)
           this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
             this.pwd = dirPath(d, cwd);
-            for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
+            for (const w of words) this.varSet(level, before(w, '='), decPath(after(w, '=')));
           });
         continue;
       }
@@ -985,7 +987,7 @@ class WritePaths {
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, dec(p));
+          for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (body !== '' && !evaluated && heldProgram(body)) {
@@ -1007,7 +1009,7 @@ class WritePaths {
       }
       if (!ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, dec(p));
+          for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));

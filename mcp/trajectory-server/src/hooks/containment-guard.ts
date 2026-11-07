@@ -24,6 +24,10 @@
  * with the TMPDIR Claude Code's sandbox gives it, /tmp/claude-<uid>, when that
  * dir passes harnessTmp's check. The .sh keeps the hook env, so a `$TMPDIR`
  * target stays unresolved there and is denied. No corpus payload runs it.
+ *
+ * A third (GH 2443): an absolute analyzer line that is not UNRESOLVED is
+ * judged as written, each `$` or backtick in it literal text (`'/etc/$x'`,
+ * `/etc/a$`), where the .sh drops it unjudged.
  */
 import { lstatSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
@@ -206,8 +210,9 @@ class Guard {
     throw new Denied({ stdout: `${written.stdout}${decision}\n`, code: 0 });
   }
 
-  /** The absolute path a write-position word names; null behind an unresolvable variable or command. */
-  expand(word: string): string | null {
+  /** The absolute path a write-position word names; null behind an unresolvable variable or command. A `resolved` absolute line names itself: each `$` in it is text bash keeps (GH 2443). */
+  expand(word: string, resolved = false): string | null {
+    if (resolved && word.startsWith('/') && /[$`]/.test(word)) return this.globCut(word);
     const home = this.home();
     let p = word;
     if (p === '~') p = home;
@@ -215,6 +220,11 @@ class Guard {
     p = p.split('${HOME}').join(home).split('$HOME').join(home);
     p = p.split('${TMB_MODEL_CACHE_DIR}').join(this.cacheDir).split('$TMB_MODEL_CACHE_DIR').join(this.cacheDir);
     if (/[$`]/.test(p) || p.startsWith('~')) return null;
+    return this.globCut(p);
+  }
+
+  /** <p> cut to the dir before its first glob char, made absolute against the cwd. */
+  private globCut(p: string): string {
     const glob = p.search(GLOB_CHAR);
     if (glob >= 0) {
       p = p.slice(0, glob);
@@ -320,7 +330,7 @@ async function judgeBash(g: Guard, input: string, analyze: WritePathsFn): Promis
         `BLOCKED: containment — write target "${target}" climbs with .. after a glob; the guard cannot tell where that lands. Name the directory without .. after a glob.`,
       );
     }
-    const path = g.expand(target);
+    const path = g.expand(target, variable === null);
     if (variable !== null) {
       if (path !== null) g.judge(path);
       else g.unresolved(target, variable);
