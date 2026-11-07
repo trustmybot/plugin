@@ -12,6 +12,8 @@ type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 
+const CROSS_ISSUE_TASK_KINDS = new Set(['note', 'analysis']);
+
 const MAX_BODY_BYTES = 65_536;
 
 const HUMAN_AUTHOR = 'human';
@@ -188,7 +190,7 @@ export function discussionTools(db: TrajectoryDB): {
           task_id: {
             type: 'string',
             description:
-              "Optional — the task (on this issue) the entry belongs to. That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level.",
+              "Optional — the task the entry belongs to, on this issue (a note or analysis row may name a task on another issue, e.g. world-model feedback). That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level.",
           },
           supersedes: {
             type: 'string',
@@ -478,7 +480,7 @@ export function discussionTools(db: TrajectoryDB): {
         if (taskId !== null) {
           const task = db.get<{ issue_id: number }>('SELECT issue_id FROM tasks WHERE id = ?', [taskId]);
           if (!task) throw new Error(`Not found: task ${taskId}`);
-          if (task.issue_id !== issue.id) {
+          if (task.issue_id !== issue.id && !CROSS_ISSUE_TASK_KINDS.has(kind)) {
             throw new Error(`task_id ${taskId} belongs to issue ${task.issue_id}, not issue ${issue.id}`);
           }
         }
