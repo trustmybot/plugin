@@ -9,7 +9,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { loadParsers, parserLoadCount } from '../parsing/loader.js';
 import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
-import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
+import { extractFile, inSymbolScope, isGeneratedPath, isBannerLine, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
 import { extractHooks } from '../parsing/hooks.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -895,7 +895,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 5);
+      assert.equal(EXTRACTOR_VERSION, 6);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -906,6 +906,82 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a symbol doc starts after the last banner line of its comment block (GH 1954)', () => {
+  const docs = async (path: string, lang: SourceLanguage, src: string) => {
+    const out = extractFile(lang === 'perl' ? null : await loadParsers(), path, lang, src);
+    return Object.fromEntries(out.symbols.filter((s) => s.kind !== 'module').map((s) => [s.qualified_name, s.doc]));
+  };
+
+  it('a banner line is a rule line or a title framed by three or more of one - or =', () => {
+    for (const l of ['# ---', '# --- Section ---', '// ==== Section ====', '=== title ===', '# ---- --dry-run is a pure preview (GH 1675) ----'])
+      assert.ok(isBannerLine(l), l);
+    for (const l of ['# --self-test: exercise run-dir resolution', '// --candidate (a JSON object)', '# --- open', '# -- x --', '# --- x ===', '// real doc'])
+      assert.ok(!isBannerLine(l), l);
+  });
+
+  it('bash: a lone framed banner gives an empty doc; a glued real doc after it is kept', async () => {
+    const src = [
+      '# --- Install-scope notice, once per session ----',
+      'notice() {',
+      '  :',
+      '}',
+      '',
+      '# ---- Rule (h): Edit/Write inside the worktree is allowed ----',
+      '# bypass_check — the allow path of an Edit/Write inside the worktree.',
+      'bypass_check() {',
+      '  :',
+      '}',
+      '',
+      '# ---- --dry-run is a pure preview (GH 1675) ----',
+      'dry_run() {',
+      '  :',
+      '}',
+      '',
+      '# --self-test: exercise run-dir resolution against a temp dir.',
+      'self_test() {',
+      '  :',
+      '}',
+      '',
+    ].join('\n');
+    const got = await docs('scripts/hooks.sh', 'bash', src);
+    assert.equal(got.notice, '');
+    assert.equal(got.bypass_check, 'bypass_check — the allow path of an Edit/Write inside the worktree.');
+    assert.equal(got.dry_run, '');
+    assert.equal(got.self_test, '--self-test: exercise run-dir resolution against a temp dir.');
+  });
+
+  it('TS: a framed = banner gives way to the doc glued under it; a doc starting with -- is kept', async () => {
+    const src = [
+      '// ==== Section ====',
+      '// real doc',
+      'export function glued(): number {',
+      '  return 1;',
+      '}',
+      '',
+      '// === title ===',
+      'export function titled(): number {',
+      '  return 2;',
+      '}',
+      '',
+      '// --candidate (a JSON object with the proposed fields).',
+      'export function candidate(): number {',
+      '  return 3;',
+      '}',
+      '',
+    ].join('\n');
+    assert.deepEqual(await docs('src/banner.ts', 'typescript', src), {
+      glued: 'real doc',
+      titled: '',
+      candidate: '--candidate (a JSON object with the proposed fields).',
+    });
+  });
+
+  it('Perl: a framed banner gives way to the doc glued under it', async () => {
+    const src = ['#!/usr/bin/env perl', 'use strict;', '', '# --- Section ---', '# real perl doc', 'sub glued {', '  return 1;', '}', ''].join('\n');
+    assert.equal((await docs('x.pl', 'perl', src)).glued, 'real perl doc');
   });
 });
 
