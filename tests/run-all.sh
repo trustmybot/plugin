@@ -111,7 +111,7 @@ run_step "L1 lint: Codex Scope-4 Agent contract"      bash "$HERE/l1-lint/codex-
 run_step "L1 lint: legacy reviewer name only where allowlisted (GH 1641)"  bash "$HERE/l1-lint/legacy-reviewer-name.sh"
 run_step "L1 lint: version sync (4 manifests agree)"  node --test "$HERE/l1-lint/version-sync.test.mjs"
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
-run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
+run_step "L1 lint: link-check (relative md links)"    node --test "$HERE/l1-lint/link-check.test.mjs"
 run_step "L1 lint: shellcheck on shell scripts"       node --test "$HERE/l1-lint/shellcheck-hooks.test.mjs"
 run_step "L1 lint: no bare mktemp (explicit path template)"  bash "$HERE/l1-lint/no-bare-mktemp.sh"
 run_step "L1 lint: no bare mktemp (self-test)" bash "$HERE/l1-lint/no-bare-mktemp.sh" --self-test
@@ -132,15 +132,14 @@ run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-
 run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  node --test "$HERE/l1-lint/enums-doc-fresh.test.mjs"
 run_step "L1 lint: ERD.md generated from schema.sql"  node --test "$HERE/l1-lint/erd-doc-fresh.test.mjs"
 run_step "L1 lint: CONFIG_KEYS.md generated from code" node --test "$HERE/l1-lint/config-keys-doc-fresh.test.mjs"
-run_step "L1 lint: tool docs list every family + tool" bash "$HERE/l1-lint/tool-families-documented.sh"
+run_step "L1 lint: tool docs list every family + tool" node --test "$HERE/l1-lint/tool-families-documented.test.mjs"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
-run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
+run_step "L1 lint: issue_sync test must mock spawn"   node --test "$HERE/l1-lint/issue-sync-test-isolation.test.mjs"
 run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
-run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-citations-in-prompts.sh"
+run_step "L1 lint: no citations in prompts"           node --test "$HERE/l1-lint/no-citations-in-prompts.test.mjs"
 run_step "L1 lint: no kuzu in prompts (self-test)"    bash "$HERE/l1-lint/no-kuzu-in-prompts.sh" --self-test
 run_step "L1 lint: no kuzu in prompts"                bash "$HERE/l1-lint/no-kuzu-in-prompts.sh"
-run_step "L1 lint: no repo paths in prompts (self-test)" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh" --self-test
-run_step "L1 lint: no repository paths in prompts" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh"
+run_step "L1 lint: no repository paths in prompts" node --test "$HERE/l1-lint/no-repo-paths-in-prompts.test.mjs"
 run_step "L1 lint: explicit paths and git -C in prompts" bash "$HERE/l1-lint/prompt-explicit-paths.sh"
 run_step "L1 lint: no file_registry refs (v7 retirement)"  node --test "$HERE/l1-lint/no-file-registry-refs.test.mjs"
 run_step "L1 lint: no audit_append kind= arg"         node --test "$HERE/l1-lint/no-audit-log-kind.test.mjs"
@@ -161,15 +160,14 @@ run_step "L1 lint: tool-description byte budget"      node --test "$HERE/l1-lint
 run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
 run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
 run_step "L1 lint: tmb_gate_read SQL is read-only" bash "$HERE/l1-lint/gate-read-sql-readonly.sh"
-run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-direct-sqlite-write.sh"
+run_step "L1 lint: no direct sqlite3 writes in scripts" node --test "$HERE/l1-lint/no-direct-sqlite-write.test.mjs"
 run_step "L1 lint: every sqlite3 call sets a busy timeout" bash "$HERE/l1-lint/sqlite3-needs-timeout.sh"
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
 run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
 run_step "L1 lint: claude CLI config calls pinned to project scope (self-test)" bash "$HERE/l1-lint/cli-config-scope.sh" --self-test
 run_step "L1 lint: claude CLI config calls pinned to project scope" bash "$HERE/l1-lint/cli-config-scope.sh"
-run_step "L1 lint: no in-session plugin commands prescribed (self-test)" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh" --self-test
-run_step "L1 lint: no in-session plugin commands prescribed" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh"
+run_step "L1 lint: no in-session plugin commands prescribed" node --test "$HERE/l1-lint/no-in-session-plugin-commands.test.mjs"
 run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
 run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
 run_step "L1 lint: live-db shim survives a plain parent directory" node --test "$HERE/lib/live-db-shim.test.mjs"
@@ -177,8 +175,7 @@ run_step "L1 lint: no datetime('now') in scripts"     node --test "$HERE/l1-lint
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
 run_step "L1 lint: no filesystem writes at module load" bash "$HERE/l1-lint/no-module-load-writes.sh"
-run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH (self-test)" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh" --self-test
-run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh"
+run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" node --test "$HERE/l1-lint/no-unpinned-scan-in-tests.test.mjs"
 run_step "L1 lint: no .tmp-* scratch dir in the checkout" node --test "$HERE/l1-lint/no-scratch-in-tree.test.mjs"
 run_step "L1 lint: nothing finds the project or a repo from the cwd" bash "$HERE/l1-lint/no-cwd-reads.sh"
 run_step "L1 lint: /onboard option wording is plain language (self-test)" bash "$HERE/l1-lint/onboard-option-wording.sh" --self-test
