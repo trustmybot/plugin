@@ -8,7 +8,7 @@
  * when its body is data to the shell, else by HD_EXP (GH 1911). With `marks`
  * (the write-path analyzer, GH 1912), a substitution whose body is one mktemp
  * call `mktempCall` admits is framed by QO … QC quoted or not, its body led by
- * MKTEMP_MARK.
+ * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443).
  */
 import type { Node, Parser } from 'web-tree-sitter';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
@@ -30,6 +30,8 @@ export const HD_EXP = '\x1a';
 export const QM = '\x17';
 /** A literal QM in the command: `$()` (encoded), so it reads as computed text rather than a mark. */
 const QM_LITERAL = '$' + ENC[8] + ENC[9];
+/** With `marks` (GH 2443): a `$` bash keeps literal, inside `'…'` or `$'…'` or after a backslash, unquoted or in `"…"`; `decode` turns it back into `$`. */
+export const DOLLAR = '\x19';
 
 /** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
 export function plainDollars(text: string): boolean {
@@ -49,14 +51,20 @@ const DECODE: ReadonlyMap<string, string> = new Map([
   ...[...NEUTRAL, '\n'].map((c, i): [string, string] => [i < 10 ? ENC[i + 1] : ENC[12], c]),
   [SUB_PO, '('],
   [SUB_PC, ')'],
+  [DOLLAR, '$'],
 ]);
 
 export function decode(text: string): string {
+  return text.replace(/[\x01-\x06\x0e-\x11\x13\x15\x16\x19]/g, (c) => DECODE.get(c) ?? c);
+}
+
+/** `decode`, each DOLLAR kept: a path or value the write-path analyzer expands, its literal `$` passed through as text. */
+export function decodeKeepDollar(text: string): string {
   return text.replace(/[\x01-\x06\x0e-\x11\x13\x15\x16]/g, (c) => DECODE.get(c) ?? c);
 }
 
-/** A literal QM, or with `marks` a literal MKTEMP_MARK, read as computed text rather than a mark. */
-const literalMark = (c: string, marks: boolean): boolean => c === QM || (marks && c === MKTEMP_MARK);
+/** A literal QM, or with `marks` a literal MKTEMP_MARK or DOLLAR, read as computed text rather than a mark. */
+const literalMark = (c: string, marks: boolean): boolean => c === QM || (marks && (c === MKTEMP_MARK || c === DOLLAR));
 
 /** One char of quoted or escaped text; a missing char (a line's end) is \001, as awk's index(s, "") is 1. */
 function neutral(c: string | undefined, marks: boolean): string {
@@ -123,6 +131,11 @@ export class Encoder {
     private readonly marks = false,
   ) {}
 
+  /** One char of quoted or escaped text; with `marks`, a `$` bash keeps literal is DOLLAR. */
+  private literal(c: string | undefined, dollar: boolean): string {
+    return dollar && this.marks && c === '$' ? DOLLAR : neutral(c, this.marks);
+  }
+
   /** Unquoted text: a backslash escapes the next char. */
   private plain(from: number, to: number): string {
     const { src } = this;
@@ -134,14 +147,14 @@ export class Encoder {
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
-      out += QM + neutral(next, this.marks);
+      out += QM + this.literal(next, true);
       if (next !== undefined && next !== '\n') i++;
     }
     return out;
   }
 
-  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes. */
-  private quoted(from: number, to: number, escapes: boolean): string {
+  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes; `literal` keeps every `$` literal, else only an escaped one. */
+  private quoted(from: number, to: number, escapes: boolean, literal: boolean): string {
     const { src } = this;
     let out = '';
     for (let i = from; i < to; i++) {
@@ -149,9 +162,9 @@ export class Encoder {
       if (c === '\n') out += JOINER;
       else if (escapes && c === '\\') {
         const next = i + 1 < to ? src[i + 1] : undefined;
-        out += neutral(next, this.marks);
+        out += this.literal(next, true);
         if (next !== undefined && next !== '\n') i++;
-      } else out += neutral(c, this.marks);
+      } else out += this.literal(c, literal);
     }
     return out;
   }
@@ -177,10 +190,10 @@ export class Encoder {
     for (const sub of substitutions(node, [], this.charge)) {
       if (sub.startIndex < from || sub.endIndex > to) continue;
       const start = this.opener(sub);
-      out += this.quoted(at, start, true) + this.frame(sub, start);
+      out += this.quoted(at, start, true, false) + this.frame(sub, start);
       at = sub.endIndex;
     }
-    return out + this.quoted(at, to, true);
+    return out + this.quoted(at, to, true, false);
   }
 
   private heredoc(node: Node): { text: string; skipTo: number; rest: Span[] } {
@@ -246,10 +259,10 @@ export class Encoder {
           out += '$' + QM + this.dquoted(node, span.start + 2, span.end - 1);
           break;
         case 'raw_string':
-          out += QM + this.quoted(span.start + 1, span.end - 1, false);
+          out += QM + this.quoted(span.start + 1, span.end - 1, false, true);
           break;
         case 'ansi_c_string':
-          out += QM + this.quoted(span.start + 2, span.end - 1, true);
+          out += QM + this.quoted(span.start + 2, span.end - 1, true, true);
           break;
         case 'command_substitution':
           out += this.frame(node, span.start);
