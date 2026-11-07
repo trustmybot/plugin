@@ -161,26 +161,71 @@ function symbolIdAt(db: TrajectoryDB, repo: string, path: unknown, qualifiedName
   return row ? Number(row.id) : null;
 }
 
-const ref = (v: unknown): { path?: unknown; qualified_name?: unknown } =>
-  typeof v === 'object' && v !== null ? (v as { path?: unknown; qualified_name?: unknown }) : {};
+const SYMBOL_REF_SCHEMA = {
+  type: 'object',
+  properties: { path: { type: 'string' }, qualified_name: { type: 'string' } },
+  required: ['path', 'qualified_name'],
+} as const;
+
+export const CLAIM_ARGS_SCHEMA = {
+  type: 'object',
+  description:
+    "The claim's args. exists {path, qualified_name}: the symbol is indexed. calls {from: {path, qualified_name}, to: {path, qualified_name}}: an edge runs from one to the other. only_writers_of {table, writers: [path]}: no file outside writers writes table. tested_by {path, qualified_name, test_path}: a symbol in test_path references the symbol.",
+  properties: {
+    path: { type: 'string', description: "exists, tested_by: the symbol's repo-relative file path." },
+    qualified_name: { type: 'string', description: 'exists, tested_by: the symbol name as indexed.' },
+    from: { ...SYMBOL_REF_SCHEMA, description: 'calls: the caller, {path, qualified_name}.' },
+    to: { ...SYMBOL_REF_SCHEMA, description: 'calls: the callee, {path, qualified_name}.' },
+    table: { type: 'string', description: 'only_writers_of: the SQL table name.' },
+    writers: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'only_writers_of: the repo-relative paths of every file allowed to write table.',
+    },
+    test_path: { type: 'string', description: 'tested_by: the repo-relative path of the test file.' },
+  },
+} as const;
+
+type SymbolRef = { path: string; qualified_name: string };
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isSymbolRef = (v: unknown): v is SymbolRef =>
+  typeof v === 'object' && v !== null && isString((v as Record<string, unknown>)['path']) && isString((v as Record<string, unknown>)['qualified_name']);
+const isPathList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isString);
+
+type ArgCheck = readonly [field: string, ok: (v: unknown) => boolean, shape: string];
+const CLAIM_ARG_CHECKS: Record<ClaimKind, readonly ArgCheck[]> = {
+  exists: [['path', isString, 'a string'], ['qualified_name', isString, 'a string']],
+  calls: [['from', isSymbolRef, '{path, qualified_name}'], ['to', isSymbolRef, '{path, qualified_name}']],
+  only_writers_of: [['table', isString, 'a string'], ['writers', isPathList, 'an array of path strings']],
+  tested_by: [['path', isString, 'a string'], ['qualified_name', isString, 'a string'], ['test_path', isString, 'a string']],
+};
+
+// 'fail: <field> must be <shape>' for the first malformed field, null when the args fit the claim.
+function claimArgsProblem(claim: string, args: Record<string, unknown>): string | null {
+  for (const [field, ok, shape] of CLAIM_ARG_CHECKS[claim as ClaimKind] ?? []) {
+    if (!ok(args[field])) return `fail: ${field} must be ${shape}`;
+  }
+  return null;
+}
 
 // 'pass', or 'fail: <why>'.
 export function evalClaim(db: TrajectoryDB, repo: string, claim: string, args: Record<string, unknown>): string {
+  const problem = claimArgsProblem(claim, args);
+  if (problem) return problem;
   switch (claim) {
     case 'exists':
       return symbolIdAt(db, repo, args['path'], args['qualified_name']) !== null ? PASS : 'fail: no such symbol';
     case 'calls': {
-      const from = ref(args['from']);
-      const to = ref(args['to']);
+      const from = args['from'] as SymbolRef;
+      const to = args['to'] as SymbolRef;
       const a = symbolIdAt(db, repo, from.path, from.qualified_name);
       const b = symbolIdAt(db, repo, to.path, to.qualified_name);
       if (a === null || b === null) return `fail: no such ${a === null ? 'caller' : 'callee'}`;
       return db.get(`SELECT 1 AS hit FROM wm_edges WHERE src_id = ? AND dst_id = ?`, [a, b]) ? PASS : 'fail: no edge';
     }
     case 'only_writers_of': {
-      const table = args['table'];
-      const writers = args['writers'];
-      if (typeof table !== 'string' || !Array.isArray(writers)) return 'fail: needs table and writers[]';
+      const table = args['table'] as string;
+      const writers = args['writers'] as string[];
       const actual = db
         .all<{ path: string }>(
           `SELECT DISTINCT s.path FROM wm_edges e

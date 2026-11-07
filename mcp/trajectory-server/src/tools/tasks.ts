@@ -32,6 +32,7 @@ import {
 } from '../success-criteria.js';
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
+import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -546,7 +547,7 @@ export function taskTools(db: TrajectoryDB): {
                       type: 'array',
                       items: {
                         type: 'object',
-                        properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: { type: 'object' } },
+                        properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: CLAIM_ARGS_SCHEMA },
                         required: ['claim', 'args'],
                       },
                     },
