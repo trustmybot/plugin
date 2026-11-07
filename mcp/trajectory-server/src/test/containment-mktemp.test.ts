@@ -239,4 +239,30 @@ describe('write-path analyzer: ${NAME:-def} reads the run env for envVar names (
     assert.deepEqual(await paths('touch ${HOME-/d}/x', {}), ['/d/x']);
     assert.deepEqual(await paths('touch ${OLDPWD:-/d}/x', { HOME: '/h' }), ['UNRESOLVED:OLDPWD:${OLDPWD:-/d}/x']);
   });
+
+  it('reads ${NAME=def} like ${NAME-def} (GH 2440)', async () => {
+    const env = { HOME: '/h' };
+    const cases: [string, string][] = [
+      ['touch ${HOME=/d}/x', '/h/x'],
+      ['touch "${HOME=/d}/x"', '/h/x'],
+      ['touch ${FOO=/d}/x', '/d/x'],
+      ['FOO=/k; touch ${FOO=/d}/x', '/k/x'],
+    ];
+    for (const [cmd, want] of cases) assert.deepEqual(await paths(cmd, env), [want], cmd);
+  });
+
+  it('never resolves a later use of a ${NAME=def} name to another value (GH 2440)', async () => {
+    const env = { HOME: '/h' };
+    for (const [cmd, want] of [
+      ['touch ${FOO=/d}/x; touch $FOO/y', ['/d/x', 'UNRESOLVED:FOO:$FOO/y']],
+      ['touch ${HOME=/d}/x; touch $HOME/y', ['/h/x', 'UNRESOLVED:HOME:$HOME/y']],
+      ['touch ${TMB_MODEL_CACHE_DIR=/d}/x; touch $TMB_MODEL_CACHE_DIR/y', ['/d/x', 'UNRESOLVED:TMB_MODEL_CACHE_DIR:$TMB_MODEL_CACHE_DIR/y']],
+      ['touch ${FOO=/d}/x $FOO/y', ['UNRESOLVED:FOO:${FOO=/d}/x', 'UNRESOLVED:FOO:$FOO/y']],
+      ['touch ${FOO=/d}/x ${FOO=/e}/y', ['UNRESOLVED:FOO:${FOO=/d}/x', 'UNRESOLVED:FOO:${FOO=/e}/y']],
+      ['for i in 1 2; do touch $FOO/y; touch ${FOO=/d}/x; done', ['UNRESOLVED:FOO:$FOO/y', 'UNRESOLVED:FOO:${FOO=/d}/x']],
+      ['X=${FOO=/d}; touch $X', ['UNRESOLVED:X:$X']],
+    ] as [string, string[]][]) {
+      assert.deepEqual(await paths(cmd, env), want, cmd);
+    }
+  });
 });

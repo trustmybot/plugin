@@ -184,6 +184,13 @@ function setInText(text: string): string[] {
   return names;
 }
 
+const EQ_DEFAULT = /\$\{([A-Za-z_][A-Za-z0-9_]*)=/g;
+
+/** How many times `text` expands `$name` or `${name…}`. */
+function refCount(text: string, name: string): number {
+  return text.match(new RegExp(`\\$\\{?${name}(?![A-Za-z0-9_])`, 'g'))?.length ?? 0;
+}
+
 interface StdinProgram {
   kind: Lang | 'sh' | '';
   /** TS only: one of the interpreter's own options prints information and exits (`--version`, `-h`, `sh -n`), so it runs no program. */
@@ -821,13 +828,28 @@ class WritePaths {
     }
   }
 
-  /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
-  private poisonSet(level: Level, words: readonly string[]): void {
+  /**
+   * The names a statement's words may set beyond what `trackVars` follows; a
+   * declare-like builtin's own `name=` words are its to judge. With `defer`, a
+   * `${NAME=def}` whose NAME the statement names nowhere else is returned
+   * instead, for the caller to poison once the statement's own writes are
+   * judged, so it reads the value NAME had before it (GH 2440).
+   */
+  private poisonSet(level: Level, words: readonly string[], defer: boolean): string[] {
     const declares = /^(export|declare|typeset|local|readonly)$/.test(basename(words[0]));
-    for (const w of words) {
-      if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
-      for (const name of setInText(dec(w))) this.poison(level, name);
-    }
+    const texts = words.map(dec);
+    const all = texts.join(' ');
+    const deferred: string[] = [];
+    texts.forEach((text, k) => {
+      if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[k])) return;
+      const own = text.replace(EQ_DEFAULT, (whole, name: string) => {
+        if (!defer || refCount(all, name) !== 1) return whole;
+        deferred.push(name);
+        return '${';
+      });
+      for (const name of setInText(own)) this.poison(level, name);
+    });
+    return deferred;
   }
 
   /**
@@ -869,7 +891,7 @@ class WritePaths {
             });
           return;
         }
-        this.poisonSet(level, words);
+        this.poisonSet(level, words, false);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
         const body = inner(record.stmt);
         const evaluated = evalArgs(words);
@@ -953,7 +975,7 @@ class WritePaths {
         this.eachDir(level, dirs, why, (d) => fn(d, d === '-' && level.why === '', d + SEP + old + (level.why === '' ? '' : SEP + level.why)));
       const body = inner(record.stmt);
       const evaluated = evalArgs(words);
-      this.poisonSet(level, words);
+      const deferred = this.poisonSet(level, words, body === '');
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
       const texts = evaluated && body !== '' ? this.evalTexts(level, evaluated, body) : null;
       const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
@@ -989,6 +1011,7 @@ class WritePaths {
         });
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));
+      for (const name of deferred) this.poison(level, name);
       const { kind, info } = stdinProgram(words);
       if (kind !== '') {
         const progs: { prog: string; held: boolean; partly: boolean }[] = [];
