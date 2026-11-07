@@ -1,36 +1,16 @@
-#!/usr/bin/env bash
-# Lint: .github/workflows/release-payload.yml keeps the safety shape the release
-# design requires (GH 1699). It parses the YAML with `ruby -ryaml` and checks:
-#   - triggers: only tag pushes matching v[0-9]+.[0-9]+.[0-9]+ and
-#     v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+; the first step refuses any other ref_name;
-#   - top-level `permissions: {}`, `contents: write` only at job level;
-#   - every `uses:` pinned by a full 40-hex commit SHA;
-#   - concurrency group release-payload-${{ github.ref }}, cancel-in-progress false;
-#   - every run block starts with `set -euo pipefail`;
-#   - `runtime-payload.ts --check` runs before the first `git push`;
-#   - payload/<tag> is pushed without force, after an ls-remote --exit-code check;
-#   - every force push targets refs/heads/stable-build, and one exists;
-#   - the step summary is written.
-# Each run also lints fixtures/release-payload-workflow/bad.yml and fails unless
-# that fixture parses and its misses are reported (ruby exit 3; 2 = unparsable).
-#
-#   bash tests/l1-lint/release-payload-workflow.sh [workflow.yml]
+// L1 lint: .github/workflows/release-payload.yml keeps the safety shape the release design requires (GH 1699). It parses the YAML with `ruby -ryaml` and checks: triggers are only tag pushes matching v[0-9]+.[0-9]+.[0-9]+ and v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+, and the first step refuses any other ref_name; top-level `permissions: {}`, `contents: write` only at job level; every `uses:` pinned by a full 40-hex commit SHA; concurrency group release-payload-${{ github.ref }}, cancel-in-progress false; every run block starts with `set -euo pipefail`; `runtime-payload.ts --check` runs before the first `git push`; payload/<tag> is pushed without force, after an ls-remote --exit-code check; every force push targets refs/heads/stable-build, and one exists; the step summary is written. Every run also lints fixtures/release-payload-workflow/bad.yml and fails unless that fixture parses and its misses are reported (ruby exit 3; 2 = unparsable).
+import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-set -euo pipefail
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const WORKFLOW = join(ROOT, '.github', 'workflows', 'release-payload.yml');
+const BAD_FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'release-payload-workflow', 'bad.yml');
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
-WORKFLOW="${1:-$ROOT/.github/workflows/release-payload.yml}"
-BAD_FIXTURE="$HERE/fixtures/release-payload-workflow/bad.yml"
-
-if ! command -v ruby >/dev/null 2>&1; then
-  echo "  ✗ ruby is required to parse the workflow YAML" >&2
-  echo "Release-payload-workflow: FAIL" >&2
-  exit 1
-fi
-
-check() {
-  ruby -EUTF-8:UTF-8 -ryaml -e '# encoding: utf-8
+const CHECK = String.raw`# encoding: utf-8
     path = ARGV[0]
     misses = []
     miss = ->(m) { misses << m }
@@ -54,8 +34,8 @@ check() {
     miss.("top-level permissions must be {}") unless wf["permissions"] == {}
 
     conc = wf["concurrency"]
-    unless conc.is_a?(Hash) && conc["group"] == "release-payload-${{ github.ref }}" && conc["cancel-in-progress"] == false
-      miss.("concurrency must be group release-payload-${{ github.ref }} with cancel-in-progress: false")
+    unless conc.is_a?(Hash) && conc["group"] == "release-payload-${'$'}{{ github.ref }}" && conc["cancel-in-progress"] == false
+      miss.("concurrency must be group release-payload-${'$'}{{ github.ref }} with cancel-in-progress: false")
     end
 
     jobs = wf["jobs"].is_a?(Hash) ? wf["jobs"] : {}
@@ -70,7 +50,7 @@ check() {
       steps = job["steps"].is_a?(Array) ? job["steps"] : []
       first = steps.first
       unless first.is_a?(Hash) && first["run"].to_s.include?(%q(^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$)) &&
-             first["run"].to_s =~ /^\s*exit 1\s*$/ && first.dig("env", "TAG") == "${{ github.ref_name }}"
+             first["run"].to_s =~ /^\s*exit 1\s*$/ && first.dig("env", "TAG") == "${'$'}{{ github.ref_name }}"
         miss.("job #{name}: the first step must refuse a ref_name outside ^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$ with exit 1")
       end
       steps.each_with_index do |step, i|
@@ -108,32 +88,21 @@ check() {
 
     misses.each { |m| warn "  ✗ #{m}" }
     exit(misses.empty? ? 0 : 3)
-  ' "$1"
+  `;
+
+function check(path) {
+  const r = spawnSync('ruby', ['-EUTF-8:UTF-8', '-ryaml', '-e', CHECK, path], { cwd: ROOT, encoding: 'utf8' });
+  if (r.error) throw new Error(`  ✗ ruby is required to parse the workflow YAML\nRelease-payload-workflow: FAIL`);
+  return { status: r.status, stderr: r.stderr };
 }
 
-failed=0
+test('release-payload.yml keeps the release-payload safety shape', () => {
+  assert.ok(existsSync(WORKFLOW), `  ✗ ${WORKFLOW} missing\nRelease-payload-workflow: FAIL`);
+  const { status, stderr } = check(WORKFLOW);
+  assert.equal(status, 0, `${stderr}Release-payload-workflow: FAIL`);
+});
 
-if [ ! -f "$WORKFLOW" ]; then
-  echo "  ✗ $WORKFLOW missing" >&2
-  failed=1
-elif check "$WORKFLOW"; then
-  echo "  ✓ ${WORKFLOW#"$ROOT/"} keeps the release-payload safety shape"
-else
-  failed=1
-fi
-
-fixture_status=0
-check "$BAD_FIXTURE" 2>/dev/null || fixture_status=$?
-if [ "$fixture_status" -eq 3 ]; then
-  echo "  ✓ self-test: the bad fixture's misses are caught"
-else
-  echo "  ✗ self-test: ${BAD_FIXTURE#"$ROOT/"} gave exit $fixture_status, expected 3 (misses found)" >&2
-  failed=1
-fi
-
-echo ""
-if [ "$failed" -ne 0 ]; then
-  echo "Release-payload-workflow: FAIL" >&2
-  exit 1
-fi
-echo "Release-payload-workflow: PASS"
+test("self-test: the bad fixture's misses are caught", () => {
+  const { status } = check(BAD_FIXTURE);
+  assert.equal(status, 3, `  ✗ self-test: tests/l1-lint/fixtures/release-payload-workflow/bad.yml gave exit ${status}, expected 3 (misses found)\nRelease-payload-workflow: FAIL`);
+});

@@ -113,8 +113,7 @@ run_step "L1 lint: version sync (4 manifests agree)"  node --test "$HERE/l1-lint
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
 run_step "L1 lint: link-check (relative md links)"    node --test "$HERE/l1-lint/link-check.test.mjs"
 run_step "L1 lint: shellcheck on shell scripts"       node --test "$HERE/l1-lint/shellcheck-hooks.test.mjs"
-run_step "L1 lint: no bare mktemp (explicit path template)"  bash "$HERE/l1-lint/no-bare-mktemp.sh"
-run_step "L1 lint: no bare mktemp (self-test)" bash "$HERE/l1-lint/no-bare-mktemp.sh" --self-test
+run_step "L1 lint: no bare mktemp (explicit path template)"  node --test "$HERE/l1-lint/no-bare-mktemp.test.mjs"
 run_step "L1 lint: no grep -q in pipelines under pipefail" node --test "$HERE/l1-lint/no-grep-q-in-pipelines.test.mjs"
 run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-clock-asserts.sh"
 run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
@@ -134,19 +133,18 @@ run_step "L1 lint: CONFIG_KEYS.md generated from code" node --test "$HERE/l1-lin
 run_step "L1 lint: tool docs list every family + tool" node --test "$HERE/l1-lint/tool-families-documented.test.mjs"
 run_step "L1 lint: no negative directives in prompts" node --test "$HERE/l1-lint/no-negative-directives.test.mjs"
 run_step "L1 lint: issue_sync test must mock spawn"   node --test "$HERE/l1-lint/issue-sync-test-isolation.test.mjs"
-run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
+run_step "L1 lint: no audit_append without from_node" node --test "$HERE/l1-lint/no-audit-log-without-from-node.test.mjs"
 run_step "L1 lint: no citations in prompts"           node --test "$HERE/l1-lint/no-citations-in-prompts.test.mjs"
-run_step "L1 lint: no kuzu in prompts (self-test)"    bash "$HERE/l1-lint/no-kuzu-in-prompts.sh" --self-test
-run_step "L1 lint: no kuzu in prompts"                bash "$HERE/l1-lint/no-kuzu-in-prompts.sh"
+run_step "L1 lint: no kuzu in prompts"                node --test "$HERE/l1-lint/no-kuzu-in-prompts.test.mjs"
 run_step "L1 lint: no repository paths in prompts" node --test "$HERE/l1-lint/no-repo-paths-in-prompts.test.mjs"
 run_step "L1 lint: explicit paths and git -C in prompts" bash "$HERE/l1-lint/prompt-explicit-paths.sh"
 run_step "L1 lint: no file_registry refs (v7 retirement)"  node --test "$HERE/l1-lint/no-file-registry-refs.test.mjs"
 run_step "L1 lint: no audit_append kind= arg"         node --test "$HERE/l1-lint/no-audit-log-kind.test.mjs"
 run_step "L1 lint: single audit write path (insertAudit)"  node --test "$HERE/l1-lint/single-audit-write-path.test.mjs"
 run_step "L1 lint: no developer paths in artifacts"   node --test "$HERE/l1-lint/no-developer-paths.test.mjs"
-run_step "L1 lint: no stale framing prose"            bash "$HERE/l1-lint/stale-framing-prose.sh"
+run_step "L1 lint: no stale framing prose"            node --test "$HERE/l1-lint/stale-framing-prose.test.mjs"
 run_step "L1 lint: no hardcoded plugin name"          node --test "$HERE/l1-lint/no-hardcoded-plugin-name.test.mjs"
-run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/l1-lint/ci-workflow-refs-exist.sh"
+run_step "L1 lint: CI workflow file refs exist"       node --test "$HERE/l1-lint/ci-workflow-refs-exist.test.mjs"
 run_step "L1 lint: no bare role compare in hooks"     node --test "$HERE/l1-lint/no-bare-role-compare.test.mjs"
 run_step "L1 lint: symlink targets all resolve"       node --test "$HERE/l1-lint/symlink-targets.test.mjs"
 run_step "L1 lint: hooks.json commands executable"     node --test "$HERE/l1-lint/hooks-executable.test.mjs"
@@ -162,8 +160,7 @@ run_step "L1 lint: tmb_gate_read SQL is read-only" bash "$HERE/l1-lint/gate-read
 run_step "L1 lint: no direct sqlite3 writes in scripts" node --test "$HERE/l1-lint/no-direct-sqlite-write.test.mjs"
 run_step "L1 lint: every sqlite3 call sets a busy timeout" bash "$HERE/l1-lint/sqlite3-needs-timeout.sh"
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
-run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
-run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
+run_step "L1 lint: no writes under the home directory" node --test "$HERE/l1-lint/no-home-writes.test.mjs"
 run_step "L1 lint: claude CLI config calls pinned to project scope (self-test)" bash "$HERE/l1-lint/cli-config-scope.sh" --self-test
 run_step "L1 lint: claude CLI config calls pinned to project scope" bash "$HERE/l1-lint/cli-config-scope.sh"
 run_step "L1 lint: no in-session plugin commands prescribed" node --test "$HERE/l1-lint/no-in-session-plugin-commands.test.mjs"
@@ -173,13 +170,13 @@ run_step "L1 lint: live-db shim survives a plain parent directory" node --test "
 run_step "L1 lint: no datetime('now') in scripts"     node --test "$HERE/l1-lint/no-datetime-now-in-hooks.test.mjs"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" node --test "$HERE/l1-lint/main-guard-files-present.test.mjs"
-run_step "L1 lint: no filesystem writes at module load" bash "$HERE/l1-lint/no-module-load-writes.sh"
+run_step "L1 lint: no filesystem writes at module load" node --test "$HERE/l1-lint/no-module-load-writes.test.mjs"
 run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" node --test "$HERE/l1-lint/no-unpinned-scan-in-tests.test.mjs"
 run_step "L1 lint: no .tmp-* scratch dir in the checkout" node --test "$HERE/l1-lint/no-scratch-in-tree.test.mjs"
 run_step "L1 lint: nothing finds the project or a repo from the cwd" bash "$HERE/l1-lint/no-cwd-reads.sh"
 run_step "L1 lint: /onboard option wording is plain language (self-test)" bash "$HERE/l1-lint/onboard-option-wording.sh" --self-test
 run_step "L1 lint: /onboard option wording is plain language" bash "$HERE/l1-lint/onboard-option-wording.sh"
-run_step "L1 lint: release-payload workflow safety shape" bash "$HERE/l1-lint/release-payload-workflow.sh"
+run_step "L1 lint: release-payload workflow safety shape" node --test "$HERE/l1-lint/release-payload-workflow.test.mjs"
 
 # Every tests/l1-lint/*.sh and tests/l1-lint/*.test.mjs has a run_step line above.
 l1_lints_all_wired() {
