@@ -20,7 +20,7 @@
 # Allowlist: tests/l1-lint/no-tmp-writes.allowlist — repo-relative paths.
 #
 # --self-test runs the checks against fixtures/no-tmp-writes/, then runs every
-# other tests/l1-lint/*.sh with HOME at an empty temp dir, gh/glab/claude
+# other tests/l1-lint/*.sh and every tests/l1-lint/*.test.mjs (node --test) with HOME at an empty temp dir, gh/glab/claude
 # stubbed on PATH and TMB_L1_OFFLINE=1, and fails when the loop wrote under
 # that HOME (the embedding model cache, ~/.cache/huggingface, excepted).
 
@@ -120,13 +120,19 @@ l1_loop_footprint() {
     printf '#!/usr/bin/env bash\necho "tmb test-stub: %s blocked" >&2\nexit 97\n' "$cli" > "$tools/$cli"
   done
   chmod +x "$tools/gh" "$tools/glab" "$tools/claude"
-  for f in "$ROOT"/tests/l1-lint/*.sh; do
-    [ "$(basename "$f")" = "no-tmp-writes.sh" ] && continue
+  run_isolated() {
     HOME="$home" PATH="$tools:$PATH" TMB_L1_OFFLINE=1 TMB_TEST_REAL_HOME="$real_home" \
       MISE_DATA_DIR="$mise_data" MISE_CONFIG_DIR="$mise_config" \
       MISE_STATE_DIR="$tools/mise-state" MISE_CACHE_DIR="$tools/mise-cache" \
       TMB_MODEL_CACHE_DIR="$model_cache" \
-      bash "$f" >/dev/null 2>&1 || true
+      "$@" >/dev/null 2>&1 || true
+  }
+  for f in "$ROOT"/tests/l1-lint/*.sh; do
+    [ "$(basename "$f")" = "no-tmp-writes.sh" ] && continue
+    run_isolated bash "$f"
+  done
+  for f in "$ROOT"/tests/l1-lint/*.test.mjs; do
+    run_isolated node --test "$f"
   done
   find "$home" -mindepth 1 -path "$home/.cache/huggingface" -prune -o -print 2>/dev/null | sed "s|^$home|\$HOME|" | grep -vx '\$HOME/.cache' || true
   rm -rf "$home" "$tools"
