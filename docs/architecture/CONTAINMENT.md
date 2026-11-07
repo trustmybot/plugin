@@ -126,7 +126,7 @@ The keys are `sandbox.enabled` and `sandbox.filesystem.allowWrite` (siblings `de
 | Check | What it fails on |
 |---|---|
 | [`tests/l1-lint/no-home-writes.sh`](../../tests/l1-lint/no-home-writes.sh) | Any write under the home directory from `scripts/`, `skills/*/scripts/` or the server |
-| [`tests/l1-lint/no-unpinned-scan-in-tests.sh`](../../tests/l1-lint/no-unpinned-scan-in-tests.sh) | A unit test file under `mcp/trajectory-server/src/test/` that references `walkProject`, `scan_run` or `project_scan` without, outside comments, a `pinScanEnv(` call or a `TRAJECTORY_DB_PATH` assignment (a mention is not a pin) |
+| [`tests/l1-lint/no-unpinned-scan-in-tests.test.mjs`](../../tests/l1-lint/no-unpinned-scan-in-tests.test.mjs) | A unit test file under `mcp/trajectory-server/src/test/` that references `walkProject`, `scan_run` or `project_scan` without, outside comments, a `pinScanEnv(` call or a `TRAJECTORY_DB_PATH` assignment (a mention is not a pin) |
 | Resolver rule (`dbPath`, [`src/test/db-resolver-l3.test.ts`](../../mcp/trajectory-server/src/test/db-resolver-l3.test.ts)) | A DB resolved by walking up while `TMB_FORBID_LIVE_SYNC=1` or `TMB_TEST_RUN_ID` is set and neither `TRAJECTORY_DB_PATH` nor `CLAUDE_PROJECT_DIR` is |
 | [`src/test/hook-onfailure.test.ts`](../../mcp/trajectory-server/src/test/hook-onfailure.test.ts) | A deny-capable hooks.json registration without `"onFailure": "block"`, (warns on an observe-only one that carries the key) |
 | L3 MCP runner (`tests/l3-integration/mcp/run.mjs`) | Anything left in the empty temp `HOME` it runs under |
