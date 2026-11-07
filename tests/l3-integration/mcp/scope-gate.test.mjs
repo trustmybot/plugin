@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, serverEnv, seedHumanRow } from './harness.mjs';
 
-const SLASH_HOOK = fileURLToPath(new URL('../../lib/ts-hooks/roundtable-slash-detect.sh', import.meta.url));
+const HOOKS_JS = fileURLToPath(new URL('../../../mcp/trajectory-server/dist/hooks.js', import.meta.url));
 
 test('issue_create returns a single id (no issue_string_id ghost field)', async (t) => {
   const { client, close } = await startClient();
@@ -530,7 +530,7 @@ test('roundtable_create — slash-invoke gate clears after the /roundtable hook 
   assert.equal(forged.ok, false);
   assert.equal(forged.error?.error, 'audit_event_not_writable_by_role');
 
-  const hook = spawnSync('bash', [SLASH_HOOK], {
+  const hook = spawnSync(process.execPath, [HOOKS_JS, 'roundtable-slash-detect'], {
     input: JSON.stringify({ prompt: '/roundtable Postgres vs SQLite' }),
     env: { ...process.env, TRAJECTORY_DB_PATH: dbPath },
     encoding: 'utf8',
