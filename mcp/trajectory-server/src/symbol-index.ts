@@ -161,6 +161,7 @@ const SYMBOL_COLUMNS =
 
 const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_function']);
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
+const TABLE_EDGES_JSON = JSON.stringify([...TABLE_EDGES]);
 const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
 // Edges stored by name alone (dst_id NULL, resolution 'name') that no
 // resolution pass rebinds or resets: neither a plugin_config key nor a
@@ -372,6 +373,8 @@ class Resolver {
     }
     if (TABLE_EDGES.has(edge.kind)) {
       const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === 'sql_table');
+      const real = cands.filter((c) => !outsideConceptLane(c.path));
+      if (real.length === 1) return { dst: real[0]!.id, how: 'exact' };
       const pick =
         cands.find((c) => c.path.endsWith('.sql') && !isTestPath(c.path)) ??
         cands.find((c) => !isTestPath(c.path)) ??
@@ -443,12 +446,32 @@ const toPending = (r: StoredEdge): Pick<PendingEdge, 'from' | 'edge'> => ({
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint },
 });
 
+// The tables a non-exact table edge names that have exactly one sql_table
+// definition outside test and fixture paths.
+function soleTables(db: TrajectoryDB, repo: string): string[] {
+  const real = new Map<string, number>();
+  for (const s of db.all<{ qualified_name: string; path: string }>(
+    `SELECT qualified_name, path FROM wm_symbols
+      WHERE repo = ? AND kind = 'sql_table' AND qualified_name IN (
+        SELECT e.dst_name FROM wm_edges e JOIN wm_symbols src ON src.id = e.src_id
+         WHERE src.repo = ? AND e.resolution <> 'exact' AND e.kind IN (SELECT value FROM json_each(?)))`,
+    [repo, repo, TABLE_EDGES_JSON],
+  )) {
+    if (!outsideConceptLane(s.path)) real.set(s.qualified_name, (real.get(s.qualified_name) ?? 0) + 1);
+  }
+  return [...real].filter(([, n]) => n === 1).map(([name]) => name);
+}
+
 // Files this pass did not re-parse keep their edges, so a caller of a symbol
 // that was just added, moved into another file or re-created under a new kind
 // stays unresolved. Re-run resolution, with each caller file's stored imports
 // and sources as context, over the edges naming an inserted symbol that are
 // not exact or lost their target, and over every edge whose target this pass
 // deleted (dst_id cleared by ON DELETE SET NULL, resolution not yet reset).
+// A table edge is exact only while its table has one definition outside test
+// and fixture paths, so a table edge naming an inserted symbol is revisited
+// even when exact, and a non-exact one whose table is now down to one such
+// definition is revisited whatever pass removed the others.
 function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip: Set<number>): number {
   const candidates = db
     .all<StoredEdge>(
@@ -456,8 +479,11 @@ function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip
          FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
         WHERE s.repo = ? AND e.kind NOT IN (SELECT value FROM json_each(?))
           AND ((e.dst_id IS NULL AND e.resolution <> 'unresolved')
-            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL) AND e.dst_name IN (SELECT value FROM json_each(?))))`,
-      [repo, NAME_ONLY_JSON, JSON.stringify([...names])],
+            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL OR e.kind IN (SELECT value FROM json_each(?)))
+                AND e.dst_name IN (SELECT value FROM json_each(?)))
+            OR (e.kind IN (SELECT value FROM json_each(?)) AND e.resolution <> 'exact'
+                AND e.dst_name IN (SELECT value FROM json_each(?))))`,
+      [repo, NAME_ONLY_JSON, TABLE_EDGES_JSON, JSON.stringify([...names]), TABLE_EDGES_JSON, JSON.stringify(soleTables(db, repo))],
     )
     .filter((r) => !skip.has(Number(r.rowid)));
   if (candidates.length === 0) return 0;

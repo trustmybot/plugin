@@ -2247,3 +2247,90 @@ describe('scan_run records no covers edge for a script name or echo text (GH 252
     assert.deepEqual(edges, [{ runner: 'test', dst_name: 'tests' }]);
   });
 });
+
+describe('table edges resolve exact when one non-test definition exists (GH 2523)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-table-exact-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  const write = (files: Record<string, string>) => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'change', '--allow-empty'], { cwd: root });
+  };
+  const reader = (name: string, table: string) =>
+    `export function ${name}(): string {\n  return 'SELECT id FROM ${table}';\n}\n`;
+  const tableEdge = (reader: string) =>
+    db.get<{ path: string | null; resolution: string }>(
+      `SELECT d.path, e.resolution FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+         LEFT JOIN wm_symbols d ON d.id = e.dst_id
+        WHERE s.repo = 'app' AND s.qualified_name = ? AND e.kind = 'reads_table'`,
+      [reader],
+    );
+  const noteOf = async (qualified_name: string) =>
+    parse<{ note?: string }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name })) as CallToolResult,
+    ).note;
+
+  before(async () => {
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    write({
+      'src/schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\nCREATE TABLE pairs (id INTEGER PRIMARY KEY);\n',
+      'src/other.sql': 'CREATE TABLE pairs (id INTEGER PRIMARY KEY);\n',
+      'src/test/schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\nCREATE TABLE lonely (id INTEGER PRIMARY KEY);\n',
+      'fixtures/items.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n',
+      'src/items.ts': reader('readItems', 'items'),
+      'src/pairs.ts': reader('readPairs', 'pairs'),
+      'src/lonely.ts': reader('readLonely', 'lonely'),
+    });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('one definition outside test and fixture paths resolves exact, despite test and fixture copies', () => {
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+  });
+
+  it('two non-test definitions, or only test definitions, keep the pick by name', () => {
+    assert.deepEqual({ ...tableEdge('readPairs') }, { path: 'src/other.sql', resolution: 'name' });
+    assert.deepEqual({ ...tableEdge('readLonely') }, { path: 'src/test/schema.sql', resolution: 'name' });
+  });
+
+  it('a card whose only table edge resolves exact carries no found-by-name note', async () => {
+    assert.equal(await noteOf('readItems'), undefined);
+    assert.equal(await noteOf('readPairs'), 'found by name; not all callers');
+  });
+
+  it('a second non-test definition turns the edge to name, and removing it turns it back to exact', async () => {
+    write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.equal(tableEdge('readItems')!.resolution, 'name');
+    assert.equal(await noteOf('readItems'), 'found by name; not all callers');
+
+    write({ 'src/more.sql': 'CREATE TABLE extra (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+
+    write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.equal(tableEdge('readItems')!.resolution, 'name');
+
+    rmSync(join(root, 'src/more.sql'));
+    write({});
+    await scan(db, holder, ws);
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+    assert.equal(await noteOf('readItems'), undefined);
+  });
+});
