@@ -4,7 +4,9 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { CHANGE_SOURCES, computeChangeImpact, type ChangeSource } from '../../mcp/trajectory-server/src/change-impact/index.ts';
 import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
+import type { StatsReader } from '../../mcp/trajectory-server/src/tools/stats.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
@@ -67,6 +69,42 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 function clampLimit(raw: string | null): number {
   const n = Number(raw ?? 100);
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), 1000) : 100;
+}
+
+const CHANGE_IMPACT_LIMIT = 20;
+const CHANGE_IMPACT_MAX_LIMIT = 100;
+const UNKNOWN_CHANGE = /^unknown change /;
+
+function statsReader(db: DatabaseSync): StatsReader {
+  return {
+    get<T>(sql: string, params: unknown[] = []) {
+      return db.prepare(sql).get(...(params as never[])) as T | undefined;
+    },
+    all<T>(sql: string, params: unknown[] = []) {
+      return db.prepare(sql).all(...(params as never[])) as T[];
+    },
+  };
+}
+
+function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; body: unknown } {
+  const source = p.get('source');
+  const id = p.get('id');
+  const rawLimit = p.get('limit');
+  if (source !== null && !CHANGE_SOURCES.includes(source as ChangeSource)) {
+    return { status: 400, body: { error: `source must be one of ${CHANGE_SOURCES.join(', ')}` } };
+  }
+  if (id !== null && source === null) return { status: 400, body: { error: 'id needs source' } };
+  if (id === '') return { status: 400, body: { error: 'id must be non-empty' } };
+  if (rawLimit !== null && !/^[1-9]\d*$/.test(rawLimit)) return { status: 400, body: { error: 'limit must be a positive integer' } };
+  const limit = rawLimit === null ? CHANGE_IMPACT_LIMIT : Math.min(Number(rawLimit), CHANGE_IMPACT_MAX_LIMIT);
+  const reader = statsReader(db);
+  try {
+    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id } }) };
+    return { status: 200, body: computeChangeImpact(reader, undefined, { ...(source === null ? {} : { source: source as ChangeSource }), limit }) };
+  } catch (err) {
+    if (err instanceof Error && UNKNOWN_CHANGE.test(err.message)) return { status: 404, body: { error: err.message } };
+    throw err;
+  }
 }
 
 function sendGraph(
@@ -132,6 +170,10 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
   if (parts.length === 3 && resource === 'insights' && id === 'efficiency' && parts[2] === 'compare') {
     const query = q.compareQuery(url.searchParams);
     return 'error' in query ? sendJson(res, 400, query) : sendJson(res, 200, await efficiencyCompare(db, query.filter, query.p1, query.p2));
+  }
+  if (parts.length === 2 && resource === 'insights' && id === 'change-impact') {
+    const result = changeImpact(db, url.searchParams);
+    return sendJson(res, result.status, result.body);
   }
   if (parts.length === 2 && resource === 'insights' && id === 'compare') {
     const query = q.compareQuery(url.searchParams);
