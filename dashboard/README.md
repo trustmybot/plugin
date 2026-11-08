@@ -17,7 +17,7 @@ A local web view of the trajectory DB: issues, tasks, agent runs, gate results (
   - `web/shared/` builds on them: `Badge` renders a `Label` whose variant comes from the status, `verdict.ts` maps review verdicts, criterion statuses and finding statuses to `Label` variants (the status is always shown as text too), `Loading` shows errors in a danger `Flash`, and `BUTTON` / `FIELD` are the small default button and the Primer control styles.
   - `web/index.html` applies the stored colour mode in an inline head script before the stylesheet loads, so the page never flashes the wrong theme.
   - `web/views/` — one file per tab (`OverviewView`, `IssuesView`, `IssueView`, `TasksView`, `RunsView`, `AuditView`, `ProjectMapView`); the Project Map's Concepts scope is in `web/views/concepts/` (`ConceptSearch`, loaded on demand as its own chunk), the Insights tab in `web/views/insights/` (also its own chunk) and the task page in `web/views/tasks/`. `web/shared/` holds the helpers they share, `help-copy.ts` the help text for each page. `App.tsx` holds only the routing and the help marker slot.
-- `dist/` — the committed build: `server.mjs` (one bundled file, no runtime dependencies), `schema.sql` and `schema-eval.sql` (copied from the trajectory server; `TrajectoryDB` reads them beside its module when it opens the write connection, re-applying the current schema idempotently on a DB already at `TARGET_SCHEMA_VERSION`) and `web/` (static assets the server serves).
+- `dist/` — the local output of `bun run build`, gitignored; the `dev-build.yml` and `release-payload.yml` workflows add it to the payload branches: `server.mjs` (one bundled file, no runtime dependencies), `schema.sql` and `schema-eval.sql` (copied from the trajectory server; `TrajectoryDB` reads them beside its module when it opens the write connection, re-applying the current schema idempotently on a DB already at `TARGET_SCHEMA_VERSION`) and `web/` (static assets the server serves).
 
 ## Run
 
@@ -127,7 +127,7 @@ bun install --frozen-lockfile
 bun run build
 ```
 
-Commit `dist/` with the source change.
+Do not commit `dist/`: it is gitignored, and CI builds it into the payload.
 
 `bun run tokens` regenerates `web/theme/primer-tokens.css` from the pinned `@primer/primitives` with `scripts/primer-tokens.mjs`. The build does not run it; run it after bumping `@primer/primitives` or changing the kept token prefixes, and commit the output.
 
