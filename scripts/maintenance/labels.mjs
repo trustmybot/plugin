@@ -14,7 +14,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { IMPACT_PRIORITY, REPORT_MARKER_RE } from '../../mcp/trajectory-server/dist/bug-report/form.js';
+import { IMPACT_PRIORITY, REPORT_MARKER_RE } from '../../mcp/trajectory-server/src/bug-report/form.ts';
 
 export const GROUPS = ['type', 'priority', 'area', 'theme', 'status'];
 export const REQUIRED_GROUPS = ['type', 'priority', 'area'];
