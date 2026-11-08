@@ -53,6 +53,7 @@ const FILES: Record<string, string> = {
   'src/ledger.ts': '// The quokka ledger of every invoice.\nexport const quokkaLedger: number[] = [];\n',
   'src/sub/deep.ts': 'export const deep = 1;\n',
   'tests/billing.test.mjs': "import { chargeCard } from '../src/billing.js';\n\nchargeCard(1);\n",
+  'tests/wombat.test.mjs': '// The wombat refund suite.\nexport const wombatRefund = 1;\n',
   'docs/guide.txt': 'guide\n',
 };
 
@@ -138,6 +139,24 @@ describe('scope_suggest and world_model_get fields (GH 2327)', () => {
     assert.equal((await suggest({ objective: 'x', anchors: 'chargeCard' })).isError, true);
     const denied = await wm['scope_suggest']!({ agent: 'swe', repo: 'app', objective: 'quokka' });
     assert.equal(denied.isError, true);
+  });
+
+  it('GH 2529: a test file found by search goes to tests[] with via search, not files[] or draft.files', async () => {
+    const scope = parse<Scope>(await suggest({ objective: 'wombat refund' }));
+    assert.deepEqual(scope.tests.find((t) => t.path === 'tests/wombat.test.mjs'), { path: 'tests/wombat.test.mjs', via: 'search' });
+    assert.ok(!scope.files.some((f) => f.path === 'tests/wombat.test.mjs'), JSON.stringify(scope.files));
+    assert.ok(!scope.draft.files.includes('tests/wombat.test.mjs'));
+    assert.ok(scope.runners.some((r) => r.via === 'covers:tests'), JSON.stringify(scope.runners));
+  });
+
+  it('GH 2529: the schema requires only agent; anchors without an objective succeed, neither errors', async () => {
+    const def = worldModelTools(db, holder).definitions.find((d) => d.name === 'scope_suggest');
+    assert.deepEqual(def?.inputSchema.required, ['agent']);
+    const scope = parse<Scope>(await suggest({ anchors: ['chargeCard'] }));
+    assert.ok(scope.files.some((f) => f.path === 'src/billing.ts'));
+    const r = await suggest({});
+    assert.equal(r.isError, true);
+    assert.match(text(r), /objective is required/);
   });
 
   it('SC1: k caps the search seeds', async () => {
