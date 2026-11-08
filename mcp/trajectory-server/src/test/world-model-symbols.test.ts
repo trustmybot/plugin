@@ -1026,7 +1026,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 10);
+      assert.equal(EXTRACTOR_VERSION, 11);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1799,8 +1799,73 @@ describe('member calls bind only by receiver type (GH 1838)', () => {
     assert.notEqual(edge.hint, null);
     assert.equal(edge.hint!.endsWith('…'), true);
   });
+});
 
-  it('the extractor version is 10', () => {
-    assert.equal(EXTRACTOR_VERSION, 10);
+describe('member calls skip named-import and sourced-file binding (GH 2472)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-member-2472-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  const callees = (src: string): Array<[string, string | null]> =>
+    db
+      .all<{ dst_name: string; dst: string | null }>(
+        `SELECT e.dst_name, d.path || ':' || d.qualified_name AS dst
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id LEFT JOIN wm_symbols d ON d.id = e.dst_id
+          WHERE s.repo = 'app' AND s.qualified_name = ? AND e.kind = 'calls'
+          ORDER BY e.rowid`,
+        [src],
+      )
+      .map((r) => [r.dst_name, r.dst]);
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/paths.ts': "export function join(s: string): string {\n  return s;\n}\n",
+      'src/write-paths.ts': 'export class WritePaths {\n  join(): string {\n    return "";\n  }\n}\n',
+      'src/caller.ts': [
+        "import { join } from './paths.js';",
+        "import { WritePaths } from './write-paths.js';",
+        'export function bareAndUntyped(): string {',
+        "  const segments = ['a', 'b'];",
+        "  join('a');",
+        "  return segments.join('/');",
+        '}',
+        'export function typed(): string {',
+        '  const w = new WritePaths();',
+        '  return w.join();',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a bare call binds to the named import; a member call on an untyped local stays unresolved', () => {
+    assert.deepEqual(callees('bareAndUntyped'), [
+      ['join', 'src/paths.ts:join'],
+      ['join', null],
+    ]);
+  });
+
+  it('a member call on a typed receiver binds by receiver type, not to the same-named import', () => {
+    assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
+  });
+
+  it('the extractor version is 11', () => {
+    assert.equal(EXTRACTOR_VERSION, 11);
   });
 });
