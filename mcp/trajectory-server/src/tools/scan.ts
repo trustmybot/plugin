@@ -557,6 +557,24 @@ function noSyncRemoteWarnings(db: TrajectoryDB, repos: ReadonlyArray<string>): S
 
 const SYMBOL_STAT_KEYS = ['files_parsed', 'files_failed', 'symbols', 'edges', 'edges_resolved'] as const;
 
+export type ScanErrorStage = 'symbol_index' | 'symbol_purpose' | 'concept_refresh' | 'concept_proposals' | 'milestone_sync';
+
+export interface ScanError {
+  stage: ScanErrorStage;
+  repo: string;
+  error: string;
+}
+
+export const SCAN_ERRORS_MAX = 20;
+export const SCAN_ERROR_MESSAGE_MAX = 500;
+
+export function recordScanError(errors: ScanError[], stage: ScanErrorStage, repo: string, e: unknown): void {
+  const message = e instanceof Error ? e.message : String(e);
+  serverLog({ event: `${stage}_error`, repo, error: message });
+  if (errors.length >= SCAN_ERRORS_MAX) return;
+  errors.push({ stage, repo, error: message.slice(0, SCAN_ERROR_MESSAGE_MAX) });
+}
+
 export function persistedFiles<F extends { repo: string; path: string }>(files: F[], renamedTo: Set<string>): F[] {
   return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
 }
@@ -586,6 +604,7 @@ async function persistScan(
   files_retired: number;
   symbols: SymbolIndexStats & { error?: string };
   rename_candidates: RenameCandidate[];
+  errors: ScanError[];
 }> {
   const now = nowISO();
   const normSession = sessionDir.replace(/\/+$/, '');
@@ -713,6 +732,7 @@ async function persistScan(
   }
 
   const symbols: SymbolIndexStats & { error?: string } = { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
+  const errors: ScanError[] = [];
   if (graph) {
     for (const r of persisted.repos) {
       try {
@@ -721,22 +741,22 @@ async function persistScan(
         for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
       } catch (e) {
         symbols.error = `${r.name}: ${(e as Error).message}`;
-        serverLog({ event: 'symbol_index_error', repo: r.name, error: (e as Error).message });
+        recordScanError(errors, 'symbol_index', r.name, e);
       }
       try {
         refreshSymbolPurposes(db, r.name);
       } catch (e) {
-        serverLog({ event: 'symbol_purpose_error', repo: r.name, error: (e as Error).message });
+        recordScanError(errors, 'symbol_purpose', r.name, e);
       }
       try {
         refreshConcepts(db, r.name);
       } catch (e) {
-        serverLog({ event: 'concept_refresh_error', repo: r.name, error: (e as Error).message });
+        recordScanError(errors, 'concept_refresh', r.name, e);
       }
       try {
         applyConceptProposals(db, r.name, r.path);
       } catch (e) {
-        serverLog({ event: 'concept_proposals_error', repo: r.name, error: (e as Error).message });
+        recordScanError(errors, 'concept_proposals', r.name, e);
       }
     }
   }
@@ -755,6 +775,7 @@ async function persistScan(
     files_retired,
     symbols,
     rename_candidates,
+    errors,
   };
 }
 
@@ -813,6 +834,7 @@ export function scanTools(
       name: 'scan_run',
       description:
         "Deterministic project scan: discovers git repos under session_dir, enumerates tracked files (.gitignore-aware) and writes directory + file rows to the world model, dir summaries from README.md (summary_source='readme') or structural. Emits a deep_scan_completed audit row. " +
+        `errors (always an array, at most ${SCAN_ERRORS_MAX}) lists each per-repo stage that threw as {stage, repo, error}, stage one of symbol_index, symbol_purpose, concept_refresh, concept_proposals, milestone_sync; the audit row carries it too. ` +
         'A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array) lists repos whose remotes have no sync row while issue_sync is on (no_sync_remote). Hard timeout 10 minutes.',
       inputSchema: {
         type: 'object',
@@ -920,7 +942,7 @@ export function scanTools(
             try {
               syncRepoMilestones(db, r.name, r.path, spawnFn);
             } catch (e) {
-              serverLog({ event: 'milestone_sync_error', repo: r.name, error: (e as Error).message });
+              recordScanError(stats.errors, 'milestone_sync', r.name, e);
             }
           }
 

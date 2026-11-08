@@ -1,5 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import type { ScanError } from './scan.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
@@ -840,6 +841,41 @@ export async function scopeSuggest(
   };
 }
 
+interface LastScan {
+  at: string;
+  source: string | null;
+  ok: boolean;
+  errors: ScanError[];
+}
+
+function isScanError(e: unknown): e is ScanError {
+  if (!e || typeof e !== 'object') return false;
+  const r = e as Record<string, unknown>;
+  return typeof r['stage'] === 'string' && typeof r['repo'] === 'string' && typeof r['error'] === 'string';
+}
+
+function lastScan(db: TrajectoryDB): LastScan | null {
+  const row = db.get<{ created_at: string; content_json: string | null }>(
+    `SELECT created_at, content_json FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1`,
+  );
+  if (!row) return null;
+  let content: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = row.content_json ? JSON.parse(row.content_json) : {};
+    if (parsed && typeof parsed === 'object') content = parsed as Record<string, unknown>;
+  } catch {
+    content = {};
+  }
+  const errors = Array.isArray(content['errors']) ? content['errors'].filter(isScanError) : [];
+  const source = typeof content['source'] === 'string' ? content['source'] : null;
+  return { at: row.created_at, source, ok: errors.length === 0, errors };
+}
+
+function indexErrorOf(scan: LastScan | null, repo: string): { index_error?: string } {
+  const hit = scan?.errors.find((e) => e.stage === 'symbol_index' && e.repo === repo);
+  return hit ? { index_error: hit.error } : {};
+}
+
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -1088,7 +1124,8 @@ export function worldModelTools(
       description:
         "The world model as a directory tree, the primary map for code-touching cold starts. Each node has a README summary (summary_source='readme', with trust 'current' | 'drifting(n)' | 'dead_refs(k)', summary_sha, commits_behind, dead_refs) or a structural one, first line only below the root. " +
         'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work lists closed-task branch tips not merged into the target branch. ' +
-        'checkout_behind_upstream counts the commits the indexed checkout trails origin/<target> as of the last fetch, so missing files or shifted lines may be checkout lag; absent when current.',
+        'checkout_behind_upstream counts the commits the indexed checkout trails origin/<target> as of the last fetch, so missing files or shifted lines may be checkout lag; absent when current. ' +
+        'last_scan {at, source, ok, errors} reports the newest scan_run, errors listing each {stage, repo, error} that failed (ok is false when any did); null before the first scan.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1180,7 +1217,8 @@ export function worldModelTools(
       name: 'world_model_symbol',
       description:
         "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by, up to 50 refs each, with full-count totals. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
-        "note flags by-name resolution, so lists may be incomplete. symbol.stale: file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
+        "note flags by-name resolution, so lists may be incomplete. symbol.stale: file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated). " +
+        "index_error carries the message when the newest scan's symbol index failed for the symbol's repo, so its lists may be out of date; absent otherwise.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1287,9 +1325,10 @@ export function worldModelTools(
         const parsedFields = parseFields(args['fields']);
         if ('error' in parsedFields) return err(parsedFields.error);
         const { fields } = parsedFields;
+        const last_scan = lastScan(db);
         const resolved = resolveRepo(args['repo']);
         if (resolved.warning) {
-          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos });
+          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos, last_scan });
         }
         const repo = resolved.name;
         const source = sourceOf(resolved);
@@ -1307,18 +1346,18 @@ export function worldModelTools(
 
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         if (graph.directoryCount(repo) === 0) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         const rows: DirRow[] = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
         if (!tree) {
-          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
@@ -1332,6 +1371,7 @@ export function worldModelTools(
           ...(unmerged.warning ? { warning: unmerged.warning } : {}),
           unmerged_work: unmerged.unmerged_work,
           ...lag,
+          last_scan,
         });
       })),
     ),
@@ -1475,7 +1515,11 @@ export function worldModelTools(
             ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
             : symbolsByName(db, repo, name, path);
           if (matches.length === 0) {
-            return err(`symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}`);
+            const indexError = allRepos ? undefined : indexErrorOf(lastScan(db), repo).index_error;
+            return err(
+              `symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}` +
+                (indexError ? `; the last scan's symbol index failed for this repo: ${indexError}` : ''),
+            );
           }
           const definitions = matches.filter((m) => m.kind !== 'module');
           if (definitions.length > 1) {
@@ -1492,6 +1536,7 @@ export function worldModelTools(
                 line_start: m.start_line,
               })),
               ...(allRepos ? {} : checkoutLag(db, repo)),
+              ...(allRepos ? {} : indexErrorOf(lastScan(db), repo)),
             });
           }
           symbol = definitions[0] ?? matches[0]!;
@@ -1515,6 +1560,7 @@ export function worldModelTools(
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
           ...checkoutLag(db, symbol.repo),
+          ...indexErrorOf(lastScan(db), symbol.repo),
         });
       })),
     ),
