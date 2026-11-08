@@ -1,14 +1,13 @@
 /**
- * The post-task-create-spawn-hint, post-task-close-rescan and
- * post-atomic-close-readme cases (GH 1692) that neither
- * tests/fixtures/hook-corpus/<gate>/ nor an existing node:test holds:
- * the spawn hint's wording, its fallback to the sole repos row and its DB
- * chosen by TRAJECTORY_DB_PATH over the cwd; scripts/maintenance/run-scan.mjs
- * scanning the workspace it is handed from a worktree cwd, its audit source,
- * its lock, its refusals without TRAJECTORY_DB_PATH or on an older schema
- * (GH 1639, GH 1679) and its symbols from a tree with no node_modules
- * (GH 1878); the rescan gate handing the invoker the DB it resolved; and the
- * README nudge for a repo registered outside the workspace. Each case runs
+ * The post-task-create-spawn-hint and post-atomic-close-readme cases
+ * (GH 1692) that neither tests/fixtures/hook-corpus/<gate>/ nor an existing
+ * node:test holds: the spawn hint's wording, its fallback to the sole repos
+ * row and its DB chosen by TRAJECTORY_DB_PATH over the cwd;
+ * scripts/maintenance/run-scan.mjs scanning the workspace it is handed from a
+ * worktree cwd, its audit source, its lock, its refusals without
+ * TRAJECTORY_DB_PATH or on an older schema (GH 1639, GH 1679) and its symbols
+ * from a tree with no node_modules (GH 1878); and the README nudge for a repo
+ * registered outside the workspace. Each case runs
  * `node dist/hooks.js <gate>` or the invoker in a sandbox with its own HOME.
  */
 import assert from 'node:assert/strict';
@@ -149,7 +148,7 @@ describe('scripts/maintenance/run-scan.mjs', () => {
   };
 
   before(() => {
-    sb = makeSandbox('post-task-close-rescan');
+    sb = makeSandbox('run-scan');
     const stub = join(sb.dir, 'stub-bin');
     mkdirSync(stub);
     writeFileSync(join(stub, 'claude'), '#!/bin/sh\necho "[]"\n');
@@ -166,7 +165,7 @@ describe('scripts/maintenance/run-scan.mjs', () => {
   after(() => sb.remove());
 
   it('from a worktree cwd scans the project root it is handed: OK, the repos it discovered, a repos row', () => {
-    assert.match(first.out, /\[post-close-rescan\] OK/);
+    assert.match(first.out, /\[run-scan\] OK/);
     assert.match(first.out, /discovered [0-9]+ repos/);
     assert.ok(Number(sql<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM repos')[0].n) >= 1, first.out);
   });
@@ -202,7 +201,6 @@ describe('scripts/maintenance/run-scan.mjs', () => {
 
   for (const script of [
     'scripts/maintenance/run-scan.mjs',
-    'scripts/maintenance/run-scan-initial.mjs',
     'mcp/trajectory-server/scripts/smoke-world-model.mjs',
   ]) {
     it(`${script.split('/').pop()}: a delete-mode older-schema DB exits non-zero and stays byte-identical, no side files (GH 1679)`, () => {
@@ -235,68 +233,11 @@ describe('scripts/maintenance/run-scan.mjs', () => {
     const cdb = join(cws, '.claude/tmb/trajectory.db');
     newDb(cdb);
     const r = invoke(join(cache, 'scripts/maintenance/run-scan.mjs'), [cws], { cwd: cws, env: { ...env, TRAJECTORY_DB_PATH: cdb } });
-    assert.match(r.out, /\[post-close-rescan\] OK/);
+    assert.match(r.out, /\[run-scan\] OK/);
     assert.doesNotMatch(r.out, /Cannot find package 'web-tree-sitter'/);
     assert.ok(Number(sql<{ n: number }>(cdb, "SELECT COUNT(*) AS n FROM wm_symbols WHERE path = 'src/greet.ts'")[0].n) >= 1, r.out);
     const stamp = sql<{ s: string | null }>(cdb, "SELECT symbols_md5 AS s FROM wm_files WHERE path = 'src/greet.ts'")[0]?.s ?? '';
     assert.ok(stamp !== '' && !stamp.endsWith(':failed'), stamp);
-  });
-});
-
-describe('post-task-close-rescan hands the invoker the DB it resolved', () => {
-  let sb: Sandbox;
-  let ws: string;
-  let wt: string;
-  let db: string;
-  let hooksJs: string;
-  let record: string;
-
-  const run = (toolName: string) =>
-    runGate('post-task-close-rescan', {
-      cwd: wt,
-      hooksJs,
-      env: { ...sb.env, CLAUDE_PROJECT_DIR: ws, TMB_FORBID_LIVE_SYNC: '1', RECORD_PATH: record },
-      input: JSON.stringify({ tool_name: toolName }),
-    });
-  const waitFor = (path: string, ms: number) => {
-    const tick = new Int32Array(new SharedArrayBuffer(4));
-    for (let i = 0; i < ms / 50 && !existsSync(path); i++) Atomics.wait(tick, 0, 0, 50);
-  };
-
-  before(() => {
-    sb = makeSandbox('post-task-close-rescan-gate');
-    ws = join(sb.dir, 'ws');
-    wt = join(ws, '.claude/worktrees/wt-1');
-    mkdirSync(wt, { recursive: true });
-    db = join(ws, '.claude/tmb/trajectory.db');
-    newDb(db);
-    const fake = join(sb.dir, 'fake-plugin');
-    mkdirSync(join(fake, '.claude-plugin'), { recursive: true });
-    writeFileSync(join(fake, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"0.0.0-l3"}\n');
-    mkdirSync(join(fake, 'scripts/maintenance'), { recursive: true });
-    writeFileSync(
-      join(fake, 'scripts/maintenance/run-scan.mjs'),
-      "import { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.RECORD_PATH, process.env.TRAJECTORY_DB_PATH ?? '<unset>');\n",
-    );
-    mkdirSync(join(fake, 'mcp/trajectory-server/dist'), { recursive: true });
-    hooksJs = join(fake, 'mcp/trajectory-server/dist/hooks.js');
-    copyFileSync(join(DIST, 'hooks.js'), hooksJs);
-    record = join(sb.dir, 'invoker-db-path');
-  });
-  after(() => sb.remove());
-
-  it('starts the invoker with TRAJECTORY_DB_PATH set to the DB found from CLAUDE_PROJECT_DIR', () => {
-    rmSync(record, { force: true });
-    run('mcp__plugin_tmb_trajectory-server__bro_atomic_close');
-    waitFor(record, 5000);
-    assert.equal(readFileSync(record, 'utf8'), db);
-  });
-
-  it('starts nothing for another tool', () => {
-    rmSync(record, { force: true });
-    run('mcp__plugin_tmb_trajectory-server__task_get');
-    waitFor(record, 300);
-    assert.equal(existsSync(record), false);
   });
 });
 

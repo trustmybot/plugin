@@ -1,8 +1,9 @@
 // File graph cache test: seed a temp trajectory DB from schema.sql with
 // symbols and edges in one repo, start the built dashboard server against it
 // and check /api/world-model/graph serves a repeat GET from the cache, answers
-// a matching If-None-Match with 304, drops the entry after an edge write
-// through a separate connection, and stamps the ETag with
+// a matching If-None-Match with 304, drops the entry after an edge insert,
+// a rowid-reusing delete+reinsert or an in-place UPDATE through a separate
+// connection, and stamps the ETag with
 // repos.indexed_commit when that column exists.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -145,6 +146,53 @@ describe('dashboard file graph cache', () => {
     const i = body.files.findIndex((f) => f.path === 'lib/log.ts');
     const j = body.files.findIndex((f) => f.path === 'src/boot/start.ts');
     assert.ok(body.edges.some((e) => e.src === i && e.dst === j && e.kind === 'calls'));
+  });
+
+  const fresh = () => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      return graph(db, 'plugin');
+    } finally {
+      db.close();
+    }
+  };
+  const rewriteMisses = async (rewrite) => {
+    const old = await get();
+    const oldTag = old.headers.get('etag');
+    const oldBody = await old.text();
+    const writer = new DatabaseSync(dbPath);
+    const shape = () => writer.prepare('SELECT MAX(rowid) AS m, COUNT(*) AS c FROM wm_edges').get();
+    const before = shape();
+    rewrite(writer);
+    assert.deepEqual(shape(), before);
+    writer.close();
+    const res = await get({ 'if-none-match': oldTag });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-tmb-graph-cache'), 'miss');
+    assert.notEqual(res.headers.get('etag'), oldTag);
+    const body = await res.text();
+    assert.notEqual(body, oldBody);
+    assert.equal(body, JSON.stringify(fresh()));
+  };
+
+  test('a delete+reinsert that reuses the top edge rowid misses the cache', async () => {
+    await rewriteMisses((writer) => {
+      const top = writer.prepare('SELECT rowid, src_id FROM wm_edges ORDER BY rowid DESC LIMIT 1').get();
+      writer.prepare('DELETE FROM wm_edges WHERE rowid = ?').run(top.rowid);
+      const dst = top.src_id === ids.openDatabase ? ids.startServer : ids.openDatabase;
+      const rowid = writer
+        .prepare(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution) VALUES (?, ?, 'x', 'imports', 'exact')`)
+        .run(top.src_id, dst).lastInsertRowid;
+      assert.equal(Number(rowid), Number(top.rowid));
+    });
+  });
+
+  test('an in-place UPDATE of an edge target misses the cache', async () => {
+    await rewriteMisses((writer) => {
+      const top = writer.prepare('SELECT rowid, src_id, dst_id FROM wm_edges ORDER BY rowid DESC LIMIT 1').get();
+      const dst = [ids.startServer, ids.openDatabase, ids.writeLog].find((id) => id !== top.src_id && id !== top.dst_id);
+      writer.prepare('UPDATE wm_edges SET dst_id = ? WHERE rowid = ?').run(dst, top.rowid);
+    });
   });
 });
 

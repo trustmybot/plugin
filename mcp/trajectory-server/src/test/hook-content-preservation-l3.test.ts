@@ -139,7 +139,7 @@ describe('hook-content-preservation l3', () => {
        INSERT INTO issues (objective, status) VALUES ('test issue', 'open');
        INSERT INTO tasks (issue_id, status) VALUES (1, 'pending');`,
     );
-    const out = context('session-start-prescan', { TRAJECTORY_DB_PATH: db, TMB_SKIP_AUTO_PRESCAN: '1' });
+    const out = context('session-start-prescan', { TRAJECTORY_DB_PATH: db });
     assert.notEqual(out, '', 'session-start-prescan produced no output');
     checkGolden(maskPrescan(out), 'session-start-prescan.golden.txt', 'session-start-prescan stable tokens');
   });
