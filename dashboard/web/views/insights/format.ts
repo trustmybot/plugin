@@ -17,10 +17,12 @@ export const AGENT_FILL: Record<AgentKey, string> = {
 const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const PLAIN = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const FINE = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 2 });
 
 export const compact = (n: number | null) => (n === null ? '—' : COMPACT.format(n));
 export const plain = (n: number | null) => (n === null ? '—' : PLAIN.format(n));
 export const usd = (n: number) => USD.format(n);
+export const fine = (n: number) => FINE.format(n);
 export const pct = (n: number | null) => (n === null ? '—' : `${PLAIN.format(n * 100)}%`);
 export const ratio = (passed: number, total: number) => (total === 0 ? null : passed / total);
 

@@ -760,11 +760,11 @@ describe('Insights view', () => {
     assert.match(at('bogus'), /<h2[^>]*>Tokens<\/h2>/);
   });
 
-  test('layout: a NavList of the five sections, a mobile select, the filter bar', () => {
+  test('layout: a NavList of the six sections, a mobile select, the filter bar', () => {
     const html = at('time', 'range=7d&agent=swe&effort=low');
     const nav = html.match(/<nav aria-label="Insights sections"[^>]*>(.*?)<\/nav>/)[1];
     const links = [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
-    assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Throughput', 'Explore']);
+    assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Efficiency', 'Throughput', 'Explore']);
     assert.match(links[2][0], /aria-current="page"/);
     assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out&amp;x=tokens_out$/);
     assert.match(html, /class="max-md:hidden"/);

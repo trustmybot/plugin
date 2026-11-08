@@ -101,6 +101,29 @@ export interface Comparison {
   options: Insights['options'];
 }
 
+export interface EfficiencyGroup {
+  n: number;
+  zero_line: number;
+  few: boolean;
+  first_pass_rate: number | null;
+  fp_tok_line: number | null;
+  fp_tok_line_median: number | null;
+  rw_tok_line: number | null;
+  rw_tok_line_median: number | null;
+  rework_share: number | null;
+  cache_hit: number | null;
+  fp_sec_line: number | null;
+  rw_sec_line: number | null;
+}
+
+export interface Efficiency {
+  range: { key: string; since: string | null; until: string };
+  filters: { repo: string | null; effort: string | null };
+  by_type: Array<EfficiencyGroup & { type: string }>;
+  by_week: Array<EfficiencyGroup & { week: string }>;
+  skipped: number;
+}
+
 export interface ExploreGroup {
   key: string[];
   n: number;
