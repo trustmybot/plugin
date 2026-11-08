@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,6 +13,10 @@ import {
 } from '../bug-report/form.js';
 import { EMAIL_RE, TOKEN_PATTERNS, redact, type RedactContext } from '../bug-report/redact.js';
 import { PREFILL_MAX_CHARS, render, type ReportEnv, type ReportInput } from '../bug-report/render.js';
+import { pinScanEnv } from './helpers.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 const t = (...parts: string[]): string => parts.join('');
 const TOKENS = {
