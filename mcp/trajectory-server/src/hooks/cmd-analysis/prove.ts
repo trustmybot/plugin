@@ -9,7 +9,11 @@
  * scope-insensitively: a name is an import alias only when every binding of
  * it is the same import, a function only when every binding is a `def` /
  * function declaration (or one lambda / function expression), and a local
- * otherwise; calling a local is unproven. A judged write call with no `W`
+ * when every binding is fresh data; calling a local is unproven. A name
+ * assigned a reference chain (`e=os.environ`, `const e=process.env`, `f=e`)
+ * holds what the chain resolves to and is judged as that chain written out,
+ * and a name whose bindings mix an import or alias with anything else is
+ * unproven wherever it is used (GH 2481). A judged write call with no `W`
  * line from the scanner is unproven too. A grammar not loaded yet leaves the
  * program unproven for this pass and is loaded before the command is analyzed
  * again (index.ts). perl and ruby are lexed against an identifier allowlist,
@@ -174,12 +178,37 @@ const SCRIPT_WORDS = new Set([
   'do', 'end', 'then', 'nil', 'true', 'false', 'in', 'BEGIN', 'END', 'write', 'close', 'sleep',
 ]);
 
-/** An `import` binding with `json` set came from a required `.json` file: plain data, safe to use as a value. */
-type Bind = { kind: 'import'; q: string; json?: boolean } | { kind: 'def' } | { kind: 'local' };
+/**
+ * A resolved binding. An `import` with `json` set came from a required `.json`
+ * file: plain data, safe to use as a value. An `alias` is a name bound to a
+ * chain on a global (`const e=process.env`), judged as that chain written out.
+ * `mixed` is a name whose bindings disagree past locals and defs: every use
+ * of it is unproven. `local` is fresh in-memory data only.
+ */
+type Resolved =
+  | { kind: 'import'; q: string; json?: boolean }
+  | { kind: 'alias'; q: string }
+  | { kind: 'def' }
+  | { kind: 'local' }
+  | { kind: 'mixed' };
+/** A name assigned a reference chain (`e=os.environ`, `f=e`), resolved through `root` when used; a `bare` local is a declarator with no initializer. */
+type Bind = Resolved | { kind: 'ref'; root: string; parts: string[] } | { kind: 'local'; bare: true };
+/** A ref that led back to `name`, a binding still being resolved; `grew` when the way back added a part (`n=n.next`). */
+type Cycle = { kind: 'cycle'; name: string; grew: boolean };
+
+const LOCAL: Resolved = { kind: 'local' };
+const MIXED: Resolved = { kind: 'mixed' };
+const BARE: Bind = { kind: 'local', bare: true };
+const WALK_LIMIT = 2000;
 
 /** The names a program binds: every binding of each, merged by `resolve`. */
 class Bindings {
   private readonly map = new Map<string, Bind[]>();
+  /** Walks one `resolve` has taken: past WALK_LIMIT every name is mixed, so a program built to branch refs cannot stall the hook. */
+  private steps = 0;
+
+  /** `roots`: the unbound globals a ref may alias (node's `process`, `console`, …). */
+  constructor(private readonly roots: ReadonlySet<string> = new Set()) {}
 
   add(name: string, bind: Bind): void {
     const list = this.map.get(name);
@@ -187,12 +216,57 @@ class Bindings {
     else this.map.set(name, [bind]);
   }
 
-  resolve(name: string): Bind | undefined {
+  /** Whether some binding of `name` is a ref: the name holds a value assigned to it. */
+  assigned(name: string): boolean {
+    return this.map.get(name)?.some((b) => b.kind === 'ref') === true;
+  }
+
+  resolve(name: string): Resolved | undefined {
+    this.steps = 0;
+    const b = this.walk(name, new Set());
+    return b?.kind === 'cycle' ? MIXED : b;
+  }
+
+  private walk(name: string, seen: ReadonlySet<string>): Resolved | Cycle | undefined {
     const list = this.map.get(name);
     if (!list) return undefined;
-    if (list.every((b) => b.kind === 'import' && b.q === (list[0] as { q: string }).q)) return list[0];
-    if (list.every((b) => b.kind === 'def')) return list[0];
-    return { kind: 'local' };
+    if (++this.steps > WALK_LIMIT) return MIXED;
+    if (seen.has(name)) return { kind: 'cycle', name, grew: false };
+    const inner = new Set(seen).add(name);
+    const held = list.filter((b) => !('bare' in b));
+    if (held.length === 0) return LOCAL;
+    const all = held.map((b) => (b.kind === 'ref' ? this.deref(b, inner) : b));
+    const own = (b: Resolved | Cycle): boolean => b.kind === 'cycle' && b.name === name;
+    const binds = all.filter((b) => !own(b));
+    const grown = all.some((b) => own(b) && (b as Cycle).grew);
+    if (binds.length === 0 || (grown && !binds.every((b) => b.kind === 'local'))) return MIXED;
+    const rest = binds.filter((b): b is Resolved => b.kind !== 'cycle');
+    const cycles = binds.filter((b): b is Cycle => b.kind === 'cycle');
+    if (cycles.length > 0) return rest.every((b) => b.kind === 'local') ? (cycles.find((c) => c.grew) ?? cycles[0]) : MIXED;
+    const [first] = rest;
+    const q = (b: Resolved): string | undefined => ('q' in b ? b.q : undefined);
+    if (rest.every((b) => b.kind === first.kind && q(b) === q(first))) return first;
+    if (rest.some((b) => b.kind === 'import' || b.kind === 'alias' || b.kind === 'mixed')) return MIXED;
+    return LOCAL;
+  }
+
+  /** What a ref holds: the chain on what its root resolves to, an alias of an unbound global root, else a local. */
+  private deref(ref: { root: string; parts: string[] }, seen: ReadonlySet<string>): Resolved | Cycle {
+    const at = (base: string): string => [base, ...ref.parts].join('.');
+    const b = this.walk(ref.root, seen);
+    if (b === undefined) return this.roots.has(ref.root) ? { kind: 'alias', q: at(ref.root) } : LOCAL;
+    switch (b.kind) {
+      case 'import':
+        return { kind: 'import', q: at(b.q), json: b.json };
+      case 'alias':
+        return { kind: 'alias', q: at(b.q) };
+      case 'mixed':
+        return b;
+      case 'cycle':
+        return { ...b, grew: b.grew || ref.parts.length > 0 };
+      default:
+        return LOCAL;
+    }
   }
 }
 
@@ -229,12 +303,74 @@ function chain(node: Node, type: string, object: string, property: string): { ro
   return { root: at, parts };
 }
 
+/** A reference chain: a bare name or an attribute / member chain on one, as the ref it binds. */
+function refOf(node: Node, type: string, object: string, property: string): Bind | undefined {
+  const { root, parts } = chain(node, type, object, property);
+  return root.type === 'identifier' ? { kind: 'ref', root: root.text, parts } : undefined;
+}
+
+const noComments = (node: Node): Node[] => kids(node).filter((c) => c.type !== 'comment');
+
+/** The nodes a python value may evaluate to: through parentheses, chained and walrus assignments, `await`, `a if c else b` and `a or b`. */
+function pySources(node: Node): Node[] {
+  switch (node.type) {
+    case 'parenthesized_expression':
+    case 'await':
+      return noComments(node).flatMap(pySources);
+    case 'assignment':
+    case 'named_expression': {
+      const value = field(node, node.type === 'assignment' ? 'right' : 'value');
+      return value ? pySources(value) : [node];
+    }
+    case 'conditional_expression': {
+      const [a, , b] = noComments(node);
+      return [a, b].filter((c) => c !== undefined).flatMap(pySources);
+    }
+    case 'boolean_operator':
+      return [field(node, 'left'), field(node, 'right')].filter((c) => c !== null).flatMap(pySources);
+    default:
+      return [node];
+  }
+}
+
+const JS_LOGICAL = new Set(['||', '&&', '??', '||=', '&&=', '??=']);
+
+/** The nodes a node value may evaluate to: through parentheses, sequences, assignments, `await`, `a ? b : c` and `||` / `&&` / `??`. */
+function jsSources(node: Node): Node[] {
+  switch (node.type) {
+    case 'parenthesized_expression':
+    case 'await_expression':
+      return noComments(node).flatMap(jsSources);
+    case 'sequence_expression': {
+      const last = noComments(node).at(-1);
+      return last ? jsSources(last) : [node];
+    }
+    case 'assignment_expression': {
+      const right = field(node, 'right');
+      return right ? jsSources(right) : [node];
+    }
+    case 'ternary_expression':
+      return [field(node, 'consequence'), field(node, 'alternative')].filter((c) => c !== null).flatMap(jsSources);
+    case 'binary_expression':
+    case 'augmented_assignment_expression': {
+      if (!JS_LOGICAL.has(field(node, 'operator')?.text ?? '')) return [node];
+      return [field(node, 'left'), field(node, 'right')].filter((c) => c !== null).flatMap(jsSources);
+    }
+    default:
+      return [node];
+  }
+}
+
 class Proof {
-  readonly binds = new Bindings();
+  readonly binds: Bindings;
   ok = true;
   judged = false;
   /** A judged write call with a `*` / `**` argument, whose target the scanner cannot see (GH 1723). */
   blind = false;
+
+  constructor(roots?: ReadonlySet<string>) {
+    this.binds = new Bindings(roots);
+  }
 
   fail(): void {
     this.ok = false;
@@ -268,12 +404,19 @@ class PyProof extends Proof {
     }
   }
 
+  /** A name assigned `value`: a ref for each reference chain it may evaluate to, a local for anything else. */
+  private bindValue(name: string, value: Node | null): void {
+    if (!value) return this.binds.add(name, LOCAL);
+    for (const src of pySources(value)) this.binds.add(name, refOf(src, 'attribute', 'object', 'attribute') ?? LOCAL);
+  }
+
   private bindParams(node: Node): void {
     for (const p of kids(node)) {
       if (p.type === 'identifier') this.binds.add(p.text, { kind: 'local' });
       else if (p.type === 'default_parameter' || p.type === 'typed_default_parameter') {
         const name = field(p, 'name');
         if (name) this.bindTargets(name);
+        if (name?.type === 'identifier') this.bindValue(name.text, field(p, 'value'));
       } else if (p.type === 'typed_parameter' || p.type === 'list_splat_pattern' || p.type === 'dictionary_splat_pattern') {
         for (const c of kids(p)) if (c.type === 'identifier') this.binds.add(c.text, { kind: 'local' });
       } else this.bindTargets(p);
@@ -326,6 +469,7 @@ class PyProof extends Proof {
         const left = field(node, 'left');
         const right = field(node, 'right');
         if (left?.type === 'identifier' && right?.type === 'lambda') this.binds.add(left.text, { kind: 'def' });
+        else if (left?.type === 'identifier') this.bindValue(left.text, right);
         else if (left) this.bindTargets(left);
         break;
       }
@@ -338,7 +482,8 @@ class PyProof extends Proof {
       }
       case 'named_expression': {
         const name = field(node, 'name');
-        if (name) this.bindTargets(name);
+        if (name?.type === 'identifier') this.bindValue(name.text, field(node, 'value'));
+        else if (name) this.bindTargets(name);
         break;
       }
       case 'as_pattern_target':
@@ -362,7 +507,7 @@ class PyProof extends Proof {
     return at > 0 && last !== 'replace' && PY_METHODS.has(last) && !PY_MUTATORS.has(last) && this.safeValue(q.slice(0, at)) && q.slice(0, at).includes('.');
   }
 
-  /** `json.dump(obj, fp)` whose `fp`, positional or keyword, is exactly `sys.stdout` or `sys.stderr`. */
+  /** `json.dump(obj, fp)` whose `fp`, positional or keyword, is exactly `sys.stdout` or `sys.stderr`, not a name assigned it (GH 2038). */
   private dumpToStream(args: Node | null): boolean {
     const list = args ? kids(args).filter((a) => a.type !== 'comment') : [];
     if (list.some(splat)) return false;
@@ -370,6 +515,7 @@ class PyProof extends Proof {
     const fp = kw ? field(kw, 'value') : (list.filter((a) => a.type !== 'keyword_argument')[1] ?? null);
     if (!fp || (fp.type !== 'attribute' && fp.type !== 'identifier')) return false;
     const { root, parts } = chain(fp, 'attribute', 'object', 'attribute');
+    if (this.binds.assigned(root.text)) return false;
     const q = this.qualified(root, parts);
     return q !== undefined && PY_STREAM_FILES.has(q);
   }
@@ -390,7 +536,8 @@ class PyProof extends Proof {
     const b = this.binds.resolve(name);
     if (b?.kind === 'import') {
       if (!this.safeValue(b.q) && !this.safeCall(b.q)) this.fail();
-    } else if (!b && PY_BUILTINS.has(name) && (!PY_SAFE_BUILTINS.has(name) || name === 'open')) this.fail();
+    } else if (b && b.kind !== 'local' && b.kind !== 'def') this.fail();
+    else if (!b && PY_BUILTINS.has(name) && (!PY_SAFE_BUILTINS.has(name) || name === 'open')) this.fail();
   }
 
   private attribute(node: Node): void {
@@ -447,7 +594,7 @@ class PyProof extends Proof {
           if (judgedCall('py', b.q)) this.judge(args);
           else return this.fail();
         }
-      } else if (b?.kind === 'local') return this.fail();
+      } else if (b && b.kind !== 'def') return this.fail();
       else if (!b) {
         if (name === 'open') this.openMode(args);
         else if (PY_SAFE_BUILTINS.has(name)) callee = name;
@@ -539,6 +686,8 @@ class PyProof extends Proof {
       case 'assignment':
       case 'augmented_assignment': {
         const left = field(node, 'left');
+        // `e |= {…}` / `a += […]` update the object a name holds in place
+        if (node.type === 'augmented_assignment' && left?.type === 'identifier' && this.binds.resolve(left.text)?.kind !== 'local') return this.fail();
         if (left) this.target(left);
         for (const f of ['type', 'right']) {
           const c = field(node, f);
@@ -610,9 +759,11 @@ class JsProof extends Proof {
       case 'member_expression':
       case 'subscript_expression':
         return;
-      case 'assignment_pattern': {
+      case 'assignment_pattern':
+      case 'object_assignment_pattern': {
         const left = field(node, 'left');
         if (left) this.bindPattern(left);
+        if (left?.type === 'identifier' || left?.type === 'shorthand_property_identifier_pattern') this.bindValue(left.text, field(node, 'right'));
         return;
       }
       case 'pair_pattern': {
@@ -622,6 +773,15 @@ class JsProof extends Proof {
       }
       default:
         for (const c of kids(node)) this.bindPattern(c);
+    }
+  }
+
+  /** A name assigned `value`: an import for each require chain it may evaluate to, a ref for each reference chain, a local for anything else. */
+  private bindValue(name: string, value: Node | null): void {
+    if (!value) return this.binds.add(name, BARE);
+    for (const src of jsSources(value)) {
+      const mod = this.moduleOf(src);
+      this.binds.add(name, mod ? { kind: 'import', q: mod.q, json: mod.json } : (refOf(src, 'member_expression', 'object', 'property') ?? LOCAL));
     }
   }
 
@@ -640,8 +800,7 @@ class JsProof extends Proof {
         const value = field(node, 'value');
         const mod = this.moduleOf(value);
         if (!name) break;
-        if (mod !== undefined && name.type === 'identifier') this.binds.add(name.text, { kind: 'import', q: mod.q, json: mod.json });
-        else if (mod !== undefined && name.type === 'object_pattern') {
+        if (mod !== undefined && name.type === 'object_pattern') {
           for (const p of kids(name)) {
             if (p.type === 'shorthand_property_identifier_pattern') this.binds.add(p.text, { kind: 'import', q: `${mod.q}.${p.text}`, json: mod.json });
             else if (p.type === 'pair_pattern' && field(p, 'value')?.type === 'identifier' && field(p, 'key')?.type === 'property_identifier') {
@@ -650,7 +809,8 @@ class JsProof extends Proof {
           }
         } else if (name.type === 'identifier' && (value?.type === 'arrow_function' || value?.type === 'function_expression' || value?.type === 'function')) {
           this.binds.add(name.text, { kind: 'def' });
-        } else this.bindPattern(name);
+        } else if (name.type === 'identifier') this.bindValue(name.text, value);
+        else this.bindPattern(name);
         break;
       }
       case 'function_declaration':
@@ -668,7 +828,12 @@ class JsProof extends Proof {
         break;
       }
       case 'assignment_expression':
-      case 'augmented_assignment_expression':
+      case 'augmented_assignment_expression': {
+        const left = field(node, 'left');
+        if (left?.type === 'identifier') this.bindValue(left.text, node.type === 'assignment_expression' ? field(node, 'right') : node);
+        else if (left) this.bindPattern(left);
+        break;
+      }
       case 'for_in_statement': {
         const left = field(node, 'left');
         if (left) this.bindPattern(left);
@@ -701,7 +866,7 @@ class JsProof extends Proof {
     if (mod !== undefined) return [mod, ...parts].join('.');
     if (root.type !== 'identifier') return undefined;
     const b = this.binds.resolve(root.text);
-    if (b?.kind === 'import') return [b.q, ...parts].join('.');
+    if (b?.kind === 'import' || b?.kind === 'alias') return [b.q, ...parts].join('.');
     if (!b && JS_ROOTS.has(root.text)) return [root.text, ...parts].join('.');
     return undefined;
   }
@@ -709,7 +874,14 @@ class JsProof extends Proof {
   private name(node: Node): void {
     const b = this.binds.resolve(node.text);
     if (b?.kind === 'import' && b.json !== true) this.fail();
+    else if (b?.kind === 'alias' && !(b.q.includes('.') ? this.safeMember(b.q) : JS_SAFE_GLOBALS.has(b.q))) this.fail();
+    else if (b?.kind === 'mixed') this.fail();
     else if (!b && !JS_SAFE_GLOBALS.has(node.text)) this.fail();
+  }
+
+  /** Whether a dotted name read as a value is safe: a process value, a safe call, a member of a safe global, or a required .json. */
+  private safeMember(q: string): boolean {
+    return JS_SAFE_VALUE.test(q) || this.safeCall(q) || /^(console|JSON|Math|Object|Array|String|Number)\./.test(q) || /\.json(\.|$)/.test(q);
   }
 
   private member(node: Node): void {
@@ -718,7 +890,7 @@ class JsProof extends Proof {
     const q = this.qualified(root, parts);
     if (q !== undefined) {
       if (root.type === 'call_expression') this.visit(root);
-      if (!JS_SAFE_VALUE.test(q) && !this.safeCall(q) && !/^(console|JSON|Math|Object|Array|String|Number)\./.test(q) && !/\.json(\.|$)/.test(q)) this.fail();
+      if (!this.safeMember(q)) this.fail();
       return;
     }
     this.visit(root);
@@ -729,6 +901,7 @@ class JsProof extends Proof {
     if (node.type === 'identifier') {
       const b = this.binds.resolve(node.text);
       if (b?.kind === 'def') return true;
+      if (b?.kind === 'alias') return this.safeCall(b.q);
       return !b && JS_SAFE_GLOBAL_CALLS.has(node.text);
     }
     if (node.type === 'member_expression') {
@@ -761,13 +934,13 @@ class JsProof extends Proof {
         if (requiredModule(node) === undefined) this.fail();
         return;
       }
-      if (b?.kind === 'import') {
+      if (b?.kind === 'import' || b?.kind === 'alias') {
         callee = b.q;
         if (!this.safeCall(b.q)) {
           if (judgedCall('node', b.q)) this.judged = true;
           else return this.fail();
         }
-      } else if (b?.kind === 'local') return this.fail();
+      } else if (b && b.kind !== 'def') return this.fail();
       else if (!b) {
         if (JS_SAFE_GLOBAL_CALLS.has(name)) callee = name;
         else if (judgedCall('node', name)) this.judged = true;
@@ -899,7 +1072,8 @@ class JsProof extends Proof {
       case 'identifier':
       case 'shorthand_property_identifier_pattern':
         return;
-      case 'assignment_pattern': {
+      case 'assignment_pattern':
+      case 'object_assignment_pattern': {
         const left = field(node, 'left');
         const right = field(node, 'right');
         if (left) this.pattern(left);
@@ -1202,7 +1376,7 @@ export function proveProgram(lang: Lang, program: string, scanned: readonly stri
   try {
     const root = tree.rootNode;
     if (root.hasError) return no;
-    const proof = lang === 'py' ? new PyProof() : new JsProof();
+    const proof = lang === 'py' ? new PyProof() : new JsProof(JS_ROOTS);
     proof.collect(root);
     if (proof.ok) proof.visit(root);
     return { proven: proof.ok && (!proof.judged || scanned.includes('W')), blind: proof.blind };
