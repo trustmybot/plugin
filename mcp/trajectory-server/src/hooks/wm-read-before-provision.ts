@@ -110,7 +110,7 @@ function audit(payload: Payload, tool: string, reason: MissingReason, env: NodeJ
         issueId: issueIdOf(payload.tool_input?.issue_id),
         branchId: '',
         fromNode: `hook:${GATE_NAME}`,
-        eventType: EVENT_TYPE,
+        eventType: 'wm_read_missing_before_provision',
         summary: `task_provision with no world-model read in the last ${WINDOW_MINUTES} min (${reason})`,
         contentJson: JSON.stringify(content),
       },
