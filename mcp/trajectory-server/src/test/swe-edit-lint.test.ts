@@ -125,11 +125,10 @@ describe('swe-edit-lint (GH 2570)', () => {
   it('kills a command past the budget and gives a note, not a block, inside the deadline', async () => {
     const slow = makeRepo(root, 'slow', JSON.stringify({ version: 1, lints: [{ glob: '*.txt', command: 'sleep 30; false #' }] }));
     writeFileSync(join(slow, 'a.txt'), 'x\n');
-    const start = performance.now();
-    const { value, expired } = await runWithDeadline(start + 1500, () => sweEditLint(post('Write', join(slow, 'a.txt')), env));
-    const ms = performance.now() - start;
-    assert.ok(ms < 1500, `returned within the deadline, took ${Math.round(ms)} ms`);
-    assert.equal(expired, false, 'the router does not judge it over budget, so the note reaches swe');
+    const { value, expired } = await runWithDeadline(performance.now() + 1500, () =>
+      sweEditLint(post('Write', join(slow, 'a.txt')), env),
+    );
+    assert.equal(expired, false, 'it returned inside the deadline, so the router keeps the note for swe');
     assert.match(noteOf(value), /was killed at the \d+ ms of budget left; .*nothing blocked/);
   });
 
