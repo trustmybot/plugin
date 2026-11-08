@@ -377,6 +377,15 @@ Schema enforces via `CHECK (source IN ('gate','manual'))`.
 
 `1` when the run's budget ran out (its `exit_code` is then `124`, as is the command row of the command that was running); `0` otherwise. `CHECK (timed_out IN (0,1))`.
 
+### `lint_runs.source` — who ran the close lints
+
+| Value | Meaning |
+|---|---|
+| `gate` | `swe-verification-gate` ran the close lints on the swe close; no writer yet (GH 2570) |
+| `integrate` | `cli.js integrate` re-ran the close lints on the rebased SHA; no writer yet (GH 2570) |
+
+Schema enforces via `CHECK (source IN ('gate','integrate'))`; `lintRunStartSql` refuses any other value.
+
 ### `repo_remotes.is_primary`
 
 `1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.
