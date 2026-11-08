@@ -145,7 +145,7 @@ export interface SandboxProbe {
 }
 
 /**
- * The last run of tests/l5-l6/probes/sandbox-network-probe.sh, whose setup B
+ * The last run of tests/l5-l6/probes/sandbox-network-probe.ts, whose setup B
  * is the block writeProjectSandbox writes. Hand-recorded from its output.
  */
 export const SANDBOX_NETWORK_PROBE: SandboxProbe = {
@@ -157,7 +157,7 @@ export const SANDBOX_NETWORK_PROBE: SandboxProbe = {
 
 /**
  * The recorded probe per platform. linux has no entry until someone runs
- * tests/l5-l6/probes/sandbox-network-probe.sh on Linux and records its
+ * tests/l5-l6/probes/sandbox-network-probe.ts on Linux and records its
  * cc_version, date and failed[] here (GH 1576).
  */
 export const SANDBOX_NETWORK_PROBES: Readonly<Partial<Record<NodeJS.Platform, SandboxProbe>>> = {

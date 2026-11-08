@@ -18,7 +18,7 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`l6-chain/`](./l6-chain/) | Chain configuration — `chain-manifest.json` (ordered steps) + `seeds/` (between-row SQL bridges). See its [`README.md`](./l6-chain/README.md) |
 | [`lib/`](./lib/) | Shared shell helpers — flow/chain helpers, scorers, sandbox, stubs, timeout shim |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
-| [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
+| [`inspect-trajectory.ts`](./inspect-trajectory.ts) | Helper to inspect a run's trajectory DB: `node --experimental-strip-types tests/l5-l6/inspect-trajectory.ts <project-dir>` |
 
 ## When a row fails
 
