@@ -7,7 +7,10 @@ import type { TrajectoryDB } from '../db.js';
 import { auditTools } from '../tools/audit.js';
 import { bugReportTools, defaultArea, versionChannel } from '../tools/bug-report.js';
 import { REDACT_RULES } from '../bug-report/redact.js';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 const HOME = '/Users/alice';
 const PROJECT = '/Users/alice/code/acme-api';

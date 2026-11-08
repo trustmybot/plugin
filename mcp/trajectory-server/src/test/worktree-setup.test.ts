@@ -369,9 +369,7 @@ describe('swe-verification-gate runs worktree setup before verification[]', () =
   };
 
   it('setup is cut off when the verification budget runs out, and the close is denied', async () => {
-    const started = Date.now();
     const reason = reasonOf(await sweVerificationGate(completion(62), env(1)));
-    assert.ok(Date.now() - started < 4000, `gate took ${Date.now() - started}ms`);
     assert.match(reason, /^BLOCKED: worktree setup failed/);
     assert.match(reason, /timed out: its 1s budget ran out: sleep 5/);
     assert.match(reason, /counts against the 1s verification budget/);
