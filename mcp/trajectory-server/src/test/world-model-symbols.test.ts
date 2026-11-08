@@ -895,7 +895,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 8);
+      assert.equal(EXTRACTOR_VERSION, 9);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
