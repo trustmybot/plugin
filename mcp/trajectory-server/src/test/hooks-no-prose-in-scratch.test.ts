@@ -276,6 +276,46 @@ describe('no-prose-in-scratch', () => {
       });
     });
 
+    describe('GH 2468: a pipeline member with a redirect of its own', () => {
+      const S = '/tmp/tmb-no-prose-2468';
+
+      it('allows a script run with stderr joined, piped into a capture', async () => {
+        assert.equal(await shell(`bash t.sh 2>&1 | grep x | sort > ${S}/x.txt`), '');
+      });
+
+      it('allows find with stderr dropped, piped into a capture', async () => {
+        assert.equal(await shell(`find . -type f 2>/dev/null | sort > ${S}/x.txt`), '');
+      });
+
+      it('allows members with an assignment prefix and a redirect of their own', async () => {
+        assert.equal(await shell(`LC_ALL=C find . 2>/dev/null | LC_ALL=C sort > ${S}/x.txt`), '');
+      });
+
+      it('allows an outer pipeline head with a redirect of its own', async () => {
+        assert.equal(await shell(`find . 2>/dev/null | sort 2> ${S}/e.txt | wc`), '');
+      });
+
+      it('denies echo with stderr dropped at the head', async () => {
+        assert.match(await shell(`echo hi 2>/dev/null | sort > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('denies printf with stderr joined at the head', async () => {
+        assert.match(await shell(`printf x 2>&1 | sort > ${S}/x.md`), /^BLOCKED: prose file.*x\.md/);
+      });
+
+      it('denies a heredoc piped into a capture', async () => {
+        assert.match(await shell(`cat <<'EOF' | sort > ${S}/x.txt\nplan\nEOF`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('denies a here-string with a redirect of its own piped into a capture', async () => {
+        assert.match(await shell(`cat <<< hi 2>/dev/null | sort > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('denies an authoring outer pipeline head with a redirect of its own', async () => {
+        assert.match(await shell(`echo hi 2>/dev/null | sort 2> ${S}/e.txt | wc`), /^BLOCKED: prose file.*e\.txt/);
+      });
+    });
+
     it('leave an UNRESOLVED target to containment-guard', async () => {
       assert.equal(await shell('echo hi > "$(pick-a-name)"'), '');
     });
