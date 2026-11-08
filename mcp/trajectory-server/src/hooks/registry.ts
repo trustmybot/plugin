@@ -78,6 +78,7 @@ import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js
 import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
 import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scratch.js';
 import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree-adopt-guard.js';
+import { GATE_NAME as WM_READ_GATE, wmReadBeforeProvision } from './wm-read-before-provision.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -155,6 +156,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
   [NO_PROSE_GATE, noProseInScratch],
   [WORKTREE_ADOPT_GATE, worktreeAdoptGuard],
+  [WM_READ_GATE, wmReadBeforeProvision],
 ]);
 
 export function findGate(name: string): Gate | undefined {
@@ -211,7 +213,7 @@ export interface RouterGroup {
   readonly concurrent?: boolean;
 }
 
-const TS_ONLY_GATES: ReadonlySet<string> = new Set([NO_PROSE_GATE, WORKTREE_ADOPT_GATE]);
+const TS_ONLY_GATES: ReadonlySet<string> = new Set([NO_PROSE_GATE, WORKTREE_ADOPT_GATE, WM_READ_GATE]);
 
 function routerGate(name: string, kind: RouterGateKind, toolSuffix?: string): RouterGate {
   const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
@@ -272,6 +274,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_retry'),
+      routerGate(WM_READ_GATE, 'advisory', 'task_provision'),
     ],
     { stopAtFirstDeny: true },
   ),

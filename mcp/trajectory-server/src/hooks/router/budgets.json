@@ -25,7 +25,7 @@
     },
     "PreToolUse:mcp__.*trajectory-server__.*": {
       "max_budget_ms": 3627000,
-      "p99_sum_ms": 7359.5,
+      "p99_sum_ms": 7372,
       "group_budget_ms": 3627000
     },
     "PreToolUse:AskUserQuestion": {
@@ -489,6 +489,22 @@
       "floor_ms": 6000,
       "budget_ms": 6000,
       "date": "2026-11-02"
+    },
+    "wm-read-before-provision": {
+      "kind": "advisory",
+      "bench_p50": 2.6,
+      "bench_p95": 10.1,
+      "bench_p99": 12.5,
+      "bench_runs": 400,
+      "bench_load_avg": 154.66,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 2329): no wm-read-before-provision PreToolUse hook attachment in any transcript yet",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 4000,
+      "budget_ms": 4000,
+      "date": "2026-11-08"
     },
     "askuserquestion-length-lint": {
       "kind": "advisory",
