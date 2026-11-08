@@ -52,3 +52,4 @@ mcp/trajectory-server/src/cli/stale-docs.ts	git(process.cwd(), ['rev-parse', '--
 scripts/maintenance/reviewer-eval.ts	values.repo ?? process.cwd()	fallback	the reviewer-eval developer CLI reads the dir it runs in only when --repo names no repo (GH 2368)
 tests/lib/live-db-shim.mjs	const here = process.cwd();	test-harness	the generated sqlite3 shim logs the dir it was invoked in and joins a relative DB argument to it
 tests/lib/live-db-shim.mjs	spawnSync(REAL, args, { stdio: 'inherit' })	test-harness	the generated sqlite3 shim runs the real sqlite3 in its caller's dir, as the exec it replaces did
+mcp/trajectory-server/src/hooks/no-prose-in-scratch.ts	const run = spawnSync('bash', ['-n'], { input: command	not-location	bash -n only syntax-checks the command on stdin; it runs nothing and reads no project or repo location (GH 2469)

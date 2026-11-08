@@ -84,6 +84,17 @@ Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Ex
 
 L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so the scan walker reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.test.mjs` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
+Two switches narrow a run:
+
+- `--l1-only` (first argument) builds the payload, runs the L1 block, and exits with its result before L2.
+- `TMB_L1_SKIP` holds space-separated lint basenames (`manifest-shape.test.mjs tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
+
+```bash
+TMB_L1_SKIP="manifest-shape.test.mjs tool-description-budget.test.mjs" bash tests/run-all.sh --l1-only
+```
+
+`.github/workflows/pr-check.yml` runs exactly that on every pull request into `dev`, `rc` or `main` (GH 2064): `bun install --frozen-lockfile`, then `bash tests/run-all.sh --l1-only`, so L1 lints and the strict tsc in `build:payload` gate each PR. Its `TMB_L1_SKIP` holds back manifest-shape (GH 2235, GH 1388) and tool-description-budget (GH 1403) until the Human decides them.
+
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
 a fixed-SHA artifact:

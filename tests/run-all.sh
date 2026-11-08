@@ -20,11 +20,28 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/.." && pwd)"
 FAIL=0
 
+# --l1-only: stop after the L1 block (PR check, GH 2064).
+_l1_only=0
+[ "${1:-}" = "--l1-only" ] && _l1_only=1
+
+# TMB_L1_SKIP: space-separated lint basenames whose steps print SKIP instead of running.
+_l1_skipped() {
+  local arg skip
+  for skip in ${TMB_L1_SKIP:-}; do
+    for arg in "$@"; do
+      [ "${arg##*/}" = "$skip" ] && return 0
+    done
+  done
+  return 1
+}
+
 run_step() {
   local label="$1"
   shift
   printf "\n=== %s ===\n" "$label"
-  if "$@"; then
+  if _l1_skipped "$@"; then
+    printf "→ SKIP (TMB_L1_SKIP)\n"
+  elif "$@"; then
     printf "→ PASS\n"
   else
     printf "→ FAIL\n"
@@ -194,6 +211,7 @@ run_step "L1 bench: measurement harness selftest"     node --test "$HERE/benchma
 export PATH="$_l1_saved_path"
 unset TMB_L1_OFFLINE
 live_cli_check "L1" || FAIL=1
+[ "$_l1_only" = 1 ] && exit "$FAIL"
 
 # ----- L2 — Unit (no live gh/glab/claude calls) -----------------------------
 # Builds dist/ and runs the MCP unit suite once, behind the live-CLI stubs and
