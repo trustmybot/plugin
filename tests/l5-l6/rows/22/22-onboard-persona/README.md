@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`empty` fixture (not onboarded), fed the way the cold-start row (`01-cold-start`) feeds it: "Don't ask questions." makes bro apply the documented defaults instead of rendering AUQ rounds. `setup-l5.sh` writes and commits a Human-owned `CLAUDE.md` and snapshots it to `.claude/tmb/_l5_claude_md_seed.md`.
+`empty` fixture (not onboarded), fed the way the cold-start row (`01-cold-start`) feeds it: "Don't ask questions." makes bro apply the documented defaults instead of rendering AUQ rounds. `setup-l5.ts` writes and commits a Human-owned `CLAUDE.md` and snapshots it to `.claude/tmb/_l5_claude_md_seed.md`.
 
 ## Turns
 

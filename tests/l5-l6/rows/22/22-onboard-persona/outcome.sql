@@ -33,5 +33,5 @@ WITH paths AS (
 )
 SELECT
   CASE WHEN readfile(seed) IS NOT NULL AND readfile(claude_md) = readfile(seed) THEN 1 ELSE 0 END AS pass,
-  'project CLAUDE.md equals the setup-l5.sh seed byte for byte' AS description
+  'project CLAUDE.md equals the setup-l5.ts seed byte for byte' AS description
 FROM paths;

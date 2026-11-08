@@ -13,7 +13,7 @@ bro's emission of non-empty typed fields lives in the `tmb_planning` skill (sibl
 2. The created task row carries the typed `files` and `verification` columns.
 3. Each column holds a valid JSON array (default `[]`, or a non-empty array bro emitted) — never markdown prose.
 
-**L5 mode**: `onboarding-named` fixture seeds identity; `setup-l5.sh` adds no extra pre-state.
+**L5 mode**: `onboarding-named` fixture seeds identity; no setup script adds extra pre-state.
 **L6 mode**: standalone row, not in the chain manifest.
 
 ## Scorers

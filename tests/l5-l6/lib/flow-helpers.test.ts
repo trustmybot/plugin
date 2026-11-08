@@ -238,7 +238,11 @@ describe('deep_scan_completed deleters cascade audit_embeddings (GH 1460)', () =
   ]) {
     test(`${basename(rowDir)} setup-l5: embedded deep_scan_completed row dropped without dangling FK rows`, { skip: NO_SQLITE3 }, () => {
       const project = embeddedScanProject();
-      spawnSync('bash', [join(rowDir, 'setup-l5.sh'), project, rowDir], { env: baseEnv, stdio: 'ignore' });
+      const r = spawnSync(process.execPath, ['--experimental-strip-types', '--experimental-sqlite', join(rowDir, 'setup-l5.ts'), project, rowDir], {
+        env: baseEnv,
+        stdio: 'ignore',
+      });
+      assert.equal(r.status, 0);
       assertScanRowDroppedCleanly(project);
     });
   }
