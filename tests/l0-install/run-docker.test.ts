@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { dockerBuild } from './run-docker.ts';
+
+const RUNNER = join(dirname(fileURLToPath(import.meta.url)), 'run-docker.ts');
+
+test('install builds install-smoke.Dockerfile tagged with the plugin version', () => {
+  assert.deepEqual(dockerBuild('install', { version: '1.2.3' }), {
+    argv: ['build', '-f', 'tests/l0-install/install-smoke.Dockerfile', '-t', 'tmb-install-smoke:1.2.3', '--progress=plain', '.'],
+    env: {},
+  });
+});
+
+test('canary without a token builds install-only, no secret', () => {
+  assert.deepEqual(dockerBuild('canary', { version: '1.2.3' }), {
+    argv: [
+      'build',
+      '--build-arg',
+      'PLUGIN_VERSION=1.2.3',
+      '-f',
+      'tests/l0-install/release-canary.Dockerfile',
+      '-t',
+      'tmb-release-canary:1.2.3',
+      '--progress=plain',
+      '.',
+    ],
+    env: { DOCKER_BUILDKIT: '1' },
+  });
+});
+
+test('canary with a token passes CLAUDE_CODE_OAUTH_TOKEN as a BuildKit secret, never its value', () => {
+  const build = dockerBuild('canary', { version: '1.2.3', token: 'sk-secret' });
+  assert.deepEqual(build, {
+    argv: [
+      'build',
+      '--secret',
+      'id=cc_token,env=CLAUDE_CODE_OAUTH_TOKEN',
+      '--build-arg',
+      'PLUGIN_VERSION=1.2.3',
+      '-f',
+      'tests/l0-install/release-canary.Dockerfile',
+      '-t',
+      'tmb-release-canary:1.2.3',
+      '--progress=plain',
+      '.',
+    ],
+    env: { DOCKER_BUILDKIT: '1' },
+  });
+  assert.ok(!build.argv.join(' ').includes('sk-secret'));
+});
+
+test('upgrade passes the archived v1.0.2 tree as the v102 build context', () => {
+  assert.deepEqual(dockerBuild('upgrade', { version: '1.2.3', oldTree: '/tmp/old' }), {
+    argv: [
+      'build',
+      '-f',
+      'tests/l0-install/upgrade-smoke.Dockerfile',
+      '--build-context',
+      'v102=/tmp/old',
+      '-t',
+      'tmb-upgrade-smoke:1.2.3',
+      '--progress=plain',
+      '.',
+    ],
+    env: { DOCKER_BUILDKIT: '1' },
+  });
+});
+
+test('upgrade without an old tree throws', () => {
+  assert.throws(() => dockerBuild('upgrade', { version: '1.2.3' }), /oldTree/);
+});
+
+for (const args of [['bogus'], [], ['install', 'extra']]) {
+  test(`run-docker.ts ${JSON.stringify(args)} prints usage and exits 2`, () => {
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', RUNNER, ...args], { encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /Usage: .*run-docker\.ts <install\|canary\|upgrade>/);
+  });
+}

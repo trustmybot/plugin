@@ -382,7 +382,7 @@ test('release.ts runs every step in order and re-pins the rc channel through pub
     "Step 3: Awaiting the release-gate run for v1.2.0-rc.2 (the promoted rc's verdict for v1.2.0) ...",
     '✓ release-gate for v1.2.0-rc.2 concluded success.',
     'Step 4: Create GitHub release v1.2.0 with the CHANGELOG body? [y/N]   ✓ GitHub release v1.2.0 created',
-    "Step 5: Run L5 release canary (re-clone tag in Docker, run install-smoke)? [y/N]   Skipped — run 'bash tests/l0-install/run-install-smoke.sh' manually before announcing.",
+    "Step 5: Run L5 release canary (re-clone tag in Docker, run install-smoke)? [y/N]   Skipped — run 'node --experimental-strip-types tests/l0-install/run-docker.ts install' manually before announcing.",
     'Step 6: Re-pin the rc channel to payload/v1.2.0? [y/N] Re-pinning the rc channel to the stable tag v1.2.0 (no gate — gated at its rc) ...',
     '✓ Published v1.2.0 to the rc channel.',
     '  ✓ rc channel re-pinned to payload/v1.2.0',

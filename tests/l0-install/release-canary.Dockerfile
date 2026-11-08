@@ -16,7 +16,7 @@
 #     .
 #
 # OR via wrapper:
-#   bash tests/l0-install/run-release-canary.sh
+#   node --experimental-strip-types tests/l0-install/run-docker.ts canary
 #
 # Build success = release shippable AND workflow doctrine intact.
 

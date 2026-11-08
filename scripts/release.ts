@@ -291,7 +291,7 @@ async function main(): Promise<void> {
   if (await confirm('Step 5: Run L5 release canary (re-clone tag in Docker, run install-smoke)?')) {
     if (!hasCommand('docker')) {
       out('  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n');
-      out('      bash tests/l0-install/run-install-smoke.sh\n');
+      out('      node --experimental-strip-types tests/l0-install/run-docker.ts install\n');
     } else {
       const canaryDir = tempDir('tmb-canary-');
       out(`  Cloning ${newTag} into ${canaryDir} ...\n`);
@@ -312,7 +312,7 @@ async function main(): Promise<void> {
           if ((build.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
             err(`\n  ⚠️  CANARY TIMED OUT after ${canaryTimeout}s — docker build did not finish.\n`);
             err(`     The release ${newTag} is already public; the canary is INCONCLUSIVE, not green.\n`);
-            err('     Re-run manually before announcing: bash tests/l0-install/run-install-smoke.sh\n');
+            err('     Re-run manually before announcing: node --experimental-strip-types tests/l0-install/run-docker.ts install\n');
             err('     (raise the budget with TMB_CANARY_TIMEOUT=<seconds> if the build is just slow).\n');
           } else {
             err(`\n  ⚠️  CANARY FAILED — published ${newTag} does NOT install cleanly!\n`);
@@ -327,7 +327,7 @@ async function main(): Promise<void> {
       }
     }
   } else {
-    out("  Skipped — run 'bash tests/l0-install/run-install-smoke.sh' manually before announcing.\n\n");
+    out("  Skipped — run 'node --experimental-strip-types tests/l0-install/run-docker.ts install' manually before announcing.\n\n");
   }
 
   // ---------- step 6: re-pin the rc channel to the stable tag ----------
