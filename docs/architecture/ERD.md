@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 60`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 61`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -11,7 +11,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `session_handoffs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
-| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta`, `prs`, `pr_closes` | own primary keys; not tied to any issue |
 | **Search** | `discussions_embeddings`, `audit_embeddings`, and the FTS5 tables `discussions_fts`, `audit_fts` with their shadow tables | the source row's id |
 | **Eval mode** (`schema-eval.sql`, only with `TMB_EVAL_MODE=1`) | `debug_trajectory`, `eval_results` | own primary keys |
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 60`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 61`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -61,6 +61,7 @@ erDiagram
     issues |o--o{ session_handoffs : "issue_id (NO ACTION)"
     agent_runs ||--o{ agent_run_tool_output : "run_id (CASCADE)"
     tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
+    prs ||--o{ pr_closes : "pr_id (CASCADE)"
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
     audit ||--o| audit_embeddings : "audit_id (CASCADE)"
     cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
@@ -330,6 +331,22 @@ erDiagram
         DATETIME last_fetched_at "NOT NULL"
         TEXT last_comment_id
         INTEGER task_id FK "→ tasks.id NO ACTION"
+    }
+
+    prs {
+        INTEGER id PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        INTEGER number "NOT NULL; CHECK number > 0"
+        TEXT state "NOT NULL; CHECK open|closed|merged"
+        DATETIME created_at "NOT NULL"
+        DATETIME merged_at
+        DATETIME updated_at "NOT NULL"
+        DATETIME synced_at "NOT NULL"
+    }
+
+    pr_closes {
+        INTEGER pr_id PK,FK "NOT NULL; → prs.id CASCADE"
+        INTEGER issue_number PK "NOT NULL; CHECK issue_number > 0"
     }
 
     discussions_embeddings {
@@ -815,6 +832,34 @@ Table constraints:
 
 - UNIQUE `(pr_number, repo)`
 
+### `prs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `repo` | TEXT | NOT NULL |  |  |
+| `number` | INTEGER | NOT NULL |  | CHECK `number > 0` |
+| `state` | TEXT | NOT NULL |  | CHECK `state IN ('open','closed','merged')` |
+| `created_at` | DATETIME | NOT NULL |  |  |
+| `merged_at` | DATETIME | nullable |  |  |
+| `updated_at` | DATETIME | NOT NULL |  |  |
+| `synced_at` | DATETIME | NOT NULL |  |  |
+
+Table constraints:
+
+- UNIQUE `(repo, number)`
+
+### `pr_closes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `pr_id` | INTEGER | NOT NULL |  | FK → `prs.id` ON DELETE CASCADE |
+| `issue_number` | INTEGER | NOT NULL |  | CHECK `issue_number > 0` |
+
+Table constraints:
+
+- PRIMARY KEY `(pr_id, issue_number)`
+
 ### `discussions_embeddings`
 
 | Column | Type | Null | Default | Constraints |
@@ -1046,6 +1091,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `session_handoffs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_run_tool_output` | `run_id` | `agent_runs(id)` | CASCADE |
 | `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
+| `pr_closes` | `pr_id` | `prs(id)` | CASCADE |
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
 | `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
@@ -1095,6 +1141,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_audit_event_type` | `audit` | `event_type` |  |  |
 | `idx_audit_issue_branch` | `audit` | `issue_id, branch_id` |  |  |
 | `idx_pr_review_runs_task` | `pr_review_runs` | `task_id` |  |  |
+| `idx_pr_closes_issue` | `pr_closes` | `issue_number` |  |  |
 | `idx_discussions_embeddings_model` | `discussions_embeddings` | `model_id` |  |  |
 | `idx_audit_embeddings_model` | `audit_embeddings` | `model_id` |  |  |
 | `idx_cheatcode_attachments_cheatcode` | `cheatcode_attachments` | `cheatcode_id` |  |  |
@@ -1111,6 +1158,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
 | _UNIQUE constraint_ | `agent_run_tool_output` | `run_id, tool_name` | yes | |
 | _UNIQUE constraint_ | `pr_review_runs` | `pr_number, repo` | yes | |
+| _UNIQUE constraint_ | `prs` | `repo, number` | yes | |
 | _UNIQUE constraint_ | `cheatcodes` | `name, kind` | yes | |
 | _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_files` | `repo, path` | yes | |
@@ -1206,6 +1254,8 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `plugin_meta` | Schema + plugin version; `schema_version` is the version at the top of this page. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | One row per metered run of an agent, covering the time window `[started_at, completed_at)`. Bro has one row per CC session (`task_id` and `issue_id` NULL), written and metered by the `bro-turn-usage` Stop hook; per-task bro rows opened by older versions stay as history. Swe rows open at the Agent spawn (`record-swe-spawn`, `spawn_id` = `tool_use:<tool_use_id>`, with `session_id` and `effort`), are bound to the subagent's `agent_id` at its first `task_brief` (`swe-brief-gate`; `task_brief` opens one itself when the spawn left none) and are metered by the `swe-atomic-close` SubagentStop hook, whose latest stop sets `exit_reason`. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it (the key of a bro row). The total is computed, not stored (`tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens`). `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` closes rows left open on already-terminal tasks and marks `unmeasured` any closed swe/code-reviewer row that carries no tokens and no `usage_source` (rows closed before that rule existed). Schema v33 adds four audit columns: `root_dir` (where the run may write — the project for bro rows, the task worktree for swe rows; read by the `containment-guard` hook), `model` (the dominant `message.model` of the run, written by the metering hooks), `host` (`claude`/`codex`) and `exit_reason` (stamped by whoever closes the row; see ENUMS). `task_stats` counts a task's swe and code-reviewer rows and prices them by `plugin_config.model_prices` (`{"<model>": {input, output, cache_read, cache_creation}}` USD per 1M tokens, seeded `{}`) into `cost_estimate`, with unpriced rows' tokens reported as `unpriced_tokens`. Schema v59 adds `hook_block_tokens` (GH 1915): a swe run's block-turn cost, the summed context size (input plus both cache input counts) of the first assistant entry after each PreToolUse hook block in the run, written by the `swe-stop-cause` recorder at SubagentStop (0 for a run with no blocks; NULL on runs before v59 and on other agent types); `task_stats` reports it per spawn, per task and over a `since` window with `hook_block_share` and `runs_with_cost`. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task, which is how `pr_monitor_comments_get` finds the issue that carries the PR's comments. |
+| `prs` | One row per GitHub PR, unique by `(repo, number)` (schema v61, GH 2513). Only `syncRemotePrs` (`src/sync/pr-sync.ts`, run by `issue_reconcile_remote`) writes it, reading `gh pr list` for each repo with a synced GitHub remote; it never writes to the remote. `repo` is the local `repos.name` (as `issues.repo`) with no FK; `state` is `open`, `closed` or `merged`, and `merged_at` is `NULL` unless merged. The dashboard reads it for PR open-to-merge time per issue label. |
+| `pr_closes` | The issue numbers a PR closes (its same-repo `closingIssuesReferences`), keyed `(pr_id, issue_number)`, `ON DELETE CASCADE` with its `prs` row; `syncRemotePrs` replaces a PR's rows on every sync of that PR. `issue_number` matches `issues.gh_iid` in the same repo. |
 | `verification_runs` | One row per run of a task's typed `verification[]` (schema v36, GH 1294). The writers are the `swe-verification-gate` hook (`source = 'gate'`) and bro's `cli.js integrate` (`src/cli/integrate.ts`, `source = 'manual'`, `commit_sha` = the rebased SHA), the gate through `mcp/trajectory-server/src/hooks/lib/verification-runs.ts` and `integrate.ts` with the same SQL: the row when the run starts (`commit_sha` = the worktree HEAD, `budget_s`), then `finished_at`, `exit_code` and `timed_out` when it ends — each its own transaction, so a run killed mid-way keeps its partial record; `finished_at` and `exit_code` are NULL only while a run is in progress, or until the next run start of any task finishes a row unfinished past its own `budget_s` + 60 s as `exit_code = 137`, `timed_out = 0` (its writer was killed; GH 1814). The gate allows a close without running anything when a passing run for the same task and worktree HEAD, with command rows equal to the current `verification[]`, finished within the hour (`idx_verification_runs_task_commit`). `bro_atomic_close` reads the same match, with no age limit, for the closing commit and refuses with `verification_run_missing` when neither such a run nor a `verification_gate_waived` row exists (GH 1672). `task_brief.verification_run` returns a task's latest run and `validation_history` attaches the latest run started by each attempt, so bro and code-reviewer read the result instead of re-running it. |
 | `verification_run_commands` | One row per command of a verification run, in `verification[]` order (`ordinal` from 1), written after the command ends: `exit_code` (124 on the command the budget ran out on), `elapsed_s`, and `output_tail` (the last 20 lines, capped at 4000 characters). Review finding probes are recorded after the `verification[]` lines as `[probe <id>] <probe_cmd>`. |
 | `review_findings` | One row per finding a code-reviewer verdict raises (schema v47, GH 1737). `validation_record` writes them from its `findings[]` with ids `F<task>-<n>` and `status = 'open'`; re-recording the same attempt replaces its still-open rows and never reuses an id. Since v57 (GH 1955) each row has a `severity` (`blocking`, the default, `nit` or `pre_existing`) and an optional bug `class`: a `fail` needs at least one `blocking` finding, an `escalate` at least one finding, and a `pass` may record only `nit` and `pre_existing` ones. The MCP-unavailable code-reviewer path, `cli.js validation-record-fallback` (`mcp/trajectory-server/src/cli/`), writes them by the same rules from its findings JSON argument. `task_retry` copies the failed task's `open` `blocking` rows, with their severity and class, onto the new task as `F<new_task>-<n>` with `attempt_n` 0 and one `review_findings_carried` audit row. `task_reopen`'s `wontfix[]` (bro only) sets an `open` row to `wontfix` with `resolved_at`, one `review_finding_wontfix` audit row each. `swe-verification-gate` runs every `blocking` non-`wontfix` row's `probe_cmd` after `verification[]` on every close attempt (every non-`wontfix` row on a DB below v57): a passing probe moves an `open` row to `fixed` with `resolved_at`, and any failing probe denies the close, naming a failing `fixed` row as a regression. `bro_atomic_close` only counts a verification run whose commands cover the current probes. `task_brief.open_findings` lists the `open` `blocking` rows with their severity and class. |

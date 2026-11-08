@@ -13,6 +13,7 @@ import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
+import { syncRemotePrs } from '../sync/pr-sync.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
 import {
@@ -782,7 +783,7 @@ export function issueTools(
     },
     {
       name: 'issue_reconcile_remote',
-      description: 'Bro only. Close open local issues whose linked GitHub/GitLab issue is closed; reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun later); read failures land in errors.',
+      description: 'Bro only. Close open local issues whose linked GitHub/GitLab issue is closed, and sync GitHub PR rows (prs); reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun later); read failures land in errors.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -2007,7 +2008,9 @@ export function issueTools(
       }
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
-      return ok(reconcileRemoteCloses(db, { dryRun: dryRun === true, _spawnFn: spawnFn }));
+      const opts = { dryRun: dryRun === true, _spawnFn: spawnFn };
+      const closes = reconcileRemoteCloses(db, opts);
+      return ok({ ...closes, prs: syncRemotePrs(db, opts) });
     })),
 
   };
