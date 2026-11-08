@@ -1,16 +1,18 @@
 /**
- * `node dist/test-run.js [--log <path>] [--max-lines <n>] -- <command>` (GH 1907):
- * runs one test command with `bash -c`, writes its combined raw output to a
- * log file and prints one summary line plus capped failure excerpts instead of
- * the full output. Recognises node TAP, node spec and assert-style (`N/M passed`)
- * output; anything else prints its tail on a non-zero exit. A full suite
- * (isFullSuite) first waits for a suite slot (suite-lock.ts, GH 2092).
+ * `node dist/test-run.js [--log <path>] [--max-lines <n>] -- <argv...>` (GH 1907):
+ * runs one test command — argv[0] with the rest as its arguments, no shell
+ * (GH 2438); shell syntax goes through `-- bash -c '<cmd>'` — writes its
+ * combined raw output to a log file and prints one summary line plus capped
+ * failure excerpts instead of the full output. Recognises node TAP, node spec
+ * and assert-style (`N/M passed`) output; anything else prints its tail on a
+ * non-zero exit. A full suite (isFullSuiteArgv) first waits for a suite slot
+ * (suite-lock.ts, GH 2092).
  */
 import { spawnSync } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { acquireSuiteSlot, isFullSuite, SUITE_LOCK_HELD_ENV } from './suite-lock.js';
+import { acquireSuiteSlot, isFullSuiteArgv, SUITE_LOCK_HELD_ENV } from './suite-lock.js';
 
 type Format = 'tap' | 'spec' | 'assert' | 'unknown';
 
@@ -26,11 +28,16 @@ interface Options {
   log: string;
   maxLines: number;
   command: string;
+  /** The raw argv after `--`, spawned as given with no shell. */
+  argv: string[];
 }
 
 const DEFAULT_MAX_LINES = 40;
 const MAX_FAILURES = 10;
-const USAGE = 'usage: node test-run.js [--log <path>] [--max-lines <n>] -- <command>';
+const USAGE = 'usage: node test-run.js [--log <path>] [--max-lines <n>] -- <argv...>';
+const SHELL_HINT = "use -- bash -c '<cmd>' for shell syntax";
+const SHELL_BUILTINS = new Set(['exit', 'cd', 'export', 'source', '.', 'set', 'unset', 'alias', 'eval', '[[', 'return', 'shift', 'trap', 'ulimit', 'umask']);
+const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ANSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 function stripAnsi(text: string): string {
@@ -43,8 +50,9 @@ function parseArgs(argv: string[]): Options | null {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') {
-      const command = argv.slice(i + 1).join(' ');
-      return command.trim() === '' ? null : { log: resolve(log), maxLines, command };
+      const childArgv = argv.slice(i + 1);
+      if (!childArgv[0]?.trim()) return null;
+      return { log: resolve(log), maxLines, command: childArgv.join(' '), argv: childArgv };
     }
     const value = argv[i + 1];
     if (value === undefined) return null;
@@ -238,8 +246,13 @@ async function main(argv: string[]): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
+  const program = opts.argv[0]!;
+  if (SHELL_BUILTINS.has(program) || ASSIGNMENT_RE.test(program)) {
+    process.stderr.write(`test-run: ${program} is shell syntax, not a program; ${SHELL_HINT}\n`);
+    return 2;
+  }
   mkdirSync(dirname(opts.log), { recursive: true });
-  const slot = isFullSuite(opts.command)
+  const slot = isFullSuiteArgv(opts.argv)
     ? await acquireSuiteSlot({ command: opts.command, worktree: process.cwd(), env: process.env })
     : ({ kind: 'unlocked' } as const);
   const env = slot.kind === 'held' ? { ...process.env, [SUITE_LOCK_HELD_ENV]: slot.slot } : process.env;
@@ -247,8 +260,16 @@ async function main(argv: string[]): Promise<number> {
   const started = performance.now();
   let rc: number;
   try {
-    const result = spawnSync('bash', ['-c', opts.command], { stdio: ['ignore', fd, fd], env });
-    rc = result.error ? 127 : exitCode(result.status, result.signal);
+    const result = spawnSync(opts.argv[0]!, opts.argv.slice(1), { stdio: ['ignore', fd, fd], env });
+    if (result.error) {
+      const code = (result.error as NodeJS.ErrnoException).code ?? result.error.message;
+      const message = `test-run: cannot run ${program} (${code}); ${SHELL_HINT}\n`;
+      writeSync(fd, message);
+      process.stderr.write(message);
+      rc = 127;
+    } else {
+      rc = exitCode(result.status, result.signal);
+    }
   } finally {
     closeSync(fd);
     if (slot.kind === 'held') slot.release();

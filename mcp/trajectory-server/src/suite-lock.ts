@@ -2,7 +2,8 @@
  * Suite-slot lock (GH 2092): a per-user, machine-wide cap on how many full
  * test suites run at once, so suites from parallel worktrees queue instead of
  * stacking up. test-run.ts and the swe-verification-gate take a slot around a
- * command isFullSuite() accepts; a targeted command runs straight away.
+ * command isFullSuite() accepts (isFullSuiteArgv() for test-run's argv); a
+ * targeted command runs straight away.
  *
  * Root: /tmp/claude-<uid>/tmb-suite-lock, or TMB_SUITE_LOCK_DIR; a dir that is
  * a symlink or owned by another user (containment-guard's harnessTmp rule)
@@ -75,11 +76,14 @@ function unquote(token: string): string {
   return token.replace(/^(['"])(.*)\1$/, '$2');
 }
 
-function commandWords(segment: string): string[] {
-  const words = segment.trim().split(/\s+/).filter((w) => w !== '').map(unquote);
+function withoutEnvPrefix(words: string[]): string[] {
   let i = 0;
   while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || words[i] === 'env')) i++;
   return words.slice(i);
+}
+
+function commandWords(segment: string): string[] {
+  return withoutEnvPrefix(segment.trim().split(/\s+/).filter((w) => w !== '').map(unquote));
 }
 
 function nodeFullSuite(words: string[]): boolean {
@@ -95,13 +99,21 @@ function nodeFullSuite(words: string[]): boolean {
 
 /** True for a command that runs a whole test suite: bun/npm/pnpm run test, npm/pnpm test, tests/run-all.ts or .sh, or node --test with a glob or no file. */
 export function isFullSuite(command: string): boolean {
-  return command.split(SHELL_SEPARATORS).some((segment) => {
-    const words = commandWords(segment);
-    if (words.length === 0) return false;
-    if (PACKAGE_TEST.test(words.join(' '))) return true;
-    if (words.some((w) => /(?:^|\/)tests\/run-all\.(?:ts|sh)$/.test(w))) return true;
-    return nodeFullSuite(words);
-  });
+  return command.split(SHELL_SEPARATORS).some((segment) => wordsFullSuite(commandWords(segment)));
+}
+
+/** isFullSuite for an argv run with no shell: a `bash -c` / `sh -c` script classifies as a command string, any other argv by its words as given. */
+export function isFullSuiteArgv(argv: string[]): boolean {
+  const words = withoutEnvPrefix(argv);
+  if (/(?:^|\/)(?:bash|sh)$/.test(words[0] ?? '') && words[1] === '-c') return isFullSuite(words[2] ?? '');
+  return wordsFullSuite(words);
+}
+
+function wordsFullSuite(words: string[]): boolean {
+  if (words.length === 0) return false;
+  if (PACKAGE_TEST.test(words.join(' '))) return true;
+  if (words.some((w) => /(?:^|\/)tests\/run-all\.(?:ts|sh)$/.test(w))) return true;
+  return nodeFullSuite(words);
 }
 
 /** TMB_TEST_SUITE_SLOTS as a positive integer, else 1. */

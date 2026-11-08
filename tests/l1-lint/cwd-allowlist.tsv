@@ -24,7 +24,7 @@ scripts/release.ts	spawnSync(cmd, args	anchored-cd	the script cds to its own che
 scripts/maintenance/dev-build-version.ts	spawnSync('git', args, { encoding	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
 scripts/publish-rc-channel.ts	'ls-remote', '--tags', PLUGIN_REPO	not-location	ls-remote names its remote URL; reads no checkout
 scripts/publish-rc-channel.ts	'clone', '--quiet', '--depth', '1', CATALOG_REPO	not-location	clone names its source URL and an absolute destination
-mcp/trajectory-server/src/test-run.ts	spawnSync('bash', ['-c', opts.command]	not-location	the test-run wrapper runs its caller's command in the caller's directory, as verification[] entries run; it finds no project, repo or agent
+mcp/trajectory-server/src/test-run.ts	spawnSync(opts.argv[0]	not-location	the test-run wrapper runs its caller's argv in the caller's directory, as verification[] entries run; it finds no project, repo or agent (GH 2438)
 mcp/trajectory-server/src/test-run.ts	worktree: process.cwd()	not-location	the suite-slot holder records the dir the suite runs in as data for the waiting line (GH 2092); it finds no project, repo or agent
 mcp/trajectory-server/src/suite-lock.ts	spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)]	not-location	ps by pid for the suite-slot holder's process group (GH 2092); reads no project or repo location
 mcp/trajectory-server/src/hooks/orphan-scan.ts	const r = spawnSync(cmd, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });	not-location	ps / lsof by pid or path for the orphan scan; reads no project or repo location

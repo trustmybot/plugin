@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { acquireSuiteSlot, isFullSuite, readHolder, SUITE_LOCK_HELD_ENV, suiteLockRoot, suiteSlots, type SlotResult } from '../suite-lock.js';
+import { acquireSuiteSlot, isFullSuite, isFullSuiteArgv, readHolder, SUITE_LOCK_HELD_ENV, suiteLockRoot, suiteSlots, type SlotResult } from '../suite-lock.js';
 
 const WRAPPER = resolve(dirname(fileURLToPath(import.meta.url)), '../test-run.js');
 const RUN_ALL = `#!/usr/bin/env bash
@@ -75,7 +75,7 @@ interface Wrapped {
 }
 
 function testRun(work: string, command: string, env: NodeJS.ProcessEnv, detached = false): Wrapped {
-  const child = spawn(process.execPath, [WRAPPER, '--log', join(work, `run-${n++}.log`), '--', command], {
+  const child = spawn(process.execPath, [WRAPPER, '--log', join(work, `run-${n++}.log`), '--', 'bash', '-c', command], {
     cwd: work,
     env,
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -154,6 +154,32 @@ describe('isFullSuite', () => {
   ];
   for (const cmd of full) it(`is true for ${cmd}`, () => assert.equal(isFullSuite(cmd), true));
   for (const cmd of targeted) it(`is false for ${JSON.stringify(cmd)}`, () => assert.equal(isFullSuite(cmd), false));
+});
+
+describe('isFullSuiteArgv (GH 2438)', () => {
+  const full = [
+    ['bun', 'run', 'test'],
+    ['npm', 'test'],
+    ['bash', '-c', 'npm test && x'],
+    ['sh', '-c', 'cd x && bun run build && node --test dist/test/*.test.js'],
+    ['bash', 'tests/run-all.sh', '--fast'],
+    ['node', '--experimental-strip-types', 'tests/run-all.ts', '--l1-only'],
+    ['node', '--test'],
+    ['node', '--experimental-sqlite', '--test', 'dist/test/*.test.js'],
+    ['FOO=1', 'env', 'node', '--test'],
+  ];
+  const targeted = [
+    ['node', '--test', 'dist/test/a.test.js'],
+    ['node', '--test', '--test-name-pattern', 'GH 1954|GH 1834', 'dist/test/a.test.js'],
+    ['bash', '-c', 'node --test dist/test/a.test.js'],
+    ['node', '--experimental-strip-types', '--test', 'tests/run-all.test.ts'],
+    ['bash', '-c'],
+    ['npm', 'run', 'test:unit'],
+    ['true'],
+    [],
+  ];
+  for (const argv of full) it(`is true for ${JSON.stringify(argv)}`, () => assert.equal(isFullSuiteArgv(argv), true));
+  for (const argv of targeted) it(`is false for ${JSON.stringify(argv)}`, () => assert.equal(isFullSuiteArgv(argv), false));
 });
 
 describe('suiteSlots and the lock root', () => {
@@ -352,7 +378,7 @@ describe('dist/test-run.js under the suite-slot lock', { timeout: 60_000 }, () =
     const h = readHolder(join(root, 'slot-0'));
     assert.ok(h !== null && existsSync(holderFile));
     assert.equal(h.worktree, work);
-    assert.equal(h.command, 'bash tests/run-all.sh A');
+    assert.equal(h.command, 'bash -c bash tests/run-all.sh A');
     assert.doesNotThrow(() => process.kill(h.pid, 0));
     const b = testRun(work, 'bash tests/run-all.sh B', env);
     assert.deepEqual(await Promise.all([a.done, b.done]), [0, 0]);
