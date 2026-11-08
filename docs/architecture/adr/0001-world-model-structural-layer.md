@@ -66,7 +66,7 @@ Build L1 ourselves, inside the trajectory DB (GH 1680 option H):
 5. **Freshness.** Re-index a file when its `content_md5` changes (a no-op pass over 654 files takes 0.3 s). The catch-up runs at scan, at task close and on server connect. The task-close trigger is a TS gate in Compat's hook registry (GH 1692), not a new `.sh` hook. A query that touches a file not yet re-indexed says so. A file watcher is deferred until catch-up proves too slow.
 6. **Answer shape.** Compact symbol cards by default: signature, location, callers, callees and covering tests. Source only on request.
 7. **Precision.** For edits that need exact references (a rename, a signature change), agents use Claude Code's LSP tool. Calls resolve by name (about 51% of call edges resolve in `plugin/`; table edges 94–97%), so results say "found by name", never "all callers".
-8. **Compatibility.** `wm_directories`, `wm_files` and the `world_model_get` / `world_model_search` outputs stay additive-only: `dashboard/server/queries.ts` and `dashboard/test/smoke.sh` read them. The shell scanner folds into `scan_run`.
+8. **Compatibility.** `wm_directories`, `wm_files` and the `world_model_get` / `world_model_search` outputs stay additive-only: `dashboard/server/queries.ts` and `dashboard/test/smoke.test.mjs` read them. The shell scanner folds into `scan_run`.
 9. **codegraph as reference.** A design reference, not a dependency. We borrow its schema shape, resolution passes and catch-up ideas, with MIT attribution wherever code is adapted.
 
 ## Options considered
