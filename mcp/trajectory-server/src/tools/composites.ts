@@ -46,6 +46,7 @@ import {
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
+import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
 import {
@@ -891,6 +892,31 @@ function reworkBase(db: TrajectoryDB, repoPath: string, repoValue: string | null
   return readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath);
 }
 
+function existingBranchRef(repoPath: string, branchId: string): string | null {
+  for (const ref of [`refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`]) {
+    if (refSha(repoPath, ref)) return ref;
+  }
+  return null;
+}
+
+// The ref a reopened or amended task's verification[] test paths are checked
+// at: the task branch tip, else the base a missing branch is recut from.
+function taskTipRef(
+  db: TrajectoryDB,
+  repoPath: string,
+  task: { branch_id: string; repo: string | null; parent_branch_id: string | null },
+): string | null {
+  return (
+    existingBranchRef(repoPath, task.branch_id) ??
+    resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref ??
+    null
+  );
+}
+
+function suggestionRepo(db: TrajectoryDB, repo: string | null): string | null {
+  return repo && repo.length > 0 ? repo : resolveSoleRepo(db)?.name ?? null;
+}
+
 function isGitRepo(repoPath: string): boolean {
   try {
     git(repoPath, ['rev-parse', '--git-dir']);
@@ -1073,6 +1099,8 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
 
 const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+const verificationPathsDoc = (ref: string) =>
+  `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
 
 export function compositeTools(
   db: TrajectoryDB,
@@ -1106,6 +1134,7 @@ export function compositeTools(
       description:
         "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
         "then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        `${verificationPathsDoc('the base')} ` +
         'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
         type: 'object',
@@ -1311,9 +1340,10 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        "Bro's planning composite: sets up one task for swe. The branch ref is set up before the DB commit, so a git failure writes no task row and the same branch_id retries cleanly. " +
+        'Sets up one task for swe. The branch is set up before the DB commit, so a git failure writes no task row. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
         "Writes a kind='decision' discussion and the task in one transaction, then the worktree (fail-soft; worktree_reused when it exists). " +
+        `${verificationPathsDoc('the base')} ` +
         'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
@@ -1399,6 +1429,7 @@ export function compositeTools(
       name: 'task_reopen',
       description:
         "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, and recreates a missing branch and worktree. Refused when the task's issue is closed. " +
+        `${verificationPathsDoc('the branch tip')} ` +
         'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
         type: 'object',
@@ -1444,7 +1475,9 @@ export function compositeTools(
     {
       name: 'task_update_spec',
       description:
-        "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (at least one), writes a kind='decision' discussion + task_spec_amended audit row (old→new summary). The scope and verification gates read the new values on their next run. Returns {task_id, changed, files, verification}.",
+        "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (at least one), writes a kind='decision' discussion + task_spec_amended audit row (old→new summary); the scope and verification gates read the new values next run. " +
+        `${verificationPathsDoc('the branch tip')} ` +
+        'Returns {task_id, changed, files, verification}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1685,6 +1718,12 @@ export function compositeTools(
         // origin/<base> (a diverged base is reported as base_diverged); error
         // when neither resolves — before anything is created.
         const reuseExisting = args['reuse_existing'] === true;
+        const pathRef =
+          resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
+        if (pathRef) {
+          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
+          if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
+        }
         const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
         if (branch.kind === 'base_unresolved') {
           return err(
@@ -1848,6 +1887,7 @@ export function compositeTools(
               }
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
+          ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
     ),
@@ -1919,6 +1959,13 @@ export function compositeTools(
 
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const pathRefusal = checkVerificationPaths({
+          repoPath,
+          ref: repoPath ? taskTipRef(db, repoPath, task) : null,
+          verification,
+          files,
+        });
+        if (pathRefusal) return verificationPathResult('task_reopen', pathRefusal);
         const { effort } = computeEffort(db, {
           effort: effortArg,
           prompt_bearing: 0,
@@ -2037,6 +2084,7 @@ export function compositeTools(
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           branch_created: branchCreated,
           ...(diagnostic ? { diagnostic } : {}),
+          ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
       }),
     ),
@@ -2083,7 +2131,12 @@ export function compositeTools(
           files: string | null;
           verification: string | null;
           spec_body: string | null;
-        }>(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
+          repo: string | null;
+          parent_branch_id: string | null;
+        }>(
+          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id FROM tasks WHERE id = ?`,
+          [taskId],
+        );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
         if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
           return err(
@@ -2114,6 +2167,16 @@ export function compositeTools(
 
         const files = newFiles ?? oldFiles;
         const verification = newVerification ?? oldVerification;
+        const repoPath = resolveRepoPath(db, task.repo);
+        if (newFiles !== undefined || newVerification !== undefined) {
+          const pathRefusal = checkVerificationPaths({
+            repoPath,
+            ref: repoPath ? taskTipRef(db, repoPath, task) : null,
+            verification,
+            files,
+          });
+          if (pathRefusal) return verificationPathResult('task_update_spec', pathRefusal);
+        }
         const now = nowISO();
         db.transaction(() => {
           db.run(
@@ -2139,7 +2202,13 @@ export function compositeTools(
           });
         });
 
-        return ok({ task_id: taskId, changed, files, verification });
+        return ok({
+          task_id: taskId,
+          changed,
+          files,
+          verification,
+          ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
+        });
       }),
     ),
 
@@ -2578,8 +2647,18 @@ export function compositeTools(
           if (!check.ok) return adoptRefusalResult(check);
           adoptedWorktree = check.realWorktree;
         }
-        if (repoPath) {
-          const base = normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id));
+        const retryFiles = parseTaskFiles(failed.files);
+        const retryVerification = parseTaskFiles(failed.verification);
+        const retryBase = repoPath ? normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id)) : null;
+        const pathRef = repoPath && retryBase ? resolveCutBase(repoPath, retryBase)?.ref ?? null : null;
+        if (!repoPath || pathRef) {
+          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
+          if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
+        }
+        const suggested = () =>
+          suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification);
+        if (repoPath && retryBase) {
+          const base = retryBase;
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === 'base_unresolved') {
             return err(
@@ -2693,6 +2772,7 @@ export function compositeTools(
             carried_findings: result.carried,
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
+            ...suggested(),
           });
         }
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
@@ -2718,6 +2798,7 @@ export function compositeTools(
           ...setupField(worktreeSetup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           ...(diagnostic ? { diagnostic } : {}),
+          ...suggested(),
         });
       }),
     ),
