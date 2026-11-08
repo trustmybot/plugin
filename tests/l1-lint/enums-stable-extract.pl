@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Helper for enums-stable.sh.
+# Helper for enums-stable.test.mjs.
 # Usage: enums-stable-extract.pl <enum> <schema.sql> <file>...
 # Prints "<value>\t<file>" for every literal of <enum> the schema CHECK lists
 # and the code files hold, first occurrence per (value, file). Comments in

@@ -2,9 +2,9 @@
  * Six small l3 bash suites in node:test (GH 1692): the attribution-footer and
  * orphan-scan gates run as `node dist/hooks.js <gate>` with CLAUDE_PROJECT_DIR
  * pinned and PWD set; the enums-stable lint runs as its node:test file and
- * its perl extractor runs unchanged through perl; resolveTaskIdForTarget, taskBySlug and repoRemotes
- * run as shipped TS; the live Claude Code hook-env proof runs only with
- * TMB_L3_LIVE_CC=1.
+ * its perl extractor runs unchanged through perl; resolveTaskIdForTarget,
+ * taskBySlug and repoRemotes run as shipped TS; the live Claude Code hook-env
+ * proof runs only with TMB_L3_LIVE_CC=1.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

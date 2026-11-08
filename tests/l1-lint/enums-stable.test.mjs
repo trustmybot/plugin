@@ -208,7 +208,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathS
     });
   }
 
-  const target = process.argv[2] ?? ROOT;
+  const target = resolve(process.argv[2] ?? ROOT);
   test('8 enums agree between ENUMS.md and src/ + scripts/ both ways', () => {
     const failures = enumsStable(target);
     assert.equal(failures.length, 0, [...failures, '', HINT, 'Enums-stable: FAIL'].join('\n'));
