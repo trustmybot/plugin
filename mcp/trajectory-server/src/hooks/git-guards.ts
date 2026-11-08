@@ -426,7 +426,7 @@ class GitGuards {
     let unresolved = false;
     if (dir === '-') {
       unresolved = true;
-      dir = await cwdState(this.cwd, this.env);
+      dir = await cwdState(this.cwd, this.env, { unresolved: true });
     }
     if (!await this.loadPolicy(await stmtRepoRoot(dir, this.cwd, this.env))) return;
 
