@@ -469,6 +469,30 @@ function named(node: Node): Node[] {
 
 const FUNCTION_VALUES = new Set(['arrow_function', 'function_expression', 'function']);
 
+// The key of a self-naming registration pair (GH 1970): its value is a call
+// whose argument chain holds a function value and, in some call, a string
+// literal equal to the key, as in `x: requireRoles('x', [...], wrap(async () => ...))`.
+function registeredKey(pair: Node): string | null {
+  const keyNode = pair.childForFieldName('key');
+  const value = pair.childForFieldName('value');
+  if (!keyNode || value?.type !== 'call_expression') return null;
+  const key = keyNode.type === 'property_identifier' ? keyNode.text : literalText(keyNode);
+  if (!key) return null;
+  let hasFn = false;
+  let selfNamed = false;
+  const walk = (call: Node): void => {
+    const args = call.childForFieldName('arguments');
+    if (!args) return;
+    for (const arg of named(args)) {
+      if (FUNCTION_VALUES.has(arg.type)) hasFn = true;
+      else if (arg.type === 'call_expression') walk(arg);
+      else if (literalText(arg) === key) selfNamed = true;
+    }
+  };
+  walk(value);
+  return hasFn && selfNamed ? key : null;
+}
+
 const GATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const GATE_MENTIONS = [
   /dist\/hooks\.js[ \t]+([\w<>-]+)/g,
@@ -623,10 +647,24 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
         if (n) out.edge(moduleSymbol, 'imports', n, node.startPosition.row + 1, spec);
       }
       return;
-    } else if (t === 'pair' && scope !== moduleSymbol) {
-      const text = descriptionText(node);
-      const owner = out.symbols[scope];
-      if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
+    } else if (t === 'pair') {
+      const key = registeredKey(node);
+      if (key) {
+        inner = out.symbol({
+          kind: 'function',
+          qualified_name: `tool:${key}`,
+          signature: clip(src.slice(node.startIndex).split('\n', 1)[0]!.trim(), 200),
+          doc: docOf(node),
+          start_line: node.startPosition.row + 1,
+          end_line: node.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: 0,
+        });
+      } else if (scope !== moduleSymbol) {
+        const text = descriptionText(node);
+        const owner = out.symbols[scope];
+        if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
+      }
     } else if (t === 'string' || t === 'template_string') {
       const text = node.text;
       const line = node.startPosition.row + 1;
