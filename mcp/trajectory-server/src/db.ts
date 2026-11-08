@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 57;
+export const TARGET_SCHEMA_VERSION = 58;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -827,6 +827,9 @@ function runMigrations(
   }
   if (fromVersion < 57 && toVersion >= 57) {
     migrateV56toV57(db);
+  }
+  if (fromVersion < 58 && toVersion >= 58) {
+    migrateV57toV58(db);
   }
 }
 
@@ -3183,6 +3186,43 @@ function migrateV56toV57(db: DatabaseSync): void {
         db.exec('ALTER TABLE review_findings ADD COLUMN class TEXT');
       }
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v57→v58: the repo toolchain profile (GH 2066). A new table, written by
+// env_record and read by env_get and env_detect; no backfill.
+function migrateV57toV58(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repo_env (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          repo             TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+          package_path     TEXT    NOT NULL,
+          ecosystem        TEXT    NOT NULL,
+          package_manager  TEXT    NOT NULL,
+          runner_prefix    TEXT,
+          commands_json    TEXT    NOT NULL,
+          globs_json       TEXT    NOT NULL,
+          status           TEXT    NOT NULL CHECK (status IN ('ready','detected','missing_tool','stale')),
+          confirmed_by     TEXT,
+          detected_at      TEXT    NOT NULL,
+          evidence_hash    TEXT    NOT NULL,
+          overrides_json   TEXT,
+          waivers_json     TEXT,
+          declined_json    TEXT,
+          updated_at       TEXT    NOT NULL,
+          UNIQUE (repo, package_path, ecosystem)
+      );
+    `);
     commitTransaction(db);
   } catch (err) {
     try {

@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 57`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 58`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,13 +28,14 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 57`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 58`; edit the schema, then rerun the script._
 
 ## Diagram
 
 ```mermaid
 erDiagram
     repos ||--o{ repo_remotes : "repo (CASCADE)"
+    repos ||--o{ repo_env : "repo (CASCADE)"
     repos ||--o{ milestones : "repo (RESTRICT)"
     repos |o--o{ issues : "repo (RESTRICT)"
     milestones |o--o{ issues : "milestone, repo (RESTRICT)"
@@ -89,6 +90,25 @@ erDiagram
         INTEGER is_primary "NOT NULL; CHECK is_primary IN (0,1)"
         TEXT created_at "NOT NULL"
         INTEGER sync "NOT NULL; CHECK sync IN (0,1)"
+    }
+
+    repo_env {
+        INTEGER id PK "NOT NULL"
+        TEXT repo FK "NOT NULL; → repos.name CASCADE"
+        TEXT package_path "NOT NULL"
+        TEXT ecosystem "NOT NULL"
+        TEXT package_manager "NOT NULL"
+        TEXT runner_prefix
+        TEXT commands_json "NOT NULL"
+        TEXT globs_json "NOT NULL"
+        TEXT status "NOT NULL; CHECK ready|detected|missing_tool|stale"
+        TEXT confirmed_by
+        TEXT detected_at "NOT NULL"
+        TEXT evidence_hash "NOT NULL"
+        TEXT overrides_json
+        TEXT waivers_json
+        TEXT declined_json
+        TEXT updated_at "NOT NULL"
     }
 
     milestones {
@@ -487,6 +507,31 @@ erDiagram
 Table constraints:
 
 - PRIMARY KEY `(repo, name)`
+
+### `repo_env`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `repo` | TEXT | NOT NULL |  | FK → `repos.name` ON DELETE CASCADE |
+| `package_path` | TEXT | NOT NULL |  |  |
+| `ecosystem` | TEXT | NOT NULL |  |  |
+| `package_manager` | TEXT | NOT NULL |  |  |
+| `runner_prefix` | TEXT | nullable |  |  |
+| `commands_json` | TEXT | NOT NULL |  |  |
+| `globs_json` | TEXT | NOT NULL |  |  |
+| `status` | TEXT | NOT NULL |  | CHECK `status IN ('ready','detected','missing_tool','stale')` |
+| `confirmed_by` | TEXT | nullable |  |  |
+| `detected_at` | TEXT | NOT NULL |  |  |
+| `evidence_hash` | TEXT | NOT NULL |  |  |
+| `overrides_json` | TEXT | nullable |  |  |
+| `waivers_json` | TEXT | nullable |  |  |
+| `declined_json` | TEXT | nullable |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+
+Table constraints:
+
+- UNIQUE `(repo, package_path, ecosystem)`
 
 ### `milestones`
 
@@ -973,6 +1018,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | From | Column(s) | → To | ON DELETE |
 |---|---|---|---|
 | `repo_remotes` | `repo` | `repos(name)` | CASCADE |
+| `repo_env` | `repo` | `repos(name)` | CASCADE |
 | `milestones` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
@@ -1058,6 +1104,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_wm_concept_claims_concept` | `wm_concept_claims` | `concept_id` |  |  |
 | `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
 | `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
+| _UNIQUE constraint_ | `repo_env` | `repo, package_path, ecosystem` | yes | |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
 | _UNIQUE constraint_ | `agent_run_tool_output` | `run_id, tool_name` | yes | |
@@ -1128,6 +1175,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 - `repo` on `issues`, `tasks`, `audit`, `discussions`, `validation_attempts`, `agent_runs` → `repos.name` (`ON DELETE RESTRICT`): populated at write time — `audit` and `discussions` from the parent issue's repo (an explicit `repo` wins; NULL for the system issue `-1`), `validation_attempts` from the task's repo else its issue's, `agent_runs` from the task's repo. `pr_review_runs.repo` holds the remote's host slug, not a `repos.name`, and carries no FK.
 - `milestones.repo` → `repos.name` and `issues.(milestone, repo)` → `milestones.(name, repo)` (`ON DELETE RESTRICT`): a milestone belongs to one repo, and an issue's milestone is scoped to the issue's repo; the composite FK is nullable, so an issue need not carry a milestone.
 - `repo_remotes.repo` → `repos.name` (`ON DELETE CASCADE ON UPDATE CASCADE`): a repo's git remotes go with the repo, and follow a rename.
+- `repo_env.repo` → `repos.name` (`ON DELETE CASCADE ON UPDATE CASCADE`, v58, GH 2066): a repo's toolchain profiles go with the repo; `repo_rename` moves them explicitly through `REPO_FK_CHILDREN`, since it runs with foreign keys off.
 - `cheatcode_attachments.cheatcode_id` → `cheatcodes.id` (`ON DELETE CASCADE`): what an install wired, so `cheatcode_uninstall` reverses exactly it.
 - `discussions_embeddings` / `audit_embeddings` → `discussions.id` / `audit.id` (`ON DELETE CASCADE`): one embedding per source row.
 
@@ -1147,8 +1195,9 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (`source_url` NULL, `file_path` set); `'marketplace'` = acquired from a registered Claude Code marketplace ref and `'external'` = acquired from a raw external repo URL, both through the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, acquired rows carry `source_url`, builtin rows do not). `status` has no CHECK: builtin skills move `draft` → `pending_review` → `active` → `deprecated` through `skill_register` / `skill_promote`, installs move between `installed`, `active` and `broken` (see ENUMS). The natural key is `UNIQUE (name, kind)` (schema v32): a plugin and the MCP server it bundles share a name (`linear` plugin → `linear` server), and both rows coexist. A plugin-bundled server discovered by `/scan` carries `source_url = 'mcp:<plugin>/<server>'`. |
 | `agents` | Agent registry: one row per backbone agent or consultant. `file_path` names the root the prompt file ships from — `plugin:` (relative to the installed plugin root: the backbone `agents/*.md` and the consultant `templates/agents/*.md` seeds) or `project:` (relative to the workspace root: `.claude/agents/<name>.md`) — the schema CHECK (`file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'`, schema v34) only tests the prefix, and SQLite's `LIKE` ignores case. The tools are the strict layer: `agent_register` / `agent_resolve` accept only a lower-case `plugin:` or `project:` marker followed by a non-empty path and refuse anything else with `invalid_file_path`. The backbone agents `swe` and `code-reviewer` must be `plugin:`: a `project:` file of the same name would shadow the backbone, so `agent_register` refuses it. Registering a `project:` path for a `plugin:` consultant promotes the row. `agent_list` (filter `root`), `agent_register` and `agent_resolve` return each row's absolute `resolved_path`. |
 | `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
-| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class. `name` is the primary key seven tables reference `ON DELETE RESTRICT` — `milestones`, `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `agent_runs` — plus `repo_remotes` `ON DELETE CASCADE`, and the world model keys every `wm_directories` / `wm_files` row on it; `pr_review_runs.repo` holds the remote's host slug, not a name. The name changes only through `repo_rename` (bro), which moves the row, all seven children and its `repo_remotes` rows, the `pr_review_runs` slug and the `wm_` rows in one transaction checked by `foreign_key_check` and records `repo_renamed`. `scan_run` never renames: a discovered repo whose canonical path or primary remote URL matches a row it did not rediscover is returned in `rename_candidates` with a `repo_rename_detected` audit row, and no second row is inserted. Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`; the remotes are its `repo_remotes` rows) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repo_remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
+| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class. `name` is the primary key seven tables reference `ON DELETE RESTRICT` — `milestones`, `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `agent_runs` — plus `repo_remotes` and `repo_env` `ON DELETE CASCADE`, and the world model keys every `wm_directories` / `wm_files` row on it; `pr_review_runs.repo` holds the remote's host slug, not a name. The name changes only through `repo_rename` (bro), which moves the row, all seven children and its `repo_remotes` and `repo_env` rows, the `pr_review_runs` slug and the `wm_` rows in one transaction checked by `foreign_key_check` and records `repo_renamed`. `scan_run` never renames: a discovered repo whose canonical path or primary remote URL matches a row it did not rediscover is returned in `rename_candidates` with a `repo_rename_detected` audit row, and no second row is inserted. Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`; the remotes are its `repo_remotes` rows) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repo_remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
 | `repo_remotes` | A repo's git remotes, one row per `(repo, name)` (schema v35, GH 1225). `scan_run` and `onboard_apply` write them through `upsertRepoRemotes` (`src/repos/remotes.ts`), which replaces the set: vanished remotes go, the rest keep their `created_at`. `provider` comes from the URL host (`github`, `gitlab`, else `other`); `is_primary` marks `origin`, else the first remote. Every reader goes through one accessor per side — `repoRemotes` / `primaryRemote` in `src/repos/remotes.ts` for the server (issue sync, milestone sync, `pr_monitor`, `repo_rename`, `onboard_state_get`), `repoRemotes` in `src/hooks/lib/repo.ts` for hooks — and tool results still expose the list as `[{name, provider, url}]`, primary first. |
+| `repo_env` | A repo's toolchain profile, one row per `(repo, package_path, ecosystem)` (schema v58, GH 2066). Only `env_record` (bro) writes it, from the evidence `env_detect` reads (`src/env/collect.ts`, which runs nothing): `commands_json` holds the install, test, lint, format_check and typecheck candidates, each with its source, confidence and provenance; `evidence_hash` is the hash of the evidence the profile was resolved from, and `env_detect` reports a profile `drifted` when the current hash differs. `overrides_json`, `waivers_json` and `declined_json` are bro's own choices and survive a re-record that omits them; `env_get` returns `effective_commands`, the overrides over the commands. `confirmed_by` and `runner_prefix` stay NULL until a later step fills them. |
 | `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are reconciled from the remote and seeded (`v<next-patch>`) by `scan_run`, upserted by an explicit `issue_create` milestone, and closed by `milestone_close` or the remote. |
 | _(world model)_ | `wm_directories` + `wm_files` with FTS5 and embedding side tables, populated by `scan_run` via `src/graph.ts`. A derived cache: no foreign keys into the workflow tables, rebuilt by `/scan`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, `pr_review_bots`, `model_prices` (USD per 1M tokens per model, for `task_stats.cost_estimate`), and the onboard answers `headless_enforcement` / `sandbox_enforcement` / `bug_report_consent` (with `sandbox_settings`, the record of what TMB wrote into the project's sandbox block). The repo-scoped policy (`target_branch`, `branching_model`, `protected_branches` on the `repos` row, and the repo's `repo_remotes` rows) is NOT here (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) for the canonical key list. |

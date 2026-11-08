@@ -97,6 +97,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Metering backfill | `tools/agent-runs-backfill.ts` | `agent_runs_backfill` (bro: recover swe/code-reviewer/bro `agent_runs` from Claude Code transcripts on disk, `usage_source = 'backfill'`, dry run by default) |
 | Data contracts | `tools/trajectory-doctor.ts` | `trajectory_doctor` (bro, read-only: runs `DATA_CONTRACTS` from `src/data-contracts.ts`; `record: true` logs one `trajectory_doctor_run` audit row) |
 | Bug report | `tools/bug-report.ts` | `bug_report_draft` (bro only: drafts a redacted TMB bug report through the pure `src/bug-report/` modules (form, redact, render) and files nothing. It is refused unless `bug_report_consent` is `yes` or `user_asked` is true. `already_filed` comes from the newest `bug_report_filed` audit row with the same signature) |
+| Env | `tools/env.ts` | `env_detect` (any agent: the pure `src/env/` collector reads manifests, lockfiles, configs, CI steps and task-runner targets per package root and runs nothing), `env_record` (bro only: upserts `repo_env` profiles), `env_get` (profiles with `effective_commands`, overrides over commands) |
 
 Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid first-class roles: `bro`, `swe`, `code-reviewer`. Consultant roles (`architect`, `cto`, `ceo`, `pm`, and any user-created agent name) are accepted as open-enum values; the server grants them consultant-level access.
 
