@@ -87,6 +87,7 @@ interface AgentRunRow {
   duration_ms: number;
   completed_at: string | null;
   usage_source: string | null;
+  hook_block_tokens: number | null;
 }
 
 // USD per 1M tokens for one model (plugin_config.model_prices[<model>]).
@@ -355,15 +356,24 @@ function parseSince(raw: unknown): Date {
   return new Date(raw);
 }
 
+const WINDOW_SWE_RUNS_SQL = "agent_type = 'swe' AND started_at IS NOT NULL AND julianday(started_at) >= julianday(?)";
+
 function hookBlockWindow(db: StatsReader, since: Date, now: Date) {
   const runs = db.all<HookBlockRun>(
-    `SELECT ${HOOK_BLOCK_RUN_COLUMNS} FROM agent_runs
-      WHERE agent_type = 'swe' AND started_at IS NOT NULL AND julianday(started_at) >= julianday(?)
-      ORDER BY id`,
+    `SELECT ${HOOK_BLOCK_RUN_COLUMNS} FROM agent_runs WHERE ${WINDOW_SWE_RUNS_SQL} ORDER BY id`,
     [since.toISOString()],
   );
   const stats = hookBlockStats(db, runs, now);
   const blocks = stats.denials + stats.gate_failures;
+  const cost = db.get<{ hook_block_tokens: number; runs_with_cost: number; tokens_total: number }>(
+    `SELECT COALESCE(SUM(hook_block_tokens), 0) AS hook_block_tokens,
+            COUNT(hook_block_tokens) AS runs_with_cost,
+            COALESCE(SUM(${TOKENS_TOTAL_SQL}), 0) AS tokens_total
+       FROM agent_runs WHERE ${WINDOW_SWE_RUNS_SQL}`,
+    [since.toISOString()],
+  );
+  const hookBlockTokens = cost?.hook_block_tokens ?? 0;
+  const tokensTotal = cost?.tokens_total ?? 0;
   return {
     runs: runs.length,
     runs_with_blocks: [...stats.per_run.values()].filter((n) => n > 0).length,
@@ -371,6 +381,9 @@ function hookBlockWindow(db: StatsReader, since: Date, now: Date) {
     gate_failures: stats.gate_failures,
     blocks_per_run: runs.length === 0 ? 0 : Math.round((blocks / runs.length) * 100) / 100,
     by_reason: stats.by_reason,
+    hook_block_tokens: hookBlockTokens,
+    hook_block_share: tokensTotal === 0 ? 0 : Math.round((hookBlockTokens / tokensTotal) * 1000) / 1000,
+    runs_with_cost: cost?.runs_with_cost ?? 0,
   };
 }
 
@@ -421,11 +434,11 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
     {
       name: 'task_stats',
       description:
-        "Tokens, cost and duration of one task's swe and code-reviewer runs, with a per-spawn breakdown (usage_source, host, model, root_dir, exit_reason, hook_blocks). tokens_total sums tokens_in, tokens_out and both cache counts. " +
-        'cost_estimate (USD) prices rows by plugin_config.model_prices[model]; rows with no priced model count as unpriced_tokens; cost_groups splits both by (host, model). ' +
-        'Also wall_clock_ms, review_fail_count, swe_spawn_count, rework_count (spawns - 1), reworks {fresh, resumed (through SendMessage)} each with count, wall_clock_ms, tool_uses, cache_read_tokens, ' +
-        'hook_blocks {denials, gate_failures (timed-out or crashed gates), by_reason} from hook_denied audit rows, and tool_output per agent_type: the top 10 tools by est_tokens (result chars / 4). ' +
-        'Pass task_id for one task, or since without task_id for {since, window {runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason}, tool_output}.',
+        "Tokens, cost and duration of one task's swe and code-reviewer runs, per spawn (usage_source, host, model, root_dir, exit_reason, hook_blocks, hook_block_tokens: context of the turn after each block, null if unmeasured). tokens_total = tokens_in + tokens_out + both caches. " +
+        'cost_estimate (USD) prices rows by plugin_config.model_prices[model]; unpriced rows count as unpriced_tokens; cost_groups splits both by (host, model). ' +
+        'Also wall_clock_ms, review_fail_count, swe_spawn_count, rework_count (spawns - 1), reworks {fresh, resumed (SendMessage)} each with count, wall_clock_ms, tool_uses, cache_read_tokens, ' +
+        'hook_blocks {denials, gate_failures (timed out/crashed), by_reason} from hook_denied audit, hook_block_tokens (task total), and tool_output per agent_type: top 10 tools by est_tokens (chars / 4). ' +
+        'task_id for one task, or since alone for {since, window {runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason, hook_block_tokens, hook_block_share (of swe tokens_total), runs_with_cost}, tool_output}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -506,7 +519,7 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
 
         const spawns = db.all<AgentRunRow>(
           `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
-          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
+          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source, hook_block_tokens' +
           ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
           [taskId],
         );
@@ -526,6 +539,7 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
           cost_groups: cost.groups,
           ...reworkStats(db, taskId, clock()),
           hook_blocks: hookBlocks,
+          hook_block_tokens: spawns.reduce((sum, s) => sum + (s.hook_block_tokens ?? 0), 0),
           tool_output: toolOutputStats(db, `r.task_id = ? AND r.${TASK_COST_AGENTS_SQL}`, [taskId]),
           spawns: spawns.map((s) => ({ ...s, hook_blocks: blocks.per_run.get(s.id) ?? 0 })),
         });
