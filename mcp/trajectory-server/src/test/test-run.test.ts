@@ -293,6 +293,21 @@ describe('test-run wrapper', () => {
     assert.equal(r.log, 'a\nb\nc\n');
   });
 
+  it('passes the argv after -- to the child unchanged, with no shell (GH 2438)', () => {
+    // A quoted argument with a pipe survived the caller's shell as one argv
+    // element; joining and re-running it through bash -c split it again.
+    const logPath = join(dir, `run-${n++}.log`);
+    const script = 'console.log(JSON.stringify(process.argv.slice(1)))';
+    const arg = 'GH 1954|GH 1834';
+    const res = spawnSync(
+      process.execPath,
+      [WRAPPER, '--log', logPath, '--', process.execPath, '-e', script, arg],
+      { cwd: dir, encoding: 'utf8' },
+    );
+    assert.ok(SUMMARY_RE.test(res.stdout.trim().split('\n')[0]!));
+    assert.deepEqual(JSON.parse(readFileSync(logPath, 'utf8').trim()), [arg]);
+  });
+
   it('writes the default log under the temp dir', () => {
     const res = spawnSync(process.execPath, [WRAPPER, '--', 'true'], {
       cwd: dir,

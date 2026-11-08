@@ -1,10 +1,11 @@
 /**
  * `node dist/test-run.js [--log <path>] [--max-lines <n>] -- <command>` (GH 1907):
- * runs one test command with `bash -c`, writes its combined raw output to a
- * log file and prints one summary line plus capped failure excerpts instead of
- * the full output. Recognises node TAP, node spec and tests/lib/assert.sh
- * output; anything else prints its tail on a non-zero exit. A full suite
- * (isFullSuite) first waits for a suite slot (suite-lock.ts, GH 2092).
+ * runs one test command — a single string through `bash -c`, or several words
+ * as an argv with no shell — writes its combined raw output to a log file and
+ * prints one summary line plus capped failure excerpts instead of the full
+ * output. Recognises node TAP, node spec and tests/lib/assert.sh output;
+ * anything else prints its tail on a non-zero exit. A full suite (isFullSuite)
+ * first waits for a suite slot (suite-lock.ts, GH 2092).
  */
 import { spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
@@ -26,6 +27,8 @@ interface Options {
   log: string;
   maxLines: number;
   command: string;
+  /** The raw argv after `--`, run directly when it has more than one word. */
+  argv: string[];
 }
 
 const DEFAULT_MAX_LINES = 40;
@@ -43,8 +46,9 @@ function parseArgs(argv: string[]): Options | null {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') {
-      const command = argv.slice(i + 1).join(' ');
-      return command.trim() === '' ? null : { log: resolve(log), maxLines, command };
+      const childArgv = argv.slice(i + 1);
+      const command = childArgv.join(' ');
+      return command.trim() === '' ? null : { log: resolve(log), maxLines, command, argv: childArgv };
     }
     const value = argv[i + 1];
     if (value === undefined) return null;
@@ -247,7 +251,13 @@ async function main(argv: string[]): Promise<number> {
   const started = performance.now();
   let rc: number;
   try {
-    const result = spawnSync('bash', ['-c', opts.command], { stdio: ['ignore', fd, fd], env });
+    const result =
+      opts.argv.length === 1
+        ? // A single string is a shell command by contract (`printf ...; exit 3`).
+          spawnSync('bash', ['-c', opts.command], { stdio: ['ignore', fd, fd], env })
+        : // Several words are an argv already split by the caller's shell; a
+          // second bash -c would split quoted arguments again (GH 2438).
+          spawnSync(opts.argv[0]!, opts.argv.slice(1), { stdio: ['ignore', fd, fd], env });
     rc = result.error ? 127 : exitCode(result.status, result.signal);
   } finally {
     closeSync(fd);
