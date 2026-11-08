@@ -43,6 +43,7 @@ import {
   stripTrailingNewlines,
   sweContext,
 } from './lib/db.js';
+import { type DenyFix, denyJson } from './lib/deny.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { ctypeUtf8, pluginName, posixDirname, shellPwd, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
@@ -60,12 +61,24 @@ export const UNJUDGED_PHRASE = 'cannot be judged:';
 
 /** Why each never-judged target is denied; router/records.ts relies on no text holding a double quote. */
 export const NEVER_JUDGED: Readonly<Record<string, string>> = {
-  '$(parse)': 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.',
+  '$(parse)': 'the command could not be parsed, so its write targets are unknown.',
   '$(computed)':
-    'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.',
+    'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes.',
   '$(unproven)':
-    'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file; for eval, run each command directly instead of through eval.',
+    'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes.',
 };
+
+/** The allowed form for each never-judged target; like NEVER_JUDGED, no text holds a double quote. */
+export const NEVER_JUDGED_FIX: Readonly<Record<string, { readonly allowed: string }>> = {
+  '$(parse)': { allowed: 'the same command split into simpler commands with plain quoting' },
+  '$(computed)': { allowed: 'Edit or Write on the literal path, or a Bash command whose write target is a literal path' },
+  '$(unproven)': {
+    allowed: 'Edit or Write, a plain read-only one-liner, or a script file; for eval, each command run directly instead of through eval',
+  },
+};
+
+/** The allowed form for a write target behind a variable the guard cannot resolve. */
+export const UNRESOLVED_FIX = { allowed: 'the same command with the path inlined, or with the variable set in the same command' } as const;
 
 /** What a `$(...)` capture of a command's output keeps. */
 function capture(text: string): string {
@@ -171,12 +184,14 @@ class Guard {
     );
   }
 
-  deny(path: string, given = ''): never {
+  deny(path: string, given = '', givenFix?: DenyFix): never {
     let reason = given;
+    let fix = givenFix;
     let why = '';
     if (this.unbound) {
       why = `unbound_caller: ${this.agentId ? `swe agent_id ${this.agentId}: ` : ''}${this.missing}`;
       reason = `BLOCKED: containment — this swe${this.agentId ? ` (agent_id ${this.agentId})` : ''} has no root to write under: ${this.missing}. An swe writes under <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt. Target: ${path}. Report this to bro.`;
+      fix = 'policy';
     }
     const content = jqCompact({
       tool: this.toolName,
@@ -202,12 +217,11 @@ class Guard {
     );
     if (written.error !== '') process.stderr.write(`${written.error}\n`);
     if (reason === '') {
-      reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put throwaway scripts, logs and data dumps in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/ (or /tmp/claude-${this.uid}); plans, decisions and analysis go in the trajectory DB.`;
+      const scratch = `${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/`;
+      reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); throwaway scripts, logs and data dumps go in ${scratch} (or /tmp/claude-${this.uid}); plans, decisions and analysis go in the trajectory DB.`;
+      fix = { allowed: `the same ${this.toolName} on a path under ${stripSlash(this.root)}/, or under ${scratch} for a scratch file` };
     }
-    const decision = jqCompact({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
-    });
-    throw new Denied({ stdout: `${written.stdout}${decision}\n`, code: 0 });
+    throw new Denied({ stdout: `${written.stdout}${denyJson(reason, fix ?? 'policy')}\n`, code: 0 });
   }
 
   /** The absolute path a write-position word names; null behind an unresolvable variable or command. A `resolved` absolute line names itself: each `$` in it is text bash keeps (GH 2443). */
@@ -243,7 +257,8 @@ class Guard {
       const expanded = this.expand(dir);
       if (expanded !== null && this.allowed(expanded)) return;
     }
-    this.deny(raw, `BLOCKED: write target "${raw}" ${UNJUDGED_PHRASE} ${unresolvedWhy(variable)}.`);
+    const { why, fix } = unresolvedWhy(variable);
+    this.deny(raw, `BLOCKED: write target "${raw}" ${UNJUDGED_PHRASE} ${why}.`, fix);
   }
 
   /** A .. leaves the root and a later name enters it again: the write lands on the root from outside. */
@@ -272,27 +287,43 @@ class Guard {
     if (this.climbsBack(path)) {
       this.deny(
         path,
-        `BLOCKED: containment — write target "${path}" leaves this run's root ${this.root} with .. and comes back into it, so it lands on the root from outside. Name the path from inside the root.`,
+        `BLOCKED: containment — write target "${path}" leaves this run's root ${this.root} with .. and comes back into it, so it lands on the root from outside.`,
+        { allowed: 'the same write with the path named from inside the root, without ..' },
       );
     }
     if (!this.allowed(path)) this.deny(path);
   }
 }
 
-function unresolvedWhy(variable: string): string {
+function unresolvedWhy(variable: string): { why: string; fix: DenyFix } {
   switch (variable) {
     case '$(proc)':
-      return 'comes from a process call in an inline program (subprocess, os.system, exec, spawn, …) whose command, arguments or cwd are not all plain literals, so the guard cannot tell what it writes; pass literal arguments, or run the command from the shell';
+      return {
+        why: 'comes from a process call in an inline program (subprocess, os.system, exec, spawn, …) whose command, arguments or cwd are not all plain literals, so the guard cannot tell what it writes',
+        fix: { allowed: 'the same process call with literal arguments, or the command run from the shell' },
+      };
     case '$(alias-write)':
-      return "is written through an aliased or stored write builtin the guard can't resolve; call open() (or the write method) directly with a literal path";
+      return {
+        why: "is written through an aliased or stored write builtin the guard can't resolve",
+        fix: { allowed: 'open() (or the write method) called directly with a literal path' },
+      };
     case '$()':
-      return 'is built by a command substitution or backticks the guard cannot evaluate; inline the path';
+      return {
+        why: 'is built by a command substitution or backticks the guard cannot evaluate',
+        fix: { allowed: 'the same command with the path inlined' },
+      };
     case 'PWD':
-      return 'is relative to a directory from a cd, pushd or popd the guard cannot resolve (cd -, popd, or a cd through a variable); cd to a literal path';
+      return {
+        why: 'is relative to a directory from a cd, pushd or popd the guard cannot resolve (cd -, popd, or a cd through a variable)',
+        fix: { allowed: 'the same command after a cd to a literal path' },
+      };
     case '':
-      return 'depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command';
+      return { why: 'depends on a variable the guard cannot resolve in this command', fix: UNRESOLVED_FIX };
     default:
-      return `depends on a variable the guard cannot resolve in this command: $${variable} is not set to a literal earlier in it; inline the path or set ${variable}=<path> in the same command`;
+      return {
+        why: `depends on a variable the guard cannot resolve in this command: $${variable} is not set to a literal earlier in it`,
+        fix: { allowed: `the same command with the path inlined, or with ${variable}=<path> set in the same command` },
+      };
   }
 }
 
@@ -322,12 +353,13 @@ async function judgeBash(g: Guard, input: string, analyze: WritePathsFn): Promis
     seen.add(word);
     const { variable, target } = splitUnresolved(word);
     if (variable !== null && Object.hasOwn(NEVER_JUDGED, variable)) {
-      g.deny(target, `BLOCKED: write target "${target}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED[variable]}`);
+      g.deny(target, `BLOCKED: write target "${target}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED[variable]}`, NEVER_JUDGED_FIX[variable]);
     }
     if (globClimbs(target)) {
       g.deny(
         target,
-        `BLOCKED: containment — write target "${target}" climbs with .. after a glob; the guard cannot tell where that lands. Name the directory without .. after a glob.`,
+        `BLOCKED: containment — write target "${target}" climbs with .. after a glob; the guard cannot tell where that lands.`,
+        { allowed: 'the same write with the directory named without .. after a glob' },
       );
     }
     const path = g.expand(target, variable === null);

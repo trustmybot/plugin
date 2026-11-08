@@ -10,14 +10,14 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=2 (tasks.effort) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"medium\\\". Pass effort=\\\"high\\\" on the Agent call. To run it at another effort, change the task first: task_reopen(task_id=2, effort=...) for rework, task_retry(effort=...) for a retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=2 (tasks.effort) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"medium\\\". To run it at another effort, change the task first: task_reopen(task_id=2, effort=...) for rework, task_retry(effort=...) for a retry. Allowed form: the same Agent call with effort=\\\"high\\\"\"}}\n"
     }
   },
   "03-swe-without-effort-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=1 (tasks.effort) runs at effort \\\"medium\\\", but the Agent call passed no effort. Pass effort=\\\"medium\\\" on the Agent call. To run it at another effort, change the task first: task_reopen(task_id=1, effort=...) for rework, task_retry(effort=...) for a retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=1 (tasks.effort) runs at effort \\\"medium\\\", but the Agent call passed no effort. To run it at another effort, change the task first: task_reopen(task_id=1, effort=...) for rework, task_retry(effort=...) for a retry. Allowed form: the same Agent call with effort=\\\"medium\\\"\"}}\n"
     }
   },
   "04-swe-without-task-id-allows.json": {
@@ -45,7 +45,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"high\\\". Pass effort=\\\"medium\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"high\\\". To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...). Allowed form: the same Agent call with effort=\\\"medium\\\"\"}}\n"
     }
   },
   "08-reviewer-configured-low-allows.json": {
@@ -59,28 +59,28 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"high\\\". Pass effort=\\\"low\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"high\\\". To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...). Allowed form: the same Agent call with effort=\\\"low\\\"\"}}\n"
     }
   },
   "10-db-without-effort-column-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet. Restart Claude Code so the server migrates the DB, then retry the spawn.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet; a Claude Code restart lets the server migrate it. This is policy: stop and report.\"}}\n"
     }
   },
   "11-swe-corrupt-db-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-spawn-effort could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-spawn-effort could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}}\n"
     }
   },
   "12-reviewer-corrupt-db-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-spawn-effort could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-spawn-effort could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}}\n"
     }
   },
   "13-other-agent-allows.json": {
@@ -101,14 +101,14 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"1\\\". Pass effort=\\\"medium\\\" on the Agent call. To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...).\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer (plugin_config.reviewer_effort, medium when unset) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"1\\\". To change it for every review, config_set(key=\\\"reviewer_effort\\\", value=...). Allowed form: the same Agent call with effort=\\\"medium\\\"\"}}\n"
     }
   },
   "16-colon-task-id-boolean-effort-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=5 (tasks.effort) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"true\\\". Pass effort=\\\"low\\\" on the Agent call. To run it at another effort, change the task first: task_reopen(task_id=5, effort=...) for rework, task_retry(effort=...) for a retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=5 (tasks.effort) runs at effort \\\"low\\\", but the Agent call passed effort=\\\"true\\\". To run it at another effort, change the task first: task_reopen(task_id=5, effort=...) for rework, task_retry(effort=...) for a retry. Allowed form: the same Agent call with effort=\\\"low\\\"\"}}\n"
     }
   },
   "17-absent-db-allows.json": {

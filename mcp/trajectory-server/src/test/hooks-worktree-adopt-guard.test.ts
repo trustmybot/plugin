@@ -113,7 +113,7 @@ describe('worktree-adopt-guard (GH 2032)', () => {
         for (const asked of [linked, main, other]) {
           const reason = await run(payload(tool, asked), sessionRoot);
           assert.match(reason ?? '', /no worktree may be adopted/, `${sessionRoot} ${asked}`);
-          assert.match(reason ?? '', new RegExp(`Call ${tool} without adopt_worktree`));
+          assert.match(reason ?? '', new RegExp(`Allowed form: the same ${tool} call without adopt_worktree`));
         }
       }
     });

@@ -14,6 +14,7 @@
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { isCodeReviewerSpawn, spawnDeny, spawnField } from './code-reviewer-no-worktree.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlInt } from './lib/db.js';
+import type { DenyFix } from './lib/deny.js';
 import { grepMultibyte, grepSpace } from './lib/lint-shell.js';
 
 export const GATE_NAME = 'code-reviewer-after-atomic-close';
@@ -27,9 +28,11 @@ Per tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), 
   2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
   3. ONLY THEN: spawn code-reviewer for the push gate.
 
-SWE returning completed does not close the trajectory task — that is bro_atomic_close.
+SWE returning completed does not close the trajectory task — that is bro_atomic_close.`;
+}
 
-Fix: call bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.`;
+export function notClosedFix(taskId: string): DenyFix {
+  return { allowed: `bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...'), then the same spawn` };
 }
 
 /** `printf '%s' "$PROMPT" | grep -Eo 'task_id[[:space:]]*=[[:space:]]*[0-9]+' | head -1 | grep -Eo '[0-9]+' | head -1`. */
@@ -54,5 +57,5 @@ export const codeReviewerAfterAtomicClose: SyncGate = (payload, env): GateResult
   const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
   if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
   if (status === '' || status === 'closed') return ALLOW;
-  return spawnDeny(notClosedReason(taskId, status));
+  return spawnDeny(notClosedReason(taskId, status), notClosedFix(taskId));
 };

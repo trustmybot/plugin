@@ -219,7 +219,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -246,7 +246,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "tmb_db_write: reviewer-identity-observe: Parse error near line 3: table audit has no column named repo\n",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/old/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — reviewer-identity-observe could not read @SANDBOX@/old/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

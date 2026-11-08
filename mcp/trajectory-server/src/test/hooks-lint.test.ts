@@ -16,11 +16,13 @@ import { fileURLToPath } from 'node:url';
 import { attributionFooter, normalizeFooter, TMB_FOOTER } from '../hooks/attribution-footer.js';
 import { codeQualityLint } from '../hooks/code-quality-lint.js';
 import { commitMsgLint } from '../hooks/commit-msg-lint.js';
-import { PARSE_REASON } from '../hooks/git-guards.js';
+import { PARSE_FIX, PARSE_REASON as PARSE_TEXT } from '../hooks/git-guards.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { namingLint } from '../hooks/naming-lint.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { LINT_GATES, lintSandbox, type LintSandbox } from './lint-hooks-sandbox.js';
 
+const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const BARE_FOOTER = '🤖 Generated with [Claude Code](https://claude.com/claude-code)';
 

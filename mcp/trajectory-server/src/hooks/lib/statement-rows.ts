@@ -3,9 +3,7 @@
  * loop and the tmb_payload_cwd capture the git branch guards share (GH 1692).
  */
 import type { Statement } from '../cmd-analysis/index.js';
-import type { GateResult } from '../gate.js';
 import { stripTrailingNewlines } from './db.js';
-import { jqCompact } from './jq.js';
 import { jqCapture, type JqInput } from './jq-raw.js';
 import { shellPwd } from './project-env.js';
 
@@ -40,10 +38,4 @@ export function statementRows(statements: readonly Statement[]): Statement[] {
 /** tmb_payload_cwd: the payload's `.cwd // empty`, else $PWD. */
 export function payloadCwdOf(input: JqInput, env: NodeJS.ProcessEnv = process.env): string {
   return jqCapture(input, ['cwd'], true) || shellPwd(env);
-}
-
-/** The PreToolUse deny of <reason> as `jq -nc --arg reason …` prints it. */
-export function denyResult(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
 }

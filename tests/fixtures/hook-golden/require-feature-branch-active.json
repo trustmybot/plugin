@@ -10,28 +10,28 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 3 needs branch feat/missing to exist first — bro pre-creates it (\\\"git -C @SANDBOX@/project branch feat/missing origin/dev\\\") and stays on dev; SWE's worktree owns the branch.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 3 needs branch feat/missing to exist first — bro pre-creates it and stays on dev; SWE's worktree owns the branch. Allowed form: git -C @SANDBOX@/project branch feat/missing origin/dev, then the same spawn\"}}\n"
     }
   },
   "03-missing-branch-remoteless-no-parent-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 16 needs branch feat/nope to exist first — bro pre-creates it (\\\"git -C @SANDBOX@/remoteless branch feat/nope <base>\\\") and stays on <base>; SWE's worktree owns the branch.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 16 needs branch feat/nope to exist first — bro pre-creates it and stays on <base>; SWE's worktree owns the branch. Allowed form: git -C @SANDBOX@/remoteless branch feat/nope <base>, then the same spawn\"}}\n"
     }
   },
   "04-unregistered-repo-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 15. tasks.repo=ghost does not point to a git repo at @SANDBOX@/project/ghost. Verify the path is correct.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 15. tasks.repo=ghost does not point to a git repo at @SANDBOX@/project/ghost; the repos row needs its path checked. This is policy: stop and report.\"}}\n"
     }
   },
   "05-null-repo-multi-repo-workspace-denies.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 1. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 1. tasks.repo IS NULL and no single registered repo could be resolved. A multi-repo workspace needs the task's repo set so it maps to a repos row. Allowed form: task_create with repo=<name> for task 1's work, then the same spawn\"}}\n"
     }
   },
   "06-relative-repo-path-allows.json": {
@@ -73,7 +73,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-feature-branch-active could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — require-feature-branch-active could not read @SANDBOX@/bad.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}}\n"
     }
   },
   "12-branch-on-main-checkout-exists-allows.json": {

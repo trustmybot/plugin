@@ -6,5 +6,5 @@
   "tool_input": {
     "command": "cd @SANDBOX@/ghf && git switch feat/x || git merge --ff-only @{u}"
   },
-  "corpus_expect": "To sync a branch with its own upstream"
+  "corpus_expect": "Syncing a branch with its own upstream"
 }

@@ -79,7 +79,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
     const out = run(proj, payload('audit_append', 'code-reviewer', 'bro', 42)).stdout;
     assert.equal(decision(out), 'deny', 'denied');
     assert.ok(
-      out.includes("BLOCKED: audit_append called with agent='bro' but the caller is a code-reviewer subagent; pass agent='code-reviewer'."),
+      out.includes("BLOCKED: audit_append called with agent='bro' but the caller is a code-reviewer subagent. Allowed form: the same audit_append call with agent='code-reviewer'"),
       'reason names tool and both values',
     );
     assert.equal(rows(), '1', 'one row written');
@@ -98,7 +98,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
   it("a swe subagent passing agent='bro' is denied", () => {
     const out = run(proj, payload('bro_atomic_close', 'tmb:swe', 'bro')).stdout;
     assert.equal(decision(out), 'deny', 'denied');
-    assert.ok(out.includes("pass agent='swe'"), "reason names the caller's role");
+    assert.ok(out.includes("call with agent='swe'"), "reason names the caller's role");
     assert.equal(rows(), '2', 'second row written');
     assert.equal(query(db, "SELECT issue_id FROM audit WHERE event_type = 'agent_arg_mismatch' ORDER BY id DESC LIMIT 1"), '-1', 'no task_id: row on the system issue');
   });
@@ -110,7 +110,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
   it("the main session passing agent='swe' is denied", () => {
     const out = run(proj, payload('task_update_status', '', 'swe', 42)).stdout;
     assert.equal(decision(out), 'deny', 'denied');
-    assert.ok(out.includes("but the caller is the main session (bro); pass agent='bro'."), 'reason names the main session');
+    assert.ok(out.includes("but the caller is the main session (bro). Allowed form: the same"), 'reason names the main session');
     assert.equal(rows(), '3', 'third row written');
   });
 
@@ -118,7 +118,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
     assert.equal(decision(run(proj, payload('discussion_append', 'cto', 'cto')).stdout), 'allow', 'allowed');
     const out = run(proj, payload('issue_create', 'cto', 'bro')).stdout;
     assert.equal(decision(out), 'deny', 'denied');
-    assert.ok(out.includes("a cto subagent; pass agent='cto'"), 'reason names the consultant');
+    assert.ok(out.includes("a cto subagent. Allowed form: the same"), 'reason names the consultant');
     assert.equal(rows(), '4', 'fourth row written');
   });
 
@@ -146,7 +146,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
     writeFileSync(join(broken, '.claude/tmb/trajectory.db'), 'not a database');
     const out = run(broken, payload('audit_append', 'code-reviewer', 'bro', 42)).stdout;
     assert.equal(decision(out), 'deny', 'mismatch denied');
-    assert.ok(out.includes("pass agent='code-reviewer'"), 'the mismatch reason, not the db-unavailable one');
+    assert.ok(out.includes("call with agent='code-reviewer'"), 'the mismatch reason, not the db-unavailable one');
     assert.equal(decision(run(broken, payload('audit_append', 'code-reviewer', 'code-reviewer', 42)).stdout), 'allow', 'match allowed');
   });
 
@@ -175,7 +175,7 @@ describe('agent-arg-matches-caller: the agent arg names the calling role', () =>
     };
     let out = chain(vr('bro', 'tu-vr1')).stdout;
     assert.equal(decision(out), 'deny', 'denied');
-    assert.ok(out.includes("pass agent='code-reviewer'"), "agent-arg-matches-caller's reason");
+    assert.ok(out.includes("call with agent='code-reviewer'"), "agent-arg-matches-caller's reason");
     assert.equal(observed(), '0', 'no observation row');
     out = chain(vr('code-reviewer', 'tu-vr2')).stdout;
     assert.equal(decision(out), 'allow', 'the matching call is allowed');

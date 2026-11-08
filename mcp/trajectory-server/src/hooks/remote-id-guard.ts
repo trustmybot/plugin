@@ -25,7 +25,8 @@ import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { cmdStatements } from './cmd-analysis/index.js';
 import { auditAppend } from './lib/audit.js';
 import { dbPath, haveSqlite, sqliteRo, stripTrailingNewlines } from './lib/db.js';
-import { jqAlternatives, jqCompact, jqNumberLiteral } from './lib/jq.js';
+import { denyResult } from './lib/deny.js';
+import { jqAlternatives, jqNumberLiteral } from './lib/jq.js';
 
 export const GATE_NAME = 'remote-id-guard';
 
@@ -161,11 +162,6 @@ export function printfB(text: string): string {
   return stripTrailingNewlines(Buffer.from(out.filter((b) => b !== 0)).toString('utf8'));
 }
 
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
-}
-
 function offense(n: string, row: string, provider: Provider): string {
   const gh = cut(row, 1, false);
   const gl = cut(row, 2, false);
@@ -203,8 +199,9 @@ async function analyze(payload: string, env: NodeJS.ProcessEnv, overran: () => b
   const offenses = tokens.map((n) => (rows.has(n) ? offense(n, rows.get(n) ?? '', provider) : '')).join('');
   if (offenses === '') return ALLOW;
 
-  return deny(
-    `BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\n${printfB(offenses)}\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)`,
+  return denyResult(
+    `BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\n${printfB(offenses)}\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)`,
+    { allowed: 'the same command with each local #N replaced by the remote iid shown above' },
   );
 }
 

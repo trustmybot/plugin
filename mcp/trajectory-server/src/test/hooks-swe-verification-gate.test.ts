@@ -342,7 +342,7 @@ printf 'end %s %s\\n' "$1" "$(stamp)" >> "$MARKS"
       const out = decision(r.stdout);
       assert.equal(out.permissionDecision, 'deny');
       assert.match(out.permissionDecisionReason ?? '', new RegExp(`^BLOCKED: suite slot busy — every suite slot is held by pid ${process.pid} \\(worktree /w/other\\) for \\d+s; waited \\d+s, the cap of 3s \\(set by TMB_SUITE_WAIT_CAP_S\\)`));
-      assert.match(out.permissionDecisionReason ?? '', /Retry task_update_status/);
+      assert.match(out.permissionDecisionReason ?? '', /Allowed form: task_update_status\(status='completed', commit_sha, report\) again once that suite finishes$/);
       assert.deepEqual(runs(52), []);
     } finally {
       if (held.kind === 'held') held.release();
