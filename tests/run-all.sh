@@ -283,7 +283,7 @@ fi
 printf "\n========================================\n"
 if [ "$FAIL" -eq 0 ]; then
   printf "All test layers passed (L1 + L2 + L3 + L4).\n"
-  printf "L0 install-smoke is separate: run bash tests/l0-install/run-install-smoke.sh with Docker before a PR (release-gate also runs it on rc tags).\n"
+  printf "L0 install-smoke is separate: run node --experimental-strip-types tests/l0-install/run-docker.ts install with Docker before a PR (release-gate also runs it on rc tags).\n"
   exit 0
 else
   printf "One or more layers FAILED. See output above.\n"

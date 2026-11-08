@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 58, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 59, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -479,7 +479,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     stop_cause           TEXT CHECK (stop_cause IN ('budget','hook_block')),
     -- stop_detail (GH 1905; schema v52): the deny text of a hook_block stop
     -- capped at 500 characters. NULL on every other stop. Keep this comment comma-free.
-    stop_detail          TEXT
+    stop_detail          TEXT,
+    -- hook_block_tokens (GH 1915; schema v59): the swe run's block-turn cost. For each
+    -- PreToolUse hook block in the run the context size of the first assistant entry
+    -- after it. The swe-stop-cause gate writes it at SubagentStop with stop_cause
+    -- (0 for a run with no blocks). NULL on unmeasured runs. Keep this comment comma-free.
+    hook_block_tokens    INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

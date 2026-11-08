@@ -14,9 +14,17 @@
  *     an error (a 'failed' call is no report);
  *   - else both NULL.
  *
+ * The same UPDATE sets hook_block_tokens (GH 1915; schema v59), the run's
+ * block-turn cost: for each tool_result in the window that is an error whose
+ * text starts `PreToolUse:<tool> hook error:` (denials and timed-out gates
+ * alike), the context size of the first assistant entry after it (input,
+ * cache-read and cache-creation input tokens; a block with no later assistant
+ * entry adds 0), so a run with no blocks gets 0. A DB below v59 gets the
+ * other two columns only.
+ *
  * The row is the newest swe row of task TMB_STOP_TASK_ID keyed by spawn_id
  * TMB_STOP_SPAWN_ID. Never denies: it always exits 0 with empty stdout, and a
- * missing DB, transcript or env value or a failed read or write changes nothing.
+ * missing DB or env value or a failed read or write changes nothing.
  */
 import { readFileSync } from 'node:fs';
 import { ALLOW, type GateResult } from './gate.js';
@@ -97,6 +105,54 @@ export function hookBlockDetail(transcriptText: string, sinceMs: number): string
   return last.text.slice(0, STOP_DETAIL_MAX_CHARS);
 }
 
+export interface HookBlockCost {
+  blocks: number;
+  tokens: number;
+}
+
+const usageCount = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0);
+
+function contextTokens(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const u = usage as Record<string, unknown>;
+  return usageCount(u.input_tokens) + usageCount(u.cache_read_input_tokens) + usageCount(u.cache_creation_input_tokens);
+}
+
+/** The run window's PreToolUse hook blocks and their summed block-turn cost: each block costs the context size of the first assistant entry after it, 0 when none follows. */
+export function hookBlockCost(transcriptText: string, sinceMs: number): HookBlockCost {
+  let blocks = 0;
+  let tokens = 0;
+  let unpriced = 0;
+  for (const line of transcriptText.split('\n')) {
+    if (line.trim() === '') continue;
+    let entry: { type?: unknown; timestamp?: unknown; message?: { role?: unknown; content?: unknown; usage?: unknown } };
+    try {
+      entry = JSON.parse(line) as typeof entry;
+    } catch {
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    if (entry.type === 'assistant' || entry.message?.role === 'assistant') {
+      if (unpriced > 0) tokens += unpriced * contextTokens(entry.message?.usage);
+      unpriced = 0;
+      continue;
+    }
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
+    if (Number.isNaN(ts) || ts < sinceMs) continue;
+    for (const raw of content) {
+      if (!raw || typeof raw !== 'object') continue;
+      const block = raw as Block;
+      if (block.type === 'tool_result' && block.is_error === true && HOOK_DENY_RE.test(resultText(block.content))) {
+        blocks += 1;
+        unpriced += 1;
+      }
+    }
+  }
+  return { blocks, tokens };
+}
+
 function readTranscript(path: string): string {
   if (path === '') return '';
   try {
@@ -111,7 +167,7 @@ export function stopCause(
   db: string,
   taskId: string,
   sinceMs: number,
-  transcriptPath: string,
+  transcriptText: string,
   env: NodeJS.ProcessEnv,
 ): Stop | null | undefined {
   const at = gateRead(
@@ -122,7 +178,7 @@ export function stopCause(
   if (at === GATE_READ_ERROR) return undefined;
   const atMs = at === '' ? NaN : Date.parse(at);
   if (!Number.isNaN(atMs) && atMs >= sinceMs) return { cause: 'budget', detail: null };
-  const detail = hookBlockDetail(readTranscript(transcriptPath), sinceMs);
+  const detail = hookBlockDetail(transcriptText, sinceMs);
   return detail === null ? null : { cause: 'hook_block', detail };
 }
 
@@ -136,11 +192,14 @@ export function sweStopCause(payload: string, env: NodeJS.ProcessEnv): GateResul
     if (taskId === '' || spawnId === '' || Number.isNaN(sinceMs)) return ALLOW;
     const db = dbPath(env);
     if (db === null || !haveSqlite(env)) return ALLOW;
-    const stop = stopCause(db, taskId, sinceMs, jqAlternatives(payload, [['agent_transcript_path']]), env);
+    const transcript = readTranscript(jqAlternatives(payload, [['agent_transcript_path']]));
+    const stop = stopCause(db, taskId, sinceMs, transcript, env);
     if (stop === undefined) return ALLOW;
+    const hasCost = gateRead(db, "SELECT COUNT(*) FROM pragma_table_info('agent_runs') WHERE name = 'hook_block_tokens';", env) === '1';
+    const cost = hasCost ? `, hook_block_tokens = ${hookBlockCost(transcript, sinceMs).tokens}` : '';
     dbWrite(
       db,
-      `UPDATE agent_runs SET stop_cause = ${sqlText(stop?.cause ?? null)}, stop_detail = ${sqlText(stop?.detail ?? null)}
+      `UPDATE agent_runs SET stop_cause = ${sqlText(stop?.cause ?? null)}, stop_detail = ${sqlText(stop?.detail ?? null)}${cost}
         WHERE id = (SELECT id FROM agent_runs
                      WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
                      ORDER BY id DESC LIMIT 1);`,
