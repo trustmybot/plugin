@@ -19,6 +19,7 @@ node --test tests/l1-lint/link-check.test.mjs
 | [`tsc-noemit.test.mjs`](./tsc-noemit.test.mjs) | TypeScript type errors (no emit) |
 | [`release-payload-workflow.test.mjs`](./release-payload-workflow.test.mjs) | `.github/workflows/release-payload.yml` losing its safety shape: tag-only triggers and the ref_name refusal, top-level `permissions: {}`, unpinned actions, the concurrency group, `--check` after the first push, a force push other than `stable-build` (parsed with `ruby -ryaml`; every run self-tests `fixtures/release-payload-workflow/`) |
 | [`ci-workflow-refs-exist.test.mjs`](./ci-workflow-refs-exist.test.mjs) | CI workflow references that don't resolve |
+| [`workflow-scripts-no-dist.test.mjs`](./workflow-scripts-no-dist.test.mjs) | A `.github/workflows/*.yml` run step executing a `scripts/` entry point (`node … scripts/<path>.(mjs\|js\|ts)`) whose static relative imports reach `trajectory-server/dist/` with no earlier `run build`, `run build:tsc` or `run build:payload` step in that job (GH 2610); every run self-tests a temp-dir fixture with and without the build step |
 
 ### Docs & doctrine parity
 | Script | Catches |
