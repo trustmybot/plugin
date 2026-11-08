@@ -133,6 +133,7 @@ describe('stay-on-base-guard l3', () => {
       const out = run('git checkout feat/open-task', repo);
       has(out, 'ambiguous_git_target', 'no dir and several checkouts: the real reason');
       has(out, 'Allowed form: git -C <path> checkout feat/open-task', 'the deny carries the remedy');
+      has(run("git checkout 'feat/open-task'", repo), "Allowed form: git -C <path> checkout 'feat/open-task'", 'the remedy keeps the command as written (GH 2536)');
     });
 
     it("DENY: 'git -C <main> checkout <open-task-branch>' while worktrees exist", () =>

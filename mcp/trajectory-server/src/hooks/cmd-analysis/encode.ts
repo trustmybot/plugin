@@ -220,6 +220,15 @@ export class Encoder {
     return this.spans(specials(node, [], this.charge, this.marks), node.startIndex, node.endIndex);
   }
 
+  /** [at, end) of `node`'s source, `at` a word's start, encoded as `word` encodes it. */
+  from(node: Node, at: number): string {
+    return this.spans(
+      specials(node, [], this.charge, this.marks).filter((s) => s.start >= at),
+      at,
+      node.endIndex,
+    );
+  }
+
   /** [from, to) of `node`'s source, encoded as unquoted shell text. */
   range(node: Node, from: number, to: number): string {
     const spans = node.children

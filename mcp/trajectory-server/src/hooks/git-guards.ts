@@ -22,12 +22,13 @@
  */
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements, cwdState, denyAmbiguousGitTarget, gitSubcommand, payloadCwd, stmtRepoRoot, stripLiterals } from './cmd-analysis/index.js';
+import { cmdStatements, cwdState, denyAmbiguousGitTarget, gitSubcommand, payloadCwd, type Statement, stmtRepoRoot, stripLiterals } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqAlternatives, jqCompact, jqRawElements, jsonStream } from './lib/jq.js';
 import { posixBasename } from './lib/project-env.js';
+import { lineStatements } from './lib/statement-rows.js';
 import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve } from './lib/repo.js';
 
 export const GATE_NAME = 'git-guards';
@@ -168,6 +169,7 @@ class GitGuards {
   private gitRoot = '';
   private prTarget = '';
   private protectedBranches = '';
+  private judging = 0;
 
   constructor(
     private readonly command: string,
@@ -175,6 +177,7 @@ class GitGuards {
     private readonly db: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly lines: string[],
+    private readonly owners: ReadonlyArray<Statement | undefined> = [],
   ) {
     const rows = lines.map(readRow);
     this.dirs = rows.map((r) => r.dir);
@@ -230,7 +233,11 @@ class GitGuards {
 
   /** need_dir: deny an ambiguous dir; false for an unknown or missing one. */
   private needDir(dir: string, stmt: string, unresolved: boolean): boolean {
-    if (dir === '?') throw new Denied({ stdout: denyAmbiguousGitTarget(stmt, unresolved), code: 0 });
+    if (dir === '?') {
+      const owner = this.owners[this.judging];
+      const src = this.stmts[this.judging] === stmt && owner?.stmt === stmt ? owner.src : undefined;
+      throw new Denied({ stdout: denyAmbiguousGitTarget({ stmt, src }, unresolved), code: 0 });
+    }
     if (dir === '-' || dir === '') return false;
     return isDir(dir);
   }
@@ -428,6 +435,7 @@ class GitGuards {
   }
 
   private async judge(idx: number): Promise<void> {
+    this.judging = idx;
     const stmt = this.stmts[idx];
     if (stmt === '') return;
     const sub = gitSubcommand(stmt);
@@ -479,5 +487,5 @@ export const gitGuards: Gate = async (payload, env) => {
   if (!listed.ok) return denyResult(PARSE_REASON, PARSE_FIX);
   const text = stripTrailingNewlines(listed.statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
   if (text === '') return ALLOW;
-  return await new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n')).run();
+  return await new GitGuards(command, cwd, dbPath(env) ?? '', env, text.split('\n'), lineStatements(listed.statements)).run();
 };
