@@ -1,21 +1,24 @@
 // node:test suite for run-all.ts's pure helpers: TMB_L1_SKIP matching, the unwired-lint self-check,
-// the HOME footprint filter, the mise env derivation from PATH, and the generated live-CLI stubs.
+// the HOME footprint filter, the mise env derivation from PATH, the post-L1 env, the generated live-CLI
+// stubs, and SIGINT/SIGTERM stopping a run (stub bun on PATH, so no real step runs).
 // Run: node --experimental-strip-types --test tests/run-all.test.ts
 
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, describe, test } from 'node:test';
 import {
+  abortSignal,
   homeLeaks,
   l1LintFiles,
   l1Skipped,
   l1Steps,
   miseEnv,
   parseArgs,
+  postL1Env,
   unwiredLints,
   walkTree,
   writeStubs,
@@ -104,6 +107,79 @@ describe('miseEnv', () => {
   test('no config dir when the derived home lacks .config/mise', () => {
     const env = miseEnv({ PATH: '/h/.local/share/mise/installs/node/bin' }, runTmp, () => false);
     assert.equal(env.MISE_CONFIG_DIR, undefined);
+  });
+});
+
+describe('postL1Env', () => {
+  test('TMB_L1_OFFLINE is dropped for L2-L4, every other var is kept', () => {
+    const env = postL1Env({ TMB_L1_OFFLINE: '1', PATH: '/usr/bin', TMB_DISABLE_REMOTE_SYNC: '1' });
+    assert.deepEqual(env, { PATH: '/usr/bin', TMB_DISABLE_REMOTE_SYNC: '1' });
+  });
+});
+
+describe('abortSignal', () => {
+  test('a received signal wins, else a SIGINT or SIGTERM that killed the child', () => {
+    assert.equal(abortSignal('SIGTERM', null), 'SIGTERM');
+    assert.equal(abortSignal('SIGINT', 'SIGTERM'), 'SIGINT');
+    assert.equal(abortSignal(undefined, 'SIGINT'), 'SIGINT');
+    assert.equal(abortSignal(undefined, 'SIGTERM'), 'SIGTERM');
+    assert.equal(abortSignal(undefined, 'SIGKILL'), undefined);
+    assert.equal(abortSignal(undefined, null), undefined);
+  });
+});
+
+describe('signals stop the run', () => {
+  const runAll = join(HERE, 'run-all.ts');
+
+  function fixture(bunBody: string): { env: NodeJS.ProcessEnv; tmp: string; root: string } {
+    const root = tempDir();
+    const bin = join(root, 'bin');
+    const tmp = join(root, 'tmp');
+    mkdirSync(bin);
+    mkdirSync(tmp);
+    writeFileSync(join(bin, 'bun'), `#!/usr/bin/env node\n${bunBody}\n`, { mode: 0o755 });
+    const PATH = [bin, dirname(process.execPath), process.env.PATH ?? ''].join(delimiter);
+    return { env: { ...process.env, PATH, TMPDIR: tmp }, tmp, root };
+  }
+
+  function runDirs(tmp: string): string[] {
+    return readdirSync(tmp).filter((name) => name.startsWith('tmb-run-all.'));
+  }
+
+  test('a step killed by SIGINT (Ctrl-C) ends the run with 130, no later step, temp dir removed', () => {
+    const { env, tmp } = fixture("process.kill(process.ppid, 'SIGINT');\nprocess.kill(process.pid, 'SIGINT');");
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', runAll, '--l1-only'], {
+      encoding: 'utf8',
+      env,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    assert.equal(r.status, 130, r.stdout);
+    assert.match(r.stdout, /=== Build: generated payload/);
+    assert.doesNotMatch(r.stdout, /=== L1 lint/);
+    assert.deepEqual(runDirs(tmp), []);
+  });
+
+  test('SIGTERM to the orchestrator stops the current step, exits 143 and removes the temp dir', async () => {
+    const { env, tmp, root } = fixture(
+      "require('node:fs').writeFileSync(require('node:path').join(__dirname, '..', 'bun.pid'), String(process.pid));\nsetInterval(() => {}, 1000);",
+    );
+    const child = spawn(process.execPath, ['--experimental-strip-types', runAll, '--l1-only'], { env });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => (stdout += chunk));
+    const closed = new Promise<number | null>((resolve) => child.once('close', (code) => resolve(code)));
+    const pidFile = join(root, 'bun.pid');
+    const deadline = Date.now() + 20000;
+    while (!existsSync(pidFile) || readFileSync(pidFile, 'utf8') === '') {
+      assert.ok(Date.now() < deadline, 'bun stub never started');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    child.kill('SIGTERM');
+    assert.equal(await closed, 143, stdout);
+    assert.doesNotMatch(stdout, /=== L1 lint/);
+    assert.deepEqual(runDirs(tmp), []);
+    const stubPid = Number(readFileSync(pidFile, 'utf8'));
+    assert.throws(() => process.kill(stubPid, 0), { code: 'ESRCH' });
   });
 });
 

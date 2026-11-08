@@ -10,7 +10,7 @@
 // TMB_L1_SKIP: space-separated lint basenames whose steps print SKIP instead of running.
 // A run started with an empty HOME must end with that HOME holding nothing but .cache/huggingface.
 
-import { spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -291,9 +291,49 @@ export function l4Steps(here: string): Step[] {
   ];
 }
 
-function runArgv(argv: string[], env: NodeJS.ProcessEnv, cwd?: string): boolean {
-  const r = spawnSync(argv[0], argv.slice(1), { stdio: 'inherit', env, cwd });
-  if (r.error) err(`${argv[0]}: ${r.error.message}\n`);
+/** The env for the steps after L1: TMB_L1_OFFLINE is unset, as run-all.sh did once L1 ended. */
+export function postL1Env(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { TMB_L1_OFFLINE: _offline, ...rest } = env;
+  return rest;
+}
+
+const SIGNAL_EXIT: Record<string, number> = { SIGINT: 130, SIGTERM: 143 };
+
+/** The signal that stops the run: one the orchestrator received, else one that killed the step's child. */
+export function abortSignal(received: NodeJS.Signals | undefined, childSignal: NodeJS.Signals | null): NodeJS.Signals | undefined {
+  if (received !== undefined) return received;
+  return childSignal !== null && childSignal in SIGNAL_EXIT ? childSignal : undefined;
+}
+
+class Aborted extends Error {
+  readonly signal: NodeJS.Signals;
+  constructor(signal: NodeJS.Signals) {
+    super(`aborted by ${signal}`);
+    this.signal = signal;
+  }
+}
+
+const active: { child?: ChildProcess; received?: NodeJS.Signals } = {};
+
+function onSignal(signal: NodeJS.Signals): void {
+  active.received ??= signal;
+  active.child?.kill(signal);
+}
+
+async function runArgv(argv: string[], env: NodeJS.ProcessEnv, cwd?: string): Promise<boolean> {
+  if (active.received !== undefined) throw new Aborted(active.received);
+  const r = await new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    const child = spawn(argv[0], argv.slice(1), { stdio: 'inherit', env, cwd });
+    active.child = child;
+    child.once('error', (e) => {
+      err(`${argv[0]}: ${e.message}\n`);
+      resolve({ status: null, signal: null });
+    });
+    child.once('close', (status, signal) => resolve({ status, signal }));
+  });
+  active.child = undefined;
+  const stop = abortSignal(active.received, r.signal);
+  if (stop !== undefined) throw new Aborted(stop);
   return r.status === 0;
 }
 
@@ -305,24 +345,25 @@ function emptyDir(dir: string): boolean {
   }
 }
 
-export function main(args: string[]): number {
+export async function main(args: string[]): Promise<number> {
   const { l1Only } = parseArgs(args);
   const runTmp = mkdtempSync(join(tmpdir(), 'tmb-run-all.'));
-  const cleanup = () => rmSync(runTmp, { recursive: true, force: true });
-  const onSignal = (code: number) => {
-    cleanup();
-    process.exit(code);
-  };
-  process.once('SIGINT', () => onSignal(130));
-  process.once('SIGTERM', () => onSignal(143));
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
   try {
-    return run(l1Only, runTmp);
+    return await run(l1Only, runTmp);
+  } catch (e) {
+    if (!(e instanceof Aborted)) throw e;
+    out(`\n→ ABORTED: ${e.signal}, no further steps run\n`);
+    return SIGNAL_EXIT[e.signal];
   } finally {
-    cleanup();
+    rmSync(runTmp, { recursive: true, force: true });
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
   }
 }
 
-function run(l1Only: boolean, runTmp: string): number {
+async function run(l1Only: boolean, runTmp: string): Promise<number> {
   let fail = false;
   const home = process.env.HOME ?? homedir();
   const homeIsolated = emptyDir(home);
@@ -343,11 +384,11 @@ function run(l1Only: boolean, runTmp: string): number {
   const forbidLive = { PATH: stubPath, TMB_FORBID_LIVE_SYNC: '1', TMB_SCAN_PLUGIN_JSON: scanPluginJson };
 
   const skipList = process.env.TMB_L1_SKIP;
-  const runStep = (label: string, argv: string[], env: NodeJS.ProcessEnv, check?: () => boolean) => {
+  const runStep = async (label: string, argv: string[], env: NodeJS.ProcessEnv, check?: () => boolean | Promise<boolean>) => {
     out(`\n=== ${label} ===\n`);
     if (l1Skipped(argv, skipList)) {
       out('→ SKIP (TMB_L1_SKIP)\n');
-    } else if (check ? check() : runArgv(argv, env)) {
+    } else if (await (check ? check() : runArgv(argv, env))) {
       out('→ PASS\n');
     } else {
       out('→ FAIL\n');
@@ -365,24 +406,25 @@ function run(l1Only: boolean, runTmp: string): number {
     }
   };
 
-  runStep('Build: generated payload (bun run build:payload)', ['bun', 'run', '--cwd', PLUGIN_ROOT, 'build:payload'], base);
+  await runStep('Build: generated payload (bun run build:payload)', ['bun', 'run', '--cwd', PLUGIN_ROOT, 'build:payload'], base);
 
   const l1Env = { ...base, PATH: stubPath, TMB_L1_OFFLINE: '1' };
   const steps = l1Steps(HERE);
-  for (const [label, argv] of steps) runStep(label, argv, l1Env);
-  runStep('L1 self-check: every tests/l1-lint/*.sh and *.test.mjs runs here', ['l1_lints_all_wired'], l1Env, () => {
+  for (const [label, argv] of steps) await runStep(label, argv, l1Env);
+  await runStep('L1 self-check: every tests/l1-lint/*.sh and *.test.mjs runs here', ['l1_lints_all_wired'], l1Env, () => {
     const missing = unwiredLints(l1LintFiles(join(HERE, 'l1-lint')), steps);
     for (const lint of missing) err(`  ✗ tests/l1-lint/${lint} has no step in tests/run-all.ts\n`);
     return missing.length === 0;
   });
-  runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
+  await runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
   liveCliCheck('L1');
   if (l1Only) return fail ? 1 : 0;
 
-  const l2Env = { ...base, ...forbidLive };
+  const afterL1 = postL1Env(base);
+  const l2Env = { ...afterL1, ...forbidLive };
   const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
-  runStep('L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs)', ['l2_unit'], l2Env, () => {
-    if (!runArgv(['bun', 'run', 'build'], l2Env, serverDir)) return false;
+  await runStep('L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs)', ['l2_unit'], l2Env, async () => {
+    if (!(await runArgv(['bun', 'run', 'build'], l2Env, serverDir))) return false;
     const testDir = join(serverDir, 'dist', 'test');
     const files = readdirSync(testDir)
       .filter((name) => name.endsWith('.test.js'))
@@ -392,14 +434,14 @@ function run(l1Only: boolean, runTmp: string): number {
       err(`no dist/test/*.test.js under ${serverDir}\n`);
       return false;
     }
-    return runArgv(['node', '--experimental-sqlite', '--test', ...files], l2Env, serverDir);
+    return await runArgv(['node', '--experimental-sqlite', '--test', ...files], l2Env, serverDir);
   });
   liveCliCheck('L2');
 
-  for (const [label, argv] of l3Steps(HERE)) runStep(label, argv, base);
+  for (const [label, argv] of l3Steps(HERE)) await runStep(label, argv, afterL1);
 
-  const l4Env = { ...base, ...forbidLive };
-  for (const [label, argv] of l4Steps(HERE)) runStep(label, argv, l4Env);
+  const l4Env = { ...afterL1, ...forbidLive };
+  for (const [label, argv] of l4Steps(HERE)) await runStep(label, argv, l4Env);
   liveCliCheck('L4');
 
   if (homeIsolated) {
@@ -426,5 +468,5 @@ function run(l1Only: boolean, runTmp: string): number {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }
