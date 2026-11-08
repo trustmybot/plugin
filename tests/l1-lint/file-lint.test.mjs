@@ -26,6 +26,10 @@ const ROOT = join(HERE, '..', '..');
 const RUNNER = join(HERE, 'file-lint.ts');
 const AWS_KEY = 'AKIA' + 'Q3VZ7RT2LMNB4KWD';
 
+// swe-edit-lint's glob match, lint-fingerprint.ts matchesInput: `*` and `**` match dot segments too.
+const maskDots = (s) => s.replace(/(^|\/)\./g, '$1\u0001');
+const matchesInput = (path, glob) => matchesGlob(path, glob) || matchesGlob(maskDots(path), maskDots(glob));
+
 function run(cwd, ...paths) {
   const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', RUNNER, ...paths], { cwd, encoding: 'utf8' });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
@@ -107,7 +111,7 @@ describe('planted trees', () => {
 
   test('a dot-directory path is matched by edit-lint.json and linted', () => {
     const config = JSON.parse(readFileSync(join(ROOT, '.config/tmb/edit-lint.json'), 'utf8'));
-    const matching = config.lints.filter((l) => matchesGlob('.github/x.yml', l.glob));
+    const matching = config.lints.filter((l) => matchesInput('.github/x.yml', l.glob));
     assert.equal(matching.length, 1, JSON.stringify(config.lints));
     assert.equal(matching[0].command, 'node --experimental-strip-types tests/l1-lint/file-lint.ts');
     const r = run(root, '.github/x.yml');
@@ -120,7 +124,7 @@ test('edit-lint.json globs run the runner exactly once on every kind of path', (
   const config = JSON.parse(readFileSync(join(ROOT, '.config/tmb/edit-lint.json'), 'utf8'));
   assert.equal(config.version, 1);
   for (const rel of ['README.md', 'scripts/lib/x.sh', '.gitignore', 'scripts/.hidden', '.github/workflows/ci.yml', '.config/tmb/edit-lint.json', 'scripts/.cache/x.sh']) {
-    const matching = config.lints.filter((l) => matchesGlob(rel, l.glob));
+    const matching = config.lints.filter((l) => matchesInput(rel, l.glob));
     assert.equal(matching.length, 1, `${rel}: ${matching.map((l) => l.glob).join(', ')}`);
   }
 });

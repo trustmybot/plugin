@@ -1,8 +1,8 @@
 /**
  * swe-edit-lint (GH 2570): a swe Write, Edit or MultiEdit runs the repo's
  * .config/tmb/edit-lint.json lints on the edited file, blocking on a failure
- * and staying silent otherwise; a command past the budget is killed with a
- * note, and a malformed config gives a note.
+ * and staying silent otherwise; `**` and `*` globs match dot paths, a command
+ * past the budget is killed with a note, and a malformed config gives a note.
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -120,6 +120,15 @@ describe('swe-edit-lint (GH 2570)', () => {
     assert.match(reason, /exited 3/);
     assert.match(reason, /first-ran/);
     assert.doesNotMatch(reason, /second-ran/);
+  });
+
+  it('matches a dot path such as .github/.foo.yml with a **/* glob (F641-1)', async () => {
+    const dots = makeRepo(root, 'dots', JSON.stringify({ version: 1, lints: [{ glob: '**/*', command: 'echo dot-path-linted; exit 5 #' }] }));
+    mkdirSync(join(dots, '.github'), { recursive: true });
+    writeFileSync(join(dots, '.github/.foo.yml'), 'x: 1\n');
+    const { reason } = block(await sweEditLint(post('Write', join(dots, '.github/.foo.yml')), env));
+    assert.match(reason, /`echo dot-path-linted; exit 5 # "\.github\/\.foo\.yml"` \(\.config\/tmb\/edit-lint\.json, glob \*\*\/\*\) exited 5/);
+    assert.match(reason, /dot-path-linted/);
   });
 
   it('kills a command past the budget and gives a note, not a block, inside the deadline', async () => {

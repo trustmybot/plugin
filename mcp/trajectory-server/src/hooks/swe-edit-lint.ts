@@ -6,7 +6,8 @@
  * The repo opts in with <top>/.config/tmb/edit-lint.json,
  * {"version":1,"lints":[{"glob":"<path glob>","command":"<cmd>"}]}, <top> being
  * `git -C <dir of the file> rev-parse --show-toplevel`. Each entry whose glob
- * matches the top-relative path (path.matchesGlob) runs, in config order, as
+ * matches the top-relative path (lint-fingerprint.ts matchesInput: path.matchesGlob
+ * with `*` and `**` matching dot segments too, F641-1) runs, in config order, as
  * `bash -c '<command> "$1"' _ <relpath>` in <top>, lint-staged style. It is an
  * allowlist: only the repo's own commands run, and only their non-zero exit
  * blocks, with the command, its exit code and its last 20 output lines.
@@ -23,7 +24,7 @@
 import { spawn } from 'node:child_process';
 import { closeSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, matchesGlob, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { Gate, GateResult } from './gate.js';
 import { ALLOW } from './gate.js';
@@ -31,6 +32,7 @@ import { spawnLimit } from './lib/deadline.js';
 import { blockResult } from './lib/deny.js';
 import { gitRun } from './lib/git.js';
 import { jqCompact } from './lib/jq.js';
+import { matchesInput } from './lib/lint-fingerprint.js';
 import { normalizeRole } from './lib/role.js';
 
 export const GATE_NAME = 'swe-edit-lint';
@@ -173,7 +175,7 @@ export const sweEditLint: Gate = async (payload, env): Promise<GateResult> => {
   if ('error' in config) return note(`${EDIT_LINT_FILE}: ${config.error}; no edit lint ran.`);
   let matching: EditLint[];
   try {
-    matching = config.lints.filter((l) => matchesGlob(rel, l.glob));
+    matching = config.lints.filter((l) => matchesInput(rel, l.glob));
   } catch (e) {
     return note(`${EDIT_LINT_FILE}: a glob does not parse: ${(e as Error).message}; no edit lint ran.`);
   }
