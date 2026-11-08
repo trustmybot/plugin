@@ -11,7 +11,7 @@ SCENARIO_DIR="$2"
 ROOT="${PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)}"
 DB="$PROJECT/.claude/tmb/trajectory.db"
 
-# run-l5.sh seeds the DB before this script; a bare project gets the schema.
+# run-l5.ts seeds the DB before this script; a bare project gets the schema.
 if [ ! -f "$DB" ]; then
   mkdir -p "$PROJECT/.claude/tmb" || exit 1
   sqlite3 "$DB" < "$ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null || exit 1

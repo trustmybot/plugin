@@ -168,9 +168,9 @@ jobs:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
         run: |
           if [ "$L6_FROM_STEP" = "1" ]; then
-            bash tests/l5-l6/run-l6-chain.sh --fresh
+            node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --fresh
           else
-            bash tests/l5-l6/run-l6-chain.sh --from "$L6_FROM_STEP"
+            node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --from "$L6_FROM_STEP"
           fi
 
       - name: Upload L6 chain artifacts (on success or failure)

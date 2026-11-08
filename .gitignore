@@ -1,6 +1,6 @@
 # Claude Code runtime artifacts (worktrees, session state)
 .claude/*
-# L6 chain runs (tests/l5-l6/run-l6-chain.sh); already covered by .claude/*,
+# L6 chain runs (tests/l5-l6/run-l6-chain.ts); already covered by .claude/*,
 # named so the location stays ignored if that rule ever narrows.
 .claude/tmb/l6-chain-runs/
 # Exception: committed dev rules — path-scoped doctrine for working ON this repo
