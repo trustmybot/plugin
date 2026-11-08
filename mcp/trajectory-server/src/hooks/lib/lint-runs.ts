@@ -132,7 +132,7 @@ export function lintRunFinishSql(runId: string, rc: number, now: string = nowIso
   return ok(`UPDATE lint_runs SET finished_at = '${now}', exit_code = ${rc} WHERE id = ${runId};`);
 }
 
-/** The newest finished lint run of (task, sha) with its results in ordinal order; null when none or the read fails. */
+/** The newest-started finished lint run of (task, sha) with its results in ordinal order; null when none or the read fails. */
 export function latestLintRun(db: string, taskId: string, sha: string, env: NodeJS.ProcessEnv): LintRunRecord | null {
   if (!INT_RE.test(taskId)) return null;
   const out = sqliteRo(
@@ -145,7 +145,7 @@ export function latestLintRun(db: string, taskId: string, sha: string, env: Node
                      FROM lint_run_results c WHERE c.run_id = r.id))
        FROM lint_runs r
       WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}' AND r.finished_at IS NOT NULL
-      ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`,
+      ORDER BY r.started_at DESC, r.id DESC LIMIT 1;`,
     env,
   );
   if (out.trim() === '') return null;

@@ -145,6 +145,20 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     assert.equal(latestLintRun(db, TASK, 'stale', env)?.exit_code, 137);
   });
 
+  it('latestLintRun picks the newest-started run even when an older run is swept to 137 after a newer run passed', () => {
+    const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
+    const killed = start('swept', 'gate', ago(LINT_RUN_STALE_S + 600));
+    const passed = start('swept', 'gate', ago(LINT_RUN_STALE_S + 300));
+    finish(passed, 0, ago(LINT_RUN_STALE_S + 200));
+    start(SHA);
+    const stamp = (id: string) => sqlRows(db, `SELECT exit_code, finished_at FROM lint_runs WHERE id = ${id}`)[0]!;
+    assert.equal(stamp(killed).exit_code, 137, 'the killed run is swept to 137');
+    assert.ok(String(stamp(killed).finished_at) > String(stamp(passed).finished_at), 'the sweep stamps the killed run finished after the passing one');
+    const latest = latestLintRun(db, TASK, 'swept', env);
+    assert.equal(latest?.run_id, Number(passed));
+    assert.equal(latest?.exit_code, 0);
+  });
+
   it('deleting the task cascades to its runs and results', () => {
     sqlExec(db, `PRAGMA foreign_keys = ON; DELETE FROM tasks WHERE id = ${TASK};`);
     const counts = sqlRows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0]!;
