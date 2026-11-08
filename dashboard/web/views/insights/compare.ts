@@ -156,7 +156,7 @@ export function dateDraft(from: string, to: string): DraftResult<Slice> {
   return { slice: { kind: 'dates', from: a, to: b }, error: null, field: null };
 }
 
-export type DeltaMeasure = 'tokens_out' | 'context' | 'cache_hit' | 'cost' | 'duration_ms' | 'tool_uses' | 'count' | 'first_pass' | 'verification' | 'share' | 'throughput';
+export type DeltaMeasure = 'tokens_out' | 'context' | 'cache_hit' | 'cost' | 'duration_ms' | 'tool_uses' | 'count' | 'first_pass' | 'verification' | 'share' | 'throughput' | 'tok_line' | 'rework_share';
 export type Polarity = 'lower' | 'higher' | 'neutral';
 
 export const POLARITY: Record<DeltaMeasure, Polarity> = {
@@ -164,6 +164,8 @@ export const POLARITY: Record<DeltaMeasure, Polarity> = {
   context: 'lower',
   cost: 'lower',
   duration_ms: 'lower',
+  tok_line: 'lower',
+  rework_share: 'lower',
   cache_hit: 'higher',
   first_pass: 'higher',
   verification: 'higher',
@@ -173,8 +175,8 @@ export const POLARITY: Record<DeltaMeasure, Polarity> = {
   share: 'neutral',
 };
 
-const POINTS: ReadonlySet<DeltaMeasure> = new Set(['cache_hit', 'first_pass', 'verification', 'share']);
-const TASK_LEVEL: ReadonlySet<DeltaMeasure> = new Set(['first_pass', 'verification', 'share', 'throughput']);
+const POINTS: ReadonlySet<DeltaMeasure> = new Set(['cache_hit', 'first_pass', 'verification', 'share', 'rework_share']);
+const TASK_LEVEL: ReadonlySet<DeltaMeasure> = new Set(['first_pass', 'verification', 'share', 'throughput', 'tok_line', 'rework_share']);
 
 const REL_BAND = 0.05;
 const PTS_BAND = 1;

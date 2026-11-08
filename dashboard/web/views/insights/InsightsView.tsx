@@ -7,7 +7,6 @@ import { Disclosure } from '../../ui/Disclosure.tsx';
 import { NavList } from '../../ui/NavList.tsx';
 import {
   AGENT_LEVEL_FILTERS,
-  COMPARE_SCOPE_NOTE,
   FILTER_LABELS,
   METRICS,
   RANGES,
@@ -30,6 +29,7 @@ import {
 import { CompareExploreSection, ExploreSection } from './explore.tsx';
 import {
   CompareCostSection,
+  CompareEfficiencySection,
   CompareQualitySection,
   CompareThroughputSection,
   CompareTimeSection,
@@ -45,7 +45,7 @@ import {
 } from './sections.tsx';
 import { CompareSummary, CompareToggle, PeriodPickers } from './compare.tsx';
 import type { Compare } from './compare.ts';
-import type { Comparison, Efficiency, Explore, ExploreComparison, Insights } from './types.ts';
+import type { Comparison, Efficiency, EfficiencyComparison, Explore, ExploreComparison, Insights } from './types.ts';
 
 type Query<T> = { data?: T; error: Error | null };
 
@@ -103,7 +103,6 @@ function FilterBar({ params, data, cmp }: { params: InsightParams; data: Insight
         {params.section === 'tokens' && <Select label="Metric" value={params.metric} options={METRICS} onChange={(v) => set({ metric: v as InsightParams['metric'] })} />}
       </div>
       {on && cmp && <CompareSummary cmp={cmp} compare={on} />}
-      {params.compare && !on && <p className="text-xs text-fg-muted" data-compare-scope="">{COMPARE_SCOPE_NOTE}</p>}
       <Disclosure summary={<span className="tabular-nums">Filters ({n})</span>} defaultOpen={n > 0}>
         <div className="flex min-h-(--control-medium-size) flex-wrap gap-3">
           <Select label={FILTER_LABELS.repo} value={params.filters.repo} options={withCurrent(options?.repos ?? [], params.filters.repo)} onChange={setFilter('repo')} />
@@ -122,6 +121,7 @@ interface SectionQueries {
   explore?: Query<Explore> | undefined;
   exploreCmp?: Query<ExploreComparison> | undefined;
   efficiency?: Query<Efficiency> | undefined;
+  efficiencyCmp?: Query<EfficiencyComparison> | undefined;
 }
 
 function SectionView({ data, params, explore, efficiency }: { data: Insights; params: InsightParams } & SectionQueries) {
@@ -136,9 +136,10 @@ function SectionView({ data, params, explore, efficiency }: { data: Insights; pa
   }
 }
 
-function CompareSectionView({ exploreCmp, ...props }: { cmp: Comparison; params: InsightParams; compare: Compare; exploreCmp?: Query<ExploreComparison> | undefined }) {
+function CompareSectionView({ exploreCmp, efficiencyCmp, ...props }: { cmp: Comparison; params: InsightParams; compare: Compare } & Pick<SectionQueries, 'exploreCmp' | 'efficiencyCmp'>) {
   switch (props.params.section) {
     case 'explore': return <CompareExploreSection params={props.params} compare={props.compare} priced={props.cmp.p1.cost.priced} explore={exploreCmp} />;
+    case 'efficiency': return <CompareEfficiencySection compare={props.compare} efficiency={efficiencyCmp} />;
     case 'cost': return <CompareCostSection {...props} />;
     case 'time': return <CompareTimeSection {...props} />;
     case 'quality': return <CompareQualitySection {...props} />;
@@ -147,7 +148,7 @@ function CompareSectionView({ exploreCmp, ...props }: { cmp: Comparison; params:
   }
 }
 
-export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
+export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, efficiencyCmp, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   const compare = comparing(params) && cmp ? params.compare : null;
   return (
@@ -160,7 +161,7 @@ export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, cmp
         <FilterBar params={params} data={q.data} cmp={compare ? cmp?.data : undefined} />
         {compare && cmp ? (
           <Loading q={cmp}>
-            {(data) => <CompareSectionView cmp={data} params={params} compare={compare} exploreCmp={exploreCmp} />}
+            {(data) => <CompareSectionView cmp={data} params={params} compare={compare} exploreCmp={exploreCmp} efficiencyCmp={efficiencyCmp} />}
           </Loading>
         ) : (
           <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} efficiency={efficiency} />}</Loading>
@@ -184,9 +185,16 @@ function ExploreView({ params, q, cmp }: { params: InsightParams; q: Query<Insig
   return <InsightsLayout params={params} q={q} explore={{ data, error: res.error }} />;
 }
 
-function EfficiencyView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
-  const efficiency = useApi<Efficiency>(efficiencyApiPath(params), { keepPrevious: true });
-  return <InsightsLayout params={params} q={q} efficiency={efficiency} />;
+const isEfficiencyComparison = (d: Efficiency | EfficiencyComparison): d is EfficiencyComparison => 'p1' in d;
+
+function EfficiencyView({ params, q, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> | undefined }) {
+  const res = useApi<Efficiency | EfficiencyComparison>(efficiencyApiPath(params), { keepPrevious: true });
+  if (comparing(params)) {
+    const data = res.data && isEfficiencyComparison(res.data) ? res.data : undefined;
+    return <InsightsLayout params={params} q={q} cmp={cmp} efficiencyCmp={{ data, error: res.error }} />;
+  }
+  const data = res.data && !isEfficiencyComparison(res.data) ? res.data : undefined;
+  return <InsightsLayout params={params} q={q} efficiency={{ data, error: res.error }} />;
 }
 
 export function InsightsView() {
@@ -195,6 +203,6 @@ export function InsightsView() {
   const q = useApi<Insights>(apiPath(params), { keepPrevious: true, enabled: !on });
   const cmp = useApi<Comparison>(compareApiPath(params), { keepPrevious: true, enabled: on });
   if (params.section === 'explore') return <ExploreView params={params} q={q} cmp={on ? cmp : undefined} />;
-  if (params.section === 'efficiency') return <EfficiencyView params={params} q={q} />;
+  if (params.section === 'efficiency') return <EfficiencyView params={params} q={q} cmp={on ? cmp : undefined} />;
   return <InsightsLayout params={params} q={q} cmp={on ? cmp : undefined} />;
 }

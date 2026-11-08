@@ -335,15 +335,17 @@ describe('compare mode render', () => {
     assert.ok(!off.includes('data-pair='));
   });
 
-  test('SC4: Efficiency keeps its view and says compare covers every section except Efficiency', () => {
+  test('GH 2069 C2: Efficiency renders its compare view under the period pickers, with no scope note', () => {
     const cmp = mod.comparison(db, 'tasks:1-2', 'tasks:3-');
-    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, 'Compare covers every section except Efficiency for now.');
-    const html = mod.plainPage(`#/insights/efficiency?range=30d${TASKS}`, cmp.p2);
-    assert.ok(html.includes(mod.copy.COMPARE_SCOPE_NOTE));
+    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, undefined);
+    const html = mod.page(`#/insights/efficiency?range=30d${TASKS}`, cmp);
+    assert.ok(html.includes(mod.copy.EFFICIENCY_TITLE));
     assert.match(html, /aria-pressed="true"/);
+    assert.match(html, /data-compare-bar=""/);
+    assert.ok(!html.includes('data-compare-scope'));
     const off = mod.plainPage('#/insights/efficiency?range=30d', cmp.p2);
-    assert.ok(!off.includes(mod.copy.COMPARE_SCOPE_NOTE));
     assert.match(off, /aria-pressed="false"/);
+    assert.ok(!off.includes('data-compare-bar'));
   });
 });
 
@@ -366,7 +368,6 @@ describe('compare mode render: Explore (GH 2069 B2)', () => {
     assert.ok(!table.includes('bro'));
     assert.equal((html.match(/<g data-pair=""/g) ?? []).length, 2);
     assert.ok(html.includes(mod.copy.BRO_TASKS_CAPTION.replaceAll("'", '&#x27;')));
-    assert.ok(!html.includes(mod.copy.COMPARE_SCOPE_NOTE));
   });
 
   test('SC3: date periods keep bro and show no bro caption', () => {
@@ -413,7 +414,6 @@ describe('compare mode render: Time, Quality and Throughput (GH 2069 B1)', () =>
     assert.match(html, /data-legend-kind="fill"/);
     assert.ok(html.includes(mod.copy.LOWER_BETTER));
     assert.ok(html.includes(`Top Runs by Duration${mod.copy.OUTLIERS_P2}`));
-    assert.ok(!html.includes(mod.copy.COMPARE_SCOPE_NOTE));
   });
 
   test('SC1: bro session cards show only when bro is not excluded', () => {

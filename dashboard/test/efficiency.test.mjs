@@ -182,6 +182,8 @@ before(async () => {
         };
         export const page = (hash, data, efficiency) => withHash(hash, () =>
           renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data, error: null }, efficiency: { data: efficiency, error: null } })));
+        export const comparePage = (hash, cmp, efficiencyCmp) => withHash(hash, () =>
+          renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data: cmp.p2, error: null }, cmp: { data: cmp, error: null }, efficiencyCmp: { data: efficiencyCmp, error: null } })));
         export { commitType, numstatPath, isGenerated, isDoc, parseNumstat, linesOf, localMonday, commitsOf, parseLog, efficiency, efficiencyCompare } from './server/efficiency.ts';
         export { insightFilter } from './server/queries.ts';
         export { paramsOf, copy };`,
@@ -777,15 +779,12 @@ describe('Efficiency section', () => {
     assert.deepEqual(shown, [copy.TYPE_HEADER, ...['n', 'first_pass_rate', 'fp_tok_line', 'rework_share'].map((k) => copy.EFFICIENCY_COLUMNS[k].header)]);
   });
 
-  test('Agent and Model filters are hidden; compare shows the scope note', () => {
-    const { copy } = mod;
+  test('Agent and Model filters are hidden', () => {
     const html = at('range=all&agent=swe');
     assert.doesNotMatch(html, />Agent<select/);
     assert.doesNotMatch(html, />Model<select/);
     assert.match(html, />Repo<select/);
     assert.match(html, />Effort<select/);
-    assert.ok(!at().includes(copy.COMPARE_SCOPE_NOTE));
-    assert.ok(at('range=all&p1=prev90d&p2=7d').includes(copy.COMPARE_SCOPE_NOTE));
   });
 
   test('empty state when no task in the period has changed lines', () => {
@@ -801,5 +800,94 @@ describe('Efficiency section', () => {
   test('efficiencyApiPath drops Agent and Model', () => {
     const p = mod.paramsOf('#/insights/efficiency?range=7d&repo=proj&agent=swe&model=m&effort=high');
     assert.equal(mod.copy.efficiencyApiPath(p), 'insights/efficiency?range=7d&repo=proj&effort=high');
+  });
+});
+
+describe('Efficiency section in compare mode (GH 2069 C2)', () => {
+  const view = async (p1, p2) => {
+    const query = `p1=${p1}&p2=${p2}`;
+    const cmp = await (await fetch(`${server.url}api/insights/compare?${query}`)).json();
+    const eff = (await getCompare(query)).body;
+    return mod.comparePage(`#/insights/efficiency?range=all&${query}`, cmp, eff);
+  };
+  const tables = (html) => [...html.matchAll(/<table[^>]*>(.*?)<\/table>/g)].map((m) => m[1]);
+  const headers = (table) => [...table.matchAll(/<th[^>]*>.*?<button[^>]*>(.*?)<svg/g)].map((m) => m[1]);
+  const bodyRows = (table) => [...table.replace(/^.*<tbody>/, '').matchAll(/<tr[^>]*>(.*?)<\/tr>/g)].map((m) => m[0]);
+  const cells = (tr) => [...tr.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((m) => m[1]);
+  const tiles = (html) => [...html.matchAll(/data-compare-tile="([a-z_]+)"/g)].map((m) => m[1]);
+
+  test('SC4: Efficiency is a compare section and fetches the compare path only while comparing', () => {
+    assert.ok(mod.copy.COMPARE_SECTIONS.has('efficiency'));
+    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, undefined);
+    const on = mod.paramsOf('#/insights/efficiency?range=7d&repo=proj&agent=swe&effort=high&p1=tasks:1-4&p2=tasks:5-');
+    assert.equal(mod.copy.efficiencyApiPath(on), 'insights/efficiency/compare?repo=proj&effort=high&p1=tasks:1-4&p2=tasks:5-');
+    const bare = mod.paramsOf('#/insights/efficiency?range=all&p1=tasks:1-4&p2=tasks:5-');
+    assert.equal(mod.copy.efficiencyApiPath(bare), 'insights/efficiency/compare?p1=tasks:1-4&p2=tasks:5-');
+  });
+
+  test('SC1: four tiles from each overall, with no scope note', async () => {
+    const html = await view('tasks:1-4', 'tasks:5-13');
+    assert.deepEqual(tiles(html), ['tok_line', 'first_pass', 'rework_share', 'cache_hit']);
+    for (const title of Object.values(mod.copy.EFFICIENCY_TILES)) assert.ok(html.includes(title), title);
+    assert.match(html, /grid-cols-2 gap-2 md:grid-cols-4" data-efficiency-tiles=""/);
+    assert.ok(!html.includes('data-compare-scope'));
+    assert.ok(!html.includes('except Efficiency'));
+  });
+
+  test('SC2: paired bars over the union of types and compare columns with deltas, docs last', async () => {
+    const html = await view('tasks:1-4', 'tasks:5-13');
+    const { copy } = mod;
+    assert.ok(html.includes(copy.TOK_LINE_BY_TYPE));
+    const pairs = [...html.matchAll(/<g data-pair="">.*?<text[^>]*>([a-z]+)<\/text>/g)].map((m) => m[1]);
+    assert.equal(pairs.at(-1), 'docs');
+    assert.ok(pairs.includes('feat') && pairs.includes('fix'), pairs.join());
+    assert.equal(new Set(pairs).size, pairs.length);
+    assert.match(html, /<rect[^>]*stroke-dasharray="4 3"[^>]*data-outline=""/);
+    const [byType, byWeek] = tables(html);
+    assert.deepEqual(headers(byType), [copy.TYPE_HEADER, ...['n', 'first_pass_rate', 'fp_tok_line', 'rework_share'].map((k) => copy.EFFICIENCY_COLUMNS[k].header)]);
+    const rows = bodyRows(byType);
+    const names = rows.map((r) => />([a-z]+)</.exec(cells(r)[0])[1]);
+    assert.deepEqual(names, pairs);
+    assert.match(rows.at(-1), /border-t-\(--borderColor-default\)/);
+    const feat = cells(rows[names.indexOf('feat')]);
+    assert.ok(feat[1].includes(copy.period1Value('4')), feat[1]);
+    for (const c of feat.slice(2)) assert.match(c, /data-delta="/);
+    const fix = cells(rows[names.indexOf('fix')]);
+    assert.ok(fix[1].includes(copy.period1Value('0')));
+    assert.match(fix[3], /Period 1 has no tasks to compare against/);
+    assert.ok(byWeek);
+  });
+
+  test('SC3: one By Week table with a leading Period cell, Period 1 weeks first, divider before Period 2', async () => {
+    const html = await view('tasks:1-4', 'tasks:5-13');
+    const { copy } = mod;
+    const [, byWeek] = tables(html);
+    assert.equal(tables(html).length, 2);
+    assert.deepEqual(headers(byWeek).slice(0, 2), [copy.PERIOD_HEADER, copy.WEEK_HEADER]);
+    const rows = bodyRows(byWeek);
+    const periods = rows.map((r) => /Period [12]/.exec(cells(r)[0])[0]);
+    const first2 = periods.indexOf('Period 2');
+    assert.ok(first2 > 0);
+    assert.deepEqual(periods, [...Array(first2).fill('Period 1'), ...Array(periods.length - first2).fill('Period 2')]);
+    rows.forEach((r, i) => (i === first2 ? assert.match(r, /border-t-\(--borderColor-default\)/) : assert.doesNotMatch(r, /border-t-\(--borderColor-default\)/)));
+    assert.doesNotMatch(byWeek, /data-delta=/);
+  });
+
+  test('SC4: both periods empty shows the empty state; one empty says so above the tiles with dashes on that side', async () => {
+    const { copy } = mod;
+    const both = await view('tasks:900-950', 'tasks:960-');
+    assert.ok(both.includes(copy.EFFICIENCY_EMPTY));
+    assert.deepEqual(tiles(both), []);
+    assert.doesNotMatch(both, /<table/);
+    assert.equal(copy.EFFICIENCY_PERIOD_EMPTY(2), 'Period 2 has no finished tasks with code changes.');
+    const one = await view('tasks:1-4', 'tasks:900-');
+    assert.ok(one.indexOf(copy.EFFICIENCY_PERIOD_EMPTY(2)) < one.indexOf('data-compare-tile='));
+    assert.match(one, /data-period-empty="2"/);
+    assert.doesNotMatch(one, /data-period-empty="1"/);
+    assert.ok(!one.includes(copy.EFFICIENCY_EMPTY));
+    for (const tile of one.matchAll(/data-compare-tile="[a-z_]+">(.*?)<\/div>/g)) assert.match(tile[1], /text-2xl[^>]*>—</);
+    const first = await view('tasks:900-', 'tasks:1-4');
+    assert.ok(first.includes(copy.EFFICIENCY_PERIOD_EMPTY(1)));
+    for (const tile of first.matchAll(/data-compare-tile="[a-z_]+">(.*?)<\/div>/g)) assert.ok(tile[1].includes(copy.period1Value('—')));
   });
 });
