@@ -189,7 +189,7 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
 
   it('a query no concept matches returns a derived, unverified chain off the index with no test paths', async () => {
     const out = parse<{ concepts: Payload[]; derived: { label: string; steps: StepOut[] } | null }>(
-      (await wm()['world_model_concepts']!({ agent: 'bro', repo, query: 'migrateV43toV44' })) as CallToolResult,
+      (await wm()['world_model_concepts']!({ agent: 'bro', repo, query: 'migrateV44toV45' })) as CallToolResult,
     );
     assert.deepEqual(out.concepts, []);
     assert.ok(out.derived, 'derived chain present');
