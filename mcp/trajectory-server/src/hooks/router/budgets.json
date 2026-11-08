@@ -507,8 +507,8 @@
       "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,
-      "floor_ms": 4000,
-      "budget_ms": 4000,
+      "floor_ms": 6000,
+      "budget_ms": 6000,
       "date": "2026-11-08"
     },
     "askuserquestion-length-lint": {
