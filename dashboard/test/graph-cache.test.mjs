@@ -172,7 +172,7 @@ describe('dashboard file graph cache', () => {
     assert.notEqual(res.headers.get('etag'), oldTag);
     const body = await res.text();
     assert.notEqual(body, oldBody);
-    assert.equal(body, JSON.stringify(fresh()));
+    assert.deepEqual(JSON.parse(body), { ...fresh(), freshness: null });
   };
 
   test('a delete+reinsert that reuses the top edge rowid misses the cache', async () => {

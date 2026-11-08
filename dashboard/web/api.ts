@@ -214,11 +214,15 @@ const WM_STATUS_POLL_MS = 5000;
 
 const isWorldModelKey = (key: readonly unknown[]) => typeof key[0] === 'string' && key[0].startsWith('world-model');
 
-// The queries a data_version change refetches: everything but the version poll
-// itself and the world-model queries, which refetch when an index lands.
-export const liveRefreshes = (key: readonly unknown[]) => key[0] !== '__version' && !isWorldModelKey(key);
-
 const reindexed = (key: readonly unknown[]) => isWorldModelKey(key) && key[0] !== WM_STATUS;
+
+// The queries a data_version change refetches: everything but the two polls.
+// While some repo reports freshness, world-model queries refetch only when an
+// index lands; with no freshness anywhere they follow data_version.
+export const liveRefreshes = (key: readonly unknown[], wmTracked: boolean) =>
+  key[0] !== '__version' && key[0] !== WM_STATUS && !(wmTracked && reindexed(key));
+
+export const tracksFreshness = (status: WmStatus | undefined) => status?.repos.some((r) => r.freshness !== null) ?? false;
 
 export function useWmStatus() {
   return useQuery({
@@ -238,10 +242,12 @@ export function useLiveRefresh(): void {
     refetchInterval: POLL_MS,
   });
   const status = useWmStatus().data;
+  const wmTracked = useRef(false);
+  wmTracked.current = tracksFreshness(status);
   useEffect(() => {
     if (!data) return;
     if (seen.current !== null && seen.current !== data.data_version) {
-      void client.invalidateQueries({ predicate: (q) => liveRefreshes(q.queryKey) });
+      void client.invalidateQueries({ predicate: (q) => liveRefreshes(q.queryKey, wmTracked.current) });
     }
     seen.current = data.data_version;
   }, [data, client]);

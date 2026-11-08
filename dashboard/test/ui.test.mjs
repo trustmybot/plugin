@@ -5,7 +5,7 @@
 // Label variants and RelativeTime floors each unit and switches from relative
 // to absolute at 30 days, FreshnessBadge maps a freshness block to Reindexing,
 // Reindex failed, Stale or nothing, and liveRefreshes skips world-model
-// queries; then check index.html applies the stored colour mode before the CSS.
+// queries only while some repo reports freshness; then check index.html applies the stored colour mode before the CSS.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -27,10 +27,10 @@ before(async () => {
         import { RelativeTime } from './web/ui/RelativeTime.tsx';
         import { Badge } from './web/shared/Badge.tsx';
         import { FreshnessBadge, freshnessState } from './web/ui/FreshnessBadge.tsx';
-        import { liveRefreshes } from './web/api.ts';
+        import { liveRefreshes, tracksFreshness } from './web/api.ts';
         export const render = (el) => renderToStaticMarkup(el);
         export const h = createElement;
-        export { Button, StateLabel, Flash, RelativeTime, Badge, FreshnessBadge, freshnessState, liveRefreshes };`,
+        export { Button, StateLabel, Flash, RelativeTime, Badge, FreshnessBadge, freshnessState, liveRefreshes, tracksFreshness };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -159,11 +159,25 @@ describe('FreshnessBadge', () => {
   });
 });
 
-test('liveRefreshes skips the version poll and every world-model query', () => {
-  for (const key of ['__version', 'world-model?repo=&depth=0', 'world-model/graph?repo=plugin', 'world-model/search?q=x', 'world-model/status']) {
-    assert.equal(ui.liveRefreshes([key]), false, key);
-  }
-  for (const key of ['summary', 'issues/1', 'concepts?q=ab', 'tasks']) assert.equal(ui.liveRefreshes([key]), true, key);
+const WM_KEYS = ['world-model?repo=&depth=0', 'world-model/graph?repo=plugin', 'world-model/search?q=x'];
+const OTHER_KEYS = ['summary', 'issues/1', 'concepts?q=ab', 'tasks'];
+
+test('liveRefreshes skips the version poll and every world-model query while freshness is tracked', () => {
+  for (const key of ['__version', 'world-model/status', ...WM_KEYS]) assert.equal(ui.liveRefreshes([key], true), false, key);
+  for (const key of OTHER_KEYS) assert.equal(ui.liveRefreshes([key], true), true, key);
+});
+
+test('liveRefreshes follows data_version for world-model queries when no repo reports freshness', () => {
+  for (const key of ['__version', 'world-model/status']) assert.equal(ui.liveRefreshes([key], false), false, key);
+  for (const key of [...WM_KEYS, ...OTHER_KEYS]) assert.equal(ui.liveRefreshes([key], false), true, key);
+});
+
+test('tracksFreshness is true only when some repo carries a freshness block', () => {
+  const block = { indexed_commit: 'a', target_commit: 'a', stale: false, reindex: { state: 'idle' } };
+  assert.equal(ui.tracksFreshness(undefined), false);
+  assert.equal(ui.tracksFreshness({ repos: [], history: [] }), false);
+  assert.equal(ui.tracksFreshness({ repos: [{ repo: 'a', freshness: null }, { repo: 'b', freshness: null }], history: [] }), false);
+  assert.equal(ui.tracksFreshness({ repos: [{ repo: 'a', freshness: null }, { repo: 'b', freshness: block }], history: [] }), true);
 });
 
 test('index.html reads tmb-color-mode in an inline script before the stylesheet', () => {
