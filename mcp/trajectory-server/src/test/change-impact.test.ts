@@ -338,10 +338,11 @@ describe('change impact — a non-TMB repo (SC4)', () => {
 describe('change impact — config and ids (SC5)', () => {
   it('a repo-scoped surface glob replaces the defaults', () => {
     const { db, srcSha } = acmeFixture(1);
-    db.run("INSERT INTO plugin_config (key, value_json) VALUES ('change_impact_agent_surface', ?)", [JSON.stringify(['acme-app:src/**'])]);
+    const configKey = 'change_impact_agent_surface';
+    db.run('INSERT INTO plugin_config (key, value_json) VALUES (?, ?)', [configKey, JSON.stringify(['acme-app:src/**'])]);
     const r = computeChangeImpact(db, undefined, { source: 'agent_surface' }) as ChangeImpactList;
     assert.deepEqual(r.changes.map((c) => c.id), [srcSha.slice(0, 12)]);
-    db.run("UPDATE plugin_config SET value_json = ? WHERE key = 'change_impact_agent_surface'", [JSON.stringify(['other-repo:src/**'])]);
+    db.run('UPDATE plugin_config SET value_json = ? WHERE key = ?', [JSON.stringify(['other-repo:src/**']), configKey]);
     assert.deepEqual((computeChangeImpact(db, undefined, { source: 'agent_surface' }) as ChangeImpactList).changes, []);
   });
 
