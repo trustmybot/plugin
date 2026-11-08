@@ -70,10 +70,20 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   return out;
 }
 
-/** tmb_cwd_state <cwd>: `-` for no dir, `?` for a checkout with linked worktrees, else <cwd>. */
-export async function cwdState(cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+/**
+ * tmb_cwd_state <cwd>: `-` for no dir, `?` for a checkout with linked
+ * worktrees, else <cwd>. A cwd git proves is inside a linked worktree (its
+ * git dir is not the common dir) is that one checkout (GH 2510), unless
+ * `unresolved`: a statement whose dir hides behind a variable may name any
+ * checkout of the repo, so only a repo with one checkout falls back to <cwd>.
+ */
+export async function cwdState(cwd: string, env: NodeJS.ProcessEnv = process.env, { unresolved = false } = {}): Promise<string> {
   if (!isDir(cwd)) return '-';
   if (await gitOk(cwd, ['rev-parse', '--git-dir'], env)) {
+    if (!unresolved) {
+      const [gitDir = '', commonDir = ''] = (await gitOut(cwd, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'], env)).split('\n');
+      if (gitDir !== '' && commonDir !== '' && gitDir !== commonDir) return cwd;
+    }
     const n = (await gitOut(cwd, ['worktree', 'list', '--porcelain'], env))
       .split('\n')
       .filter((l) => l.startsWith('worktree ')).length;

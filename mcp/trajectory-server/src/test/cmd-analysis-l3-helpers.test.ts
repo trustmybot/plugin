@@ -9,7 +9,7 @@
  * frozen answers of the shell lib and, where the TS module has the same
  * function, on the TS too.
  */
-import { after, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   cmdStatements,
+  cwdState,
   denyAmbiguousGitTarget,
   gitSubcommand,
   stmtRepoRoot,
@@ -363,6 +364,38 @@ runSuite('cmd-analysis helpers (GH 1692)', s);
 describe('tests/fixtures/cmd-analysis/statement-vars.jsonl', () => {
   it('holds both kinds: rows that fail closed and rows that resolve a dir', () => {
     assert.ok(holdsBothKinds);
+  });
+});
+
+describe('cwdState: a linked worktree cwd is one checkout (GH 2510)', () => {
+  const main = join(TMP, 'linked');
+  const wt = join(main, '.claude/worktrees/x');
+  const dirs = async (cwd: string): Promise<string[]> => {
+    const res = await cmdStatements('git commit -q -m x', cwd);
+    return res.ok ? res.statements.map((st) => st.dir) : [];
+  };
+  before(() => {
+    mkdirSync(main);
+    git(main, 'init', '-q', '-b', 'main');
+    git(main, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(main, 'worktree', 'add', '-q', '-b', 'feat/x', wt);
+    mkdirSync(join(wt, 'sub'));
+  });
+
+  it('the main checkout of a repo with linked worktrees is ambiguous', async () => {
+    assert.equal(await cwdState(main), '?');
+    assert.deepEqual(await dirs(main), ['?']);
+  });
+
+  it('a linked worktree cwd, and a subdirectory of it, is that cwd', async () => {
+    assert.equal(await cwdState(wt), wt);
+    assert.equal(await cwdState(join(wt, 'sub')), join(wt, 'sub'));
+    assert.deepEqual(await dirs(wt), [wt]);
+  });
+
+  it('an unresolved dir from a linked worktree cwd stays ambiguous', async () => {
+    assert.equal(await cwdState(wt, process.env, { unresolved: true }), '?');
+    assert.equal(await cwdState(PLAIN, process.env, { unresolved: true }), PLAIN);
   });
 });
 
