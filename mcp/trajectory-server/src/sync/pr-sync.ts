@@ -1,6 +1,7 @@
 // Inbound PR sync (GH 2513): GitHub → prs / pr_closes, so the dashboard can show
 // PR open-to-merge time per issue label. Read-only toward the remote: the only
 // command it spawns is `gh pr list`.
+import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { remoteSyncGate, type RemoteSyncGateReason } from './backend.js';
@@ -9,6 +10,10 @@ import { resolveRepoCtx, spawnOptsFor, splitGhSlug, type RepoCtx } from './issue
 
 export const PR_FULL_LIMIT = 5000;
 export const PR_INCREMENTAL_LIMIT = 1000;
+// A full listing of ~1300 PRs takes ~9 s and ~320 KB; PR_FULL_LIMIT PRs reach
+// ~1.2 MB, past both SUBPROCESS_TIMEOUT_MS and Node's 1 MiB default maxBuffer.
+export const PR_SYNC_TIMEOUT_MS = 120_000;
+export const PR_SYNC_MAX_BUFFER = 64 * 1024 * 1024;
 const PR_JSON_FIELDS = 'number,state,createdAt,mergedAt,updatedAt,closingIssuesReferences';
 
 export interface PrSyncOpts {
@@ -110,6 +115,10 @@ function listArgs(slug: string, since: string | null): { args: string[]; limit: 
   };
 }
 
+function prListSpawnOpts(cwd: string | null): SpawnSyncOptions {
+  return { ...spawnOptsFor(cwd), timeout: PR_SYNC_TIMEOUT_MS, maxBuffer: PR_SYNC_MAX_BUFFER };
+}
+
 function sinceDate(db: TrajectoryDB, repo: string): string | null {
   const row = db.get<{ max: string | null }>(`SELECT MAX(updated_at) AS max FROM prs WHERE repo = ?`, [repo]);
   const m = row?.max ? /^\d{4}-\d{2}-\d{2}/.exec(row.max) : null;
@@ -175,7 +184,7 @@ export function syncRemotePrs(db: TrajectoryDB, opts: PrSyncOpts = {}): PrSyncRe
     const { args, limit } = listArgs(remote.slug, sinceDate(db, repo));
     let out: { status: number | null; stdout: string; stderr: string };
     try {
-      out = spawnFn('gh', args, spawnOptsFor(ctx.cwd));
+      out = spawnFn('gh', args, prListSpawnOpts(ctx.cwd));
     } catch (e) {
       result.errors.push({ repo, reason: 'read_failed', message: e instanceof Error ? e.message : String(e) });
       continue;

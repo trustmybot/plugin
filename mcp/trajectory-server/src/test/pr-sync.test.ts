@@ -5,7 +5,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
-import { PR_FULL_LIMIT, syncRemotePrs } from '../sync/pr-sync.js';
+import type { SpawnSyncOptions } from 'node:child_process';
+import { PR_FULL_LIMIT, PR_SYNC_MAX_BUFFER, PR_SYNC_TIMEOUT_MS, syncRemotePrs } from '../sync/pr-sync.js';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { issueTools } from '../tools/issues.js';
 import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
@@ -197,6 +199,31 @@ describe('syncRemotePrs (GH 2513)', () => {
     assert.deepEqual(syncRemotePrs(db, { dryRun: true, _spawnFn: spawnFn }), { repos: 1, upserted: 3, errors: [], dry_run: true });
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM prs')!.n, 0);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_closes')!.n, 0);
+  });
+
+  it('gives gh pr list a timeout and maxBuffer sized for a full PR listing, not the 5 s / 1 MiB defaults', () => {
+    const db = tempDB();
+    setIssueSync(db, 'gh');
+    registerRepo(db);
+    const seen: SpawnSyncOptions[] = [];
+    const { spawnFn: inner } = stub([listed(THREE_PRS), listed([])]);
+    const spawnFn: SpawnFn = (cmd, args, opts) => {
+      if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'list') seen.push(opts);
+      return inner(cmd, args, opts);
+    };
+
+    syncRemotePrs(db, { _spawnFn: spawnFn });
+    syncRemotePrs(db, { _spawnFn: spawnFn });
+
+    assert.equal(seen.length, 2, 'the full and the incremental read');
+    for (const opts of seen) {
+      assert.equal(opts.timeout, PR_SYNC_TIMEOUT_MS);
+      assert.ok((opts.timeout ?? 0) > SUBPROCESS_TIMEOUT_MS);
+      assert.equal(opts.maxBuffer, PR_SYNC_MAX_BUFFER);
+      assert.ok((opts.maxBuffer ?? 0) >= 8 * 1024 * 1024);
+      assert.equal(opts.cwd, '/tmp/app');
+      assert.equal(opts.encoding, 'utf8');
+    }
   });
 
   it('a gh failure, a throw or unparseable output lands in errors[] and leaves existing rows untouched', () => {
