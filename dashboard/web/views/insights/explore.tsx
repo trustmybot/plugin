@@ -3,11 +3,30 @@ import { FIELD } from '../../shared/classes.ts';
 import { Loading } from '../../shared/Loading.tsx';
 import { Flash } from '../../ui/Flash.tsx';
 import { ChartCard } from './ChartCard.tsx';
-import { BarList, niceAxis, type Column } from './charts.tsx';
+import { BarList, PairedBarList, niceAxis, type Column, type PairedRow } from './charts.tsx';
+import { compareSlug, delta, type Compare, type DeltaMeasure } from './compare.ts';
+import { DeltaLabel } from './compare.tsx';
 import type { TableData } from './csv.ts';
 import { AGENT_COLOR, SERIES_COLOR, compact, duration, durationTicks, pct, plain, usd } from './format.ts';
-import { AGGS, DIMS, MEASURES, RANGES, pivotAgg, writeInsightParams, type AggKey, type DimKey, type InsightParams, type MeasureKey } from './params.ts';
-import type { AgentKey, Explore, ExploreGroup, Insights } from './types.ts';
+import {
+  AGGS,
+  CHANGE_HEADER,
+  COMPARE_SUBTITLE,
+  DIMS,
+  MEASURES,
+  RANGES,
+  pairText,
+  periodRuns,
+  periodValue,
+  pivotAgg,
+  writeInsightParams,
+  type AggKey,
+  type DimKey,
+  type InsightParams,
+  type MeasureKey,
+} from './params.ts';
+import { BothEmpty, CompareCaption, LEGEND_COLOR, OneEmpty, broNote, periodLegend, polarityCaption } from './sections.tsx';
+import type { AgentKey, Explore, ExploreComparison, ExploreGroup, ExploreSide, Insights } from './types.ts';
 
 export const CACHE_HIT_HELP = "Cache-hit % is a ratio, so it can't be summed.";
 export const COST_HELP = 'Cost is off until model prices are set.';
@@ -42,7 +61,7 @@ function colorOf(dim: DimKey, value: string): string {
   return SERIES_COLOR;
 }
 
-function valueText(g: ExploreGroup, agg: AggKey, fmt: (v: number) => string): string {
+function valueText(g: ExploreSide, agg: AggKey, fmt: (v: number) => string): string {
   if (g.value !== null) return fmt(g.value);
   return (agg === 'p50' || agg === 'p95') && g.n < EARLY_MIN ? NEEDS_RUNS : '—';
 }
@@ -53,6 +72,36 @@ export function exploreTable(ex: Explore, params: InsightParams): TableData {
   return {
     columns: [...params.dims.map((d) => labelOf(DIMS, d)), 'Runs', `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure)}`],
     rows: ex.groups.map((g) => [...g.key, g.n, valueText(g, agg, fmt)]),
+  };
+}
+
+// Count and sum grow with the number of runs, so their change is neither good nor bad.
+const deltaMeasureOf = (measure: MeasureKey, agg: AggKey): DeltaMeasure => (agg === 'count' || agg === 'sum' ? 'count' : measure);
+
+const sideText = (s: ExploreSide, agg: AggKey, fmt: (v: number) => string) => (s.n === 0 ? '—' : valueText(s, agg, fmt));
+
+const compareColumns = (params: InsightParams, header: string) => [
+  ...params.dims.map((d) => labelOf(DIMS, d)),
+  periodRuns(1, 'run'),
+  periodValue(1, header),
+  periodRuns(2, 'run'),
+  periodValue(2, header),
+  CHANGE_HEADER,
+];
+
+export function exploreCompareTable(ex: ExploreComparison, params: InsightParams): TableData {
+  const { agg, fmt, header, what } = pivotCopy(params);
+  const measure = deltaMeasureOf(params.measure, agg);
+  return {
+    columns: compareColumns(params, header),
+    rows: ex.groups.map((g) => [
+      ...g.key,
+      g.p1.n,
+      sideText(g.p1, agg, fmt),
+      g.p2.n,
+      sideText(g.p2, agg, fmt),
+      delta(measure, `${g.key.join(', ')} ${what}`, g.p1.value, g.p2.value).text,
+    ]),
   };
 }
 
@@ -127,12 +176,18 @@ function panelsOf(groups: ExploreGroup[]): Array<[string, ExploreGroup[]]> {
   return [...panels];
 }
 
-function ExploreChart({ ex, params }: { ex: Explore; params: InsightParams }) {
+function pivotCopy(params: InsightParams) {
   const agg = pivotAgg(params);
   const fmt = formatOf(params.measure, agg);
   const axis = params.measure === 'duration_ms' && agg !== 'count' ? (max: number) => durationTicks(max) : niceAxis(fmt);
+  const header = `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure)}`;
   const what = `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure).toLowerCase()}`;
-  const title = `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure)} by ${params.dims.map((d) => labelOf(DIMS, d)).join(' Then ')}`;
+  const title = `${header} by ${params.dims.map((d) => labelOf(DIMS, d)).join(' Then ')}`;
+  return { agg, fmt, axis, header, what, title };
+}
+
+function ExploreChart({ ex, params }: { ex: Explore; params: InsightParams }) {
+  const { agg, fmt, axis, what, title } = pivotCopy(params);
   const period = labelOf(RANGES, params.range);
   const footnotes: ReactNode[] = [];
   if (params.dims.includes('review_round') && ex.review_round_mismatch > 0) footnotes.push(mismatchNote(ex.review_round_mismatch));
@@ -172,17 +227,122 @@ function ExploreChart({ ex, params }: { ex: Explore; params: InsightParams }) {
   );
 }
 
-export function ExploreSection({ data, params, explore }: { data: Insights; params: InsightParams; explore?: { data?: Explore; error: Error | null } }) {
-  const priced = data.cost.priced;
+function ExploreShell({ params, priced, children }: { params: InsightParams; priced: boolean; children: ReactNode }) {
   return (
     <div className="space-y-4">
       <h2 className="border-b border-(--borderColor-muted) pb-2 text-base font-semibold text-fg">Explore</h2>
       <Pivot params={params} priced={priced} />
-      {params.measure === 'cost' && !priced ? (
-        <Flash>{COST_HELP}</Flash>
-      ) : (
-        <Loading q={explore ?? { error: null }}>{(ex) => <ExploreChart ex={ex} params={params} />}</Loading>
-      )}
+      {params.measure === 'cost' && !priced ? <Flash>{COST_HELP}</Flash> : children}
     </div>
+  );
+}
+
+export function ExploreSection({ data, params, explore }: { data: Insights; params: InsightParams; explore?: { data?: Explore; error: Error | null } }) {
+  return (
+    <ExploreShell params={params} priced={data.cost.priced}>
+      <Loading q={explore ?? { error: null }}>{(ex) => <ExploreChart ex={ex} params={params} />}</Loading>
+    </ExploreShell>
+  );
+}
+
+const CELL = 'px-1 py-1 whitespace-nowrap';
+
+function CompareExploreTable({ ex, params }: { ex: ExploreComparison; params: InsightParams }) {
+  const { agg, fmt, header, what } = pivotCopy(params);
+  const measure = deltaMeasureOf(params.measure, agg);
+  return (
+    <table className="w-full text-sm tabular-nums" data-explore-compare="">
+      <thead>
+        <tr className="border-b border-(--borderColor-muted) text-left text-xs text-fg-muted">
+          {compareColumns(params, header).map((h) => (
+            <th key={h} scope="col" className={`${CELL} font-semibold`}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {ex.groups.map((g) => (
+          <tr key={g.key.join('\u0000')}>
+            {g.key.map((k, i) => (
+              <th key={i} scope="row" className={`${CELL} text-left font-normal text-fg-muted`}>
+                {k}
+              </th>
+            ))}
+            <td className={`${CELL} text-fg-muted`}>{g.p1.n}</td>
+            <td className={`${CELL} text-fg`}>{sideText(g.p1, agg, fmt)}</td>
+            <td className={`${CELL} text-fg-muted`}>{g.p2.n}</td>
+            <td className={`${CELL} font-semibold text-fg`}>{sideText(g.p2, agg, fmt)}</td>
+            <td className={CELL}>
+              <DeltaLabel measure={measure} subject={`${g.key.join(', ')} ${what}`} p1={g.p1.value} p2={g.p2.value} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function CompareExploreChart({ ex, params, compare }: { ex: ExploreComparison; params: InsightParams; compare: Compare }) {
+  const { agg, fmt, axis, header, what, title } = pivotCopy(params);
+  const measure = deltaMeasureOf(params.measure, agg);
+  const dim = params.dims.at(-1)!;
+  const rows: PairedRow[] = ex.groups.map((g) => {
+    const name = g.key.join(' · ');
+    const subject = `${g.key.join(', ')} ${what}`;
+    const d = delta(measure, subject, g.p1.value, g.p2.value);
+    const text = pairText(name, sideText(g.p1, agg, fmt), sideText(g.p2, agg, fmt));
+    return {
+      key: g.key.join('\u0000'),
+      label: name,
+      color: colorOf(dim, g.key.at(-1)!),
+      p1: g.p1.value,
+      p2: g.p2.value,
+      aria: `${text}. ${d.aria}`,
+      tip: `${text}, ${d.text}`,
+      deltaText: d.text,
+      delta: <DeltaLabel measure={measure} subject={subject} p1={g.p1.value} p2={g.p2.value} />,
+    };
+  });
+  return (
+    <ChartCard
+      title={title}
+      subtitle={`${COMPARE_SUBTITLE} · ${header}`}
+      section="explore"
+      range={compareSlug(compare)}
+      table={exploreCompareTable(ex, params)}
+      legend={periodLegend(compare, LEGEND_COLOR)}
+      caption={polarityCaption(measure)}
+    >
+      <div className="space-y-3">
+        <CompareExploreTable ex={ex} params={params} />
+        <PairedBarList label={`${title}: ${rows.map((r) => r.aria).join('; ')}`} rows={rows} format={fmt} axis={axis} />
+      </div>
+    </ChartCard>
+  );
+}
+
+function CompareExploreBody({ ex, params, compare }: { ex: ExploreComparison; params: InsightParams; compare: Compare }) {
+  const runs = [ex.groups.reduce((s, g) => s + g.p1.n, 0), ex.groups.reduce((s, g) => s + g.p2.n, 0)] as const;
+  if (runs[0] === 0 && runs[1] === 0) return <BothEmpty params={params} compare={compare} />;
+  return (
+    <>
+      <OneEmpty runs={runs} compare={compare} />
+      <CompareExploreChart ex={ex} params={params} compare={compare} />
+      <CompareCaption text={broNote({ cmp: ex, compare })} />
+    </>
+  );
+}
+
+export function CompareExploreSection({ params, compare, priced, explore }: {
+  params: InsightParams;
+  compare: Compare;
+  priced: boolean;
+  explore?: { data?: ExploreComparison; error: Error | null } | undefined;
+}) {
+  return (
+    <ExploreShell params={params} priced={priced}>
+      <Loading q={explore ?? { error: null }}>{(ex) => <CompareExploreBody ex={ex} params={params} compare={compare} />}</Loading>
+    </ExploreShell>
   );
 }

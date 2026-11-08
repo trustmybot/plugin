@@ -6,7 +6,10 @@
 // /api/insights/compare over HTTP (task slices, bro exclusion, shared buckets,
 // the 400s, bound parameters) and compare() / insights() directly: per-task
 // totals priced and unpriced, shared runs on overlapping periods, quality and
-// throughput under task slices, and options.max_task_id.
+// throughput under task slices, and options.max_task_id. Then check GET
+// /api/insights/explore/compare over HTTP (per-period groups, the bro rule,
+// the 400s) and exploreCompare() on a fixture of 12 models, where the union
+// ranking folds the same models into Other on both sides.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -98,7 +101,7 @@ let mod;
 before(async () => {
   const out = await build({
     stdin: {
-      contents: `export { parseSlice, compare, compareQuery, insights, insightFilter, VERSION_PERIODS_ERROR } from './server/queries.ts';`,
+      contents: `export { parseSlice, compare, compareQuery, exploreCompare, insights, insightFilter, VERSION_PERIODS_ERROR } from './server/queries.ts';`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -321,5 +324,131 @@ describe('compare()', () => {
     assert.equal(body.options.max_task_id, 5);
     assert.ok(body.options.max_task_id > 0);
     assert.equal(mod.insights(db, mod.insightFilter(new URLSearchParams('repo=nope')), NOW).options.max_task_id, null);
+  });
+});
+
+describe('GET /api/insights/explore/compare', () => {
+  const dbPath = join(tmp, 'explore-http.db');
+  seed(dbPath).close();
+  let server;
+  before(async () => {
+    server = await startServer(dbPath);
+  });
+  after(async () => {
+    await server?.stop();
+  });
+  const get = async (query) => {
+    const res = await fetch(`${server.url}api/insights/explore/compare?${query}`);
+    return { status: res.status, body: await res.json() };
+  };
+  const group = (body, ...key) => body.groups.find((g) => g.key.join() === key.join());
+
+  test('SC1: task periods give each group a per-period n and value, with bro dropped', async () => {
+    const { status, body } = await get('p1=tasks:1-2&p2=tasks:3-&m=tokens_out&a=avg&g=agent');
+    assert.equal(status, 200);
+    assert.deepEqual(Object.keys(body).sort(), ['agg', 'bro_excluded', 'dims', 'groups', 'measure', 'options']);
+    assert.deepEqual([body.measure, body.agg, body.dims], ['tokens_out', 'avg', ['agent']]);
+    assert.equal(body.bro_excluded, true);
+    assert.deepEqual(body.groups.map((g) => g.key), [['swe'], ['code-reviewer']]);
+    assert.deepEqual(group(body, 'swe'), { key: ['swe'], p1: { n: 3, value: 2000 }, p2: { n: 3, value: 4000 } });
+    assert.deepEqual(group(body, 'code-reviewer'), { key: ['code-reviewer'], p1: { n: 1, value: 500 }, p2: { n: 1, value: 1000 } });
+    assert.ok(body.groups.some((g) => g.p1.n > 0 && g.p2.n > 0));
+    assert.deepEqual(body.options.dims.slice(0, 2), ['agent', 'model']);
+    assert.equal(body.options.priced, false);
+  });
+
+  test('SC2: date periods keep bro; a task period on either side drops it', async () => {
+    const dates = await get('p1=all&p2=30d&m=tokens_out&a=count&g=agent');
+    assert.equal(dates.status, 200);
+    assert.equal(dates.body.bro_excluded, false);
+    assert.deepEqual(group(dates.body, 'bro'), { key: ['bro'], p1: { n: 3, value: 3 }, p2: { n: 2, value: 2 } });
+    const mixed = await get('p1=tasks:1-2&p2=30d&m=tokens_out&a=count&g=agent');
+    assert.equal(mixed.body.bro_excluded, true);
+    assert.equal(group(mixed.body, 'bro'), undefined);
+    assert.deepEqual(group(mixed.body, 'swe').p2, { n: 3, value: 3 });
+  });
+
+  test('SC2: a group with no runs in one period is n 0 and value null', async () => {
+    const { body } = await get('p1=tasks:1-2&p2=tasks:3-&m=duration_ms&a=max&g=task_status');
+    assert.deepEqual(group(body, 'running'), { key: ['running'], p1: { n: 0, value: null }, p2: { n: 2, value: 60000 } });
+    assert.deepEqual(group(body, 'closed'), { key: ['closed'], p1: { n: 4, value: 60000 }, p2: { n: 3, value: 60000 } });
+  });
+
+  test('SC1: bad m, a, g, p1, p2, filters and unpriced cost are 400 with an error', async () => {
+    for (const query of [
+      'p2=30d&m=tokens_out',
+      'p1=30d&m=tokens_out',
+      'p1=30d&p2=bogus',
+      'p1=ver:1.2.0&p2=30d',
+      'p1=30d&p2=7d&m=bogus',
+      'p1=30d&p2=7d&a=bogus',
+      'p1=30d&p2=7d&g=bogus',
+      'p1=30d&p2=7d&g=agent,model,repo',
+      'p1=30d&p2=7d&m=cache_hit&a=p50',
+      'p1=30d&p2=7d&m=cost&a=sum',
+      'p1=30d&p2=7d&agent=bogus',
+    ]) {
+      const { status, body } = await get(query);
+      assert.equal(status, 400, query);
+      assert.equal(typeof body.error, 'string', query);
+    }
+    assert.equal((await get('p1=30d&p2=7d&m=cost&a=sum')).body.error, 'cost needs model prices; none are set');
+    assert.equal((await get('p1=30d&p2=7d&range=bogus')).status, 200);
+  });
+});
+
+describe('exploreCompare()', () => {
+  // Tasks 1–6 (Period 1) run on models m0–m5 and tasks 7–18 (Period 2) on
+  // m0–m11; model mi outputs (i + 1) × 1000 tokens, so the union ranks m11
+  // to m3 and folds m0–m2 into Other, though Period 1 alone has only 6 models.
+  const db = new DatabaseSync(join(tmp, 'explore-fold.db'));
+  db.exec(readFileSync(SCHEMA, 'utf8'));
+  const now = NOW.toISOString();
+  const issue = Number(db.prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)').run('Fold issue', now, now).lastInsertRowid);
+  const task = db.prepare("INSERT INTO tasks (id, issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'd', 'running', ?, ?)");
+  const run = db.prepare(
+    `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+     VALUES (?, 'swe', 10, ?, 0, 0, 1, 1000, ?, ?, 'subagent_stop', ?)`,
+  );
+  for (let id = 1; id <= 18; id += 1) {
+    task.run(id, issue, `feat/f${id}`, `Fold ${id}`, now, now);
+    const model = id <= 6 ? id - 1 : id - 7;
+    run.run(id, (model + 1) * 1000, ago(HOUR), ago(HOUR), `m${model}`);
+  }
+  const bro = db.prepare("INSERT INTO agent_runs (agent_type, tokens_out, started_at, completed_at, usage_source, model) VALUES ('bro', 50, ?, ?, 'transcript', 'm0')");
+  bro.run(ago(HOUR), ago(HOUR));
+  after(() => db.close());
+  const run2 = (p1, p2, query) => {
+    const q = mod.compareQuery(new URLSearchParams(`p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}`), NOW);
+    assert.ok(!('error' in q), q.error);
+    return mod.exploreCompare(db, q.filter, q.p1, q.p2, new URLSearchParams(query));
+  };
+
+  test('SC2: the union ranking picks the bins and Other holds the same models in both periods', () => {
+    const body = run2('tasks:1-6', 'tasks:7-', 'm=tokens_out&a=avg&g=model');
+    assert.deepEqual(body.groups.map((g) => g.key[0]), ['m11', 'm10', 'm9', 'm8', 'm7', 'm6', 'm5', 'm4', 'm3', 'Other']);
+    const other = body.groups.at(-1);
+    assert.deepEqual(other, { key: ['Other'], p1: { n: 3, value: 2000 }, p2: { n: 3, value: 2000 } });
+    assert.deepEqual(body.groups.find((g) => g.key[0] === 'm3'), { key: ['m3'], p1: { n: 1, value: 4000 }, p2: { n: 1, value: 4000 } });
+    assert.deepEqual(body.groups[0], { key: ['m11'], p1: { n: 0, value: null }, p2: { n: 1, value: 12000 } });
+    assert.equal(body.groups.reduce((s, g) => s + g.p1.n, 0), 6);
+    assert.equal(body.groups.reduce((s, g) => s + g.p2.n, 0), 12);
+    assert.equal(body.bro_excluded, true);
+  });
+
+  test('SC2: two dimensions fold panels and bars on the union too', () => {
+    const body = run2('tasks:1-6', 'tasks:7-', 'm=tokens_out&a=count&g=agent,model');
+    assert.deepEqual(body.groups.map((g) => g.key.join('/')), ['swe/m0', 'swe/m1', 'swe/m2', 'swe/m3', 'swe/m4', 'swe/m5', 'swe/Other']);
+    assert.deepEqual(body.groups[0], { key: ['swe', 'm0'], p1: { n: 1, value: 1 }, p2: { n: 1, value: 1 } });
+    assert.deepEqual(body.groups.at(-1), { key: ['swe', 'Other'], p1: { n: 0, value: null }, p2: { n: 6, value: 6 } });
+  });
+
+  test('SC2: bro stays in date periods and leaves with a task period', () => {
+    const dates = run2('all', '30d', 'm=tokens_out&a=count&g=agent');
+    assert.equal(dates.bro_excluded, false);
+    assert.deepEqual(dates.groups.find((g) => g.key[0] === 'bro'), { key: ['bro'], p1: { n: 1, value: 1 }, p2: { n: 1, value: 1 } });
+    const mixed = run2('30d', 'tasks:1-', 'm=tokens_out&a=count&g=agent');
+    assert.equal(mixed.bro_excluded, true);
+    assert.ok(!mixed.groups.some((g) => g.key[0] === 'bro'));
   });
 });

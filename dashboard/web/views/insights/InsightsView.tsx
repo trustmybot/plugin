@@ -27,7 +27,7 @@ import {
   type InsightParams,
   type Section,
 } from './params.ts';
-import { ExploreSection } from './explore.tsx';
+import { CompareExploreSection, ExploreSection } from './explore.tsx';
 import {
   CompareCostSection,
   CompareQualitySection,
@@ -45,7 +45,7 @@ import {
 } from './sections.tsx';
 import { CompareSummary, CompareToggle, PeriodPickers } from './compare.tsx';
 import type { Compare } from './compare.ts';
-import type { Comparison, Efficiency, Explore, Insights } from './types.ts';
+import type { Comparison, Efficiency, Explore, ExploreComparison, Insights } from './types.ts';
 
 type Query<T> = { data?: T; error: Error | null };
 
@@ -120,6 +120,7 @@ function FilterBar({ params, data, cmp }: { params: InsightParams; data: Insight
 
 interface SectionQueries {
   explore?: Query<Explore> | undefined;
+  exploreCmp?: Query<ExploreComparison> | undefined;
   efficiency?: Query<Efficiency> | undefined;
 }
 
@@ -135,8 +136,9 @@ function SectionView({ data, params, explore, efficiency }: { data: Insights; pa
   }
 }
 
-function CompareSectionView(props: { cmp: Comparison; params: InsightParams; compare: Compare }) {
+function CompareSectionView({ exploreCmp, ...props }: { cmp: Comparison; params: InsightParams; compare: Compare; exploreCmp?: Query<ExploreComparison> | undefined }) {
   switch (props.params.section) {
+    case 'explore': return <CompareExploreSection params={props.params} compare={props.compare} priced={props.cmp.p1.cost.priced} explore={exploreCmp} />;
     case 'cost': return <CompareCostSection {...props} />;
     case 'time': return <CompareTimeSection {...props} />;
     case 'quality': return <CompareQualitySection {...props} />;
@@ -145,7 +147,7 @@ function CompareSectionView(props: { cmp: Comparison; params: InsightParams; com
   }
 }
 
-export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
+export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   const compare = comparing(params) && cmp ? params.compare : null;
   return (
@@ -158,7 +160,7 @@ export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params
         <FilterBar params={params} data={q.data} cmp={compare ? cmp?.data : undefined} />
         {compare && cmp ? (
           <Loading q={cmp}>
-            {(data) => <CompareSectionView cmp={data} params={params} compare={compare} />}
+            {(data) => <CompareSectionView cmp={data} params={params} compare={compare} exploreCmp={exploreCmp} />}
           </Loading>
         ) : (
           <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} efficiency={efficiency} />}</Loading>
@@ -168,9 +170,18 @@ export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params
   );
 }
 
-function ExploreView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
-  const explore = useApi<Explore>(exploreApiPath(params), { keepPrevious: true });
-  return <InsightsLayout params={params} q={q} explore={explore} />;
+const isComparison = (d: Explore | ExploreComparison): d is ExploreComparison => 'bro_excluded' in d;
+
+// One query per path keeps the last body on screen while the next loads; a
+// body of the other mode, kept across the Compare toggle, is not shown.
+function ExploreView({ params, q, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> | undefined }) {
+  const res = useApi<Explore | ExploreComparison>(exploreApiPath(params), { keepPrevious: true });
+  if (comparing(params)) {
+    const data = res.data && isComparison(res.data) ? res.data : undefined;
+    return <InsightsLayout params={params} q={q} cmp={cmp} exploreCmp={{ data, error: res.error }} />;
+  }
+  const data = res.data && !isComparison(res.data) ? res.data : undefined;
+  return <InsightsLayout params={params} q={q} explore={{ data, error: res.error }} />;
 }
 
 function EfficiencyView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
@@ -183,7 +194,7 @@ export function InsightsView() {
   const on = comparing(params);
   const q = useApi<Insights>(apiPath(params), { keepPrevious: true, enabled: !on });
   const cmp = useApi<Comparison>(compareApiPath(params), { keepPrevious: true, enabled: on });
-  if (params.section === 'explore') return <ExploreView params={params} q={q} />;
+  if (params.section === 'explore') return <ExploreView params={params} q={q} cmp={on ? cmp : undefined} />;
   if (params.section === 'efficiency') return <EfficiencyView params={params} q={q} />;
   return <InsightsLayout params={params} q={q} cmp={on ? cmp : undefined} />;
 }
