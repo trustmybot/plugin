@@ -349,7 +349,7 @@ describe('containment-guard l3', () => {
     assert.equal(swe(py('import os', "open('out.txt','w').write(str(os.listdir('/usr/share/doc')))")), 'allow', 'swe listing a dir outside');
     assert.equal(swe(py('import sys', "sys.path.insert(0, '/opt/tmb-cg/lib')", "open('out.txt','w').write('x')")), UNPROVEN, 'swe extending sys.path with a dir outside');
     const REGEX_EDIT = "s = open('src/x.sh').read().replace('/^[\\\\/~$]/', '/x/')";
-    assert.equal(swe(py(REGEX_EDIT, "open('src/x.sh','w').write(s)")), UNPROVEN, 'swe editing a file whose text holds regex slashes');
+    assert.equal(swe(py(REGEX_EDIT, "open('src/x.sh','w').write(s)")), 'allow', 'swe editing a file whose text holds regex slashes (proven since GH 1723)');
     assert.equal(swe(py(REGEX_EDIT, "open('/etc/tmb-cg/x.sh','w').write(s)")), 'deny', 'the same edit written outside');
     assert.equal(swe(py("open('/etc/tmb-cg/x', 'w')")), 'deny', 'swe open w outside');
     assert.equal(swe(py("p = '/etc/tmb-cg/x'", "open(p, 'w').write('y')")), 'deny', 'swe writing a variable assigned an outside path');
@@ -559,6 +559,14 @@ describe('containment-guard l3', () => {
     has(OUT, '/etc/tmb-cg-a.ts', 'the reason names the written path');
     hasNot(OUT, '/work/proj', 'the content is not named');
     assert.equal(swe(py("d = '/etc'", "open(d + '/tmb-cg', 'w').write('x')")), 'deny', 'a computed write path fails closed');
+  });
+
+  it('GH 1723: a ~/ literal a proven program only passes to replace is not a write target', () => {
+    const replace = (target: string) => `p='docs/a.md'; s=open(p).read().replace('~/.jobduck','{{home}}'); open(${target},'w').write(s)`;
+    assert.equal(swe(py(replace('p'))), 'allow', 'swe heredoc rewriting an in-worktree file with a ~/ replace argument');
+    const OUT = run(WT, 'swe', 'Bash', bashCmd(`python3 -c "${replace("'/etc/q'")}"`));
+    assert.equal(decision(OUT), 'deny', 'the same program writing /etc/q');
+    has(OUT, '/etc/q', 'the reason names the written path');
   });
 
   it('GH 1569: code-string runners and dynamic builtins', () => {

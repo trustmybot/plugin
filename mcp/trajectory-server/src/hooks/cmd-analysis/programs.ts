@@ -440,17 +440,30 @@ export interface ProgResult {
  * `$(computed)` line beside the literal paths. A write shape the scanner did
  * not see as a call (often `open(join(d, 'x'))`, a read) adds none when a
  * literal was found. A target name `heldLiterals` resolves adds no
- * `$(computed)` line: the .sh's literal fallback still runs, and every literal
- * the name may hold follows it, each judged as a write target.
+ * `$(computed)` line, and every literal the name may hold is judged as a
+ * write target. The .sh's literal fallback still runs beside them unless the
+ * program is python that `proveProgram` proved, whose scan then names every
+ * target (GH 1723): the GH 1550 rebinds the fallback guards against all sit
+ * outside the prover's allowlist. A judged write call the scanner names no
+ * target for (`open(*a)`, `open(**k)`) leaves the scan incomplete, so the
+ * fallback runs for it in every program.
  */
 export function progWrites(lang: Lang, program: string, operands: boolean, procWrites: ProcWrites): ProgResult {
   const scanned = progScan(lang, program);
-  const unproven = !proveProgram(lang, program, scanned);
-  const found = progFound(lang, program, scanned, operands, procWrites);
-  return { ...found, unproven };
+  const proof = proveProgram(lang, program, scanned);
+  const found = progFound(lang, program, scanned, operands, procWrites, lang === 'py' && proof.proven, proof.blind);
+  return { ...found, unproven: !proof.proven };
 }
 
-function progFound(lang: Lang, program: string, scanned: string[], operands: boolean, procWrites: ProcWrites): Omit<ProgResult, 'unproven'> {
+function progFound(
+  lang: Lang,
+  program: string,
+  scanned: string[],
+  operands: boolean,
+  procWrites: ProcWrites,
+  proven: boolean,
+  blind: boolean,
+): Omit<ProgResult, 'unproven'> {
   const scan = chomp(scanned.join('\n'));
   const has = (line: string): boolean => `\n${scan}\n`.includes(`\n${line}\n`);
   const cd = has('C');
@@ -459,7 +472,8 @@ function progFound(lang: Lang, program: string, scanned: string[], operands: boo
   const lexed = names.length > 0 && (lang === 'py' || lang === 'node') && !has('A') && !run ? lex(lang === 'py', program) : undefined;
   const held = new Map<string, string[] | undefined>(names.map((name) => [name, lexed && heldLiterals(lexed, name)]));
   const unread = has('A') || has('F') || [...held.values()].includes(undefined);
-  let fail = unread || held.size > 0;
+  const complete = proven && has('W') && !unread && !run && !blind;
+  let fail = unread || blind || (held.size > 0 && !complete);
   if (!has('W')) {
     if (!program.split('\n').some((line) => SHAPE.test(line))) return { lines: [], computed: false };
     fail = true;
@@ -489,8 +503,8 @@ function progFound(lang: Lang, program: string, scanned: string[], operands: boo
     const reads = grepO(grepO(program, READS).join('\n'), QUOTED);
     out += progLiterals(src, reads, writes, raw).join('\n');
     if (run) out += '\n$(proc)';
-    for (const lits of held.values()) for (const lit of lits ?? []) out += `\n${lit}`;
   }
+  for (const lits of held.values()) for (const lit of lits ?? []) out += `\n${lit}`;
   let lines = out.split('\n');
   if (cd) lines = lines.filter((l) => !blank(l)).map((l) => (/^[/~$]/.test(l) ? '' : '$(proc)/') + l);
   const seen = new Set<string>();
