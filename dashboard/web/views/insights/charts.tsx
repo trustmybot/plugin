@@ -5,6 +5,7 @@ import { ParentSize } from '@visx/responsive';
 import { scaleLinear } from '@visx/scale';
 import { BarRounded, Line, Pie } from '@visx/shape';
 import { Tooltip, useTooltip } from '@visx/tooltip';
+import { LABEL_BORDER, LABEL_ICON, LABEL_ICON_GAP, LABEL_PAD_X } from '../../ui/Label.tsx';
 import { OUTLINE_DASH } from './ChartCard.tsx';
 import type { Tick } from './format.ts';
 import { overlayTip } from './params.ts';
@@ -569,7 +570,7 @@ const PAIR_P1 = 18;
 const PAIR_P2 = 32;
 const DELTA_H = 20;
 const DELTA_GAP = 6;
-const DELTA_ICON = 24;
+export const deltaPillWidth = (text: string) => textWidth(text) + 2 * LABEL_PAD_X + 2 * LABEL_BORDER + LABEL_ICON + LABEL_ICON_GAP;
 
 export interface PairedRow {
   key: string;
@@ -588,13 +589,14 @@ export interface PairedBarListProps {
   rows: PairedRow[];
   format: (v: number) => string;
   axis: (max: number) => { top: number; ticks: Tick[] };
+  divider?: (r: PairedRow) => boolean;
 }
 
 const pairText = (v: number | null, format: (v: number) => string) => (v === null ? '—' : format(v));
 
-function PairedBarListPlot({ width, label, rows, format, axis }: PairedBarListProps & { width: number }) {
+function PairedBarListPlot({ width, label, rows, format, axis, divider }: PairedBarListProps & { width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
-  const deltaW = (r: PairedRow) => textWidth(r.deltaText) + DELTA_ICON;
+  const deltaW = (r: PairedRow) => deltaPillWidth(r.deltaText);
   const reserve =
     Math.max(0, ...rows.map((r) => Math.max(textWidth(pairText(r.p1, format)), textWidth(pairText(r.p2, format)) + DELTA_GAP + deltaW(r)))) + 2 * LABEL_PAD + 4;
   const innerW = Math.max(0, width - 1 - reserve);
@@ -617,6 +619,7 @@ function PairedBarListPlot({ width, label, rows, format, axis }: PairedBarListPr
             const v2 = pairText(r.p2, format);
             return (
               <g key={r.key} data-pair="">
+                {i > 0 && divider?.(r) && <Line from={{ x: 0, y: rowY }} to={{ x: innerW, y: rowY }} stroke={GRID} strokeWidth={1} data-divider="" />}
                 <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
                   {r.label}
                 </text>

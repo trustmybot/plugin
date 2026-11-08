@@ -15,6 +15,11 @@ export const LABEL_COLORS: Record<LabelVariant, string> = {
   done: 'border-(--borderColor-done-emphasis) text-(--fgColor-done)',
 };
 
+export const LABEL_PAD_X = 7;
+export const LABEL_BORDER = 1;
+export const LABEL_ICON = 12;
+export const LABEL_ICON_GAP = 4;
+
 export const labelClass = (variant: LabelVariant = 'default') =>
   `inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-[7px] text-xs font-medium leading-none ${LABEL_COLORS[variant]}`;
 
