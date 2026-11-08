@@ -102,7 +102,7 @@ export interface InsightParams {
   compare?: Compare | null;
 }
 
-export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost']);
+export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost', 'time', 'quality', 'throughput']);
 export const comparing = (p: InsightParams) => !!p.compare && COMPARE_SECTIONS.has(p.section);
 
 // pm decision 816: every Compare Periods string.
@@ -115,7 +115,7 @@ export const COMPARE_TOGGLE = 'Compare Periods';
 export const COMPARE_TOGGLE_TITLE = 'Compare two periods side by side to see what changed.';
 export const COMPARE_ON = 'Compare on. Showing Period 1 and Period 2.';
 export const COMPARE_OFF = 'Compare off.';
-export const COMPARE_SCOPE_NOTE = 'Compare covers Tokens and Cost for now.';
+export const COMPARE_SCOPE_NOTE = 'Compare covers every section except Explore and Efficiency for now.';
 export const SWAP_PERIODS = 'Swap periods';
 export const periodName = (n: 1 | 2) => `Period ${n}`;
 export const periodType = (n: 1 | 2) => `Period ${n} type`;
@@ -158,7 +158,8 @@ export const COMPARE_SUBTITLE = 'Period 1 vs Period 2';
 export const vsPeriod1 = (change: string) => `${change} vs Period 1`;
 export const NO_CHANGE = 'No Change';
 export const NO_BASELINE_TITLE = 'Period 1 has no runs to compare against.';
-export const noBaselineAria = (subject: string) => `${subject}: ${NO_BASELINE_TITLE}`;
+export const NO_BASELINE_TASKS_TITLE = 'Period 1 has no tasks to compare against.';
+export const noBaselineAria = (subject: string, title: string = NO_BASELINE_TITLE) => `${subject}: ${title}`;
 export const noChangeAria = (subject: string) => `${subject}: no change vs Period 1.`;
 export const deltaAria = (subject: string, direction: 'up' | 'down', mag: string, better: boolean | null) =>
   `${subject} ${direction} ${mag} vs Period 1${better === null ? '' : better ? ', better' : ', worse'}.`;
@@ -202,6 +203,42 @@ export const periodUnpriced = (n: 1 | 2, count: number) =>
   `${periodName(n)}: ${count} measured ${count === 1 ? 'run has' : 'runs have'} no price for their model and ${count === 1 ? 'is' : 'are'} left out.`;
 export const NAME_HEADER = 'Name';
 export const pairText = (label: string, v1: string, v2: string) => `${label}: ${periodName(1)} ${v1}, ${periodName(2)} ${v2}`;
+export const AGENT_HEADER = 'Agent';
+export const DURATION_PER_RUN = 'Duration per Run';
+export const TOOL_USES_PER_RUN = 'Tool Uses per Run';
+export const BRO_DURATION_PER_SESSION = 'bro Duration per Session';
+export const BRO_TOOL_USES_PER_SESSION = 'bro Tool Uses per Session';
+export const DURATION_UNIT = 'Duration';
+export const TOOL_USES_UNIT = 'Tool Uses';
+export const AVERAGE_BARS = 'Bars Show the Average';
+export const PER_RUN = 'Per Run';
+export const PER_SESSION = 'Per Session';
+export const TIME_SUBJECT = { duration_ms: 'duration', tool_uses: 'tool uses' } as const;
+export const averageSubject = (agent: string, what: string) => `${agent} average ${what}`;
+export const FIRST_PASS_RATE = 'First-Pass Rate';
+export const VERIFICATION_PASS_RATE = 'Verification Pass Rate';
+export const VERDICT_MIX = 'Verdict Mix';
+export const FIRST_PASS_WHAT = 'tasks passed review on the first attempt';
+export const VERIFICATION_WHAT = 'verification runs passed';
+export const VERDICTS_WHAT = 'review verdicts passed';
+export const rateSubject = { first_pass: 'first-pass rate', verification: 'verification pass rate' } as const;
+export const periodBar = (n: 1 | 2) => String(n);
+export const periodOf = (n: 1 | 2, text: string) => `${periodName(n)}: ${text}`;
+export const REVIEW_ATTEMPTS = 'Review Attempts per Task';
+export const ATTEMPTS_SHARE_UNIT = 'Share of Tasks by Attempt Count';
+export const ATTEMPTS_HEADER = 'Attempts';
+export const attemptsLabel = (n: number) => `${n} ${n === 1 ? 'attempt' : 'attempts'}`;
+export const attemptsSubject = (n: number) => `share of tasks with ${attemptsLabel(n)}`;
+export const periodTasks = (n: 1 | 2) => `${periodName(n)} Tasks`;
+export const SLOWEST_COMMANDS = 'Slowest Verification Commands';
+export const CLOSED_PER_DAY = 'Closed Tasks per Day';
+export const TASKS_PER_DAY_UNIT = 'Tasks per Day';
+export const AVG_CLOSED_PER_DAY = 'Average Closed Tasks per Day';
+export const AVG_CLOSED_SUBJECT = 'average closed tasks per day';
+export const DAY_HEADER = 'Day';
+export const CLOSED_HEADER = 'Closed Tasks';
+export const closedAria = (label: string, total: number, days: number) => `${label}: ${total} closed ${total === 1 ? 'task' : 'tasks'} over ${days} ${days === 1 ? 'day' : 'days'}`;
+export const NO_CLOSED_TASKS = 'No closed tasks in this period.';
 
 // pm decision 2211 and frontend decision 2212: every Token Efficiency string.
 export const EFFICIENCY_TITLE = 'Token Efficiency';

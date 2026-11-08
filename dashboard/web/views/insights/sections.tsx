@@ -14,6 +14,47 @@ import { ChartCard } from './ChartCard.tsx';
 import { BarList, ColumnChart, Histogram, OverlayHistogram, PairedBarList, niceAxis, shareOf, type Column, type OverlayPeriod, type PairedRow } from './charts.tsx';
 import { POLARITY, compareSlug, delta, sliceLabel, type Compare, type DeltaMeasure } from './compare.ts';
 import { CompareTile, DeltaLabel, PerTaskStrip, totalRuns } from './compare.tsx';
+import {
+  AGENT_HEADER,
+  ATTEMPTS_HEADER,
+  ATTEMPTS_SHARE_UNIT,
+  AVERAGE_BARS,
+  AVG_CLOSED_PER_DAY,
+  AVG_CLOSED_SUBJECT,
+  BRO_DURATION_PER_SESSION,
+  BRO_TOOL_USES_PER_SESSION,
+  CLOSED_HEADER,
+  CLOSED_PER_DAY,
+  DAY_HEADER,
+  DURATION_PER_RUN,
+  DURATION_UNIT,
+  FIRST_PASS_RATE,
+  FIRST_PASS_WHAT,
+  NO_CLOSED_TASKS,
+  PER_RUN,
+  PER_SESSION,
+  REVIEW_ATTEMPTS,
+  SECTIONS,
+  SLOWEST_COMMANDS,
+  TASKS_PER_DAY_UNIT,
+  TIME_SUBJECT,
+  TOOL_USES_PER_RUN,
+  TOOL_USES_UNIT,
+  VERDICTS_WHAT,
+  VERDICT_MIX,
+  VERIFICATION_PASS_RATE,
+  VERIFICATION_WHAT,
+  attemptsLabel,
+  attemptsSubject,
+  averageSubject,
+  closedAria,
+  period1Value,
+  periodBar,
+  periodOf,
+  periodTasks,
+  rateSubject,
+  type Section,
+} from './params.ts';
 import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, fine, pct, plain, ratio, shortDay, usd } from './format.ts';
 import {
   BY_TYPE,
@@ -71,7 +112,7 @@ import {
   type InsightParams,
   type MetricKey,
 } from './params.ts';
-import type { AgentKey, AgentStats, Comparison, Efficiency, Insights, Metric, Outlier } from './types.ts';
+import type { AgentKey, AgentStats, Comparison, Efficiency, Insights, Metric, Outlier, PeriodInsights } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
@@ -459,6 +500,15 @@ const VERDICTS = [
   ['escalate', 'Escalate', AGENT_FILL.bro],
 ] as const;
 
+const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
+const SLOW_COLUMNS: TableColumn[] = [
+  { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: 'fill' },
+  { key: 'n', header: 'Runs', cell: (r) => numeric(plain(Number(r['n']))), hideBelow: 'sm' },
+  { key: 'p50', header: 'p50', cell: (r) => numeric(seconds(r['p50'] as number | null)), hideBelow: 'sm' },
+  { key: 'p95', header: 'p95', cell: (r) => numeric(seconds(r['p95'] as number | null)) },
+  { key: 'max', header: 'max', cell: (r) => numeric(seconds(r['max'] as number | null)) },
+];
+
 export function QualitySection({ data, params }: SectionProps) {
   const q = data.quality;
   const totalVerdicts = q.verdicts.pass + q.verdicts.fail + q.verdicts.escalate;
@@ -466,14 +516,6 @@ export function QualitySection({ data, params }: SectionProps) {
     const label = `${a.attempts} ${a.attempts === 1 ? 'attempt' : 'attempts'}`;
     return { key: String(a.attempts), label: String(a.attempts), value: a.tasks, color: AGENT_COLOR['code-reviewer'], aria: `${label}: ${a.tasks} ${a.tasks === 1 ? 'task' : 'tasks'}`, tip: `${label}: ${a.tasks}` };
   });
-  const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
-  const slowColumns: TableColumn[] = [
-    { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: 'fill' },
-    { key: 'n', header: 'Runs', cell: (r) => numeric(plain(Number(r['n']))), hideBelow: 'sm' },
-    { key: 'p50', header: 'p50', cell: (r) => numeric(seconds(r['p50'] as number | null)), hideBelow: 'sm' },
-    { key: 'p95', header: 'p95', cell: (r) => numeric(seconds(r['p95'] as number | null)) },
-    { key: 'max', header: 'max', cell: (r) => numeric(seconds(r['max'] as number | null)) },
-  ];
   return (
     <div className="space-y-4">
       <SectionHeading>Quality</SectionHeading>
@@ -527,7 +569,7 @@ export function QualitySection({ data, params }: SectionProps) {
       </Grid>
       <section className="space-y-2" aria-label="Slowest verification commands">
         <h3 className="text-sm font-semibold text-fg">Slowest Verification Commands</h3>
-        <DataTable rows={q.slowest_commands as unknown as Row[]} columns={slowColumns} filter={false} />
+        <DataTable rows={q.slowest_commands as unknown as Row[]} columns={SLOW_COLUMNS} filter={false} />
       </section>
     </div>
   );
@@ -612,12 +654,14 @@ export function EfficiencySection({ efficiency }: { efficiency?: { data?: Effici
 
 const DAY_MS = 86_400_000;
 
-export function closedPerDay(data: Insights): Array<{ day: string; closed: number }> {
+// An open-ended period (until null) ends on its last closed day.
+export function closedPerDay(data: Insights, until: string | null = data.range.until): Array<{ day: string; closed: number }> {
   const byDay = new Map(data.throughput.map((d) => [d.day, d.closed]));
   const first = data.range.since?.slice(0, 10) ?? data.throughput[0]?.day;
-  if (!first) return [];
+  const last = until?.slice(0, 10) ?? data.throughput.at(-1)?.day;
+  if (!first || !last) return [];
   const out: Array<{ day: string; closed: number }> = [];
-  const end = Date.parse(`${data.range.until.slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${last}T00:00:00Z`);
   for (let t = Date.parse(`${first}T00:00:00Z`); t <= end; t += DAY_MS) {
     const day = new Date(t).toISOString().slice(0, 10);
     out.push({ day, closed: byDay.get(day) ?? 0 });
@@ -959,5 +1003,270 @@ export function CompareCostSection(props: CompareProps) {
       </Grid>
       <CompareCaption text={broNote(props)} />
     </div>
+  );
+}
+
+const sectionTitle = (s: Section) => SECTIONS.find(([k]) => k === s)![1];
+
+const periodLegend = (compare: Compare, color: string) => [
+  { label: periodLabel(1, sliceLabel(compare.p1)), color, kind: 'outline' as const },
+  { label: periodLabel(2, sliceLabel(compare.p2)), color, kind: 'fill' as const },
+];
+
+function CompareShell({ section, props, children }: { section: Section; props: CompareProps; children: ReactNode }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading>{sectionTitle(section)}</SectionHeading>
+      {bothEmpty(props.cmp) ? (
+        <BothEmpty params={props.params} compare={props.compare} />
+      ) : (
+        <>
+          <OneEmpty cmp={props.cmp} compare={props.compare} />
+          {children}
+        </>
+      )}
+    </div>
+  );
+}
+
+type TimeKey = 'duration_ms' | 'tool_uses';
+
+const TIME_FORMAT: Record<TimeKey, (v: number | null) => string> = { duration_ms: duration, tool_uses: plain };
+const TIME_AXIS: Record<TimeKey, (max: number) => { top: number; ticks: Array<{ at: number; label: string }> }> = {
+  duration_ms: (max) => durationTicks(max),
+  tool_uses: niceAxis((v) => plain(v)),
+};
+const STAT_KEYS = ['p50', 'p95', 'avg'] as const;
+
+function pairedRow(key: string, color: string, measure: DeltaMeasure, subject: string, p1: number | null, p2: number | null, fmt: (v: number | null) => string): PairedRow {
+  const d = delta(measure, subject, p1, p2);
+  const text = pairText(key, fmt(p1), fmt(p2));
+  return { key, label: key, color, p1, p2, aria: `${text}. ${d.aria}`, tip: `${text}, ${d.text}`, deltaText: d.text, delta: <DeltaLabel measure={measure} subject={subject} p1={p1} p2={p2} /> };
+}
+
+function CompareTimeCard({ title, unit, pairs, measure, compare, bars }: { title: string; unit: string; pairs: AgentPair[]; measure: TimeKey; compare: Compare; bars: boolean }) {
+  const fmt = TIME_FORMAT[measure];
+  const what = TIME_SUBJECT[measure];
+  const per = pairs[0]!.a2.per;
+  const rows = pairs.map((p) => pairedRow(p.agent, AGENT_COLOR[p.agent], measure, averageSubject(p.agent, what), p.a1[measure].avg, p.a2[measure].avg, fmt));
+  return (
+    <ChartCard
+      title={title}
+      subtitle={`${COMPARE_SUBTITLE} · ${per === 'session' ? PER_SESSION : PER_RUN} · ${bars ? `${unit}; ${AVERAGE_BARS}` : unit}`}
+      section="time"
+      range={compareSlug(compare)}
+      table={{
+        columns: [AGENT_HEADER, MEASURE_HEADER, periodName(1), periodName(2)],
+        rows: pairs.flatMap((p) => STAT_KEYS.map((k) => [p.agent, k, fmt(p.a1[measure][k]), fmt(p.a2[measure][k])])),
+      }}
+      {...(bars ? { legend: periodLegend(compare, LEGEND_COLOR) } : {})}
+      caption={withBro(polarityCaption(measure), pairs[0]!.a2)}
+    >
+      <div className="space-y-3">
+        {pairs.map((p) => (
+          <div key={p.agent} className="space-y-1" data-agent={p.agent}>
+            <p className="text-xs font-semibold text-fg">{p.agent}</p>
+            <CompareStats rows={STAT_KEYS.map((k) => [k, p.a1[measure][k], p.a2[measure][k]])} measure={measure} fmt={fmt} what={what} />
+          </div>
+        ))}
+        {bars && <PairedBarList label={`${title}: ${rows.map((r) => r.aria).join('; ')}`} rows={rows} format={(v) => fmt(v)} axis={TIME_AXIS[measure]} />}
+      </div>
+    </ChartCard>
+  );
+}
+
+export function CompareTimeSection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const pairs = agentPairs(props);
+  const runs = pairs.filter((p) => p.a2.per === 'run');
+  const b = pairs.find((p) => p.agent === 'bro');
+  return (
+    <CompareShell section="time" props={props}>
+      <Grid>
+        {runs.length > 0 && <CompareTimeCard title={DURATION_PER_RUN} unit={DURATION_UNIT} pairs={runs} measure="duration_ms" compare={compare} bars />}
+        {runs.length > 0 && <CompareTimeCard title={TOOL_USES_PER_RUN} unit={TOOL_USES_UNIT} pairs={runs} measure="tool_uses" compare={compare} bars />}
+        {b && <CompareTimeCard title={BRO_DURATION_PER_SESSION} unit={DURATION_UNIT} pairs={[b]} measure="duration_ms" compare={compare} bars={false} />}
+        {b && <CompareTimeCard title={BRO_TOOL_USES_PER_SESSION} unit={TOOL_USES_UNIT} pairs={[b]} measure="tool_uses" compare={compare} bars={false} />}
+      </Grid>
+      <CompareCaption text={broNote(props)} />
+      <Outliers kind="duration_ms" rows={cmp.p2.outliers.duration_ms} suffix={OUTLIERS_P2} />
+    </CompareShell>
+  );
+}
+
+const PERIODS = [1, 2] as const;
+
+function PeriodBars({ bar, captions }: { bar: (n: 1 | 2) => ReactNode; captions: [string, string] }) {
+  return (
+    <div className="space-y-1">
+      {PERIODS.map((n) => (
+        <div key={n} className="space-y-0.5" data-period-bar={n}>
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="w-3 text-xs font-semibold text-fg-muted tabular-nums">
+              {periodBar(n)}
+            </span>
+            <div className="min-w-0 flex-1">{bar(n)}</div>
+          </div>
+          <p className="text-xs text-fg-muted tabular-nums">{periodOf(n, captions[n - 1]!)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type Rate = { passed: number; total: number };
+
+function CompareRateTile({ title, measure, rates, what, fill }: { title: string; measure: 'first_pass' | 'verification'; rates: [Rate, Rate]; what: string; fill: string }) {
+  const [r1, r2] = rates.map((r) => ratio(r.passed, r.total)) as [number | null, number | null];
+  const captions = rates.map((r) => `${r.passed} of ${r.total} ${what}`) as [string, string];
+  return (
+    <Box className="space-y-2 px-4 py-3" data-rate-tile={measure}>
+      <h3 className="text-sm font-semibold text-fg">{title}</h3>
+      <p className="text-2xl font-semibold text-fg tabular-nums">{pct(r2)}</p>
+      <p className="text-xs text-fg-muted tabular-nums" data-period1-rate="">
+        {period1Value(pct(r1))}
+      </p>
+      <DeltaLabel measure={measure} subject={rateSubject[measure]} p1={r1} p2={r2} />
+      <PeriodBars captions={captions} bar={(n) => <ProgressBar value={rates[n - 1]!.passed} max={rates[n - 1]!.total} label={periodOf(n, captions[n - 1]!)} fill={fill} />} />
+    </Box>
+  );
+}
+
+type Verdicts = Insights['quality']['verdicts'];
+
+const verdictTotal = (v: Verdicts) => v.pass + v.fail + v.escalate;
+
+function CompareVerdictTile({ verdicts }: { verdicts: [Verdicts, Verdicts] }) {
+  const captions = verdicts.map((v) => `${v.pass} of ${verdictTotal(v)} ${VERDICTS_WHAT}`) as [string, string];
+  return (
+    <Box className="space-y-2 px-4 py-3" data-rate-tile="verdicts">
+      <h3 className="text-sm font-semibold text-fg">{VERDICT_MIX}</h3>
+      <PeriodBars
+        captions={captions}
+        bar={(n) => {
+          const v = verdicts[n - 1]!;
+          return (
+            <StackedProgressBar
+              label={periodOf(n, `Review verdicts: ${VERDICTS.map(([k, label]) => `${label} ${v[k]}`).join(', ')} of ${verdictTotal(v)}`)}
+              segments={VERDICTS.map(([k, label, fill]) => ({ label, value: v[k], fill }))}
+            />
+          );
+        }}
+      />
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted tabular-nums">
+        {VERDICTS.map(([k, label, fill]) => (
+          <li key={k} className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className={`inline-block size-2 rounded-full ${fill}`} />
+            {label}
+          </li>
+        ))}
+      </ul>
+    </Box>
+  );
+}
+
+const shareOfTasks = (p: PeriodInsights, attempts: number) => {
+  const total = p.quality.attempts.reduce((s, a) => s + a.tasks, 0);
+  const tasks = p.quality.attempts.find((a) => a.attempts === attempts)?.tasks ?? 0;
+  return { tasks, share: total > 0 ? tasks / total : null };
+};
+
+export function CompareQualitySection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const { p1, p2 } = cmp;
+  const buckets = [...new Set([...p1.quality.attempts, ...p2.quality.attempts].map((a) => a.attempts))].sort((a, b) => a - b);
+  const shares = buckets.map((n) => ({ n, s1: shareOfTasks(p1, n), s2: shareOfTasks(p2, n) }));
+  const color = AGENT_COLOR['code-reviewer'];
+  const rows = shares.map(({ n, s1, s2 }) => pairedRow(attemptsLabel(n), color, 'share', attemptsSubject(n), s1.share, s2.share, pct));
+  return (
+    <CompareShell section="quality" props={props}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <CompareRateTile title={FIRST_PASS_RATE} measure="first_pass" rates={[p1.quality.first_pass, p2.quality.first_pass]} what={FIRST_PASS_WHAT} fill={AGENT_FILL['code-reviewer']} />
+        <CompareRateTile title={VERIFICATION_PASS_RATE} measure="verification" rates={[p1.quality.verification, p2.quality.verification]} what={VERIFICATION_WHAT} fill={AGENT_FILL.swe} />
+        <CompareVerdictTile verdicts={[p1.quality.verdicts, p2.quality.verdicts]} />
+      </div>
+      <Grid>
+        <ChartCard
+          title={REVIEW_ATTEMPTS}
+          subtitle={`${COMPARE_SUBTITLE} · ${ATTEMPTS_SHARE_UNIT}`}
+          section="quality"
+          range={compareSlug(compare)}
+          table={{
+            columns: [ATTEMPTS_HEADER, periodTasks(1), periodShare(1), periodTasks(2), periodShare(2)],
+            rows: shares.map(({ n, s1, s2 }) => [n, s1.tasks, pct(s1.share), s2.tasks, pct(s2.share)]),
+          }}
+          legend={periodLegend(compare, color)}
+        >
+          <PairedBarList label={`${REVIEW_ATTEMPTS}: ${rows.map((r) => r.aria).join('; ')}`} rows={rows} format={(v) => pct(v)} axis={niceAxis((v) => pct(v))} />
+        </ChartCard>
+      </Grid>
+      <section className="space-y-2" aria-label={`${SLOWEST_COMMANDS}${OUTLIERS_P2}`}>
+        <h3 className="text-sm font-semibold text-fg">{`${SLOWEST_COMMANDS}${OUTLIERS_P2}`}</h3>
+        <DataTable rows={p2.quality.slowest_commands as unknown as Row[]} columns={SLOW_COLUMNS} filter={false} />
+      </section>
+    </CompareShell>
+  );
+}
+
+// A dates period's until is the exclusive day after its To; an open one runs to today.
+const periodUntil = (p: PeriodInsights): string | null => {
+  if (p.slice.kind !== 'dates') return p.range.until;
+  return p.range.until ? new Date(Date.parse(p.range.until) - DAY_MS).toISOString() : new Date().toISOString();
+};
+
+const closedColumns = (days: Array<{ day: string; closed: number }>): Column[] =>
+  days.map((d) => ({
+    key: d.day,
+    label: shortDay(d.day),
+    value: d.closed,
+    color: SERIES_COLOR,
+    aria: `${shortDay(d.day)}: ${d.closed} closed ${d.closed === 1 ? 'task' : 'tasks'}`,
+    tip: `${shortDay(d.day)}: ${d.closed}`,
+  }));
+
+export function CompareThroughputSection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const periods = PERIODS.map((n) => {
+    const p = n === 1 ? cmp.p1 : cmp.p2;
+    const days = closedPerDay(p, periodUntil(p));
+    const total = days.reduce((s, d) => s + d.closed, 0);
+    return { n, label: periodLabel(n, sliceLabel(n === 1 ? compare.p1 : compare.p2)), days, total, avg: days.length > 0 ? total / days.length : null };
+  });
+  const yMax = Math.max(0, ...periods.flatMap((p) => p.days.map((d) => d.closed)));
+  const [a1, a2] = [periods[0]!.avg, periods[1]!.avg];
+  return (
+    <CompareShell section="throughput" props={props}>
+      <div className="space-y-1" data-throughput-stats="">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm tabular-nums">
+          <span className="font-semibold text-fg">{AVG_CLOSED_PER_DAY}</span>
+          {periods.map((p) => (
+            <span key={p.n} className="flex gap-1.5">
+              <span className="text-fg-muted">{periodName(p.n)}</span>
+              <span className="font-semibold text-fg">{plain(p.avg)}</span>
+            </span>
+          ))}
+          <DeltaLabel measure="throughput" subject={AVG_CLOSED_SUBJECT} p1={a1} p2={a2} />
+        </div>
+        <p className="text-xs text-fg-muted">{HIGHER_BETTER}</p>
+      </div>
+      {periods.map((p) => (
+        <ChartCard
+          key={p.n}
+          title={p.label}
+          subtitle={`${CLOSED_PER_DAY} · ${TASKS_PER_DAY_UNIT}`}
+          section="throughput"
+          range={`${compareSlug(compare)}-p${p.n}`}
+          table={{ columns: [DAY_HEADER, CLOSED_HEADER], rows: p.days.map((d) => [d.day, d.closed]) }}
+        >
+          <div data-throughput-period={p.n}>
+            {p.days.length === 0 ? (
+              <p className="text-sm text-fg-muted">{NO_CLOSED_TASKS}</p>
+            ) : (
+              <ColumnChart label={closedAria(p.label, p.total, p.days.length)} columns={closedColumns(p.days)} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
+            )}
+          </div>
+        </ChartCard>
+      ))}
+    </CompareShell>
   );
 }

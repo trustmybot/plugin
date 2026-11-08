@@ -2,10 +2,11 @@
 // the hash keys p1/p2, the picker drafts and the delta text and colour. Then
 // seed a temp trajectory DB from schema.sql (tasks 1–2 about 45 days ago,
 // tasks 3–5 in the last two days, bro sessions), build the comparison with
-// compare() directly, render Insights Tokens and Cost in compare mode to static
-// HTML and check the Per Task strip, the agent table, the dashed Period 1
-// outline, the legend kinds, the paired cost rows, the bro captions and tile,
-// the empty states and the note on the sections compare doesn't cover.
+// compare() directly, render Insights Tokens, Cost, Time, Quality and
+// Throughput in compare mode to static HTML and check the Per Task strip, the
+// agent table, the dashed Period 1 outline, the legend kinds, the paired cost
+// and time rows, the rate tiles in points, the per-period throughput charts,
+// the bro captions and tile, the empty states and the note on Explore.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -50,6 +51,43 @@ function seed(path, prices = '{}') {
      VALUES (?, ?, 500, ?, 1000, 100, 3, 60000, ?, ?, ?, ?)`,
   );
   for (const r of RUNS) run.run(r.task, r.agent, r.out, ago(r.at), ago(r.at), r.source ?? 'subagent_stop', r.model ?? 'claude-opus');
+  return db;
+}
+
+// Period 1 (tasks 1–2): task 1 passes first time, task 2 fails then passes,
+// one of two verifications passes. Period 2 (tasks 3–4): both pass first time,
+// both verifications pass. Tasks 1–4 are closed on the day of their runs.
+const REVIEWS = [
+  { task: 1, n: 1, verdict: 'pass', at: 45 * DAY },
+  { task: 2, n: 1, verdict: 'fail', at: 44 * DAY },
+  { task: 2, n: 2, verdict: 'pass', at: 44 * DAY - HOUR },
+  { task: 3, n: 1, verdict: 'pass', at: 2 * DAY },
+  { task: 4, n: 1, verdict: 'pass', at: DAY },
+];
+const VERIFICATIONS = [
+  { task: 1, exit: 0, at: 45 * DAY, command: 'npm test', elapsed: 4 },
+  { task: 2, exit: 1, at: 44 * DAY, command: 'npm test', elapsed: 6 },
+  { task: 3, exit: 0, at: 2 * DAY, command: 'npm run lint', elapsed: 9 },
+  { task: 4, exit: 0, at: DAY, command: 'npm run lint', elapsed: 3 },
+];
+const CLOSED = [
+  [1, 45 * DAY],
+  [2, 44 * DAY],
+  [3, 2 * DAY],
+  [4, DAY],
+];
+
+function seedQuality(db) {
+  const review = db.prepare('INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, ?, ?, 1, ?)');
+  for (const r of REVIEWS) review.run(r.task, r.n, 'code-reviewer', r.verdict, ago(r.at));
+  const verification = db.prepare("INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s) VALUES (?, ?, 'abc1234', 'gate', ?, ?, ?, 600)");
+  const command = db.prepare('INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (?, 0, ?, ?, ?)');
+  VERIFICATIONS.forEach((v, i) => {
+    verification.run(i + 1, v.task, ago(v.at), ago(v.at), v.exit);
+    command.run(i + 1, v.command, v.exit, v.elapsed);
+  });
+  const close = db.prepare("UPDATE tasks SET status = 'closed', completed_at = ? WHERE id = ?");
+  for (const [id, at] of CLOSED) close.run(ago(at), id);
   return db;
 }
 
@@ -179,6 +217,16 @@ describe('deltas', () => {
     assert.equal(d('cache_hit', 0, 0.2).text, '+20.0 pts vs Period 1');
   });
 
+  test('B1: pass rates move in points and higher is better; throughput is relative and higher is better; task-level baselines name tasks', () => {
+    assert.deepEqual([d('first_pass', 0.5, 0.75).text, d('first_pass', 0.5, 0.75).variant], ['+25.0 pts vs Period 1', 'success']);
+    assert.deepEqual([d('verification', 0.9, 0.6).text, d('verification', 0.9, 0.6).variant], ['−30.0 pts vs Period 1', 'danger']);
+    assert.deepEqual([d('throughput', 2, 3).text, d('throughput', 2, 3).variant], ['+50% vs Period 1', 'success']);
+    assert.deepEqual([d('share', 0.5, 0.2).text, d('share', 0.5, 0.2).variant], ['−30.0 pts vs Period 1', 'secondary']);
+    assert.equal(d('duration_ms', 1000, 2000).variant, 'danger');
+    assert.equal(d('throughput', 0, 3).title, mod.copy.NO_BASELINE_TASKS_TITLE);
+    assert.equal(d('first_pass', null, 0.5).title, mod.copy.NO_BASELINE_TASKS_TITLE);
+  });
+
   test('SC2: no baseline shows a dash with the reason as its title', () => {
     for (const [a, b] of [[null, 5], [0, 5]]) {
       const x = d('tokens_out', a, b);
@@ -277,14 +325,112 @@ describe('compare mode render', () => {
     assert.ok(!off.includes('data-pair='));
   });
 
-  test('SC4: other sections keep their view and say compare covers Tokens and Cost', () => {
+  test('SC4: Explore keeps its view and says compare covers every section except Explore and Efficiency', () => {
     const cmp = mod.comparison(db, 'tasks:1-2', 'tasks:3-');
-    const html = mod.plainPage(`#/insights/time?range=30d${TASKS}`, cmp.p2);
+    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, 'Compare covers every section except Explore and Efficiency for now.');
+    const html = mod.plainPage(`#/insights/explore?range=30d${TASKS}`, cmp.p2);
     assert.ok(html.includes(mod.copy.COMPARE_SCOPE_NOTE));
     assert.ok(!html.includes('data-compare-bar'));
     assert.match(html, /aria-pressed="true"/);
-    const off = mod.plainPage('#/insights/time?range=30d', cmp.p2);
+    const off = mod.plainPage('#/insights/explore?range=30d', cmp.p2);
     assert.ok(!off.includes(mod.copy.COMPARE_SCOPE_NOTE));
     assert.match(off, /aria-pressed="false"/);
+  });
+});
+
+describe('compare mode render: Time, Quality and Throughput (GH 2069 B1)', () => {
+  const db = seedQuality(seed(join(tmp, 'quality.db')));
+  after(() => db.close());
+  const TASKS = '&p1=tasks:1-2&p2=tasks:3-';
+  const DATES = '&p1=prev90d&p2=7d';
+  const rows = (html) => [...html.matchAll(/<table[^>]*data-compare-stats=""[^>]*>.*?<\/table>/gs)].map((m) => [...m[0].matchAll(/<th scope="row"[^>]*>(.*?)<\/th>/g)].map((r) => r[1]));
+
+  test('SC1: Time pairs each agent in a p50/p95/avg delta table with Period 1 outlined and Period 2 filled', () => {
+    const html = mod.page(`#/insights/time?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-'));
+    assert.ok(html.includes(mod.copy.DURATION_PER_RUN));
+    assert.ok(html.includes(mod.copy.TOOL_USES_PER_RUN));
+    const tables = rows(html);
+    assert.equal(tables.length, 4);
+    for (const t of tables) assert.deepEqual(t, ['p50', 'p95', 'avg']);
+    assert.match(html, />Measure<.*?>Period 1<.*?>Period 2<.*?>Change</s);
+    assert.match(html, /data-agent="swe"/);
+    assert.match(html, /data-agent="code-reviewer"/);
+    assert.equal((html.match(/<g data-pair=""/g) ?? []).length, 4);
+    assert.match(html, /<rect[^>]*stroke-dasharray="4 3"[^>]*data-outline=""/);
+    assert.match(html, /data-legend-kind="outline"/);
+    assert.match(html, /data-legend-kind="fill"/);
+    assert.ok(html.includes(mod.copy.LOWER_BETTER));
+    assert.ok(html.includes(`Top Runs by Duration${mod.copy.OUTLIERS_P2}`));
+    assert.ok(!html.includes(mod.copy.COMPARE_SCOPE_NOTE));
+  });
+
+  test('SC1: bro session cards show only when bro is not excluded', () => {
+    const tasks = mod.comparison(db, 'tasks:1-2', 'tasks:3-');
+    assert.equal(tasks.bro_excluded, true);
+    const hidden = mod.page(`#/insights/time?range=30d${TASKS}`, tasks);
+    assert.ok(!hidden.includes('data-agent="bro"'));
+    assert.ok(!hidden.includes(mod.copy.BRO_DURATION_PER_SESSION));
+    assert.ok(hidden.includes(mod.copy.BRO_TASKS_CAPTION.replaceAll("'", '&#x27;')));
+    const dates = mod.comparison(db, 'prev90d', '7d');
+    assert.equal(dates.bro_excluded, false);
+    const shown = mod.page(`#/insights/time?range=30d${DATES}`, dates);
+    assert.match(shown, /data-agent="bro"/);
+    assert.ok(shown.includes(mod.copy.BRO_DURATION_PER_SESSION));
+    assert.ok(shown.includes(mod.copy.BRO_TOOL_USES_PER_SESSION));
+    assert.ok(!shown.includes('data-bro-caption'));
+  });
+
+  test('SC2: Quality rate tiles show Period 2 large, Period 1 muted and the change in points', () => {
+    const html = mod.page(`#/insights/quality?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-'));
+    const tile = (k) => new RegExp(`data-rate-tile="${k}".*?</div>`, 's').exec(html)?.[0] ?? '';
+    const first = tile('first_pass');
+    assert.match(first, />100%</);
+    assert.match(first, /data-period1-rate="">Period 1: 50%</);
+    assert.match(first, /\+50\.0 pts vs Period 1/);
+    assert.match(first, /data-delta="success"/);
+    assert.match(tile('verification'), /data-period1-rate="">Period 1: 50%</);
+    assert.equal((html.match(/role="progressbar"/g) ?? []).length, 4);
+    assert.equal((html.match(/data-period-bar="1"/g) ?? []).length, 3);
+    assert.equal((html.match(/data-period-bar="2"/g) ?? []).length, 3);
+    assert.match(html, /aria-hidden="true" class="[^"]*">1<\/span>/);
+    assert.match(html, /aria-hidden="true" class="[^"]*">2<\/span>/);
+    assert.equal((html.match(/role="img" aria-label="Period [12]: Review verdicts/g) ?? []).length, 2);
+  });
+
+  test('SC2: Review Attempts pairs each bucket share; Slowest Commands shows Period 2 only', () => {
+    const html = mod.page(`#/insights/quality?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-'));
+    assert.ok(html.includes(mod.copy.REVIEW_ATTEMPTS));
+    const pairs = html.match(/<g data-pair=""/g) ?? [];
+    assert.equal(pairs.length, 2);
+    assert.ok(html.includes('1 attempt: Period 1 50%, Period 2 100%'));
+    assert.ok(html.includes('2 attempts: Period 1 50%, Period 2 0%'));
+    assert.ok(html.includes(`${mod.copy.SLOWEST_COMMANDS}${mod.copy.OUTLIERS_P2}</h3>`));
+    assert.ok(html.includes('npm run lint'));
+    assert.ok(!html.includes('npm test'));
+  });
+
+  test('SC3: Throughput shows each period average with a higher-is-better delta and one chart per period on a shared y', () => {
+    const html = mod.page(`#/insights/throughput?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-'));
+    const stats = /data-throughput-stats="".*?<\/p>/s.exec(html)?.[0] ?? '';
+    assert.ok(stats.includes(mod.copy.AVG_CLOSED_PER_DAY));
+    assert.match(stats, /Period 1<\/span><span[^>]*>1<\/span>/);
+    assert.match(stats, /Period 2<\/span><span[^>]*>1<\/span>/);
+    assert.match(stats, /data-delta="secondary"/);
+    assert.ok(stats.includes(mod.copy.HIGHER_BETTER));
+    assert.ok(html.includes('Period 1: Tasks 1–2'));
+    assert.ok(html.includes('Period 2: Tasks 3+'));
+    assert.match(html, /data-throughput-period="1"/);
+    assert.match(html, /data-throughput-period="2"/);
+    assert.ok(html.includes('Period 1: Tasks 1–2: 2 closed tasks over 2 days'));
+    assert.ok(html.includes('Period 2: Tasks 3+: 2 closed tasks over 2 days'));
+  });
+
+  test('SC4: Time, Quality and Throughput reuse the both-empty and one-empty states', () => {
+    for (const section of ['time', 'quality', 'throughput']) {
+      const both = mod.page(`#/insights/${section}?range=30d&p1=tasks:900-950&p2=tasks:960-`, mod.comparison(db, 'tasks:900-950', 'tasks:960-'));
+      assert.ok(both.includes(mod.copy.NO_RUNS_EITHER), section);
+      const one = mod.page(`#/insights/${section}?range=30d&p1=tasks:1-2&p2=tasks:900-`, mod.comparison(db, 'tasks:1-2', 'tasks:900-'));
+      assert.match(one, /data-period-empty="2"/, section);
+    }
   });
 });
