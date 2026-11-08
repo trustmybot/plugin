@@ -1,12 +1,14 @@
 // resolveCutBase (GH 1713): the ref task_provision cuts from, against temp
-// repos with a bare origin — local ahead, equal, behind, diverged, remoteless.
+// repos with a bare origin — local ahead, equal, behind, diverged, remoteless;
+// and runGit given a relative repo path.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { normalizeBase, resolveBaseRef, resolveCutBase } from '../utils/git-refs.js';
+import { runGit } from '../utils/git-run.js';
 
 const git = (cwd: string, ...a: string[]): string =>
   execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -122,6 +124,18 @@ describe("base given as 'origin/<branch>' (GH 1855)", () => {
     withRepo((repo) => {
       assert.equal(resolveCutBase(repo, 'origin/nope'), null);
       assert.equal(resolveBaseRef(repo, 'origin/nope'), null);
+    });
+  });
+});
+
+describe('runGit with a relative repoPath (F625-1)', () => {
+  it('runs git in the repo the path names relative to process.cwd()', () => {
+    withRepo((repo) => {
+      const rel = relative(process.cwd(), repo);
+      assert.ok(!isAbsolute(rel));
+      const res = runGit(rel, ['rev-parse', '--show-toplevel']);
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.stdout.trim(), realpathSync(repo));
     });
   });
 });
