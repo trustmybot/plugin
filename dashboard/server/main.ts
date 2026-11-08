@@ -8,6 +8,7 @@ import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/m
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
+import { cachedGraph, etagMatches, type GraphResponse } from './graph-cache.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { loadReleases } from './releases.ts';
@@ -67,7 +68,22 @@ function clampLimit(raw: string | null): number {
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), 1000) : 100;
 }
 
-async function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): Promise<void> {
+function sendGraph(res: ServerResponse, graph: GraphResponse, ifNoneMatch: string | string[] | undefined): void {
+  if (graph.etag === null) {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(graph.body);
+    return;
+  }
+  const headers = { etag: graph.etag, 'cache-control': 'no-cache', 'x-tmb-graph-cache': graph.hit ? 'hit' : 'miss' };
+  if (etagMatches(ifNoneMatch, graph.etag)) {
+    res.writeHead(304, headers).end();
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'application/json', ...headers });
+  res.end(graph.body);
+}
+
+async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const [resource, id] = parts;
   const concepts = conceptsApi(db, url);
@@ -118,7 +134,7 @@ async function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): Promi
     return sendJson(res, 200, q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit'))));
   }
   if (parts.length === 2 && resource === 'world-model' && id === 'graph') {
-    return sendJson(res, 200, q.graph(db, url.searchParams.get('repo') || null));
+    return sendGraph(res, cachedGraph(db, url.searchParams.get('repo') || null), req.headers['if-none-match']);
   }
   if (parts.length === 2 && resource === 'issues' && /^-?\d+$/.test(id!)) {
     const detail = q.issueDetail(db, Number(id));
@@ -228,7 +244,7 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
       res.writeHead(405, { allow: 'GET, HEAD, POST' }).end();
       return;
     }
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, url, res);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, req, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err) {
     console.error('dashboard request failed:', err);
