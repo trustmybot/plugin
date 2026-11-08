@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -77,4 +77,13 @@ test('falls back to .claude/tmb-rc/ when .claude/tmb/ has no DB', () => {
   const r = run(dir);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, [`# Trajectory from ${db} (1 rows)`, ...HEADER_TAIL, 'tool:Grep', ''].join('\n'));
+});
+
+test('run through a symlinked path, no trajectory.db still exits 1', () => {
+  const dir = project();
+  const link = join(dir, 'inspect-trajectory.ts');
+  symlinkSync(SCRIPT, link);
+  const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', link, dir], { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /no trajectory\.db found under /);
 });

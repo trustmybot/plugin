@@ -10,8 +10,8 @@
 //   node --experimental-strip-types tests/l5-l6/inspect-trajectory.ts "$TMPDIR/tmb-l5-run"
 //   node --experimental-strip-types tests/l5-l6/inspect-trajectory.ts   # uses the working directory
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
@@ -70,6 +70,6 @@ export function main(argv: readonly string[]): number {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exitCode = main(process.argv.slice(2));
 }

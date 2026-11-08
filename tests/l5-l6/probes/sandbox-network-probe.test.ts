@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { bFailures, commandStatuses, parseArgs, parseEvents, probeMarker, promptFor, regressions, reportTable } from './sandbox-network-probe.ts';
+import { bFailures, commandStatuses, parseArgs, parseDotEnv, parseEvents, probeMarker, promptFor, regressions, reportTable } from './sandbox-network-probe.ts';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'sandbox-network-probe.ts');
 
@@ -82,4 +84,34 @@ test('an unknown argument exits 2 before any live run', () => {
   assert.equal(r.status, 2);
   assert.equal(r.stderr, 'sandbox-network-probe: unknown argument --bogus\n');
   assert.equal(r.stdout, '');
+});
+
+test('run through a symlinked path, an unknown argument still exits 2', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-probe-link-'));
+  try {
+    const link = join(dir, 'sandbox-network-probe.ts');
+    symlinkSync(SCRIPT, link);
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', link, '--bogus'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.equal(r.stderr, 'sandbox-network-probe: unknown argument --bogus\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseDotEnv reads values the way sourcing the file does', () => {
+  const env = parseDotEnv(
+    [
+      'A=plain',
+      'export B=exported',
+      'C=token # trailing comment',
+      'D="quoted # kept" # dropped',
+      "E='single'",
+      'F=a#b',
+      'G=',
+      '# H=commented',
+      'I=  spaced  ',
+    ].join('\n'),
+  );
+  assert.deepEqual(env, { A: 'plain', B: 'exported', C: 'token', D: 'quoted # kept', E: 'single', F: 'a#b', G: '', I: 'spaced' });
 });

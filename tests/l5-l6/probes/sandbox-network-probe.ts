@@ -176,15 +176,17 @@ class ProbeExit extends Error {
   }
 }
 
-function parseDotEnv(text: string): Record<string, string> {
+/** Shell-sourcing semantics: a quoted value ends at its closing quote; an unquoted one ends before a ` #` comment. */
+export function parseDotEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of text.split('\n')) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
     const [, name, raw] = m ?? [];
     if (name === undefined || raw === undefined) continue;
-    let value = raw.trim();
-    if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0]) value = value.slice(1, -1);
-    out[name] = value;
+    const value = raw.trim();
+    const quote = value[0];
+    const close = quote === '"' || quote === "'" ? value.indexOf(quote, 1) : -1;
+    out[name] = close > 0 ? value.slice(1, close) : value.replace(/(^|\s+)#.*$/, '');
   }
   return out;
 }
@@ -364,7 +366,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   void main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });
