@@ -1,0 +1,2 @@
+### Fixed
+- **`test-run` hands the argv after `--` to the child unchanged** (GH 2438): joining the words and re-running them through `bash -c` split quoted arguments again, so `--test-name-pattern='GH 1954|GH 1834'` became a pipe into `GH 1834`. Several words now spawn directly with no shell; a single string still runs through `bash -c` for callers that pass a whole command.
