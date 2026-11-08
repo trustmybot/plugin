@@ -741,7 +741,10 @@ export async function scopeSuggest(
       if (isBuildOutput(path) || (!best.has(path) && best.size >= k)) continue;
       best.set(path, Math.max(best.get(path) ?? 0, score));
     }
-    for (const [path, score] of best) add(path, score, 'search');
+    for (const [path, score] of best) {
+      if (isTestPath(path)) addTest(path, 'search');
+      else add(path, score, 'search');
+    }
   }
 
   const unresolved: string[] = [];
@@ -1109,7 +1112,7 @@ export function worldModelTools(
             description: `Search paths to seed from. Default ${SCOPE_K_DEFAULT}. Max ${SCOPE_K_MAX}.`,
           },
         },
-        required: ['agent', 'objective'],
+        required: ['agent'],
       },
     },
     {
