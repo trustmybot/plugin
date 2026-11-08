@@ -30,6 +30,9 @@ import {
 import { ExploreSection } from './explore.tsx';
 import {
   CompareCostSection,
+  CompareQualitySection,
+  CompareThroughputSection,
+  CompareTimeSection,
   CompareTokensSection,
   CostSection,
   EFFORT_CAPTION,
@@ -41,6 +44,7 @@ import {
   TokensSection,
 } from './sections.tsx';
 import { CompareSummary, CompareToggle, PeriodPickers } from './compare.tsx';
+import type { Compare } from './compare.ts';
 import type { Comparison, Efficiency, Explore, Insights } from './types.ts';
 
 type Query<T> = { data?: T; error: Error | null };
@@ -131,6 +135,16 @@ function SectionView({ data, params, explore, efficiency }: { data: Insights; pa
   }
 }
 
+function CompareSectionView(props: { cmp: Comparison; params: InsightParams; compare: Compare }) {
+  switch (props.params.section) {
+    case 'cost': return <CompareCostSection {...props} />;
+    case 'time': return <CompareTimeSection {...props} />;
+    case 'quality': return <CompareQualitySection {...props} />;
+    case 'throughput': return <CompareThroughputSection {...props} />;
+    default: return <CompareTokensSection {...props} />;
+  }
+}
+
 export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   const compare = comparing(params) && cmp ? params.compare : null;
@@ -144,9 +158,7 @@ export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params
         <FilterBar params={params} data={q.data} cmp={compare ? cmp?.data : undefined} />
         {compare && cmp ? (
           <Loading q={cmp}>
-            {(data) =>
-              params.section === 'cost' ? <CompareCostSection cmp={data} params={params} compare={compare} /> : <CompareTokensSection cmp={data} params={params} compare={compare} />
-            }
+            {(data) => <CompareSectionView cmp={data} params={params} compare={compare} />}
           </Loading>
         ) : (
           <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} efficiency={efficiency} />}</Loading>
