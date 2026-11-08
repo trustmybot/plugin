@@ -129,13 +129,19 @@ describe("base given as 'origin/<branch>' (GH 1855)", () => {
 });
 
 describe('runGit with a relative repoPath (F625-1)', () => {
-  it('runs git in the repo the path names relative to process.cwd()', () => {
-    withRepo((repo) => {
-      const rel = relative(process.cwd(), repo);
-      assert.ok(!isAbsolute(rel));
-      const res = runGit(rel, ['rev-parse', '--show-toplevel']);
-      assert.equal(res.status, 0, res.stderr);
-      assert.equal(res.stdout.trim(), realpathSync(repo));
+  it('runs git in the repo a downward-only path names relative to process.cwd()', () => {
+    withRepo((repo, root) => {
+      const prev = process.cwd();
+      process.chdir(root);
+      try {
+        const rel = relative(realpathSync(process.cwd()), realpathSync(repo));
+        assert.ok(!isAbsolute(rel) && !rel.startsWith('..'), rel);
+        const res = runGit(rel, ['rev-parse', '--show-toplevel']);
+        assert.equal(res.status, 0, res.stderr);
+        assert.equal(res.stdout.trim(), realpathSync(repo));
+      } finally {
+        process.chdir(prev);
+      }
     });
   });
 });
