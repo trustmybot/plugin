@@ -239,7 +239,7 @@ managed-Agent lifecycle; a full support claim still requires the SWE, reviewer,
 and evidence checks listed in the fixed-SHA acceptance record. If this gate
 fails, open a compatibility issue and keep the last passing evidence scoped to
 the versions it actually tested. This is a credentialed local-host check, not a
-background monitor or a default `tests/run-all.sh` step.
+background monitor or a default `tests/run-all.ts` step.
 
 Record the candidate SHA, Codex client and build version, operating system and
 architecture, plugin source, template hashes, parent positive control, both

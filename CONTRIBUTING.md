@@ -10,7 +10,7 @@ There are two paths, depending on whether you've been granted access to the repo
 
 1. **Fork** `github.com/trustmybot/plugin` to your own account.
 2. In your fork, branch off `dev`: `<type>/<issue>-<slug>` (same convention as below).
-3. Make the change with tests; `bash tests/run-all.sh` must be green.
+3. Make the change with tests; `node --experimental-strip-types tests/run-all.ts` must be green.
 4. Open a **cross-repo pull request** from your fork's branch into `trustmybot/plugin`'s `dev`.
 5. A maintainer reviews and merges it.
 
@@ -20,7 +20,7 @@ A pull request is a *request* — you're asking a maintainer to pull your commit
 
 Either way you still don't push to `dev` or `main` directly — branch protection and `mcp/trajectory-server/src/hooks/git-guards.ts` block that. The pull request is always the merge path.
 
-**You don't need to run TMB itself to contribute** — plain git plus `bash tests/run-all.sh` (L1–L4) is all the local tooling a change requires.
+**You don't need to run TMB itself to contribute** — plain git plus `node --experimental-strip-types tests/run-all.ts` (L1–L4) is all the local tooling a change requires.
 
 **Maintainer-only steps.** A contributor (fork or collaborator) cannot:
 
@@ -41,7 +41,7 @@ Two things trip up first-time adapter PRs: the full Claude Code suite must stay 
 1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
 2. Branch off `dev`: `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`). Types: `feat fix refactor chore docs test perf`. Working from a fork? Branch off `dev` in your fork (see [Ways to contribute](#ways-to-contribute)).
 3. Make the change **with tests**.
-4. `bash tests/run-all.sh` — must be green (L1–L4).
+4. `node --experimental-strip-types tests/run-all.ts` — must be green (L1–L4).
 5. `gh pr create --base dev` — reference the issue (`Closes #N`); pick from the existing [labels](docs/contributing/LABELS.md).
 
 Direct commits to `dev` and `main` are blocked by `mcp/trajectory-server/src/hooks/git-guards.ts` + branch protection — always work on a branch and PR.
@@ -177,7 +177,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Pre-PR checklist
 
-- [ ] `bash tests/run-all.sh` green.
+- [ ] `node --experimental-strip-types tests/run-all.ts` green.
 - [ ] Tests added or updated.
 - [ ] Workflow state (issues, tasks, discussions, validation) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.

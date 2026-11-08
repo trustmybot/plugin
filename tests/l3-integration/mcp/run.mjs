@@ -4,7 +4,7 @@
 // unit tests (which call handlers directly) miss: schema drift, protocol
 // plumbing, role-enforcement at the wire level.
 //
-// L4 workflow-simulation flows are run separately by run-all.sh via bun test
+// L4 workflow-simulation flows are run separately by run-all.ts via bun test
 // (canonical). Both share the same harness + spawn the real MCP server.
 // --experimental-sqlite is needed on Node 22 (no-op on 24+) for any direct
 // node:sqlite use the test files might add.

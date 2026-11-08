@@ -1,6 +1,6 @@
 # L3 — Integration
 
-Deterministic integration tests that exercise the real wiring — the MCP server as a subprocess over JSON-RPC stdio, and the hook scripts against synthetic events. L3 catches what L2 cannot: schema drift, a missing `agent` param, role-enforcement plumbing, and hook deny/inject behavior at the wire level. `tests/run-all.sh` runs the MCP tests through `mcp/run.mjs` at L3; the hook suites are node:test files that run with the L2 unit tests.
+Deterministic integration tests that exercise the real wiring — the MCP server as a subprocess over JSON-RPC stdio, and the hook scripts against synthetic events. L3 catches what L2 cannot: schema drift, a missing `agent` param, role-enforcement plumbing, and hook deny/inject behavior at the wire level. `tests/run-all.ts` runs the MCP tests through `mcp/run.mjs` at L3; the hook suites are node:test files that run with the L2 unit tests.
 
 | Subdir | Purpose |
 |---|---|
