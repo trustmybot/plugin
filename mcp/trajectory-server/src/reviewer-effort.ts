@@ -4,9 +4,11 @@
  * reviewer_effort_assigned audit row; require-spawn-effort and swe-atomic-close
  * read that row back through reviewerEffortFor in src/hooks/lib/effort.ts.
  * With reviewer_effort_tiers and reviewer_effort_ab unset every assignment is
- * plugin_config.reviewer_effort (reason `config`).
+ * plugin_config.reviewer_effort (reason `config`). reviewerSpawn builds the
+ * code-reviewer Agent call bro_atomic_close returns as reviewer_spawn (GH 2582).
  */
 import type { TrajectoryDB } from './db.js';
+import { ANCHORS } from './hooks/code-reviewer-spawn-note.js';
 import { insertAudit } from './tools/audit.js';
 import {
   pathsOverlap,
@@ -126,4 +128,56 @@ export function assignReviewerEffort(
     created_at: now,
   });
   return assignment;
+}
+
+export const REVIEWER_SUBAGENT_TYPE = 'tmb:code-reviewer';
+const REVIEWER_SPAWN_LINE = 'Review this commit against its spec; task_brief carries the rest.';
+
+export interface ReviewerSpawn {
+  readonly prompt: string;
+  readonly effort: Effort;
+  readonly subagent_type: typeof REVIEWER_SUBAGENT_TYPE;
+}
+
+export type ReviewerSpawnResult = { reviewer_spawn: ReviewerSpawn } | { reviewer_spawn_unavailable: 'session_id' | 'repo' | 'repo_path' };
+
+function anchorValue(value: string): string {
+  if (!/\s/.test(value)) return value;
+  return value.includes("'") ? `"${value}"` : `'${value}'`;
+}
+
+/**
+ * The code-reviewer Agent call for a closed task: every ANCHORS entry of
+ * code-reviewer-spawn-note as name=value, one short line, and the assigned
+ * effort. repo_path is the task's worktree, else its repo's path; attempt_n is
+ * the task's code-reviewer validation rows + 1. A missing input names itself
+ * in reviewer_spawn_unavailable instead.
+ */
+export function reviewerSpawn(
+  db: TrajectoryDB,
+  task: { id: number; branch_id: string; repo: string | null },
+  repoPath: string | null,
+  commitSha: string,
+  effort: Effort,
+  sessionId: string | null,
+): ReviewerSpawnResult {
+  if (sessionId === null) return { reviewer_spawn_unavailable: 'session_id' };
+  if (task.repo === null || task.repo === '') return { reviewer_spawn_unavailable: 'repo' };
+  if (!repoPath) return { reviewer_spawn_unavailable: 'repo_path' };
+  const reviews =
+    db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND (agent = 'code-reviewer' OR agent LIKE '%:code-reviewer')`,
+      [task.id],
+    )?.n ?? 0;
+  const values: Record<(typeof ANCHORS)[number], string> = {
+    task_id: String(task.id),
+    commit_sha: commitSha,
+    branch_id: task.branch_id,
+    repo: task.repo,
+    repo_path: repoPath,
+    attempt_n: String(reviews + 1),
+    subagent_session_id: sessionId,
+  };
+  const anchors = ANCHORS.map((name) => `${name}=${anchorValue(values[name])}`).join(' ');
+  return { reviewer_spawn: { prompt: `${anchors}\n${REVIEWER_SPAWN_LINE}`, effort, subagent_type: REVIEWER_SUBAGENT_TYPE } };
 }

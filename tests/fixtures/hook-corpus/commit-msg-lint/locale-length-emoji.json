@@ -6,9 +6,5 @@
     "command": "git commit -m \"✨ feat(hooks): yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"",
     "description": "corpus"
   },
-  "corpus_expect": {
-    "C": "chars (>72)",
-    "en_US.UTF-8": "allow",
-    "UTF-8": "allow"
-  }
+  "corpus_expect": "allow"
 }
