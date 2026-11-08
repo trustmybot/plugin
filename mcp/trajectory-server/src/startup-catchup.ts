@@ -1,8 +1,10 @@
 // Startup catch-up scan (ADR 0001, GH 1680): after the server connects, a
-// detached `run-scan.mjs <projectRoot> startup_catchup` brings the world model up to the
-// working tree, so edits made while no server ran are indexed before the
-// first query. The scan lock in tools/scan.ts serialises it with any other
-// scan; the child never holds the stdio event loop.
+// detached `run-scan.mjs <projectRoot> startup_catchup` brings each known
+// repo's world model to its target commit (origin/<target branch>, else HEAD)
+// with the git-range scope, the full-repo scope only when the repo's stamp
+// needs it, and never a workspace walk on a warm DB (GH 2584). Each repo's
+// scan lock serialises it with any other reindex of that repo; the child never
+// holds the stdio event loop.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

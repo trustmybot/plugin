@@ -26,6 +26,12 @@ const SUITES: Array<() => void> = [];
 export function worldModelConceptsShard(k: number, n: number): void {
   const scanPin = pinScanEnv();
   after(() => scanPin.restore());
+  const savedIndexTarget = process.env['TMB_WM_INDEX_TARGET'];
+  process.env['TMB_WM_INDEX_TARGET'] = 'HEAD';
+  after(() => {
+    if (savedIndexTarget === undefined) delete process.env['TMB_WM_INDEX_TARGET'];
+    else process.env['TMB_WM_INDEX_TARGET'] = savedIndexTarget;
+  });
   resetEmbeddingModelForTests(async () => {
     throw new Error('no model in tests');
   });
@@ -82,7 +88,7 @@ const SCAN_FLOW = (repo: string) => ({
   body: 'How a scan run reaches the parser.',
   steps: [
     { path: 'mcp/trajectory-server/src/tools/scan.ts', kind: 'function', qualified_name: 'persistScan', description: 'Writes the walked tree to the DB.', handoff: 'calls' },
-    { path: 'mcp/trajectory-server/src/symbol-index.ts', kind: 'function', qualified_name: 'indexRepoSymbols', description: 'Reparses stale files, a lighthouse for drift.', handoff: 'calls' },
+    { path: 'mcp/trajectory-server/src/tools/scan.ts', kind: 'function', qualified_name: 'indexRepoAtCommit', description: 'Reparses stale files at the indexed commit, a lighthouse for drift.', handoff: 'calls' },
     { path: 'mcp/trajectory-server/src/parsing/extract.ts', kind: 'function', qualified_name: 'isTestPath', description: 'Keeps tests out of the lane.', handoff: 'calls' },
   ],
   claims: [
@@ -90,7 +96,7 @@ const SCAN_FLOW = (repo: string) => ({
       claim: 'calls',
       args: {
         from: { path: 'mcp/trajectory-server/src/tools/scan.ts', qualified_name: 'persistScan' },
-        to: { path: 'mcp/trajectory-server/src/symbol-index.ts', qualified_name: 'indexRepoSymbols' },
+        to: { path: 'mcp/trajectory-server/src/tools/scan.ts', qualified_name: 'indexRepoAtCommit' },
       },
     },
   ],
@@ -148,7 +154,7 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
     const got = parse<ConceptOut>((await wm()['world_model_concept_get']!({ agent: 'bro', id: conceptId })) as CallToolResult);
     assert.equal(got.status, 'verified');
     assert.deepEqual(got.steps.map((s) => s.ordinal), [1, 2, 3]);
-    assert.deepEqual(got.steps.map((s) => s.symbol?.qualified_name), ['persistScan', 'indexRepoSymbols', 'isTestPath']);
+    assert.deepEqual(got.steps.map((s) => s.symbol?.qualified_name), ['persistScan', 'indexRepoAtCommit', 'isTestPath']);
     assert.deepEqual(got.steps.map((s) => s.handoff), ['calls', 'calls', null]);
   });
 

@@ -1,28 +1,41 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
-import type { FileNode, GraphHolder } from '../graph.js';
-import { extractPurpose, isPurposeCandidate } from '../file-purpose.js';
-import { readFileHead, refreshSymbolPurposes } from '../symbol-purpose.js';
+import type { DirectoryNode, FileNode, GraphHolder } from '../graph.js';
+import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
+import { purposeHeadPaths, purposeHeadPathsOf, refreshSymbolPurposes } from '../symbol-purpose.js';
 import { readmeDrift, readRepoHistory, type ReadmeDrift, type RepoHistory } from '../readme-drift.js';
 import { cleanReadme } from '../readme-summary.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
-import { builtBundleMaps, bundleMaps, EXTRACTOR_VERSION, indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
+import {
+  applyRepoSymbols,
+  builtBundleMaps,
+  bundleMaps,
+  diskReader,
+  EXTRACTOR_VERSION,
+  planRepoSymbols,
+  type IndexedFile,
+  type SymbolIndexStats,
+  type SymbolPlan,
+} from '../symbol-index.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
+import { catchUpRepos, indexStamp, recordReindex, triggerOfSource } from '../world-model/freshness.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes, type Remote } from '../repos/remotes.js';
 import { projectRootFromDbPath } from './containment.js';
-import { walkProject, type ScanOutput, type ScanRepo } from './scan-walk.js';
+import { closeContents, walkProject, type ScanFile, type ScanOutput, type ScanRepo } from './scan-walk.js';
+import type { CommitContent } from '../utils/git-objects.js';
+import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -53,7 +66,6 @@ function wrap(fn: Fn): Fn {
 const VALID_SCAN_SOURCES = new Set([
   'user_manual',
   'bro_auto_post_close',
-  'bro_auto_post_change',
   'bro_auto_initial',
   'startup_catchup',
 ]);
@@ -203,44 +215,85 @@ function readReadme(absDirPath: string, candidates: readonly string[] = README_C
   return null;
 }
 
-export function readReadmeSummary(absDirPath: string): string | null {
-  const readme = readReadme(absDirPath);
-  if (!readme) return null;
-  const text = cleanReadme(readme.text);
+// A README is remotely-sourced text — frame it as untrusted data so any agent
+// that later reads this world-model summary treats it as content, not
+// instructions (#1036).
+function readmeSummaryText(raw: string): string {
+  const text = cleanReadme(raw);
   const clipped = text.length > README_MAX_BYTES ? text.slice(0, README_MAX_BYTES) : text;
-  // A README is remotely-sourced text — frame it as untrusted data so any
-  // agent that later reads this world-model summary treats it as content,
-  // not instructions (#1036).
   return frameUntrusted('readme', clipped);
 }
 
-// README drift per directory, keyed '<repo> <path>': only for a README git
-// tracks, read whole (not the summary clip). Runs before the write transaction
-// so git calls never hold the DB lock; a repo or README git cannot answer for
-// is simply absent, leaving its columns NULL.
-function planReadmeDrift(out: ScanOutput): Map<string, ReadmeDrift> {
-  const drift = new Map<string, ReadmeDrift>();
-  const dirMap = deriveDirectoryEntries(out);
-  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
-  const histories = new Map<string, RepoHistory | null>();
-  const historyFor = (repo: string, root: string): RepoHistory | null => {
-    if (!histories.has(repo)) {
-      const trackedDirs = new Set<string>();
-      for (const e of dirMap.values()) if (e.repo === repo && e.path !== '') trackedDirs.add(e.path);
-      histories.set(repo, readRepoHistory(root, trackedDirs));
+export function readReadmeSummary(absDirPath: string): string | null {
+  const readme = readReadme(absDirPath);
+  return readme ? readmeSummaryText(readme.text) : null;
+}
+
+interface Readme {
+  name: string;
+  text: string;
+}
+
+// Which part of a repo a reindex rewrites (GH 2584): `changed` are the
+// repo-relative paths whose content changed at the new commit, `dirs` the
+// '<repo> <path>' keys of the directories to rewrite (the ones that gained,
+// lost or changed a file, and their ancestors). No scope rewrites everything.
+export interface ReindexScope {
+  changed: ReadonlySet<string>;
+  dirs: ReadonlySet<string>;
+}
+
+function readmePath(dir: string, name: string): string {
+  return dir === '' ? name : `${dir}/${name}`;
+}
+
+// The README of each directory, read whole from the indexed commit's blobs.
+// With a scope only a README whose blob changed is read.
+async function readReadmes(out: ScanOutput, dirMap: Map<string, DirEntry>, scope?: ReindexScope): Promise<Map<string, Readme>> {
+  const readmes = new Map<string, Readme>();
+  for (const entry of dirMap.values()) {
+    const content = out.contents?.get(entry.repo);
+    if (!content) continue;
+    for (const name of README_CANDIDATES) {
+      if (!entry.file_names.includes(name)) continue;
+      const path = readmePath(entry.path, name);
+      if (scope && !scope.changed.has(path)) break;
+      const text = await content.text(path);
+      if (text !== null) {
+        readmes.set(`${entry.repo} ${entry.path}`, { name, text });
+        break;
+      }
     }
-    return histories.get(repo) ?? null;
+  }
+  return readmes;
+}
+
+// README drift per directory, keyed '<repo> <path>', for each README read.
+// Runs before the write transaction so git calls never hold the DB lock; a
+// repo or README git cannot answer for is simply absent, leaving its columns
+// NULL.
+function planReadmeDrift(out: ScanOutput, dirMap: Map<string, DirEntry>, readmes: Map<string, Readme>): Map<string, ReadmeDrift> {
+  const drift = new Map<string, ReadmeDrift>();
+  const repos = new Map(out.repos.map((r) => [r.name, r]));
+  const histories = new Map<string, RepoHistory | null>();
+  const historyFor = (repo: ScanRepo): RepoHistory | null => {
+    if (!histories.has(repo.name)) {
+      const trackedDirs = new Set<string>();
+      for (const e of dirMap.values()) if (e.repo === repo.name && e.path !== '') trackedDirs.add(e.path);
+      const tree = out.contents?.get(repo.name)?.tree;
+      histories.set(repo.name, readRepoHistory(repo.path, trackedDirs, repo.commit ?? 'HEAD', tree ? new Set(tree.keys()) : undefined));
+    }
+    return histories.get(repo.name) ?? null;
   };
   for (const entry of dirMap.values()) {
-    const root = repoPaths.get(entry.repo);
-    const tracked = README_CANDIDATES.filter((name) => entry.file_names.includes(name));
-    if (!root || tracked.length === 0) continue;
-    const history = historyFor(entry.repo, root);
+    const key = `${entry.repo} ${entry.path}`;
+    const readme = readmes.get(key);
+    const repo = repos.get(entry.repo);
+    if (!readme || !repo) continue;
+    const history = historyFor(repo);
     if (!history) continue;
-    const readme = readReadme(entry.path === '' ? root : join(root, entry.path), tracked);
-    if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
-    if (d) drift.set(`${entry.repo} ${entry.path}`, d);
+    if (d) drift.set(key, d);
   }
   return drift;
 }
@@ -251,11 +304,17 @@ function persistDirectoriesGraph(
   now: string,
   purposesByDir: Map<string, NamedPurpose[]> = new Map(),
   driftByDir: Map<string, ReadmeDrift> = new Map(),
+  readmes: Map<string, Readme> = new Map(),
+  scope?: ReindexScope,
 ): { dirs_upserted: number; dirs_readme_summarized: number; dirs_structural_summarized: number } {
   const repoPaths = new Map<string, string>();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
 
   const dirMap = deriveDirectoryEntries(out);
+  const stored = new Map<string, DirectoryNode>();
+  if (scope) {
+    for (const r of out.repos) for (const d of graph.allDirectoriesForRepo(r.name)) stored.set(`${d.repo} ${d.path}`, d);
+  }
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
@@ -273,21 +332,24 @@ function persistDirectoriesGraph(
   // Two-pass: first upsert every directory row, then link each child to its
   // parent once both rows exist.
   for (const entry of dirMap.values()) {
-    const repoPath = repoPaths.get(entry.repo);
-    if (!repoPath) continue;
+    const key = `${entry.repo} ${entry.path}`;
+    if (!repoPaths.has(entry.repo) || (scope && !scope.dirs.has(key))) continue;
 
-    const absDirPath = entry.path === '' ? repoPath : join(repoPath, entry.path);
-    const readmeSummary = readReadmeSummary(absDirPath);
-    const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
+    const readme = readmes.get(key);
+    const prev = stored.get(key);
+    const keepsReadme =
+      !readme && prev?.summary_source === 'readme' && README_CANDIDATES.some((name) => entry.file_names.includes(name));
+    const readmeSummary = readme ? readmeSummaryText(readme.text) : keepsReadme ? prev!.summary : null;
+    const subdirNames = subdirsByParent.get(key) ?? [];
     const summary = readmeSummary
       ?? buildStructuralSummary(
         entry.path,
         entry.file_names,
         subdirNames,
-        purposesByDir.get(`${entry.repo} ${entry.path}`) ?? [],
+        purposesByDir.get(key) ?? [],
       );
 
-    const drift = readmeSummary !== null ? driftByDir.get(`${entry.repo} ${entry.path}`) : undefined;
+    const drift = readme ? driftByDir.get(key) : keepsReadme ? prev : undefined;
     graph.upsertDirectory({
       repo: entry.repo,
       path: entry.path,
@@ -306,7 +368,7 @@ function persistDirectoriesGraph(
   }
 
   for (const entry of dirMap.values()) {
-    if (entry.parent_path === null) continue;
+    if (entry.parent_path === null || (scope && !scope.dirs.has(`${entry.repo} ${entry.path}`))) continue;
     graph.upsertContains(
       { repo: entry.repo, path: entry.parent_path },
       { repo: entry.repo, path: entry.path },
@@ -332,17 +394,20 @@ interface FilePlan {
 // only when that finds a purpose); a changed or new file is re-extracted from
 // its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
 // survives a content change. A stored file whose read failed (md5 '') keeps its
-// row, so a failed read never counts as a content change (GH 2242).
-function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePlan {
-  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+// row, so a failed read never counts as a content change (GH 2242). Heads come
+// from the indexed commit's blobs; a scoped reindex re-extracts only the files
+// whose content changed.
+async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<FilePlan> {
+  const repoNames = new Set(out.repos.map((r) => r.name));
   const existing = new Map<string, FileNode>();
   for (const r of out.repos) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
+  const headOf = async (repo: string, rel: string): Promise<string> =>
+    (await out.contents?.get(repo)?.head(rel, PURPOSE_HEAD_BYTES)) ?? '';
   const plan: FilePlan = { nodes: [], writes: [], extracted: 0 };
   for (const f of out.files) {
-    const repoPath = repoPaths.get(f.repo);
-    if (!repoPath) continue;
+    if (!repoNames.has(f.repo)) continue;
     const path = WorldModelGraph.fileKey(f.repo, f.path);
     const prev = existing.get(path);
     const md5 = f.content_md5 ?? '';
@@ -351,8 +416,8 @@ function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePl
       continue;
     }
     if (prev && prev.content_md5 === md5) {
-      if (prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join(repoPath, f.path)));
+      if (!scope && prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
+        const extracted = extractPurpose(f.path, await headOf(f.repo, f.path));
         plan.extracted++;
         if (extracted.source !== 'none') {
           const node = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
@@ -378,7 +443,7 @@ function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePl
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
       const extracted = isPurposeCandidate(f.path)
-        ? extractPurpose(f.path, readFileHead(join(repoPath, f.path)))
+        ? extractPurpose(f.path, await headOf(f.repo, f.path))
         : { purpose: '', source: 'none' as const };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
@@ -605,6 +670,7 @@ async function persistScan(
   symbols: SymbolIndexStats & { error?: string };
   rename_candidates: RenameCandidate[];
   errors: ScanError[];
+  parsed_by_repo: Map<string, number>;
 }> {
   const now = nowISO();
   const normSession = sessionDir.replace(/\/+$/, '');
@@ -655,10 +721,12 @@ async function persistScan(
         repos_stale_kept.push({ name: r.name, path: r.path, reason: 'task_referenced' });
         continue;
       }
-      // Milestones no issue references (e.g. a scan-seeded one) go with the
-      // repo; the savepoint restores them when the repo itself can't retire.
+      // Milestones no issue references (e.g. a scan-seeded one) and the
+      // repo's wm_reindex history go with the repo; the savepoint restores
+      // them when the repo itself can't retire.
       db.run(`SAVEPOINT retire_repo`);
       try {
+        db.run(`DELETE FROM audit WHERE event_type = 'wm_reindex' AND repo = ?`, [r.name]);
         db.run(
           `DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
              (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`,
@@ -690,74 +758,16 @@ async function persistScan(
     }
   });
 
-  let files_upserted = 0;
-  let files_extracted = 0;
-  let files_retired = 0;
+  const graphStats = graph ? await persistGraph(graph, persisted, now, retired) : emptyGraphStats();
+  dirs_retired += graphStats.dirs_retired;
 
-  let dirs_upserted = 0;
-  let dirs_readme_summarized = 0;
-  let dirs_structural_summarized = 0;
-  if (graph) {
-    const plan = planFiles(graph, persisted, now);
-    files_extracted = plan.extracted;
-    const drift = planReadmeDrift(persisted);
-    graph.transaction(() => {
-      // Retire the world model of repos actually removed above.
-      for (const r of retired) {
-        dirs_retired += graph.pruneDirectories(r.name, new Set());
-        files_retired += graph.pruneFiles(r.name, new Set());
-      }
-
-      const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes), drift);
-      dirs_upserted = stats.dirs_upserted;
-      dirs_readme_summarized = stats.dirs_readme_summarized;
-      dirs_structural_summarized = stats.dirs_structural_summarized;
-
-      // Prune stale directory rows for each scanned repo (handles renames).
-      const dirMap = deriveDirectoryEntries(persisted);
-      for (const r of persisted.repos) {
-        const keepKeys = new Set<string>();
-        for (const [, entry] of dirMap) {
-          if (entry.repo === r.name) {
-            keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
-          }
-        }
-        graph.pruneDirectories(r.name, keepKeys);
-      }
-
-      const fileStats = persistFilesGraph(graph, persisted, plan);
-      files_upserted = fileStats.files_upserted;
-      files_retired += fileStats.files_retired;
-    });
-  }
-
-  const symbols: SymbolIndexStats & { error?: string } = { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
+  const symbols = emptySymbolStats();
   const errors: ScanError[] = [];
+  const parsed_by_repo = new Map<string, number>();
   if (graph) {
     for (const r of persisted.repos) {
-      try {
-        const maps = [...bundleMaps(out.files.filter((f) => f.repo === r.name)), ...(await builtBundleMaps(r.path))];
-        const repoStats = await indexRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps);
-        for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
-      } catch (e) {
-        symbols.error = `${r.name}: ${(e as Error).message}`;
-        recordScanError(errors, 'symbol_index', r.name, e);
-      }
-      try {
-        refreshSymbolPurposes(db, r.name);
-      } catch (e) {
-        recordScanError(errors, 'symbol_purpose', r.name, e);
-      }
-      try {
-        refreshConcepts(db, r.name);
-      } catch (e) {
-        recordScanError(errors, 'concept_refresh', r.name, e);
-      }
-      try {
-        applyConceptProposals(db, r.name, r.path);
-      } catch (e) {
-        recordScanError(errors, 'concept_proposals', r.name, e);
-      }
+      const files = out.files.filter((f) => f.repo === r.name);
+      parsed_by_repo.set(r.name, await indexRepoAtCommit(db, r, files, out.contents?.get(r.name), symbols, errors));
     }
   }
 
@@ -766,60 +776,293 @@ async function persistScan(
     repos_upserted,
     repos_retired,
     repos_stale_kept,
-    dirs_upserted,
+    ...graphStats,
     dirs_retired,
-    dirs_readme_summarized,
-    dirs_structural_summarized,
-    files_upserted,
-    files_extracted,
-    files_retired,
     symbols,
     rename_candidates,
     errors,
+    parsed_by_repo,
   };
 }
 
+interface GraphStats {
+  dirs_upserted: number;
+  dirs_retired: number;
+  dirs_readme_summarized: number;
+  dirs_structural_summarized: number;
+  files_upserted: number;
+  files_extracted: number;
+  files_retired: number;
+}
+
+function emptyGraphStats(): GraphStats {
+  return {
+    dirs_upserted: 0,
+    dirs_retired: 0,
+    dirs_readme_summarized: 0,
+    dirs_structural_summarized: 0,
+    files_upserted: 0,
+    files_extracted: 0,
+    files_retired: 0,
+  };
+}
+
+function emptySymbolStats(): SymbolIndexStats & { error?: string } {
+  return { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
+}
+
+// The wm_files and wm_directories rows of out's repos, with README drift, in
+// one transaction; retired repos lose theirs. With a scope only the changed
+// files and the scoped directories are rewritten, and rows of paths the commit
+// no longer has are dropped.
+async function persistGraph(
+  graph: WorldModelGraph,
+  out: ScanOutput,
+  now: string,
+  retired: ReadonlyArray<{ name: string }> = [],
+): Promise<GraphStats> {
+  return applyGraph(graph, out, now, await planGraph(graph, out, now), retired);
+}
+
+// What persistGraph writes, read from git first so applyGraph runs no await.
+interface GraphPlan {
+  files: FilePlan;
+  dirMap: Map<string, DirEntry>;
+  readmes: Map<string, Readme>;
+  drift: Map<string, ReadmeDrift>;
+  scope?: ReindexScope;
+}
+
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<GraphPlan> {
+  const files = await planFiles(graph, out, now, scope);
+  const dirMap = deriveDirectoryEntries(out);
+  const readmes = await readReadmes(out, dirMap, scope);
+  return { files, dirMap, readmes, drift: planReadmeDrift(out, dirMap, readmes), scope };
+}
+
+function applyGraph(
+  graph: WorldModelGraph,
+  out: ScanOutput,
+  now: string,
+  { files: plan, dirMap, readmes, drift, scope }: GraphPlan,
+  retired: ReadonlyArray<{ name: string }> = [],
+): GraphStats {
+  const stats = emptyGraphStats();
+  stats.files_extracted = plan.extracted;
+  graph.transaction(() => {
+    for (const r of retired) {
+      stats.dirs_retired += graph.pruneDirectories(r.name, new Set());
+      stats.files_retired += graph.pruneFiles(r.name, new Set());
+    }
+
+    const dirStats = persistDirectoriesGraph(graph, out, now, purposesByDirectory(plan.nodes), drift, readmes, scope);
+    stats.dirs_upserted = dirStats.dirs_upserted;
+    stats.dirs_readme_summarized = dirStats.dirs_readme_summarized;
+    stats.dirs_structural_summarized = dirStats.dirs_structural_summarized;
+
+    // Prune stale directory rows for each scanned repo (handles renames).
+    for (const r of out.repos) {
+      const keepKeys = new Set<string>();
+      for (const entry of dirMap.values()) {
+        if (entry.repo === r.name) keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+      }
+      stats.dirs_retired += graph.pruneDirectories(r.name, keepKeys);
+    }
+
+    const fileStats = persistFilesGraph(graph, out, plan);
+    stats.files_upserted = fileStats.files_upserted;
+    stats.files_retired += fileStats.files_retired;
+  });
+  return stats;
+}
+
+// One repo's symbols, symbol purposes and concepts brought up to its commit,
+// then repos.indexed_commit stamped. Files are read from `content` (the
+// commit's blobs); a repo git gave no commit is read from disk and not
+// stamped. A stage that throws is recorded and the rest still run.
+async function indexRepoAtCommit(
+  db: TrajectoryDB,
+  r: ScanRepo,
+  files: ScanFile[],
+  content: CommitContent | undefined,
+  symbols: SymbolIndexStats & { error?: string },
+  errors: ScanError[],
+): Promise<number> {
+  return applyRepoIndex(db, r, await planRepoIndex(db, r, files, content), symbols, errors);
+}
+
+// A repo's wm_files rows as they stand once applyGraph has run `plan`: its
+// planned nodes, each keeping the stored symbols_md5 (upsertFile leaves it),
+// NULL for a new row.
+function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<IndexedFile & { purpose_source: string }> {
+  const stored = new Map(
+    db
+      .all<{ path: string; symbols_md5: string | null }>(`SELECT path, symbols_md5 FROM wm_files WHERE repo = ?`, [repo])
+      .map((f) => [f.path, f.symbols_md5]),
+  );
+  return plan.nodes
+    .filter((n) => n.repo === repo)
+    .map((n) => {
+      const path = WorldModelGraph.relativeFilePath(n);
+      return {
+        path,
+        content_md5: n.content_md5,
+        size_bytes: n.size_bytes,
+        symbols_md5: stored.get(path) ?? null,
+        purpose_source: n.purpose_source,
+      };
+    });
+}
+
+// What applyRepoIndex writes: the parsed symbols and the purpose heads, read
+// from git with no write. A read that failed is kept and recorded as its
+// stage's error when applied. `planned` are the repo's wm_files rows as they
+// will be once a pending graph plan is applied; without it they are read from
+// wm_files.
+interface RepoIndexPlan {
+  symbols?: SymbolPlan;
+  symbolsError?: unknown;
+  heads?: Map<string, string>;
+  headsError?: unknown;
+  scope?: ReindexScope;
+}
+
+async function planRepoIndex(
+  db: TrajectoryDB,
+  r: ScanRepo,
+  files: ScanFile[],
+  content: CommitContent | undefined,
+  planned?: Array<IndexedFile & { purpose_source: string }>,
+  scope?: ReindexScope,
+): Promise<RepoIndexPlan> {
+  const read = content ? (rel: string) => content.text(rel) : diskReader(r.path);
+  const plan: RepoIndexPlan = { scope };
+  try {
+    const maps = [...bundleMaps(files), ...(await builtBundleMaps(r.path))];
+    plan.symbols = await planRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps, read, planned);
+  } catch (e) {
+    plan.symbolsError = e;
+  }
+  if (content) {
+    try {
+      const heads = new Map<string, string>();
+      const paths = planned ? purposeHeadPathsOf(planned, scope?.changed) : purposeHeadPaths(db, r.name, scope?.changed);
+      for (const path of paths) heads.set(path, await content.head(path, PURPOSE_HEAD_BYTES));
+      plan.heads = heads;
+    } catch (e) {
+      plan.headsError = e;
+    }
+  }
+  return plan;
+}
+
+// Synchronous: every git read is in `plan`, so a caller can run this inside
+// one db.transaction with no await in it.
+function applyRepoIndex(
+  db: TrajectoryDB,
+  r: ScanRepo,
+  plan: RepoIndexPlan,
+  symbols: SymbolIndexStats & { error?: string },
+  errors: ScanError[],
+): number {
+  const paths = plan.scope?.changed;
+  let parsed = 0;
+  try {
+    if (!plan.symbols) throw plan.symbolsError;
+    const repoStats = applyRepoSymbols(db, plan.symbols);
+    for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
+    parsed = repoStats.files_parsed + repoStats.files_failed;
+  } catch (e) {
+    symbols.error = `${r.name}: ${(e as Error).message}`;
+    recordScanError(errors, 'symbol_index', r.name, e);
+  }
+  try {
+    if (plan.headsError !== undefined) throw plan.headsError;
+    refreshSymbolPurposes(db, r.name, plan.heads ? { heads: plan.heads, paths } : { paths });
+  } catch (e) {
+    recordScanError(errors, 'symbol_purpose', r.name, e);
+  }
+  try {
+    refreshConcepts(db, r.name);
+  } catch (e) {
+    recordScanError(errors, 'concept_refresh', r.name, e);
+  }
+  try {
+    applyConceptProposals(db, r.name, r.path);
+  } catch (e) {
+    recordScanError(errors, 'concept_proposals', r.name, e);
+  }
+  if (r.commit) {
+    db.run(`UPDATE repos SET indexed_commit = ?, indexed_stamp = ? WHERE name = ?`, [r.commit, indexStamp(), r.name]);
+  }
+  return parsed;
+}
+
+export interface RepoReindexStats {
+  files_parsed: number;
+  dirs_touched: number;
+  errors: ScanError[];
+}
+
+// Test seams inside the incremental reindex's transaction: afterGraph once the
+// wm_files and wm_directories rows are written, afterIndex once the symbols,
+// concepts and indexed_commit stamp are. Both run synchronously in it.
+export const reindexHooks: { afterGraph?: () => void; afterIndex?: () => void } = {};
+
+// One repo's world model brought to out's commit (GH 2584): a full rebuild
+// without a `scope`, the incremental reindex with one. out holds that one
+// repo, already registered in repos. The incremental reindex reads and parses
+// every blob first, then writes files, dirs, symbols with the relink and
+// orphan marking, purposes, concepts and the indexed_commit stamp in one
+// synchronous transaction, or nothing: a stage that fails rolls it back. No
+// await runs inside it, so no other write on this connection joins it.
+export async function persistRepoReindex(
+  db: TrajectoryDB,
+  graph: WorldModelGraph,
+  out: ScanOutput,
+  scope?: ReindexScope,
+): Promise<RepoReindexStats> {
+  const now = nowISO();
+  const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
+  const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
+  const stampCounts = () => {
+    for (const r of out.repos) {
+      db.run(`UPDATE repos SET file_count = ?, last_scanned_at = ? WHERE name = ?`, [r.file_count, now, r.name]);
+    }
+  };
+  const symbols = emptySymbolStats();
+  const errors: ScanError[] = [];
+  const stats = (graphStats: GraphStats): RepoReindexStats => ({
+    files_parsed: symbols.files_parsed + symbols.files_failed,
+    dirs_touched: graphStats.dirs_upserted,
+    errors,
+  });
+  if (!scope) {
+    stampCounts();
+    const graphStats = await persistGraph(graph, persisted, now);
+    for (const r of out.repos) await indexRepoAtCommit(db, r, repoFiles(r), out.contents?.get(r.name), symbols, errors);
+    return stats(graphStats);
+  }
+  const graphPlan = await planGraph(graph, persisted, now, scope);
+  const repoPlans = new Map<string, RepoIndexPlan>();
+  for (const r of out.repos) {
+    const planned = plannedFiles(db, r.name, graphPlan.files);
+    repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned, scope));
+  }
+  return db.transaction(() => {
+    stampCounts();
+    const graphStats = applyGraph(graph, persisted, now, graphPlan);
+    reindexHooks.afterGraph?.();
+    for (const r of out.repos) applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors);
+    reindexHooks.afterIndex?.();
+    if (errors.length > 0) {
+      throw new Error(`incremental reindex failed: ${errors.map((e) => `${e.stage}: ${e.error}`).join('; ')}`);
+    }
+    return stats(graphStats);
+  });
+}
+
 const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
-
-interface ScanLock {
-  pid: number;
-  started_at: string;
-}
-
-function readLock(lockPath: string): ScanLock | null {
-  try {
-    return JSON.parse(readFileSync(lockPath, 'utf8')) as ScanLock;
-  } catch {
-    return null;
-  }
-}
-
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function acquireLock(lockPath: string): boolean {
-  const existing = readLock(lockPath);
-  if (existing) {
-    if (pidAlive(existing.pid)) return false;
-    unlinkSync(lockPath);
-  }
-  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: 'wx' });
-  return true;
-}
-
-function releaseLock(lockPath: string): void {
-  try {
-    unlinkSync(lockPath);
-  } catch {
-    // already removed — not an error
-  }
-}
 
 export function scanTools(
   db: TrajectoryDB,
@@ -847,9 +1090,9 @@ export function scanTools(
           },
           source: {
             type: 'string',
-            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_post_change', 'bro_auto_initial', 'startup_catchup'],
+            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server\'s connect-time catch-up. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace. Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
@@ -889,47 +1132,59 @@ export function scanTools(
           return err(`graph_db_open_failed: ${graphOpenError}`);
         }
 
-        // #339: lock file prevents concurrent scans. Lock lives beside the DB.
-        const lockPath = dbPath && dbPath !== ':memory:'
-          ? join(dirname(dbPath), 'scan.lock')
-          : '';
-        if (lockPath) {
-          const existing = readLock(lockPath);
-          if (existing && pidAlive(existing.pid)) {
-            return err(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
-          }
-          let acquired = false;
-          let acquireThrew = false;
-          try {
-            acquired = acquireLock(lockPath);
-          } catch {
-            // wx write failed: raced another acquirer, or the lock dir is absent.
-            acquireThrew = true;
-          }
-          if (!acquired) {
-            const recheck = readLock(lockPath);
-            if (recheck && pidAlive(recheck.pid)) {
-              // A live lock appeared between the pre-check and the acquire — we
-              // lost the race. Never fall through to a concurrent scan (#1018c).
-              return err(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
-            }
-            if (!acquireThrew) {
-              // acquireLock returned false with no live lock present — treat as a
-              // lost lock rather than silently double-scanning.
-              return err('scan lock could not be acquired');
-            }
-            // Threw with no live lock (missing lock dir / dead leftover): proceed
-            // best-effort lock-less, as there is no concurrent scan to guard.
-          }
+        // startup_catchup on a warm DB brings each known repo to its target
+        // (git-range scope, full-repo only when the stamp needs it) and runs no
+        // workspace discovery (GH 2584).
+        if (source === 'startup_catchup' && graph && db.get(`SELECT 1 FROM repos LIMIT 1`)) {
+          const results = await catchUpRepos(db, graph, { dbPath, trigger: 'startup_catchup' });
+          return ok({ source, repos: results });
         }
 
+        // #339: lock file prevents concurrent scans. Lock lives beside the DB.
+        const lockPath = scanLockPath(dbPath);
+        const held = liveLock(lockPath);
+        if (held) return err(`scan already running (pid ${held.pid}, started ${held.started_at})`);
+        if (!tryLock(lockPath)) {
+          // A live lock appeared between the check and the acquire — we lost the
+          // race. Never fall through to a concurrent scan (#1018c).
+          const recheck = liveLock(lockPath);
+          return err(
+            recheck
+              ? `scan already running (pid ${recheck.pid}, started ${recheck.started_at})`
+              : 'scan lock could not be acquired',
+          );
+        }
+
+        const started = Date.now();
+        let out: ScanOutput | null = null;
         try {
-          const out = await walkProject(db, sessionDir, { timeoutMs: SCAN_TIMEOUT_MS });
+          out = await walkProject(db, sessionDir, { timeoutMs: SCAN_TIMEOUT_MS });
           if (!graph && out.files.length > 0) {
             return err('world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged');
           }
           const dirsBefore = graph?.directoryCount() ?? 0;
-          const stats = await persistScan(db, graph, out, sessionDir);
+          const indexedBefore = new Map(
+            db.all<{ name: string; indexed_commit: string | null }>(`SELECT name, indexed_commit FROM repos`).map((r) => [r.name, r.indexed_commit]),
+          );
+          const { parsed_by_repo, ...stats } = await persistScan(db, graph, out, sessionDir);
+          const scanMs = Date.now() - started;
+          const trigger = triggerOfSource(source);
+          for (const r of out.repos) {
+            if (!graph || !r.commit || !parsed_by_repo.has(r.name)) continue;
+            const dirs = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [r.name]);
+            recordReindex(db, {
+              repo: r.name,
+              mode: 'full',
+              reason: 'scan',
+              trigger,
+              from_commit: indexedBefore.get(r.name) ?? '',
+              to_commit: r.commit,
+              files_diffed: r.file_count,
+              files_parsed: parsed_by_repo.get(r.name) ?? 0,
+              dirs_touched: dirs?.n ?? 0,
+              ms: scanMs,
+            });
+          }
 
           // Milestones: reconcile from each repo's remote, then seed one
           // v<next-patch> where none exist. Never fails the scan.
@@ -998,7 +1253,8 @@ export function scanTools(
         } finally {
           // Release the lock whether runScan or persistScan threw or not, so a
           // failed scan never wedges future runs behind a stale lock.
-          if (lockPath) releaseLock(lockPath);
+          if (out) closeContents(out);
+          releaseLock(lockPath);
         }
       }),
     ),

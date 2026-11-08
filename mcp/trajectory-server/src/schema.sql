@@ -9,6 +9,11 @@ PRAGMA journal_mode = WAL;
 -- FKs below resolve at fresh-DB CREATE time.
 -- onboard_scan: JSON evidence + branching recommendation from the /onboard
 -- pre-scan (GH 1575), rewritten by every onboard_state_get call.
+-- indexed_commit: the commit this repo's world model was built from, read from
+-- git objects and never the working tree (GH 2584); NULL until a scan indexes
+-- it at a commit. world_model_* and task_brief compare it with their target.
+-- indexed_stamp: '<EXTRACTOR_VERSION>:<schema version>' the index was built
+-- with; a mismatch forces a full rebuild of the repo.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -17,7 +22,9 @@ CREATE TABLE IF NOT EXISTS repos (
     target_branch     TEXT,
     branching_model   TEXT,
     protected_branches TEXT,
-    onboard_scan      TEXT
+    onboard_scan      TEXT,
+    indexed_commit    TEXT,
+    indexed_stamp     TEXT
 );
 
 -- repo_remotes: a repo's git remotes, the sole source of truth for them.
@@ -250,7 +257,7 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
--- lint_runs (v62, GH 2570): one row per run of a task's close lints, the
+-- lint_runs (v63, GH 2570): one row per run of a task's close lints, the
 -- repo's .config/tmb/close-lints.json plus the built-in diff checks, at the
 -- task's commit_sha on base_sha (the merge-base it was linted against).
 -- fingerprint is lintFingerprint over the fingerprint_inputs blobs at
@@ -409,7 +416,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 62, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 63, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

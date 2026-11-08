@@ -206,6 +206,7 @@ describe('README drift helpers (GH 1680)', () => {
     for (const p of deleted) deletedByBasename.set(p.slice(p.lastIndexOf('/') + 1), [p]);
     return {
       root,
+      commit: 'HEAD',
       deleted: new Set(deleted),
       deletedByBasename,
       renamedAway: new Set(),
@@ -218,7 +219,6 @@ describe('README drift helpers (GH 1680)', () => {
   it('flags a missing markdown link without a deletion, skips .., dist/, * and untracked first segments', () => {
     const root = mkdtempSync(join(tmpdir(), 'wm-drift-refs-'));
     try {
-      write(root, 'docs/here.md', 'x\n');
       const readme = [
         '<untrusted-content source="readme">',
         '[here](here.md) [gone](./missing.md) [site](https://example.com/x.md) [top](#usage)',
@@ -226,6 +226,7 @@ describe('README drift helpers (GH 1680)', () => {
         '</untrusted-content>',
       ].join('\n');
       const h = history(root, ['vendor/old.sh', 'src/old.ts', 'dist/index.js'], ['docs', 'src']);
+      h.trackedFiles.add('docs/here.md');
       assert.deepEqual(deadRefs(readme, 'docs', h), ['docs/missing.md', 'src/old.ts']);
     } finally {
       rmSync(root, { recursive: true, force: true });

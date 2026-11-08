@@ -18,14 +18,19 @@ import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
-import { md5Of, type OpenRead } from '../tools/scan-walk.js';
 import { resolveClaudeLogDir } from '../platform.js';
 import { worldModelTools } from '../tools/world_model.js';
 import type { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
-after(() => scanPin.restore());
+const savedIndexTarget = process.env['TMB_WM_INDEX_TARGET'];
+process.env['TMB_WM_INDEX_TARGET'] = 'HEAD';
+after(() => {
+  scanPin.restore();
+  if (savedIndexTarget === undefined) delete process.env['TMB_WM_INDEX_TARGET'];
+  else process.env['TMB_WM_INDEX_TARGET'] = savedIndexTarget;
+});
 
 const WORKTREE = fileURLToPath(new URL('../../../../', import.meta.url)).replace(/\/$/, '');
 
@@ -201,7 +206,7 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.equal(card.symbol['qualified_name'], 'persistScan');
     assert.ok(card.callers.refs.length >= 1, 'persistScan has a caller');
     assert.ok(card.callees.refs.length >= 1, 'persistScan has a callee');
-    assert.ok(card.callees.refs.some((r) => r['qualified_name'] === 'persistFilesGraph'));
+    assert.ok(card.callees.refs.some((r) => r['qualified_name'] === 'persistGraph'));
     for (const key of ['id', 'qualified_name', 'kind', 'repo', 'path', 'line_start']) assert.ok(key in card.callers.refs[0]!, key);
   });
 
@@ -427,7 +432,7 @@ describe('a file whose extraction throws is recorded, not left unstamped (GH 185
     assert.equal(failed.files_failed, 1);
     assert.equal(failed.failed_paths.length, 1);
     assert.equal(failed.failed_paths[0]!.path, 'src/bad.ts');
-    assert.match(failed.failed_paths[0]!.error, /EISDIR/);
+    assert.match(failed.failed_paths[0]!.error, /cannot read src\/bad\.ts/);
     assert.ok(failed.failed_paths[0]!.error.length <= 200);
     assert.equal(row('src/bad.ts').symbols_md5, `${symbolsStamp('edited')}${FAILED_SUFFIX}`);
     assert.ok(row('src/bad.ts').symbols_md5!.endsWith(':failed'));
@@ -479,133 +484,6 @@ describe('a file whose extraction throws is recorded, not left unstamped (GH 185
     const out = await indexRepoSymbols(db, 'app', root);
     assert.equal(out.files_failed, 22);
     assert.equal(out.failed_paths.length, 20);
-  });
-});
-
-describe('a failed content read keeps the stored file row (GH 2242)', () => {
-  const ws = mkdtempSync(join(tmpdir(), 'wm-unreadable-'));
-  const root = join(ws, 'app');
-  const db = tempDB();
-  const holder = GraphHolder.fixed(new WorldModelGraph(db));
-  const asRoot = process.getuid?.() === 0;
-
-  const commit = () => {
-    execFileSync('git', ['add', '-A'], { cwd: root });
-    execFileSync('git', ['commit', '-qm', 'change', '--allow-empty'], { cwd: root });
-  };
-  const row = (path: string) =>
-    db.get<{ content_md5: string; symbols_md5: string | null }>(
-      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = 'app' AND path = ?`,
-      [path],
-    );
-  const symbols = (path: string) =>
-    db.all<{ qualified_name: string }>(`SELECT qualified_name FROM wm_symbols WHERE repo = 'app' AND path = ? ORDER BY id`, [path]).map(
-      (r) => r.qualified_name,
-    );
-  const md5Errors = (): Array<Record<string, unknown>> => {
-    const logPath = join(resolveClaudeLogDir(), 'mcp-server.log');
-    if (!existsSync(logPath)) return [];
-    return readFileSync(logPath, 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>)
-      .filter((e) => e['event'] === 'scan_md5_error');
-  };
-  const failingOpen = (code: string) => (): NodeJS.ReadableStream => {
-    const stream = new PassThrough();
-    process.nextTick(() => stream.emit('error', Object.assign(new Error(code), { code })));
-    return stream;
-  };
-
-  before(() => {
-    mkdirSync(join(root, 'src'), { recursive: true });
-    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
-    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
-    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
-    writeFileSync(join(root, 'src/a.ts'), 'export function base(): number {\n  return 1;\n}\n');
-    writeFileSync(join(root, 'src/b.ts'), "import { base } from './a';\nexport function twice(): number {\n  return base() * 2;\n}\n");
-    commit();
-  });
-
-  after(() => {
-    for (const p of ['src/b.ts', 'src/c.ts']) {
-      if (existsSync(join(root, p))) chmodSync(join(root, p), 0o644);
-    }
-    db.close();
-    rmSync(ws, { recursive: true, force: true });
-  });
-
-  it('GH 2242: an unreadable stored file keeps its row and symbols, and an unchanged readable rescan parses nothing', { skip: asRoot }, async () => {
-    const first = await scan(db, holder, ws);
-    assert.equal(first.symbols.files_parsed, 2);
-    const stored = row('src/b.ts')!;
-    const storedSymbols = symbols('src/b.ts');
-    assert.ok(storedSymbols.length > 0);
-
-    chmodSync(join(root, 'src/b.ts'), 0o000);
-    const unreadable = await scan(db, holder, ws);
-    assert.equal(unreadable.symbols.files_parsed, 0);
-    assert.deepEqual(row('src/b.ts'), stored, 'the stored content_md5 and symbols_md5 stay');
-    assert.deepEqual(symbols('src/b.ts'), storedSymbols, 'the wm_symbols rows remain');
-    const logged = md5Errors().filter((e) => String(e['path']).endsWith('/src/b.ts'));
-    assert.ok(logged.length > 0, 'scan_md5_error is logged for the unreadable file');
-    assert.equal(logged.at(-1)!['code'], 'EACCES');
-
-    chmodSync(join(root, 'src/b.ts'), 0o644);
-    const readable = await scan(db, holder, ws);
-    assert.equal(readable.symbols.files_parsed, 0, 'unchanged content is not re-parsed');
-    assert.deepEqual(row('src/b.ts'), stored);
-  });
-
-  it('GH 2242: an unreadable new file is stored with an unknown md5 and stamped failed, as before', { skip: asRoot }, async () => {
-    writeFileSync(join(root, 'src/c.ts'), 'export function third(): number {\n  return 3;\n}\n');
-    commit();
-    chmodSync(join(root, 'src/c.ts'), 0o000);
-    await scan(db, holder, ws);
-    const added = row('src/c.ts')!;
-    assert.equal(added.content_md5, '');
-    assert.equal(added.symbols_md5, `${symbolsStamp('')}${FAILED_SUFFIX}`);
-
-    chmodSync(join(root, 'src/c.ts'), 0o644);
-    const readable = await scan(db, holder, ws);
-    assert.equal(readable.symbols.files_parsed, 1);
-    assert.ok(symbols('src/c.ts').length > 0);
-  });
-
-  it('GH 2242: md5Of retries a transient errno and returns the real md5 once the read clears', async () => {
-    const path = join(root, 'src/a.ts');
-    const expected = createHash('md5').update(readFileSync(path)).digest('hex');
-    let calls = 0;
-    const open: OpenRead = (p) => (++calls < 3 ? failingOpen(calls === 1 ? 'EMFILE' : 'EAGAIN')() : createReadStream(p));
-    assert.equal(await md5Of(path, open), expected);
-    assert.equal(calls, 3);
-  });
-
-  it('GH 2242: md5Of gives up after the retries on a lasting transient errno and at once on any other, logging the code', async () => {
-    const path = join(root, 'src/missing-transient.ts');
-    let calls = 0;
-    const lasting: OpenRead = () => {
-      calls++;
-      return failingOpen('EBUSY')();
-    };
-    assert.equal(await md5Of(path, lasting), '');
-    assert.equal(calls, 3);
-    const busy = md5Errors().filter((e) => e['path'] === path);
-    assert.equal(busy.at(-1)!['code'], 'EBUSY');
-
-    calls = 0;
-    const missing = join(root, 'src/nope.ts');
-    assert.equal(
-      await md5Of(missing, (p) => {
-        calls++;
-        return createReadStream(p);
-      }),
-      '',
-    );
-    assert.equal(calls, 1);
-    const gone = md5Errors().filter((e) => e['path'] === missing);
-    assert.equal(gone.at(-1)!['code'], 'ENOENT');
-    assert.ok(String(gone.at(-1)!['code']).length > 0);
   });
 });
 
@@ -778,18 +656,27 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     }
   });
 
-  it('source: true refuses a start_line past the end of a shrunken file and never inverts the range (GH 1851)', async () => {
-    writeFileSync(join(root, 'src/shrink.ts'), 'export function shrinkHead(): number {\n  return 1;');
+  it('source: true refuses a start_line past the end of the file and never inverts the range (GH 1851)', async () => {
+    const lines = SHRINK_TS.split('\n').length;
+    const range = (name: string) =>
+      db.get<{ start_line: number; end_line: number }>(`SELECT start_line, end_line FROM wm_symbols WHERE repo = 'app' AND qualified_name = ?`, [name])!;
+    const tailRange = range('shrinkTail');
+    const headRange = range('shrinkHead');
+    const setRange = (name: string, start: number, end: number) =>
+      db.run(`UPDATE wm_symbols SET start_line = ?, end_line = ? WHERE repo = 'app' AND qualified_name = ?`, [start, end, name]);
+    setRange('shrinkTail', lines + 3, lines + 5);
+    setRange('shrinkHead', 1, lines + 40);
     try {
       const tail = await symbol({ qualified_name: 'shrinkTail', source: true });
       assert.equal(tail['source'], null);
       assert.equal(tail['source_reason'], 'range-past-eof');
       const head = await symbol({ qualified_name: 'shrinkHead', source: true });
       const source = head['source'] as { start_line: number; end_line: number };
-      assert.deepEqual([source.start_line, source.end_line], [1, 2]);
+      assert.deepEqual([source.start_line, source.end_line], [1, lines]);
       assert.ok(source.end_line >= source.start_line);
     } finally {
-      writeFileSync(join(root, 'src/shrink.ts'), SHRINK_TS);
+      setRange('shrinkTail', tailRange.start_line, tailRange.end_line);
+      setRange('shrinkHead', headRange.start_line, headRange.end_line);
     }
   });
 
@@ -804,7 +691,7 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     assert.equal((await indexRepoSymbols(db, 'app', root)).files_parsed, indexed);
   });
 
-  it('stale flips on an edit after indexing and back after a rescan', async () => {
+  it('a working-tree edit leaves the index and stale alone; the commit is picked up by the next read (GH 2584)', async () => {
     const searchHit = async () => {
       const out = parse<{ results: Payload[] }>(
         (await wm['world_model_search']!({ agent: 'bro', repo: 'app', query: 'stepA', mode: 'keyword', k: 10 })) as CallToolResult,
@@ -817,13 +704,15 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     assert.equal((await searchHit())['stale'], false);
 
     writeFileSync(join(root, 'src/chain.ts'), CHAIN_TS('// edited'));
-    assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], true);
-    assert.equal((await searchHit())['stale'], true);
-
-    commit();
-    await scan(db, holder, ws);
     assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], false);
     assert.equal((await searchHit())['stale'], false);
+    const md5Before = db.get<{ m: string }>(`SELECT content_md5 AS m FROM wm_files WHERE repo = 'app' AND path = 'src/chain.ts'`)!.m;
+
+    commit();
+    const after = await symbol({ qualified_name: 'stepA' });
+    assert.equal(after.symbol['stale'], false);
+    assert.equal((await searchHit())['stale'], false);
+    assert.notEqual(db.get<{ m: string }>(`SELECT content_md5 AS m FROM wm_files WHERE repo = 'app' AND path = 'src/chain.ts'`)!.m, md5Before);
   });
 });
 
