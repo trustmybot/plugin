@@ -159,6 +159,25 @@ function seedSymbols(db: TrajectoryDB, repo: string, n: number): void {
   }
 }
 
+function seedSymbol(db: TrajectoryDB, repo: string, path: string, name: string): number {
+  db.run(`INSERT OR IGNORE INTO wm_symbols (repo, path, kind, qualified_name, body_hash) VALUES (?, ?, 'function', ?, 'h')`, [repo, path, name]);
+  return db.get<{ id: number }>('SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND qualified_name = ?', [repo, path, name])!.id;
+}
+
+function seedCalls(db: TrajectoryDB, from: string, to: string, n: number, repo = 'r'): void {
+  const src = seedSymbol(db, repo, from, 'caller');
+  const dst = seedSymbol(db, repo, to, 'callee');
+  for (let i = 0; i < n; i++) {
+    db.run(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution) VALUES (?, ?, 'callee', 'calls', 'exact')`, [src, dst]);
+  }
+}
+
+function seedConceptStep(db: TrajectoryDB, repo: string, name: string, status: string, path: string): void {
+  seedConcept(db, repo, name, status);
+  const id = db.get<{ id: number }>('SELECT id FROM wm_concepts WHERE repo = ? AND name = ?', [repo, name])!.id;
+  db.run(`INSERT INTO wm_concept_steps (concept_id, ordinal, repo, path, description, hash_at_verify) VALUES (?, 1, ?, ?, 'd', 'h')`, [id, repo, path]);
+}
+
 function seedWmFile(db: TrajectoryDB, path: string, symbolsMd5: string | null): void {
   db.run(`INSERT INTO wm_files (repo, path, dir, content_md5, updated_at, symbols_md5) VALUES ('r', ?, '', 'abc', ?, ?)`, [path, iso(), symbolsMd5]);
 }
@@ -444,6 +463,14 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedConcept(db, 'r', 'old flow', 'retired');
     },
   },
+  concepts_cover_hot_areas: {
+    violate: (db) => seedCalls(db, 'src/cli/main.ts', 'src/hot/a.ts', 50),
+    pass: (db) => {
+      seedCalls(db, 'src/cli/main.ts', 'src/hot/a.ts', 50);
+      seedConceptStep(db, 'r', 'hot flow', 'verified', 'src/hot/b.ts');
+      seedCalls(db, 'src/cli/main.ts', 'src/cold/a.ts', 49);
+    },
+  },
   concept_proposals_not_stale: {
     violate: (db) => {
       seedProposingTask(db, iso(-8 * DAY), { reviewed: true, report: proposalReport('run flow') });
@@ -589,6 +616,43 @@ describe('data contracts', () => {
 
     db.run(`UPDATE issues SET status = 'closed' WHERE id = ?`, [issue]);
     assert.equal(count(), 0);
+  });
+
+  it('concepts_cover_hot_areas reports uncovered areas at the threshold, suspect concepts do not cover, sample ordered by fan_in (GH 2322)', () => {
+    const db = tempDB();
+    const c = contract('concepts_cover_hot_areas');
+    assert.equal(c.severity, 'warn');
+    assert.deepEqual(c.params, [{ name: 'min_fan_in', env: 'TMB_CONCEPT_AREA_MIN_FAN_IN', default: 50 }]);
+    seedCalls(db, 'src/cli/main.ts', 'src/hot/a.ts', 60);
+    seedCalls(db, 'src/cli/main.ts', 'src/warm/a.ts', 50);
+    seedConceptStep(db, 'r', 'warm flow', 'suspect', 'src/warm/b.ts');
+    seedCalls(db, 'src/cli/main.ts', 'src/cold/a.ts', 49);
+    seedConceptStep(db, 'r', 'nested flow', 'verified', 'src/hot/sub/c.ts');
+    const v = runDataContracts(trajectoryDbReader(db), [c], { env: {} }).violations.find((x) => x.id === c.id);
+    assert.equal(v?.actual, 2);
+    assert.deepEqual(v?.sample.map((s) => ({ ...s })), [
+      { repo: 'r', area: 'src/hot/', fan_in: 60 },
+      { repo: 'r', area: 'src/warm/', fan_in: 50 },
+    ]);
+    const raised = runDataContracts(trajectoryDbReader(db), [c], { env: { TMB_CONCEPT_AREA_MIN_FAN_IN: '55' } }).violations.find((x) => x.id === c.id);
+    assert.equal(raised?.actual, 1);
+  });
+
+  it('concepts_cover_hot_areas ignores same-directory calls, calls from or into test code, and calls across repos (GH 2322)', () => {
+    const db = tempDB();
+    seedCalls(db, 'src/hot/b.ts', 'src/hot/a.ts', 60);
+    seedCalls(db, 'src/test/hot.test.ts', 'src/hot/a.ts', 60);
+    seedCalls(db, 'src/cli/main.test.ts', 'src/hot/a.ts', 60);
+    seedCalls(db, 'src/cli/main.ts', 'src/test/helpers.ts', 60);
+    seedCalls(db, 'src/cli/main.ts', 'src/lib/x.test.ts', 60);
+    const other = seedSymbol(db, 's', 'src/cli/main.ts', 'caller');
+    const hot = seedSymbol(db, 'r', 'src/hot/a.ts', 'callee');
+    for (let i = 0; i < 60; i++) {
+      db.run(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution) VALUES (?, ?, 'callee', 'calls', 'exact')`, [other, hot]);
+    }
+    assert.equal(violated(db, 'concepts_cover_hot_areas'), false);
+    seedCalls(db, 'src/cli/main.ts', 'src/hot/a.ts', 50);
+    assert.equal(violated(db, 'concepts_cover_hot_areas'), true);
   });
 
   it('spec_shape_waived_rows_name_a_task warns on a row naming a real task without gate spec_shape', () => {
