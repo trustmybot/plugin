@@ -563,10 +563,143 @@ function receiverTypes(root: Node): Map<string, string> {
   return types;
 }
 
+interface ModuleBindings {
+  aliases: Map<string, string>;
+  names: Set<string>;
+}
+
+const importSource = (specifier: Node): string | undefined => {
+  let stmt: Node | null = specifier.parent;
+  while (stmt && stmt.type !== 'import_statement') stmt = stmt.parent;
+  return stmt?.childForFieldName('source')?.text.slice(1, -1);
+};
+
+// The names an identifier may reference by value (GH 1988): each named import
+// binding and each module-level function, class or function-valued const. An
+// `import { A as B }` alias maps back to `A` only for a relative import of a
+// name the file does not declare itself, so the edge resolves through the
+// `imports` hint and never to an external module's name or a same-file `A`.
+function moduleBindings(root: Node): ModuleBindings {
+  const aliases = new Map<string, string>();
+  const names = new Set<string>();
+  const declared = new Set<string>();
+  for (const s of root.descendantsOfType('import_specifier')) {
+    const n = s?.childForFieldName('name')?.text;
+    if (!n) continue;
+    const alias = s!.childForFieldName('alias')?.text;
+    names.add(alias ?? n);
+    if (alias && importSource(s!)?.startsWith('.')) aliases.set(alias, n);
+  }
+  for (const top of named(root)) {
+    const decl = top.type === 'export_statement' ? top.childForFieldName('declaration') : top;
+    if (!decl) continue;
+    if (decl.type === 'lexical_declaration' || decl.type === 'variable_declaration') {
+      for (const d of named(decl)) {
+        const n = d.childForFieldName('name');
+        if (n?.type !== 'identifier') continue;
+        declared.add(n.text);
+        const value = d.childForFieldName('value');
+        if (value && FUNCTION_VALUES.has(value.type)) names.add(n.text);
+      }
+      continue;
+    }
+    const n = decl.childForFieldName('name')?.text;
+    if (!n) continue;
+    declared.add(n);
+    if (MODULE_CALLABLES.has(decl.type)) names.add(n);
+  }
+  for (const [alias, original] of aliases) if (declared.has(original)) aliases.delete(alias);
+  return { aliases, names };
+}
+
+const MODULE_CALLABLES = new Set(['function_declaration', 'generator_function_declaration', 'class_declaration', 'abstract_class_declaration']);
+const FUNCTION_SCOPES = new Set([
+  'function_declaration',
+  'generator_function_declaration',
+  'function_expression',
+  'function',
+  'generator_function',
+  'arrow_function',
+  'method_definition',
+]);
+const BLOCK_SCOPES = new Set(['statement_block', 'switch_case', 'switch_default']);
+const PATTERN_NAMES = ['identifier', 'shorthand_property_identifier_pattern'];
+
+const bindsName = (pattern: Node | null, name: string): boolean =>
+  pattern !== null &&
+  (PATTERN_NAMES.includes(pattern.type) ? pattern.text === name : pattern.descendantsOfType(PATTERN_NAMES).some((p) => p?.text === name));
+
+const declaresName = (stmt: Node, name: string): boolean => {
+  if (stmt.type === 'lexical_declaration' || stmt.type === 'variable_declaration') {
+    return named(stmt).some((d) => d.type === 'variable_declarator' && bindsName(d.childForFieldName('name'), name));
+  }
+  return MODULE_CALLABLES.has(stmt.type) && stmt.childForFieldName('name')?.text === name;
+};
+
+// Whether a parameter or a declaration in an enclosing function or block,
+// below the module, binds the name `node` reads.
+function shadowed(node: Node, name: string): boolean {
+  for (let a = node.parent; a && a.type !== 'program'; a = a.parent) {
+    if (FUNCTION_SCOPES.has(a.type)) {
+      if (bindsName(a.childForFieldName('parameters') ?? a.childForFieldName('parameter'), name)) return true;
+      if (a.type !== 'function_declaration' && a.type !== 'generator_function_declaration' && a.childForFieldName('name')?.text === name) return true;
+    } else if (BLOCK_SCOPES.has(a.type)) {
+      if (named(a).some((s) => declaresName(s, name))) return true;
+    } else if (a.type === 'for_statement') {
+      const init = a.childForFieldName('initializer');
+      if (init && declaresName(init, name)) return true;
+    } else if (a.type === 'for_in_statement') {
+      if (a.childForFieldName('kind') && bindsName(a.childForFieldName('left'), name)) return true;
+    } else if (a.type === 'catch_clause') {
+      if (bindsName(a.childForFieldName('parameter'), name)) return true;
+    }
+  }
+  return false;
+}
+
+const isField = (parent: Node, field: string, node: Node): boolean => parent.childForFieldName(field)?.id === node.id;
+
+// Whether an identifier sits where it is read as a value (GH 1988): a call
+// argument, an object property value, an array element, an assigned or
+// initial value, a return value, a local export specifier or a default export.
+function inValuePosition(node: Node): boolean {
+  const p = node.parent;
+  if (!p) return false;
+  if (node.type === 'shorthand_property_identifier') return p.type === 'object';
+  switch (p.type) {
+    case 'arguments':
+    case 'array':
+    case 'return_statement':
+      return true;
+    case 'pair':
+    case 'variable_declarator':
+      return isField(p, 'value', node);
+    case 'assignment_expression':
+      return isField(p, 'right', node);
+    case 'export_statement':
+      return isField(p, 'value', node);
+    case 'export_specifier':
+      return isField(p, 'name', node) && !p.parent?.parent?.childForFieldName('source');
+    default:
+      return false;
+  }
+}
+
 function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number, relPath: string): void {
   if (isTestPath(relPath)) testGateRuns(src, out, moduleSymbol);
   const types = receiverTypes(root);
   const consts = stringConsts(root);
+  const bindings = moduleBindings(root);
+  const target = (name: string): string => bindings.aliases.get(name) ?? name;
+  const referenced = new Set<string>();
+  const reference = (scope: number, kind: EdgeKind, name: string, at: Node): void => {
+    const dst = target(name);
+    const key = `${scope}\u0000${kind}\u0000${dst}`;
+    if (referenced.has(key)) return;
+    referenced.add(key);
+    out.edge(scope, kind, dst, at.startPosition.row + 1);
+  };
+  const boundValue = (node: Node, name: string): boolean => bindings.names.has(name) && !shadowed(node, name);
   const definition = (node: Node, kind: SymbolKind, qualifiedName: string): number =>
     out.symbol({
       kind,
@@ -625,11 +758,15 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
       const fn = node.childForFieldName(t === 'call_expression' ? 'function' : 'constructor');
       let callee: string | undefined;
       let receiver: string | undefined;
-      if (fn?.type === 'identifier') callee = fn.text;
+      if (fn?.type === 'identifier') callee = target(fn.text);
       else if (fn?.type === 'member_expression') {
         callee = fn.childForFieldName('property')?.text;
-        const object = fn.childForFieldName('object')?.text;
-        receiver = object !== undefined ? (types.get(object) ?? object) : undefined;
+        const objectNode = fn.childForFieldName('object');
+        const object = objectNode?.text;
+        if (objectNode?.type === 'identifier' && object !== undefined) {
+          receiver = types.get(object) ?? target(object);
+          if (/^[A-Z]/.test(object) && boundValue(objectNode, object)) reference(scope, 'calls', object, objectNode);
+        } else receiver = object !== undefined ? (types.get(object) ?? object) : undefined;
       }
       if (callee) {
         out.edge(
@@ -666,6 +803,14 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
         const owner = out.symbols[scope];
         if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
       }
+    } else if (t === 'identifier' || t === 'shorthand_property_identifier') {
+      if (inValuePosition(node) && boundValue(node, node.text)) reference(scope, 'calls', node.text, node);
+    } else if (t === 'extends_clause') {
+      const base = node.childForFieldName('value');
+      if (base?.type === 'identifier') out.edge(scope, 'instantiates', target(base.text), base.startPosition.row + 1);
+    } else if (t === 'jsx_opening_element' || t === 'jsx_self_closing_element') {
+      const tag = node.childForFieldName('name');
+      if (tag?.type === 'identifier' && /^[A-Z]/.test(tag.text)) reference(scope, 'instantiates', tag.text, tag);
     } else if (t === 'string' || t === 'template_string') {
       const text = node.text;
       const line = node.startPosition.row + 1;
