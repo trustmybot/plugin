@@ -13,8 +13,10 @@
  * assigned a reference chain (`e=os.environ`, `const e=process.env`, `f=e`)
  * holds what the chain resolves to and is judged as that chain written out,
  * and a name whose bindings mix an import or alias with anything else is
- * unproven wherever it is used (GH 2481). A judged write call with no `W`
- * line from the scanner is unproven too. A grammar not loaded yet leaves the
+ * unproven wherever it is used (GH 2481). A process global (os.environ,
+ * sys.argv, process.env, …) is proven only where it cannot escape into a
+ * container, an argument or a return value (`contained`, GH 2490). A judged
+ * write call with no `W` line from the scanner is unproven too. A grammar not loaded yet leaves the
  * program unproven for this pass and is loaded before the command is analyzed
  * again (index.ts). perl and ruby are lexed against an identifier allowlist,
  * judged writes included; perl's `select` is proven only as the 4-argument
@@ -81,6 +83,11 @@ const PY_SAFE_MODULES: Record<string, { names: ReadonlySet<string> | '*'; deep?:
 };
 const PY_JSON_NAMES = new Set(['load', 'loads', 'dump', 'dumps', 'JSONDecoder', 'JSONEncoder', 'JSONDecodeError']);
 const PY_SAFE_STREAMS = new Set(['sys.argv', 'sys.stdin', 'sys.stdout', 'sys.stderr', 'os.environ']);
+/** Calls that neither store an argument nor return it or a container holding it, so a stream passed to one cannot escape (GH 2490). */
+const PY_SINKS = new Set(['print', 'len', 'str', 'repr', 'sorted', 'dict', 'list', 'tuple', 'set', 'json.dumps', 'json.dump', 'json.load']);
+/** The streams whose elements are strings, so unpacking one binds only strings or a fresh list (GH 2490). */
+const PY_UNPACKED = new Set(['os.environ', 'sys.argv', 'sys.stdin']);
+const PY_UNPACK = new Set(['pattern_list', 'tuple_pattern', 'list_pattern']);
 const publicName = (p: string): boolean => /^[A-Za-z][A-Za-z0-9_]*$/.test(p);
 
 /** Whether `q` is a name the table lets past a safe module (`re.sub`, `datetime.datetime.now`). */
@@ -153,6 +160,13 @@ const JS_SAFE_CALLS = new Set([
 ]);
 const JS_SAFE_ROOT_CALL = /^(console|JSON|Math)\./;
 const JS_SAFE_VALUE = /^process\.(argv|env|stdout|stderr|version|versions|platform|arch)(\.|$)/;
+/** The objects of JS_SAFE_VALUE, judged where they are used so none escapes into a name the proof takes for a local (GH 2490). */
+const JS_ESCAPE = /^process\.(argv|env|stdout|stderr|versions)$/;
+/** The objects of JS_ESCAPE whose values are strings, so destructuring one binds only strings or a fresh copy (GH 2490). */
+const JS_UNPACKED = /^process\.(argv|env)$/;
+const JS_COMPARE = new Set(['==', '!=', '===', '!==', '<', '>', '<=', '>=', 'in', 'instanceof']);
+/** Calls that neither store an argument nor return it or a container holding it; `Object.assign` only past its first argument (GH 2490). */
+const JS_SINKS = new Set(['JSON.stringify', 'Object.keys', 'Object.values', 'Object.entries', 'Object.assign']);
 const JS_METHODS = new Set([
   'at', 'concat', 'entries', 'every', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flat', 'flatMap', 'forEach',
   'includes', 'indexOf', 'join', 'keys', 'lastIndexOf', 'map', 'reduce', 'reduceRight', 'slice', 'some', 'values', 'toSorted',
@@ -167,7 +181,7 @@ const JS_CALLBACK_METHODS = new Set([
   'every', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flatMap', 'forEach', 'map', 'reduce', 'reduceRight', 'some', 'toSorted',
   'sort',
 ]);
-const JS_UNPROVEN = new Set(['class_declaration', 'class', 'import_statement', 'export_statement', 'with_statement', 'import']);
+const JS_UNPROVEN = new Set(['class_declaration', 'class', 'import_statement', 'export_statement', 'with_statement', 'import', 'this']);
 const JS_HIDDEN = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__']);
 
 const SCRIPT_WORDS = new Set([
@@ -272,6 +286,7 @@ class Bindings {
 
 const kids = (node: Node): Node[] => node.namedChildren.filter((c): c is Node => c !== null);
 const field = (node: Node, name: string): Node | null => node.childForFieldName(name);
+const same = (a: Node | null | undefined, b: Node): boolean => a?.equals(b) === true;
 const splat = (node: Node): boolean => node.type === 'list_splat' || node.type === 'dictionary_splat';
 
 /**
@@ -536,6 +551,7 @@ class PyProof extends Proof {
     const b = this.binds.resolve(name);
     if (b?.kind === 'import') {
       if (!this.safeValue(b.q) && !this.safeCall(b.q)) this.fail();
+      else if (PY_SAFE_STREAMS.has(b.q) && !this.contained(node, PY_UNPACKED.has(b.q))) this.fail();
     } else if (b && b.kind !== 'local' && b.kind !== 'def') this.fail();
     else if (!b && PY_BUILTINS.has(name) && (!PY_SAFE_BUILTINS.has(name) || name === 'open')) this.fail();
   }
@@ -546,9 +562,97 @@ class PyProof extends Proof {
     const q = this.qualified(root, parts);
     if (q !== undefined) {
       if (!this.safeValue(q) && !this.safeCall(q)) this.fail();
+      else if (PY_SAFE_STREAMS.has(q) && !this.contained(node, PY_UNPACKED.has(q))) this.fail();
       return;
     }
     this.visit(root);
+  }
+
+  /**
+   * Whether a stream at `node` stays where it cannot reach a name the proof
+   * takes for a local (GH 2490): the direct base of an attribute or
+   * subscript, or, through parentheses, `await`, `or` / `and`, the branches
+   * of `a if c else b` and assignments to a plain name, an alias binding, a
+   * for iterable, a splat, a comparison operand or a PY_SINKS argument. An
+   * iterable stream (`iterable`, PY_UNPACKED) is also the whole right side of
+   * an unpacking statement, whose targets bind its elements or a fresh list.
+   */
+  private contained(node: Node, iterable: boolean): boolean {
+    const base = node.parent;
+    if ((base?.type === 'attribute' && same(field(base, 'object'), node)) || (base?.type === 'subscript' && same(field(base, 'value'), node))) return true;
+    for (let at = node, up = base; up; at = up, up = up.parent) {
+      switch (up.type) {
+        case 'parenthesized_expression':
+        case 'await':
+        case 'boolean_operator':
+        case 'keyword_argument':
+          continue;
+        case 'conditional_expression':
+          if (same(noComments(up)[1], at)) return false;
+          continue;
+        case 'assignment':
+        case 'named_expression': {
+          const assign = up.type === 'assignment';
+          if (!same(field(up, assign ? 'right' : 'value'), at)) return false;
+          const left = field(up, assign ? 'left' : 'name')?.type ?? '';
+          if (assign && iterable && PY_UNPACK.has(left)) return up.parent?.type === 'expression_statement';
+          if (left !== 'identifier') return false;
+          continue;
+        }
+        case 'expression_statement':
+        case 'list_splat':
+        case 'dictionary_splat':
+        case 'comparison_operator':
+          return true;
+        case 'default_parameter':
+        case 'typed_default_parameter':
+          return same(field(up, 'value'), at) && field(up, 'name')?.type === 'identifier';
+        case 'for_statement':
+        case 'for_in_clause':
+          return same(field(up, 'right'), at);
+        case 'argument_list':
+          return up.parent?.type === 'call' && this.sink(up.parent, up, at);
+        default:
+          return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether argument `arg` of `call` goes to a PY_SINKS call, judging a
+   * keyword argument like a positional one. A callback
+   * (`default=`, `key=`, or a `**` splat that may pass one) is called with
+   * what the call reads from its first argument, so with one only a later
+   * argument (`fp=sys.stdout`) is a sink. So is the one argument of a
+   * string literal's `join` (`" ".join(sys.argv)`).
+   */
+  private sink(call: Node, args: Node, arg: Node): boolean {
+    const fn = field(call, 'function');
+    const object = fn?.type === 'attribute' ? field(fn, 'object') : null;
+    if ((object?.type === 'string' || object?.type === 'concatenated_string') && field(fn!, 'attribute')?.text === 'join') {
+      const list = noComments(args);
+      return list.length === 1 && same(list[0], arg);
+    }
+    let q: string | undefined;
+    if (fn?.type === 'identifier') {
+      const b = this.binds.resolve(fn.text);
+      q = b === undefined ? fn.text : b.kind === 'import' ? b.q : undefined;
+    } else if (fn?.type === 'attribute') {
+      const { root, parts } = chain(fn, 'attribute', 'object', 'attribute');
+      q = this.qualified(root, parts);
+    }
+    if (q === undefined || !PY_SINKS.has(q)) return false;
+    // `dict(k=v)` stores v
+    if (q === 'dict' && arg.type === 'keyword_argument') return false;
+    const list = noComments(args);
+    const back = PY_CALLBACKS[q]?.kw ?? [];
+    const hooked = list.some((a) => a.type === 'dictionary_splat' || (a.type === 'keyword_argument' && back.includes(field(a, 'name')?.text ?? '')));
+    if (!hooked) return true;
+    if (arg.type === 'keyword_argument') return field(arg, 'name')?.text !== 'obj';
+    const positional = list.filter((a) => a.type !== 'keyword_argument' && a.type !== 'dictionary_splat');
+    const at = positional.findIndex((a) => same(a, arg));
+    return at > 0 && positional.slice(0, at).every((a) => a.type !== 'list_splat');
   }
 
   /** Whether a node in a position the call calls back is a function the proof follows, or a string (re.sub's `repl`; elsewhere a TypeError, not a write). */
@@ -875,6 +979,7 @@ class JsProof extends Proof {
     const b = this.binds.resolve(node.text);
     if (b?.kind === 'import' && b.json !== true) this.fail();
     else if (b?.kind === 'alias' && !(b.q.includes('.') ? this.safeMember(b.q) : JS_SAFE_GLOBALS.has(b.q))) this.fail();
+    else if (b?.kind === 'alias' && JS_ESCAPE.test(b.q) && !this.contained(node, JS_UNPACKED.test(b.q))) this.fail();
     else if (b?.kind === 'mixed') this.fail();
     else if (!b && !JS_SAFE_GLOBALS.has(node.text)) this.fail();
   }
@@ -891,9 +996,91 @@ class JsProof extends Proof {
     if (q !== undefined) {
       if (root.type === 'call_expression') this.visit(root);
       if (!this.safeMember(q)) this.fail();
+      else if (JS_ESCAPE.test(q) && !this.contained(node, JS_UNPACKED.test(q))) this.fail();
       return;
     }
     this.visit(root);
+  }
+
+  /**
+   * Whether a process object at `node` stays where it cannot reach a name the
+   * proof takes for a local (GH 2490): the direct object of a member or
+   * subscript, or, through parentheses, `await`, a sequence's last value,
+   * the branches of `c ? a : b`, `||` / `&&` / `??` and assignments to a
+   * plain name, an alias binding, a for iterable, a spread, a comparison
+   * operand or a JS_SINKS / `console.*` argument. process.env and
+   * process.argv (`iterable`) are also the whole value of a destructuring
+   * declaration, whose targets bind strings or a fresh copy.
+   */
+  private contained(node: Node, iterable: boolean): boolean {
+    const base = node.parent;
+    if ((base?.type === 'member_expression' || base?.type === 'subscript_expression') && same(field(base, 'object'), node)) return true;
+    for (let at = node, up = base; up; at = up, up = up.parent) {
+      switch (up.type) {
+        case 'parenthesized_expression':
+        case 'await_expression':
+          continue;
+        case 'sequence_expression':
+          if (!same(noComments(up).at(-1), at)) return false;
+          continue;
+        case 'ternary_expression':
+          if (same(field(up, 'condition'), at)) return false;
+          continue;
+        case 'binary_expression': {
+          const op = field(up, 'operator')?.text ?? '';
+          if (JS_COMPARE.has(op)) return true;
+          if (!JS_LOGICAL.has(op)) return false;
+          continue;
+        }
+        case 'assignment_expression':
+        case 'augmented_assignment_expression': {
+          const logical = up.type === 'assignment_expression' || JS_LOGICAL.has(field(up, 'operator')?.text ?? '');
+          if (!logical || !same(field(up, 'right'), at) || field(up, 'left')?.type !== 'identifier') return false;
+          continue;
+        }
+        case 'expression_statement':
+        case 'spread_element':
+          return true;
+        case 'variable_declarator': {
+          const name = field(up, 'name')?.type;
+          return same(field(up, 'value'), at) && (name === 'identifier' || (iterable && (name === 'object_pattern' || name === 'array_pattern')));
+        }
+        case 'assignment_pattern':
+        case 'object_assignment_pattern': {
+          const left = field(up, 'left');
+          return same(field(up, 'right'), at) && (left?.type === 'identifier' || left?.type === 'shorthand_property_identifier_pattern');
+        }
+        case 'for_in_statement':
+          return same(field(up, 'right'), at);
+        case 'arguments':
+          return up.parent?.type === 'call_expression' && this.sink(up.parent, at);
+        default:
+          return false;
+      }
+    }
+    return false;
+  }
+
+  /** Whether `arg` of `call` goes to a sink: `console.*`, JSON.stringify with no replacer function, Object.keys / values / entries, or Object.assign past its target. */
+  private sink(call: Node, arg: Node): boolean {
+    const fn = field(call, 'function');
+    let q: string | undefined;
+    if (fn?.type === 'identifier') {
+      const b = this.binds.resolve(fn.text);
+      q = b === undefined ? fn.text : b.kind === 'import' || b.kind === 'alias' ? b.q : undefined;
+    } else if (fn?.type === 'member_expression') {
+      const { root, parts } = chain(fn, 'member_expression', 'object', 'property');
+      q = this.qualified(root, parts);
+    }
+    const args = field(call, 'arguments');
+    const list = args ? noComments(args) : [];
+    const at = list.findIndex((a) => same(a, arg));
+    if (q === undefined || at < 0 || list.some((a) => a.type === 'spread_element')) return false;
+    if (/^console\.[A-Za-z]+$/.test(q)) return true;
+    if (q === 'Object.assign') return at > 0;
+    // a replacer function is called with the value itself first
+    if (q === 'JSON.stringify') return at === 0 && (list.length === 1 || ['null', 'undefined', 'array'].includes(list[1].type));
+    return JS_SINKS.has(q);
   }
 
   private callback(node: Node): boolean {
