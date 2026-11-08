@@ -138,6 +138,11 @@ describe('world-model tool call log (GH 1836)', () => {
       error: () => [wm, { agent: 'swe' }],
     },
     { tool: 'world_model_symbol', ok: () => [wm, { agent: 'swe', id: symbolId }], error: () => [wm, { agent: 'swe', id: 999999 }] },
+    {
+      tool: 'scope_suggest',
+      ok: () => [wm, { agent: 'bro', repo: 'app', objective: 'quokka', anchors: ['b'] }],
+      error: () => [wm, { agent: 'bro', repo: 'app' }],
+    },
     { tool: 'world_model_concepts', ok: () => [wm, { agent: 'bro', query: 'quokka' }], error: () => [wm, { agent: 'bro' }] },
     {
       tool: 'world_model_concept_get',
@@ -219,6 +224,11 @@ describe('world-model tool call log (GH 1836)', () => {
     parse(await wm['world_model_concept_upsert']!({ agent: 'bro', name: 'quokka handshake', steps: [{ path: 'lib/zeta.ts', description: 'Negotiates it.' }] }));
     assert.equal(lastCall(db).content['result_count'], 1);
     assert.deepEqual(lastCall(db).content.args, { name: 'quokka handshake' });
+
+    const scope = parse(await wm['scope_suggest']!({ agent: 'bro', repo: 'app', objective: 'quokka', anchors: ['b'], k: 2 }));
+    assert.equal(lastCall(db).content['result_count'], (scope['files'] as unknown[]).length);
+    assert.ok((lastCall(db).content['result_count'] as number) >= 1);
+    assert.deepEqual(lastCall(db).content.args, { objective: 'quokka', anchors: ['b'], repo: 'app', k: 2 });
   });
 
   it('GH 1986: world_model_symbol logs impact and source as passed, and neither when absent', async () => {
