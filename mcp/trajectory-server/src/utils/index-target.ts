@@ -35,7 +35,3 @@ export function resolveIndexTargetRef(db: TrajectoryDB, repo: string, repoPath: 
   const head = resolveRefCommit(repoPath, 'HEAD');
   return head ? { ref: 'HEAD', commit: head } : null;
 }
-
-export function resolveIndexTarget(db: TrajectoryDB, repo: string, repoPath: string): string | null {
-  return resolveIndexTargetRef(db, repo, repoPath)?.commit ?? null;
-}

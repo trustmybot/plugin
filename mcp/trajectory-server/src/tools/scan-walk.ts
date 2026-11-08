@@ -9,7 +9,7 @@
  *     invalidation signal.
  *   - Repo discovery walks the filesystem (max depth 4), not git, since the
  *     session dir itself is not required to be a git repo.
- *   - Each repo is indexed at one commit (resolveIndexTarget: origin/<target
+ *   - Each repo is indexed at one commit (resolveIndexTargetRef: origin/<target
  *     branch>, else HEAD, GH 2584): the file list is `git ls-tree` of that
  *     commit and every md5 comes from its blobs, never the working tree.
  *   - One `git log --format=%H --name-only <commit>` pass per repo builds the
