@@ -31,6 +31,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
+import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
 import { selectProjectInstalls } from './cheatcode-runtime.js';
 
@@ -355,14 +356,39 @@ async function discoverRepos(db: TrajectoryDB, sessionDir: string, env: NodeJS.P
   return repos;
 }
 
-function md5Of(path: string): Promise<string> {
+const TRANSIENT_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY']);
+const MD5_RETRY_DELAYS_MS = [25, 100];
+
+export type OpenRead = (path: string) => NodeJS.ReadableStream;
+
+function md5Once(path: string, open: OpenRead): Promise<{ md5: string } | { code: string }> {
   return new Promise((resolvePromise) => {
     const hash = createHash('md5');
-    const stream = createReadStream(path);
+    let stream: NodeJS.ReadableStream;
+    try {
+      stream = open(path);
+    } catch (e) {
+      resolvePromise({ code: (e as NodeJS.ErrnoException).code ?? 'UNKNOWN' });
+      return;
+    }
     stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', () => resolvePromise(''));
-    stream.on('end', () => resolvePromise(hash.digest('hex')));
+    stream.on('error', (e: NodeJS.ErrnoException) => resolvePromise({ code: e.code ?? 'UNKNOWN' }));
+    stream.on('end', () => resolvePromise({ md5: hash.digest('hex') }));
   });
+}
+
+/** The file's md5, or '' (unknown content) once a read fails for good: a transient errno is retried first. */
+export async function md5Of(path: string, open: OpenRead = createReadStream): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const result = await md5Once(path, open);
+    if ('md5' in result) return result.md5;
+    const delay = MD5_RETRY_DELAYS_MS[attempt];
+    if (!TRANSIENT_READ_CODES.has(result.code) || delay === undefined) {
+      serverLog({ event: 'scan_md5_error', path, code: result.code, attempts: attempt + 1 });
+      return '';
+    }
+    await new Promise((r) => setTimeout(r, delay));
+  }
 }
 
 async function isFile(path: string): Promise<boolean> {

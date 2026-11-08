@@ -331,7 +331,8 @@ interface FilePlan {
 // unless its purpose_source is still 'none' (then it is re-extracted, written
 // only when that finds a purpose); a changed or new file is re-extracted from
 // its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
-// survives a content change.
+// survives a content change. A stored file whose read failed (md5 '') keeps its
+// row, so a failed read never counts as a content change (GH 2242).
 function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePlan {
   const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
   const existing = new Map<string, FileNode>();
@@ -345,7 +346,11 @@ function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePl
     const path = WorldModelGraph.fileKey(f.repo, f.path);
     const prev = existing.get(path);
     const md5 = f.content_md5 ?? '';
-    if (prev && md5 !== '' && prev.content_md5 === md5) {
+    if (prev && md5 === '') {
+      plan.nodes.push(prev);
+      continue;
+    }
+    if (prev && prev.content_md5 === md5) {
       if (prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
         const extracted = extractPurpose(f.path, readFileHead(join(repoPath, f.path)));
         plan.extracted++;
