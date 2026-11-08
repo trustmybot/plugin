@@ -660,6 +660,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
           body_hash: normalizedHash(node),
           exported: 0,
         });
+        if (inner !== scope) out.edge(scope, 'calls', `tool:${key}`, node.startPosition.row + 1);
       } else if (scope !== moduleSymbol) {
         const text = descriptionText(node);
         const owner = out.symbols[scope];
