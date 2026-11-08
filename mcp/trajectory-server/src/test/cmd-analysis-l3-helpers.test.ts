@@ -399,6 +399,45 @@ describe('cwdState: a linked worktree cwd is one checkout (GH 2510)', () => {
   });
 });
 
+describe('statement src: the deny quotes the command as written (GH 2536)', () => {
+  const allowed = (out: string): string => JSON.parse(out).hookSpecificOutput.permissionDecisionReason.split(' Allowed form: ')[1];
+  const srcs = async (cmd: string): Promise<Array<string | undefined>> => {
+    const res = await cmdStatements(cmd, PLAIN);
+    return res.ok ? res.statements.map((st) => st.src) : [];
+  };
+
+  it('each statement carries its source text, prefixes and wrappers dropped, its stmt still normalized', async () => {
+    const res = await cmdStatements("git commit -m 'fix: thing' && FOO=1 time git push origin 'a b' >/dev/null", PLAIN);
+    assert.ok(res.ok);
+    assert.deepEqual(res.statements.map((st) => [st.stmt, st.src]), [
+      ['git commit -m fix:_thing', "git commit -m 'fix: thing'"],
+      ['git push origin a_b >/dev/null', "git push origin 'a b' >/dev/null"],
+    ]);
+    assert.deepEqual(await srcs(`bash -c "git status; git log -1"`), ['git status', 'git log -1']);
+    assert.deepEqual(await srcs('git status; git status'), ['git status', 'git status']);
+  });
+
+  it('src stays off the enumerable fields', async () => {
+    const res = await cmdStatements("git commit -m 'a b'", PLAIN);
+    assert.ok(res.ok);
+    assert.deepEqual(Object.keys(res.statements[0] ?? {}), ['dir', 'stmt']);
+  });
+
+  it('the allowed form drops the git options and keeps the args as written; a non-git statement takes cd', () => {
+    assert.equal(allowed(denyAmbiguousGitTarget({ stmt: 'git commit -m fix:_thing', src: "git commit -m 'fix: thing'" })), "git -C <path> commit -m 'fix: thing'");
+    assert.equal(
+      allowed(denyAmbiguousGitTarget({ stmt: 'git -c user.name=A_B commit -m x_y', src: `git -c user.name='A B' commit -m "x y"` }, true)),
+      'git -C <path> commit -m "x y"',
+    );
+    assert.equal(allowed(denyAmbiguousGitTarget({ stmt: 'gh pr create --title a_b', src: "gh pr create --title 'a b'" })), "cd <path> && gh pr create --title 'a b'");
+  });
+
+  it('with no src, or a src the lexer cannot split, the deny falls back to the stmt', () => {
+    assert.equal(denyAmbiguousGitTarget({ stmt: 'git commit -m x' }), denyAmbiguousGitTarget('git commit -m x'));
+    assert.equal(allowed(denyAmbiguousGitTarget({ stmt: 'git commit -m x', src: "git commit -m 'x" })), 'git -C <path> commit -m x');
+  });
+});
+
 describe('cmdStatements on a recorded divergence (decision 703)', () => {
   it('refuses two heredocs opened on one line, which tree-sitter-bash cannot parse', async () => {
     assert.ok(DIVERGENT.has(TWO_HEREDOCS));
