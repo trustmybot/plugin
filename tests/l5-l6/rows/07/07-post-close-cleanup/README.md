@@ -10,7 +10,7 @@ The bug class this catches: regressions that clear the world model or drop the a
 
 ## Pre-state
 
-`onboarding-named` fixture + `README.md` + `src/cli.py` on disk. In L5 standalone, `setup-l5.sh` seeds a `deep_scan_completed` audit row + `repos` row (proxy for "world model warm"). In L6 chain, rows 04/05 already populated both.
+`onboarding-named` fixture + `README.md` + `src/cli.py` on disk. In L5 standalone, `setup-l5.ts` seeds a `deep_scan_completed` audit row + `repos` row (proxy for "world model warm"). In L6 chain, rows 04/05 already populated both.
 
 ## Turns
 

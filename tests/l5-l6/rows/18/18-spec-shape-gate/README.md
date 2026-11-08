@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` commits a todo CLI backed by SQLite: `src/schema.sql` (the `todos` table) and `src/cli.py` (`add`, `list`; store at `todos.db`, gitignored). It inserts the `repos` row for the project (`INSERT OR IGNORE`, target `main`, `github-flow`) so task provisioning creates the worktree.
+`onboarding-named` fixture. `setup-l5.ts` commits a todo CLI backed by SQLite: `src/schema.sql` (the `todos` table) and `src/cli.py` (`add`, `list`; store at `todos.db`, gitignored). It inserts the `repos` row for the project (`INSERT OR IGNORE`, target `main`, `github-flow`) so task provisioning creates the worktree.
 
 ## Turns
 

@@ -3,7 +3,7 @@
 // the script pre-seeds the scratch project's files, git history and trajectory DB.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite';
 
@@ -34,6 +34,11 @@ export function writeFile(project: string, relPath: string, content: string | Ui
 export function git(project: string, args: readonly string[], opts: { quiet?: boolean } = {}): boolean {
   const r = spawnSync('git', args, { cwd: project, stdio: ['ignore', 'ignore', opts.quiet ? 'ignore' : 'inherit'] });
   return r.status === 0;
+}
+
+/** Runs git in <project> like git(), but throws when it exits non-zero. */
+export function gitOrThrow(project: string, args: readonly string[]): void {
+  if (!git(project, args)) throw new Error(`git ${args.join(' ')} failed in ${project}`);
 }
 
 export interface GitCommitOptions {
@@ -82,4 +87,21 @@ export function ensureSchema(project: string): boolean {
   mkdirSync(dirname(path), { recursive: true });
   sql(project, readFileSync(join(PLUGIN_ROOT, 'mcp', 'trajectory-server', 'src', 'schema.sql'), 'utf8'));
   return true;
+}
+
+/**
+ * Outside run-l5.ts, builds the scratch project it would have: when <project> is not its own git
+ * top level (never an enclosing repo's), `git init -b main` with the L5 identity and a committed
+ * `.gitignore` of `.claude/`; then a schema-only trajectory DB unless one exists. Throws on failure.
+ */
+export function ensureStandaloneProject(project: string): void {
+  const top = spawnSync('git', ['-C', project, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  if (top.status !== 0 || top.stdout.replace(/\n+$/, '') !== realpathSync(project)) {
+    gitOrThrow(project, ['init', '-q', '-b', 'main']);
+    gitOrThrow(project, ['config', 'user.email', 'l6@l6.test']);
+    gitOrThrow(project, ['config', 'user.name', 'L5 Test']);
+    writeFile(project, '.gitignore', '.claude/\n');
+    gitCommit(project, ['.gitignore'], 'init');
+  }
+  ensureSchema(project);
 }
