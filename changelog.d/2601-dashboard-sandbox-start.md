@@ -1,0 +1,2 @@
+### Fixed
+- **`/dashboard` starts on the first try in a sandboxed session** (GH 2601): the Bash sandbox blocks binding a local port, so every start failed with `listen EPERM: operation not permitted 127.0.0.1:7477` and the agent retried outside the sandbox. `/dashboard` now starts the server outside the sandbox from the first call, since it only listens on 127.0.0.1. If `listen EPERM` still shows up, the command explains it as a sandbox block, not a dashboard error, and that setting `sandbox.network.allowLocalBinding: true` lets the server run inside the sandbox.
