@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 62;
+export const TARGET_SCHEMA_VERSION = 63;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -843,6 +843,8 @@ function runMigrations(
   if (fromVersion < 61 && toVersion >= 61) migrateV60toV61(db);
   // v61→v62: repos.indexed_commit, the commit the world model was built from (GH 2584)
   if (fromVersion < 62 && toVersion >= 62) migrateV61toV62(db);
+  // v62→v63: wm_freshness, each repo's target and newest reindex state (GH 2584)
+  if (fromVersion < 63 && toVersion >= 63) migrateV62toV63(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3390,6 +3392,39 @@ function migrateV61toV62(db: DatabaseSync): void {
       if (!hasColumn(db, 'repos', 'indexed_commit')) db.exec('ALTER TABLE repos ADD COLUMN indexed_commit TEXT');
       if (!hasColumn(db, 'repos', 'indexed_stamp')) db.exec('ALTER TABLE repos ADD COLUMN indexed_stamp TEXT');
     }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+const WM_FRESHNESS_DDL =`CREATE TABLE IF NOT EXISTS wm_freshness (
+    repo                TEXT    PRIMARY KEY REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    target_ref          TEXT,
+    target_commit       TEXT,
+    target_fetched_at   TEXT,
+    reindex_state       TEXT    NOT NULL DEFAULT 'idle' CHECK (reindex_state IN ('idle','running','failed')),
+    reindex_mode        TEXT    CHECK (reindex_mode IN ('incremental','full')),
+    reindex_trigger     TEXT    CHECK (reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')),
+    reindex_started_at  TEXT,
+    reindex_finished_at TEXT,
+    reindex_elapsed_ms  INTEGER,
+    reindex_outcome     TEXT    CHECK (reindex_outcome IN ('ok','error')),
+    updated_at          TEXT    NOT NULL
+)`;
+
+// v62→v63: wm_freshness (GH 2584), one row per repo with its resolved target
+// and the state of its newest reindex. Existing repos get no row, which reads
+// as state 'idle' until their next reindex writes one.
+function migrateV62toV63(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(WM_FRESHNESS_DDL);
     commitTransaction(db);
   } catch (err) {
     try {

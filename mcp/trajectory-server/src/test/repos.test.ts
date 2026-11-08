@@ -61,6 +61,7 @@ function seed(db: TrajectoryDB, opts: { taskStatus?: string; repoPath?: string }
      VALUES ('old', '.', 'node', 'npm', '{}', '[]', 'detected', ?, 'h', ?)`,
     [NOW, NOW],
   );
+  db.run(`INSERT INTO wm_freshness (repo, target_ref, target_commit, updated_at) VALUES ('old', 'origin/dev', 'abc', ?)`, [NOW]);
 }
 
 function countOn(db: TrajectoryDB, table: string, repo: string): number {
@@ -74,11 +75,12 @@ function countOn(db: TrajectoryDB, table: string, repo: string): number {
     agent_runs: 'SELECT COUNT(*) AS n FROM agent_runs WHERE repo = ?',
     repo_remotes: 'SELECT COUNT(*) AS n FROM repo_remotes WHERE repo = ?',
     repo_env: 'SELECT COUNT(*) AS n FROM repo_env WHERE repo = ?',
+    wm_freshness: 'SELECT COUNT(*) AS n FROM wm_freshness WHERE repo = ?',
   };
   return Number(db.get<{ n: number }>(sql[table]!, [repo])!.n);
 }
 
-const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs', 'repo_env'];
+const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs', 'repo_env', 'wm_freshness'];
 
 describe('repo_rename — transactional move', () => {
   it('moves every FK child + the pr_review_runs slug, drops the old row, audits per-table counts', async () => {
@@ -125,6 +127,7 @@ describe('repo_rename — transactional move', () => {
       discussions: 1,
       agent_runs: 1,
       repo_env: 1,
+      wm_freshness: 1,
       pr_review_runs: 1,
     });
     db.close();

@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
-import { walkProject, type ScanOutput } from '../tools/scan-walk.js';
+import { closeContents, walkProject, type ScanOutput } from '../tools/scan-walk.js';
 import { pinScanEnv, type ScanEnvPin } from './helpers.js';
 
 describe('scan walker on a repo with a non-ASCII tracked path', () => {
@@ -31,6 +31,7 @@ describe('scan walker on a repo with a non-ASCII tracked path', () => {
     const db = new TrajectoryDB(':memory:');
     try {
       out = await walkProject(db, workspace, { timeoutMs: 60_000 });
+      closeContents(out);
     } catch (e) {
       error = e;
     } finally {
@@ -48,7 +49,8 @@ describe('scan walker on a repo with a non-ASCII tracked path', () => {
   });
 
   it('scan output is valid JSON', () => {
-    assert.deepEqual(JSON.parse(JSON.stringify(out)), out);
+    const { contents: _contents, ...json } = out!;
+    assert.deepEqual(JSON.parse(JSON.stringify(json)), json);
   });
 
   it('non-ASCII path appears in files[].path', () => {

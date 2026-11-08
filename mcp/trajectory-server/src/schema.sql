@@ -82,6 +82,31 @@ CREATE TABLE IF NOT EXISTS repo_env (
     UNIQUE (repo, package_path, ecosystem)
 );
 
+-- wm_freshness (schema v63, GH 2584): one row per repo saying how fresh its
+-- world model is. target_ref / target_commit: the ref and commit the newest
+-- read, spawn or scan resolved as the repo's target, rewritten only when they
+-- change; target_fetched_at stays NULL until the periodic fetch lands. The
+-- reindex_* columns describe the newest reindex: state 'running' from its
+-- start, then 'idle' with outcome 'ok' (written in the transaction that stamps
+-- repos.indexed_commit) or 'failed' with outcome 'error'. trigger is
+-- read | spawn | startup | scan | hook | fetch. Timestamps are ISO-8601 UTC.
+-- A 'running' row whose locks are gone at server start becomes 'failed'. The
+-- freshness block of world_model_*, task_brief and the dashboard reads it.
+CREATE TABLE IF NOT EXISTS wm_freshness (
+    repo                TEXT    PRIMARY KEY REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    target_ref          TEXT,
+    target_commit       TEXT,
+    target_fetched_at   TEXT,
+    reindex_state       TEXT    NOT NULL DEFAULT 'idle' CHECK (reindex_state IN ('idle','running','failed')),
+    reindex_mode        TEXT    CHECK (reindex_mode IN ('incremental','full')),
+    reindex_trigger     TEXT    CHECK (reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')),
+    reindex_started_at  TEXT,
+    reindex_finished_at TEXT,
+    reindex_elapsed_ms  INTEGER,
+    reindex_outcome     TEXT    CHECK (reindex_outcome IN ('ok','error')),
+    updated_at          TEXT    NOT NULL
+);
+
 -- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
 -- is an FK into this table. PK is (name, repo) so the same milestone name can
 -- exist independently per repo.
@@ -381,7 +406,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 62, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 63, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

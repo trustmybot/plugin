@@ -341,6 +341,17 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`medium` when unset). NULL on other agent types and on runs recorded before schema v37.
 
+### `wm_freshness.reindex_state` / `reindex_mode` / `reindex_trigger` / `reindex_outcome` — a repo's newest world-model reindex
+
+| Column | Values |
+|---|---|
+| `reindex_state` | `idle` (no reindex running; the default), `running` (written before the work starts), `failed` (the reindex threw, or the server-start sweep found a `running` row no live lock holds) |
+| `reindex_mode` | `incremental` (the git-range reindex), `full` (a whole-repo rebuild or a scan) |
+| `reindex_trigger` | `read`, `spawn`, `startup` (the internal `startup_catchup`; `wm_reindex` audit rows keep `startup_catchup`), `scan`, `hook`, `fetch` (`hook` and `fetch` are reserved for later steps of GH 2584) |
+| `reindex_outcome` | `ok`, `error`; NULL while `running` |
+
+`CHECK`-enforced (schema v63, GH 2584). The `freshness` block of `world_model_get`, `world_model_search`, `world_model_symbol` and `task_brief` reports them under `reindex`, with `state` `idle` and the rest NULL when the repo has no row.
+
 ### Timestamp format
 
 Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC ms-ISO, the shape of `new Date().toISOString()` and `strftime('%Y-%m-%dT%H:%M:%fZ','now')`.
