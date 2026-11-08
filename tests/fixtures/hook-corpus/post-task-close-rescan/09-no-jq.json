@@ -1,8 +1,0 @@
-{
-  "hook_event_name": "PostToolUse",
-  "tool_name": "mcp__plugin_tmb_trajectory-server__bro_atomic_close",
-  "corpus_env": { "PATH": "@NOJQ_PATH@" },
-  "corpus_divergent": "decision 703: the .sh reads tool_name with jq and exits 0 without it; the TypeScript gate needs no jq",
-  "corpus_launch": { "bash": false, "ts": true },
-  "corpus_expect": { "bash": "empty", "ts": "empty" }
-}

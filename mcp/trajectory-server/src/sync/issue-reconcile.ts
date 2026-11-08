@@ -70,12 +70,12 @@ interface Target {
 
 type ReadState = { state: 'open' | 'closed' } | { error: ReconcileError['reason']; message?: string };
 
-interface RepoCtx {
+export interface RepoCtx {
   cwd: string;
   slugFor(kind: RemoteKind): { slug: string | null } | null;
 }
 
-function resolveRepoCtx(db: TrajectoryDB, repo: string | null): RepoCtx | null {
+export function resolveRepoCtx(db: TrajectoryDB, repo: string | null): RepoCtx | null {
   const resolved = resolveRepoForSync(db, repo);
   if (!resolved) return null;
   const remotes = syncRemotes(db, resolved.name);
@@ -88,7 +88,7 @@ function resolveRepoCtx(db: TrajectoryDB, repo: string | null): RepoCtx | null {
   };
 }
 
-function spawnOptsFor(cwd: string | null): SpawnSyncOptions {
+export function spawnOptsFor(cwd: string | null): SpawnSyncOptions {
   const opts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
   if (cwd) opts.cwd = cwd;
   return opts;
@@ -96,7 +96,7 @@ function spawnOptsFor(cwd: string | null): SpawnSyncOptions {
 
 // `host/owner/repo` (repoSlugFromRemoteUrl) → the parts a GraphQL
 // repository(owner, name) lookup needs.
-function splitGhSlug(slug: string): { host: string; owner: string; name: string } | null {
+export function splitGhSlug(slug: string): { host: string; owner: string; name: string } | null {
   const parts = slug.split('/');
   if (parts.length < 3 || parts.some((p) => p === '')) return null;
   return { host: parts[0]!, owner: parts[1]!, name: parts.slice(2).join('/') };

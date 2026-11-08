@@ -1,4 +1,5 @@
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'node:child_process';
+import { resolve } from 'node:path';
 import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
 
 export type GitRunOptions = SpawnSyncOptionsWithStringEncoding & { cwd: string };
@@ -12,11 +13,12 @@ export function runGit(
   args: string[],
   options: Partial<Omit<SpawnSyncOptionsWithStringEncoding, 'cwd'>> = {},
 ): SpawnSyncReturns<string> {
-  return runner(['-C', repoPath, ...args], {
+  const dir = resolve(repoPath);
+  return runner(['-C', dir, ...args], {
     encoding: 'utf8',
     timeout: SUBPROCESS_TIMEOUT_MS,
     ...options,
-    cwd: repoPath,
+    cwd: dir,
   });
 }
 

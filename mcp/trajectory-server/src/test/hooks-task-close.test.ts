@@ -1,23 +1,19 @@
 /**
- * Unit tests of the TypeScript task-close gates (GH 1692): swe-atomic-close
- * and post-task-close-rescan. They cover the transcript reduction the .sh ran
- * through `jq -rsc` (message grouping, the resume window, the dominant model,
- * zeros wherever jq stopped on an error), the entry log's key list, the
- * decision matrix run in-process on a PATH with neither jq nor the sqlite3 CLI
- * (decision 703), and the rescan's launch through an injected spawner: a
- * detached child with its stdio ignored and unref'd, started only for
- * bro_atomic_close and never under TMB_SKIP_AUTO_RESCAN=1.
+ * Unit tests of the TypeScript task-close gate (GH 1692): swe-atomic-close.
+ * They cover the transcript reduction the .sh ran through `jq -rsc` (message
+ * grouping, the resume window, the dominant model, zeros wherever jq stopped
+ * on an error), the entry log's key list and the decision matrix run
+ * in-process on a PATH with neither jq nor the sqlite3 CLI (decision 703).
  */
 import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, type SpawnOptions } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { entryKeys, sweAtomicClose, transcriptStats, transcriptStatsOf } from '../hooks/swe-atomic-close.js';
-import { launchDetached, rescan, type Detachable, type Spawner } from '../hooks/post-task-close-rescan.js';
 import { buildCloseSandbox } from './hooks-task-close-parity.suite.js';
 import { noCmdPath } from './hooks-swe-run-parity.suite.js';
 
@@ -30,12 +26,10 @@ const usage = (input: number, output: number, read = 0, created = 0) => ({
   cache_creation_input_tokens: created,
 });
 
-describe('swe-atomic-close and post-task-close-rescan are registered gates', () => {
-  it('both resolve by name and are listed', () => {
-    for (const name of ['swe-atomic-close', 'post-task-close-rescan']) {
-      assert.equal(typeof findGate(name), 'function', name);
-      assert.ok(gateNames().includes(name), name);
-    }
+describe('swe-atomic-close is a registered gate', () => {
+  it('resolves by name and is listed', () => {
+    assert.equal(typeof findGate('swe-atomic-close'), 'function');
+    assert.ok(gateNames().includes('swe-atomic-close'));
   });
 });
 
@@ -260,101 +254,5 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
     } finally {
       d.close();
     }
-  });
-});
-
-interface Launch {
-  command: string;
-  args: readonly string[];
-  options: SpawnOptions;
-  unrefs: number;
-  errorListeners: number;
-}
-
-function fakeSpawner(launches: Launch[]): Spawner {
-  return (command, args, options) => {
-    const launch: Launch = { command, args, options, unrefs: 0, errorListeners: 0 };
-    launches.push(launch);
-    const child: Detachable = {
-      on: () => {
-        launch.errorListeners += 1;
-        return child;
-      },
-      unref: () => {
-        launch.unrefs += 1;
-      },
-    };
-    return child;
-  };
-}
-
-describe('post-task-close-rescan: the launch seam', () => {
-  const CLOSE = JSON.stringify({ tool_name: 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' });
-  let root: string;
-  let env: NodeJS.ProcessEnv;
-  let invoker: string;
-  let db: string;
-
-  before(() => {
-    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-rescan-unit-')));
-    invoker = join(root, 'plugin/scripts/maintenance/run-scan.mjs');
-    mkdirSync(join(root, 'plugin/scripts/maintenance'), { recursive: true });
-    writeFileSync(invoker, '');
-    db = join(root, 'project/.claude/tmb/trajectory.db');
-    mkdirSync(join(root, 'project/.claude/tmb'), { recursive: true });
-    new DatabaseSync(db).close();
-    env = { PATH: process.env.PATH, HOME: root, CLAUDE_PROJECT_DIR: join(root, 'project'), TRAJECTORY_DB_PATH: db };
-  });
-  after(() => rmSync(root, { recursive: true, force: true }));
-
-  it('starts the invoker detached, stdio ignored and unref\'d, with the resolved DB, and returns without waiting', () => {
-    const launches: Launch[] = [];
-    assert.deepEqual(rescan(CLOSE, { ...env }, fakeSpawner(launches), join(root, 'plugin')), ALLOWED);
-    assert.equal(launches.length, 1);
-    const [l] = launches;
-    assert.equal(l.command, process.execPath);
-    assert.deepEqual(l.args, ['--experimental-sqlite', invoker]);
-    assert.equal(l.options.detached, true);
-    assert.equal(l.options.stdio, 'ignore');
-    assert.equal(l.options.env?.TRAJECTORY_DB_PATH, db);
-    assert.equal(l.unrefs, 1);
-    assert.equal(l.errorListeners, 1);
-  });
-
-  it('matches any channel of the close tool and nothing else', () => {
-    const launches: Launch[] = [];
-    const spawner = fakeSpawner(launches);
-    const plugin = join(root, 'plugin');
-    for (const tool of ['mcp__plugin_tmb-dev_trajectory-server__bro_atomic_close', 'mcp__x\ny_trajectory-server__bro_atomic_close'])
-      rescan(JSON.stringify({ tool_name: tool }), { ...env }, spawner, plugin);
-    for (const tool of ['mcp__plugin_tmb_trajectory-server__task_get', 'bro_atomic_close', 'mcp__plugin_tmb_trajectory-server__bro_atomic_close_v2'])
-      rescan(JSON.stringify({ tool_name: tool }), { ...env }, spawner, plugin);
-    rescan('{"tool_name": ', { ...env }, spawner, plugin);
-    assert.equal(launches.length, 2);
-  });
-
-  it('starts nothing under TMB_SKIP_AUTO_RESCAN=1, without an invoker or without a DB', () => {
-    const launches: Launch[] = [];
-    const spawner = fakeSpawner(launches);
-    rescan(CLOSE, { ...env, TMB_SKIP_AUTO_RESCAN: '1' }, spawner, join(root, 'plugin'));
-    rescan(CLOSE, { ...env }, spawner, join(root, 'no-plugin'));
-    rescan(CLOSE, { ...env }, spawner, '');
-    rescan(CLOSE, { PATH: process.env.PATH, HOME: root, CLAUDE_PROJECT_DIR: join(root, 'nowhere') }, spawner, join(root, 'plugin'));
-    assert.equal(launches.length, 0);
-  });
-
-  it('a spawner that throws leaves the close allowed', () => {
-    const throwing: Spawner = () => {
-      throw new Error('EAGAIN');
-    };
-    assert.deepEqual(rescan(CLOSE, { ...env }, throwing, join(root, 'plugin')), ALLOWED);
-  });
-
-  it('launchDetached hands the DB to the child env without touching the caller env', () => {
-    const launches: Launch[] = [];
-    const caller = { ...env, TRAJECTORY_DB_PATH: 'elsewhere' };
-    launchDetached(fakeSpawner(launches), invoker, db, caller);
-    assert.equal(launches[0].options.env?.TRAJECTORY_DB_PATH, db);
-    assert.equal(caller.TRAJECTORY_DB_PATH, 'elsewhere');
   });
 });

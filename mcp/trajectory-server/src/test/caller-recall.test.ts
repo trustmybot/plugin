@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { callerRecall, sampleSymbols, type CallerRecallReport } from '../caller-recall.js';
 import type { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
+import { indexValueRefFixture } from './value-refs-fixture.js';
 
 const SERVER_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = join(SERVER_ROOT, '..', '..', 'scripts', 'maintenance', 'wm-caller-recall.ts');
@@ -186,6 +187,27 @@ describe('caller recall (GH 1988)', () => {
     assert.equal(run('--bogus').status, 2);
     assert.equal(run('--db', dbPath, '--sample', 'many', '--repo-path', repoPath).status, 2);
     assert.equal(run('--db', join(repoPath, 'missing.db'), '--repo-path', repoPath).status, 2);
+  });
+
+  it('GH 1988: SC5 value references, static receivers, extends and JSX are found callers, not no_edge misses', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tmb-caller-recall-refs-'));
+    const refsDb = tempDB();
+    try {
+      await indexValueRefFixture(refsDb, 'refs', root);
+      const refs = callerRecall(refsDb, { repo: 'refs', repoPath: root, sample: 100, seed: 1988 });
+      const byName = (name: string) => refs.symbols.find((s) => s.qualified_name === name)!;
+      for (const name of ['alpha', 'Klass', 'Base', 'Button', 'TreeView']) {
+        const s = byName(name);
+        assert.ok(s.truth > 0, name);
+        assert.deepEqual(s.missed, [], name);
+        assert.deepEqual(s.extra, [], name);
+      }
+      const missed = refs.symbols.flatMap((s) => s.missed.map((m) => `${m.qualified_name} -> ${s.path}:${s.qualified_name}`));
+      assert.deepEqual(missed, ['Gamma -> src/a.ts:Gamma'], 'only the alias of a name c.ts declares itself stays unlinked');
+    } finally {
+      refsDb.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('GH 1988: the server bundle carries neither the harness nor typescript', () => {
