@@ -423,12 +423,25 @@ interface FilePair {
 // is the number of symbol edges, kind the heaviest kind among them. `files`
 // holds only files that appear in an edge; `src`/`dst` index into it.
 export function graph(db: DatabaseSync, repo: string | null): Row {
-  if (!worldModelAvailable(db) || !symbolGraphAvailable(db)) {
-    return { available: false, repo: null, repos: [], files: [], edges: [] };
-  }
-  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
-  const target = repo ?? repos[0];
+  const scope = graphTarget(db, repo);
+  if (scope === null) return { available: false, repo: null, repos: [], files: [], edges: [] };
+  const { repos, target } = scope;
   if (target === undefined) return { available: true, repo: null, repos, files: [], edges: [] };
+  return graphRollup(db, repos, target);
+}
+
+// The repo the graph reads (`repo` ?? the first repo by name) and the repo
+// list, or null when the symbol graph tables are missing.
+export function graphTarget(
+  db: DatabaseSync,
+  repo: string | null,
+): { repos: string[]; target: string | undefined } | null {
+  if (!worldModelAvailable(db) || !symbolGraphAvailable(db)) return null;
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
+  return { repos, target: repo ?? repos[0] };
+}
+
+export function graphRollup(db: DatabaseSync, repos: string[], target: string): Row {
   const rows = all(
     db,
     `SELECT s.path AS src, d.path AS dst, e.kind AS kind, COUNT(*) AS weight,

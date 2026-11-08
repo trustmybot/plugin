@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { SearchIcon } from '@primer/octicons-react';
 import { query, useApi, type FileEdgeKind, type FileGraph } from './api.ts';
 import { Flash } from './ui/Flash.tsx';
+import { RepoFreshness } from './ui/FreshnessBadge.tsx';
 
 const NH = 28;
 const GAP = 4;
@@ -321,10 +322,10 @@ export function DepGraph({ repo }: { repo: string }) {
   if (q.data === undefined) return <p className="text-fg-muted">Loading…</p>;
   if (!q.data.available) return <p className="text-fg-muted">No dependency graph yet — run /scan in a Claude Code session.</p>;
   if (q.data.files.length === 0) return <p className="text-fg-muted">No file dependencies recorded for {repo}.</p>;
-  return <Graph data={q.data} />;
+  return <Graph data={q.data} repo={repo} />;
 }
 
-function Graph({ data }: { data: FileGraph }) {
+function Graph({ data, repo }: { data: FileGraph; repo: string }) {
   const m = useMemo(() => buildModel(data), [data]);
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const [depth, setDepth] = useState(1);
@@ -513,7 +514,10 @@ function Graph({ data }: { data: FileGraph }) {
   return (
     <section className={`min-w-0 overflow-hidden rounded-md border ${BORDER2} text-[13px] leading-[1.45]`}>
       <header className={`flex flex-wrap items-center gap-x-5 gap-y-3 border-b bg-canvas-muted px-4 py-3 sm:px-6 ${BORDER2}`}>
-        <h2 className="m-0 text-[15px] font-semibold">Dependency Graph</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="m-0 text-[15px] font-semibold">Dependency Graph</h2>
+          <RepoFreshness repo={repo} />
+        </div>
         <div className="relative">
           <SearchIcon size={14} aria-hidden="true" className="pointer-events-none absolute left-[9px] top-[9px] text-fg-muted" />
           <input

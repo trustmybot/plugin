@@ -1,5 +1,6 @@
 // Forked from Primer CSS Header (github.com/primer/css, MIT), rebuilt on Primer --header-* tokens without Primer CSS.
-import { DeviceDesktopIcon, MoonIcon, PulseIcon, SunIcon } from '@primer/octicons-react';
+import { DeviceDesktopIcon, MoonIcon, PulseIcon, SunIcon, SyncIcon } from '@primer/octicons-react';
+import { useWmStatus } from '../api.ts';
 import { nextColorMode, useColorMode, type ColorMode } from '../theme/colorMode.ts';
 
 const MODE_ICON = { auto: DeviceDesktopIcon, light: SunIcon, dark: MoonIcon } as const;
@@ -22,13 +23,26 @@ function ColorModeToggle() {
   );
 }
 
+function Reindexing() {
+  const running = (useWmStatus().data?.repos ?? []).filter((r) => r.freshness?.reindex.state === 'running').map((r) => r.repo);
+  if (running.length === 0) return null;
+  return (
+    <span className="flex items-center gap-1.5 text-xs" title={`Reindexing ${running.join(', ')}`}>
+      <SyncIcon size={12} aria-hidden="true" />
+      Reindexing
+    </span>
+  );
+}
+
 export function AppHeader() {
   return (
     <header className="bg-(--header-bgColor) text-(--header-fgColor-default)">
       <div className="mx-auto flex w-full max-w-[120rem] items-center gap-3 px-4 py-3 sm:px-6 2xl:px-10">
         <PulseIcon size={24} className="text-(--header-fgColor-logo)" aria-hidden="true" />
         <h1 className="text-base font-semibold text-(--header-fgColor-logo)">TMB Dashboard</h1>
-        <span className="ml-auto flex items-center gap-1.5 text-xs">
+        <span className="ml-auto" />
+        <Reindexing />
+        <span className="flex items-center gap-1.5 text-xs">
           <span aria-hidden="true" className="size-2 rounded-full bg-(--bgColor-success-emphasis)" />
           Live
         </span>
