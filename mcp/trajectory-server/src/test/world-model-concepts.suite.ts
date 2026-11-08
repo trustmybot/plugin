@@ -182,7 +182,7 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
     const doc = (path: string, name: string) =>
       db.get<{ doc: string }>(`SELECT doc FROM wm_symbols WHERE repo = ? AND path = ? AND qualified_name = ?`, [repo, path, name])!.doc;
     assert.match(doc('mcp/trajectory-server/src/tools/world_model.ts', 'tipIntegratedInto'), /Twin of clean-merged-branch.*PR closed unmerged looks the same/s);
-    assert.match(doc('mcp/trajectory-server/src/tools/world_model.ts', 'worldModelTools'), /Primary navigation surface/);
+    assert.match(doc('mcp/trajectory-server/src/tools/world_model.ts', 'worldModelTools'), /primary map for code-touching cold starts/);
     const longest = db.get<{ n: number }>(`SELECT MAX(LENGTH(doc)) AS n FROM wm_symbols WHERE repo = ? AND kind <> 'module'`, [repo])!.n;
     assert.ok(longest <= 1000, String(longest));
   });
