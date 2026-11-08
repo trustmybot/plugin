@@ -13,6 +13,7 @@ import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_S
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isBannerLine, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
 import { extractHooks } from '../parsing/hooks.js';
+import { coveredDirs, repoPaths } from '../parsing/runners.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -1026,7 +1027,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 12);
+      assert.equal(EXTRACTOR_VERSION, 13);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1865,8 +1866,8 @@ describe('member calls skip named-import and sourced-file binding (GH 2472)', ()
     assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
   });
 
-  it('the extractor version is 12', () => {
-    assert.equal(EXTRACTOR_VERSION, 12);
+  it('the extractor version is 13', () => {
+    assert.equal(EXTRACTOR_VERSION, 13);
   });
 });
 
@@ -2029,4 +2030,146 @@ describe('reads_config edges name the plugin_config keys a symbol reads (GH 2325
     const bad = (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: '' })) as CallToolResult;
     assert.ok(bad.isError);
   });
+});
+
+describe('covers edges from lint and test runners to the directories they check (GH 2326)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-covers-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  const packageJson = (lint: string) =>
+    JSON.stringify(
+      {
+        name: 'app',
+        scripts: {
+          test: 'node --test tests/unit/*.test.mjs',
+          lint,
+          typecheck: 'tsc --noEmit',
+          ghost: 'eslint missing/dir gone',
+        },
+      },
+      null,
+      2,
+    ) + '\n';
+  const WORKFLOW = ['name: ci', 'on: push', 'jobs:', '  test:', '    runs-on: ubuntu-latest', '    steps:', '      - run: cd pkg && npm test', ''].join('\n');
+  const lineOf = (body: string, needle: string): number => body.split('\n').findIndex((l) => l.includes(needle)) + 1;
+
+  const commit = (files: Record<string, string>) => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c', '--allow-empty'], { cwd: root });
+  };
+  const coversEdges = () =>
+    db
+      .all<{ runner: string; path: string; dst_name: string; dst_id: number | null; resolution: string; line: number }>(
+        `SELECT s.qualified_name AS runner, s.path, e.dst_name, e.dst_id, e.resolution, e.line
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'covers'
+          ORDER BY s.path, s.qualified_name, e.dst_name`,
+      )
+      .map((r) => ({ ...r }));
+  const dirsByRunner = () => {
+    const out: Record<string, string[]> = {};
+    for (const e of coversEdges()) (out[`${e.path}#${e.runner}`] ??= []).push(e.dst_name);
+    return out;
+  };
+
+  before(async () => {
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    commit({
+      'package.json': packageJson('eslint src lib'),
+      '.github/workflows/ci.yml': WORKFLOW,
+      'src/a.ts': 'export const a = 1;\n',
+      'lib/b.ts': 'export const b = 2;\n',
+      'tests/unit/a.test.mjs': 'export const t = 1;\n',
+      'tests/unit/sub/b.test.mjs': 'export const u = 1;\n',
+      'pkg/index.js': 'export const p = 1;\n',
+      'docs/guide.txt': 'guide\n',
+    });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('indexes runner symbols with covers edges for a glob, path arguments and a cd step, and none for tsc --noEmit or a missing directory', () => {
+    const runners = db
+      .all<{ path: string; qualified_name: string; signature: string; start_line: number; end_line: number }>(
+        `SELECT path, qualified_name, signature, start_line, end_line FROM wm_symbols WHERE repo = 'app' AND kind = 'runner' ORDER BY path, qualified_name`,
+      )
+      .map((r) => ({ ...r }));
+    const ciLine = lineOf(WORKFLOW, 'cd pkg');
+    assert.deepEqual(
+      runners.map((r) => `${r.path}#${r.qualified_name}`),
+      [`.github/workflows/ci.yml#ci:${ciLine}`, 'package.json#ghost', 'package.json#lint', 'package.json#test', 'package.json#typecheck'],
+    );
+    const test = runners.find((r) => r.qualified_name === 'test')!;
+    assert.equal(test.signature, 'node --test tests/unit/*.test.mjs');
+    assert.equal(test.start_line, lineOf(packageJson('eslint src lib'), '"test"'));
+    assert.equal(test.end_line, test.start_line);
+    assert.deepEqual(dirsByRunner(), {
+      [`.github/workflows/ci.yml#ci:${ciLine}`]: ['pkg'],
+      'package.json#lint': ['lib', 'src'],
+      'package.json#test': ['tests/unit'],
+    });
+    for (const e of coversEdges()) {
+      assert.equal(e.resolution, 'name');
+      assert.equal(e.dst_id, null);
+    }
+    assert.equal(coversEdges().find((e) => e.runner === 'test')?.line, test.start_line);
+  });
+
+  it('a re-parse at EXTRACTOR_VERSION + 1 and markOrphanedEdges keep covers name-resolved; a dropped path argument drops its edge', async () => {
+    const before = coversEdges();
+    const out = await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1);
+    assert.ok(out.files_parsed >= 2);
+    markOrphanedEdges(db);
+    assert.deepEqual(coversEdges(), before);
+
+    commit({ 'package.json': packageJson('eslint src') });
+    await scan(db, holder, ws);
+    assert.deepEqual(dirsByRunner()['package.json#lint'], ['src']);
+    for (const e of coversEdges()) assert.deepEqual([e.resolution, e.dst_id], ['name', null]);
+  });
+});
+
+describe('coveredDirs reads the directories a runner command names (GH 2326)', () => {
+  const known = repoPaths(['src/a.ts', 'src/deep/b.ts', 'lib/c.ts', 'pkg/sub/d.ts', 'scripts/run.mjs', 'README.md']);
+  const cases: Array<[string, string, string[]]> = [
+    ['node --test tests/none/*.test.mjs', '.', []],
+    ['eslint src lib', '.', ['src', 'lib']],
+    ['eslint "src/**/*.ts" --max-warnings=0', '.', ['src']],
+    ['prettier --check src/ --config=lib/x.json', '.', ['src']],
+    ['cd pkg && npm test', '.', ['pkg']],
+    ['cd pkg; vitest run sub', '.', ['pkg/sub']],
+    ['cd pkg && cd sub && make', '.', ['pkg/sub']],
+    ['cd "$DIR" && eslint src', '.', []],
+    ['tsc --noEmit', '.', []],
+    ['node scripts/run.mjs', '.', ['scripts']],
+    ['eslint ../outside /abs/src ~/src', '.', []],
+    ['eslint deep', 'src', ['src/deep']],
+    ['eslint .', 'pkg', ['pkg']],
+    ['grep -E \'^[a-z]+$\' README.md > src/out.txt 2>&1', '.', []],
+    ['NODE_ENV=test eslint $SRC src # lib', '.', ['src']],
+    ['eslint src \\\n  lib', '.', ['src', 'lib']],
+    ['eslint src src/ ./src', '.', ['src']],
+    ['eslint *.ts', 'src', []],
+    ['eslint ./*.ts', 'src', ['src']],
+    ["git tag -l 'v[0-9]*'", '.', []],
+    ['if [ "$X" = 1 ]; then { echo hi; }; fi', '.', []],
+  ];
+  for (const [command, base, dirs] of cases) {
+    it(`${JSON.stringify(command)} from ${base} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, base, known), dirs);
+    });
+  }
 });

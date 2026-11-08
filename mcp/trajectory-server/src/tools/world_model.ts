@@ -15,6 +15,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   configKeyReaders,
+  coveringRunners,
   fileRefKey,
   IMPACT_MAX_DEPTH,
   isTestPath,
@@ -24,6 +25,7 @@ import {
   symbolCard,
   symbolImpact,
   symbolsByName,
+  type CoveringRunner,
   type ScoredSymbol,
   type SymbolRow,
 } from '../symbol-index.js';
@@ -268,8 +270,33 @@ interface TreeNode extends DriftView {
   summary_source: string;
   summary_updated_at: string | null;
   file_count: number;
+  covered_by?: CoveringRunner[];
+  covered_by_truncated?: true;
   children: TreeNode[];
   files?: FileView[];
+}
+
+const COVERED_BY_CAP = 10;
+
+// The runners whose covers edge names dir or one of its ancestors, nearest
+// first, each once, their commands framed; {} when none.
+function coveredByView(
+  covers: Map<string, CoveringRunner[]>,
+  dir: string,
+): { covered_by?: CoveringRunner[]; covered_by_truncated?: true } {
+  const seen = new Set<string>();
+  const runners: CoveringRunner[] = [];
+  for (let d: string | null = dir; d !== null; d = d === '' ? null : d.includes('/') ? d.slice(0, d.lastIndexOf('/')) : '') {
+    for (const r of covers.get(d) ?? []) {
+      const key = `${r.path}\u0000${r.runner}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      runners.push(r);
+    }
+  }
+  if (runners.length === 0) return {};
+  const framed = runners.slice(0, COVERED_BY_CAP).map((r) => ({ ...r, command: frameUntrusted('runner-command', r.command) }));
+  return { covered_by: framed, ...(runners.length > COVERED_BY_CAP ? { covered_by_truncated: true as const } : {}) };
 }
 
 interface FileView {
@@ -692,7 +719,7 @@ export function buildTree(
   rows: DirRow[],
   rootPath: string,
   depth: number | null,
-  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number },
+  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number; covers?: Map<string, CoveringRunner[]> },
 ): TreeNode | null {
   const byParent = new Map<string, DirRow[]>();
   for (const r of rows) {
@@ -739,6 +766,7 @@ export function buildTree(
       summary_updated_at: node.summary_updated_at,
       file_count: node.file_count,
       ...driftView(node),
+      ...(opts?.covers ? coveredByView(opts.covers, node.path) : {}),
       children,
     };
   }
@@ -1015,7 +1043,7 @@ export function worldModelTools(
 
         const rows: DirRow[] = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path, depth, { nodeCounter });
+        const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
         if (!tree) {
           return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
         }

@@ -13,7 +13,9 @@
 // unchanged files that name a symbol this pass inserted (ADR 0002). A
 // generated bundle with a sibling source map gets a 'module' row of its own,
 // re-read only when the map changes, with a 'bundles' edge to each in-repo
-// source the map lists (GH 2284).
+// source the map lists (GH 2284). A manifest, task file or CI file the env
+// readers recognise is indexed as 'runner' rows with name-only 'covers' edges
+// to the directories each command checks (parsing/runners.ts, GH 2326).
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,9 +43,11 @@ import {
   type SymbolKind,
 } from './parsing/extract.js';
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
+import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js';
+import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 12;
+export const EXTRACTOR_VERSION = 13;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -159,8 +163,9 @@ const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_functio
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
 const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
 // Edges stored by name alone (dst_id NULL, resolution 'name') that no
-// resolution pass rebinds or resets: a plugin_config key is no symbol.
-const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config']);
+// resolution pass rebinds or resets: neither a plugin_config key nor a
+// directory a runner covers is a symbol.
+const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config', 'covers']);
 const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
 export { isTestPath };
@@ -619,11 +624,16 @@ export async function indexRepoSymbols(
   const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
   const parsers: Parsers | null = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
 
+  let known: RepoPaths | null = null;
+  const knownPaths = (): RepoPaths =>
+    (known ??= repoPaths(db.all<{ path: string }>(`SELECT path FROM wm_files WHERE repo = ?`, [repo]).map((r) => r.path)));
+
   const failed: Array<{ file: StaleFile; error: string }> = [];
   const parsed: Parsed[] = [];
   for (const { file, lang } of jobs) {
     const isHooks = file.path === HOOKS_PATH;
-    if (lang === null && !isHooks) {
+    const env = Number(file.size_bytes) > MAX_PARSE_BYTES ? null : envReaderFor(file.path);
+    if (lang === null && !isHooks && !env) {
       parsed.push({ file, extraction: null });
       continue;
     }
@@ -631,7 +641,9 @@ export async function indexRepoSymbols(
       const src = readSource(repoPath, file.path);
       const extraction = isHooks
         ? extractHooks(src, routerTable(repoPath))
-        : extractFile(parsers, file.path, lang as SourceLanguage, src);
+        : env
+          ? extractRunners(file.path, env.reader(file.path, src), env.ci, knownPaths())
+          : extractFile(parsers, file.path, lang as SourceLanguage, src);
       parsed.push({ file, extraction });
     } catch (e) {
       failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
@@ -854,6 +866,29 @@ export function configKeyReaders(db: TrajectoryDB, repos: string[], key: string)
       [key, JSON.stringify(repos)],
     )
     .map((r) => ({ qualified_name: r.qualified_name, kind: r.kind, repo: r.repo, path: r.path, line: Number(r.line) }));
+}
+
+export interface CoveringRunner {
+  runner: string;
+  path: string;
+  line: number;
+  command: string;
+}
+
+// The runners of a repo by the directory a 'covers' edge names, keyed by the
+// world-model directory path ('' for the repo root).
+export function coveringRunners(db: TrajectoryDB, repo: string): Map<string, CoveringRunner[]> {
+  const out = new Map<string, CoveringRunner[]>();
+  for (const r of db.all<{ dst_name: string; runner: string; path: string; line: number; command: string }>(
+    `SELECT DISTINCT e.dst_name, s.qualified_name AS runner, s.path, e.line, s.signature AS command
+       FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+      WHERE s.repo = ? AND e.kind = 'covers'
+      ORDER BY s.path, e.line, s.qualified_name`,
+    [repo],
+  )) {
+    push(out, r.dst_name === '.' ? '' : r.dst_name, { runner: r.runner, path: r.path, line: Number(r.line), command: r.command });
+  }
+  return out;
 }
 
 interface ImpactRow extends EdgeEnd {
