@@ -68,11 +68,12 @@ function register(db: string, name: string, path: string, cols: RepoCols = {}): 
   );
 }
 
-function insertTask(db: string, branch: string, parent: string | null = null): void {
+function insertTask(db: string, branch: string, parent: string | null = null, id = 1): void {
   sql(
     db,
     `INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, description, status, spec_body, created_at, updated_at)
-       VALUES (1, 1, ?, ?, 'test task', 'd', 'pending', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 1, ?, ?, 'test task', 'd', 'pending', '', datetime('now'), datetime('now'))`,
+    id,
     branch,
     parent,
   );
@@ -486,6 +487,34 @@ describe('git-guards l3: Rule 2 splits by command class (#1070, #1073)', () => {
     deny(out, "commit on task-parent base 'staging' must block");
     has(out, 'staging', 'deny message must name the shared base');
     has(out, 'surface it to the Human', 'no-remote deny message must teach the surface-to-Human recovery');
+  });
+
+  it("GH 2607: git commit on a task branch another task is stacked on is ALLOWED (not a shared base)", () => {
+    const f = taskParentRepo('["main"]', 'main');
+    git(sb.env, f.repo, 'branch', 'feat/parent', 'HEAD');
+    git(sb.env, f.repo, 'checkout', '-q', 'feat/parent');
+    insertTask(f.db, 'feat/parent', null, 2);
+    insertTask(f.db, 'feat/stacked', 'feat/parent', 3);
+    allow(guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db }), "the stacked parent 'feat/parent' is task A's own branch");
+    git(sb.env, f.repo, 'checkout', '-q', 'staging');
+    has(guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db }), 'staging is a shared workflow base', 'a parent no task owns stays a base');
+  });
+
+  it('GH 2607: a task owning protected_branches, target_branch or repos.pr_target as its branch_id leaves them bases', () => {
+    const f = taskParentRepo('["dev"]', 'main');
+    sql(f.db, 'ALTER TABLE repos ADD COLUMN pr_target TEXT');
+    sql(f.db, "UPDATE repos SET pr_target = 'release'");
+    insertTask(f.db, 'dev', null, 2);
+    insertTask(f.db, 'main', null, 3);
+    insertTask(f.db, 'release', null, 4);
+    insertTask(f.db, 'feat/a', 'dev', 5);
+    insertTask(f.db, 'feat/b', 'main', 6);
+    insertTask(f.db, 'feat/c', 'release', 7);
+    for (const base of ['dev', 'main', 'release']) {
+      if (base !== 'main') git(sb.env, f.repo, 'branch', base, 'HEAD');
+      git(sb.env, f.repo, 'checkout', '-q', base);
+      has(guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db }), `${base} is a shared workflow base`, `commit on ${base} must still block`);
+    }
   });
 
   it('#1073: git merge into a plain feature branch in the main checkout IS blocked (integration is PR-only)', () => {
