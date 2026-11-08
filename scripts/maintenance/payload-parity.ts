@@ -8,6 +8,7 @@
 // (listed), or HEAD holds no generated file. Exit 2: usage or git error.
 
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,4 +69,4 @@ function main(): void {
   process.stdout.write(`payload-parity: HEAD holds all generated paths of ${ref} (${head.size} generated files)\n`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) main();

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -80,3 +82,15 @@ for (const args of [['bogus'], [], ['install', 'extra']]) {
     assert.match(r.stderr, /Usage: .*run-docker\.ts <install\|canary\|upgrade>/);
   });
 }
+
+test('run-docker.ts runs when invoked through a symlinked directory', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'run-docker-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, 'root');
+  symlinkSync(join(dirname(RUNNER), '..', '..'), link);
+  const r = spawnSync(process.execPath, ['--experimental-strip-types', join(link, 'tests/l0-install/run-docker.ts'), '--bogus'], {
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /Usage: .*run-docker\.ts <install\|canary\|upgrade>/);
+});
