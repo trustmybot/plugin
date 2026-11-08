@@ -1,4 +1,4 @@
-# Allowlist for no-raw-sql-interpolation.sh lint.
+# Allowlist for no-raw-sql-interpolation.test.mjs lint.
 # Entries: <file>@<function> (the function's current lines), <file>:<line>,
 # or <file> (whole file). Prefer <file>@<function>: a line number goes stale
 # when the file shifts. Add entries here when a site is reviewed and confirmed safe.
