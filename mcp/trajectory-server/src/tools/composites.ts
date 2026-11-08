@@ -1282,9 +1282,9 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        "Bro's recovery of a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (with no passing code-reviewer verdict it writes review_gate_bypassed), without one it returns a re-dispatch directive; any other status is a no-op. " +
-        'Every call runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept row, open runs closed swept_stale); pending tasks older than 7 days are only reported; runs open on terminal tasks are closed; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
-        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported}, plus the recovery result with task_id.',
+        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
+        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {
         type: 'object',
         properties: {
