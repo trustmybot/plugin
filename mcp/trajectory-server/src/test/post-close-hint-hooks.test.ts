@@ -175,9 +175,16 @@ describe('scripts/maintenance/run-scan.mjs', () => {
     assert.equal(existsSync(join(ws, '.claude/tmb/scan.lock')), false);
   });
 
-  it('audits the scan as startup_catchup when that is its second argument (GH 1851)', () => {
+  it('runs the startup catch-up when startup_catchup is its second argument (GH 1851, GH 2584)', () => {
+    exec(db, 'UPDATE repos SET indexed_commit = NULL');
     const r = invoke(INVOKER, [ws, 'startup_catchup']);
-    assert.equal(lastSource(), 'startup_catchup', r.out);
+    assert.match(r.out, /\[run-scan\] OK — caught up [1-9][0-9]* repos: repo-a@[0-9a-f]{12} \(full\)/);
+    const row = sql<{ trigger: string; reason: string }>(
+      db,
+      "SELECT json_extract(content_json, '$.trigger') AS trigger, json_extract(content_json, '$.reason') AS reason FROM audit WHERE event_type = 'wm_reindex' ORDER BY id DESC LIMIT 1",
+    )[0];
+    assert.deepEqual({ ...row }, { trigger: 'startup_catchup', reason: 'null_stamp' }, r.out);
+    assert.equal(lastSource(), 'bro_auto_post_close', 'a warm catch-up writes no deep_scan_completed row');
   });
 
   it('exits 2 naming TRAJECTORY_DB_PATH when it is unset, CLAUDE_PROJECT_DIR notwithstanding (GH 1639)', () => {

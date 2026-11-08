@@ -4,8 +4,7 @@
 // Every git call is bounded; any failure yields null so the scan stores NULL
 // instead of failing.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { SUBPROCESS_TIMEOUT_MS } from './utils/timeouts.js';
 
 export interface ReadmeDrift {
@@ -16,6 +15,7 @@ export interface ReadmeDrift {
 
 export interface RepoHistory {
   root: string;
+  commit: string;
   deleted: Set<string>;
   deletedByBasename: Map<string, string[]>;
   renamedAway: Set<string>;
@@ -48,13 +48,21 @@ function lines(out: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-// One `git log --diff-filter=DR` per repo per scan for every path ever deleted
-// and every path ever renamed away, and one `git ls-files` for the files
-// tracked today and their basenames.
-export function readRepoHistory(root: string, trackedDirs: Set<string>): RepoHistory | null {
-  const out = git(root, ['log', '--diff-filter=DR', '--name-status', '--format='], HISTORY_TIMEOUT_MS);
+// One `git log --diff-filter=DR <commit>` per repo per scan for every path
+// ever deleted and every path ever renamed away up to the indexed commit, and
+// the files that commit tracks (trackedFiles, else one `git ls-tree`) and
+// their basenames (GH 2584).
+export function readRepoHistory(
+  root: string,
+  trackedDirs: Set<string>,
+  commit = 'HEAD',
+  trackedFiles?: ReadonlySet<string>,
+): RepoHistory | null {
+  const out = git(root, ['-c', 'core.quotePath=false', 'log', '--diff-filter=DR', '--name-status', '--format=', commit, '--'], HISTORY_TIMEOUT_MS);
   if (out === null) return null;
-  const tracked = git(root, ['-c', 'core.quotePath=false', 'ls-files'], HISTORY_TIMEOUT_MS);
+  const tracked = trackedFiles
+    ? [...trackedFiles].join('\n')
+    : git(root, ['-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', '--full-tree', commit], HISTORY_TIMEOUT_MS);
   if (tracked === null) return null;
   const deleted = new Set<string>();
   const renamedAway = new Set<string>();
@@ -63,8 +71,8 @@ export function readRepoHistory(root: string, trackedDirs: Set<string>): RepoHis
     if (status === 'D') deleted.add(path);
     else if (status?.startsWith('R')) renamedAway.add(path);
   }
-  const trackedFiles = new Set(lines(tracked));
-  const trackedBasenames = new Set([...trackedFiles].map(basename));
+  const files = new Set(lines(tracked));
+  const trackedBasenames = new Set([...files].map(basename));
   const deletedByBasename = new Map<string, string[]>();
   for (const p of [...deleted].sort()) {
     const name = basename(p);
@@ -72,7 +80,7 @@ export function readRepoHistory(root: string, trackedDirs: Set<string>): RepoHis
     if (list) list.push(p);
     else deletedByBasename.set(name, [p]);
   }
-  return { root, deleted, deletedByBasename, renamedAway, trackedBasenames, trackedDirs, trackedFiles };
+  return { root, commit, deleted, deletedByBasename, renamedAway, trackedBasenames, trackedDirs, trackedFiles: files };
 }
 
 function stripUntrustedFraming(text: string): string {
@@ -146,11 +154,16 @@ function deletedBareName(ref: string, history: RepoHistory): string | undefined 
   return history.deletedByBasename.get(ref)?.[0];
 }
 
+function trackedAtCommit(history: RepoHistory, path: string): boolean {
+  const p = posix.normalize(path).replace(/\/+$/, '');
+  return p === '.' || p === '' || history.trackedFiles.has(p) || history.trackedDirs.has(p);
+}
+
 export function deadRefs(readme: string, dir: string, history: RepoHistory): string[] {
   const dead = new Set<string>();
   for (const { ref, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref);
-    if (existsSync(join(history.root, fromDir)) || existsSync(join(history.root, ref))) continue;
+    if (trackedAtCommit(history, fromDir) || trackedAtCommit(history, ref)) continue;
     const deletedHit = history.deleted.has(fromDir)
       ? fromDir
       : history.deleted.has(ref)
@@ -193,9 +206,9 @@ export function readmeDrift(
   readme: string,
 ): ReadmeDrift | null {
   const readmePath = dir === '' ? readmeName : `${dir}/${readmeName}`;
-  const sha = git(history.root, ['log', '-1', '--format=%H', '--', `:(literal)${readmePath}`])?.trim();
+  const sha = git(history.root, ['log', '-1', '--format=%H', history.commit, '--', `:(literal)${readmePath}`])?.trim();
   if (!sha) return null;
-  const range = `${sha}..HEAD`;
+  const range = `${sha}..${history.commit}`;
   const refs = referencedFiles(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
   const pathspecs = refs.map((r) => `:(literal)${r}`);
   const touched =

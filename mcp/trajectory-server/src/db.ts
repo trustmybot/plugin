@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 61;
+export const TARGET_SCHEMA_VERSION = 62;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -487,6 +487,8 @@ export type RepoRow = {
   target_branch: string | null;
   branching_model: string | null;
   protected_branches: string | null;
+  indexed_commit: string | null;
+  indexed_stamp: string | null;
 };
 
 export type CheatcodeRow = {
@@ -839,6 +841,8 @@ function runMigrations(
   }
   // v60→v61: prs and pr_closes, the synced GitHub PR rows (GH 2513)
   if (fromVersion < 61 && toVersion >= 61) migrateV60toV61(db);
+  // v61→v62: repos.indexed_commit, the commit the world model was built from (GH 2584)
+  if (fromVersion < 62 && toVersion >= 62) migrateV61toV62(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3364,6 +3368,28 @@ function migrateV60toV61(db: DatabaseSync): void {
         PRIMARY KEY (pr_id, issue_number)
       );
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v61→v62: repos.indexed_commit (GH 2584), the commit a scan read the repo's
+// world model from. Every existing row keeps NULL, so its first read reindexes
+// it at a commit. repos.indexed_stamp records the extractor and schema version
+// that index was built with.
+function migrateV61toV62(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'repos')) {
+      if (!hasColumn(db, 'repos', 'indexed_commit')) db.exec('ALTER TABLE repos ADD COLUMN indexed_commit TEXT');
+      if (!hasColumn(db, 'repos', 'indexed_stamp')) db.exec('ALTER TABLE repos ADD COLUMN indexed_stamp TEXT');
+    }
     commitTransaction(db);
   } catch (err) {
     try {
