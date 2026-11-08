@@ -10,11 +10,22 @@ export interface Summary {
   recent_runs: Row[];
 }
 
+export interface LabelTaxonomy {
+  classification: string[];
+  priority: string[];
+  area: string[];
+}
+
+export interface IssueListing {
+  issues: Row[];
+  label_taxonomy: LabelTaxonomy;
+}
+
 export interface IssueDetail {
   issue: Row;
   discussions: Row[];
   tasks: Row[];
-  label_taxonomy: { classification: string[] | null; priority: string[] | null };
+  label_taxonomy: LabelTaxonomy;
   milestones: string[];
 }
 

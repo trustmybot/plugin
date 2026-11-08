@@ -1,3 +1,4 @@
+import type { LabelTaxonomy } from '../../api.ts';
 import { labelClass, type LabelVariant } from '../../ui/Label.tsx';
 
 export function parseLabels(raw: unknown): string[] {
@@ -12,14 +13,15 @@ export function parseLabels(raw: unknown): string[] {
   return Array.isArray(value) ? value.filter((l): l is string => typeof l === 'string') : [];
 }
 
-export function issueLabelVariant(label: string): LabelVariant {
-  if (label === 'Bug') return 'danger';
-  if (label === 'Feature') return 'accent';
-  if (label === 'Improvement') return 'success';
-  if (label === 'Docs') return 'attention';
-  if (label.startsWith('Area:')) return 'done';
-  if (label === 'Priority: Urgent') return 'severe';
-  if (label === 'Priority: High') return 'attention';
+const CLASSIFICATION_VARIANTS: LabelVariant[] = ['danger', 'accent', 'success', 'attention', 'done', 'severe'];
+const PRIORITY_VARIANTS: LabelVariant[] = ['severe', 'attention'];
+
+export function issueLabelVariant(label: string, taxonomy: LabelTaxonomy): LabelVariant {
+  const classification = taxonomy.classification.indexOf(label);
+  if (classification >= 0) return CLASSIFICATION_VARIANTS[classification % CLASSIFICATION_VARIANTS.length];
+  const priority = taxonomy.priority.indexOf(label);
+  if (priority >= 0) return PRIORITY_VARIANTS[priority] ?? 'secondary';
+  if (taxonomy.area.includes(label)) return 'done';
   return 'secondary';
 }
 
@@ -35,7 +37,8 @@ const FILL: Record<LabelVariant, string> = {
   done: 'bg-(--bgColor-done-muted)',
 };
 
-export function IssueLabel({ name, variant = issueLabelVariant(name) }: { name: string; variant?: LabelVariant }) {
+export function IssueLabel({ name, taxonomy }: { name: string; taxonomy: LabelTaxonomy }) {
+  const variant = issueLabelVariant(name, taxonomy);
   return <span className={`${labelClass(variant)} ${FILL[variant]}`}>{name}</span>;
 }
 

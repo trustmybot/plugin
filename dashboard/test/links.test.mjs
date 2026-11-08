@@ -102,8 +102,8 @@ async function loadViews() {
         export const cols = { AUDIT_COLUMNS, AGENT_RUN_COLUMNS, TASK: [TASK_ID_COLUMN, TASK_TITLE_COLUMN] };
         export const hasColumn = (cols, key) => column(cols, key);
         export const link = (kind, idKey, labelKey, row) => html(entityLink(kind, idKey, labelKey)(row));
-        export const issueList = (rows) => withWindow('#/issues', () => html(createElement(IssueList, { rows, state: 'open' })));
-        export const sidebar = (issue, tasks) => html(createElement(Sidebar, { issue, labels: [], tasks }));
+        export const issueList = (listing) => withWindow('#/issues', () => html(createElement(IssueList, { rows: listing.issues, taxonomy: listing.label_taxonomy, state: 'open' })));
+        export const sidebar = (detail) => html(createElement(Sidebar, { issue: detail.issue, labels: [], taxonomy: detail.label_taxonomy, tasks: detail.tasks }));
         export const timeline = (discussions) => html(createElement(Timeline, { discussions }));
         export const writeError = (body) => html(createElement(WriteError, { error: new ApiError(409, body) }));
         export const taskSidebar = (task) => html(createElement(TaskSidebar, { task }));
@@ -202,7 +202,7 @@ describe('cross-links against a seeded DB', () => {
   });
 
   test('GET /api/issues carries remote_web_url matched to the iid provider', async () => {
-    const rows = await get('issues');
+    const { issues: rows } = await get('issues');
     const byId = new Map(rows.map((r) => [r.id, r]));
     assert.equal(byId.get(ids.ghIssue).remote_web_url, GH);
     assert.equal(byId.get(ids.glIssue).remote_web_url, GL);
@@ -235,13 +235,13 @@ describe('cross-links against a seeded DB', () => {
 
   test('issue Sidebar: Remote links out, task rows and branches are anchors', async () => {
     const detail = await get(`issues/${ids.ghIssue}`);
-    const html = views.sidebar(detail.issue, detail.tasks);
+    const html = views.sidebar(detail);
     assert.match(external(html, `${GH}/issues/42`), />GH 42</);
     assert.ok(internal(html, `#/tasks/${ids.linked}`).includes(views.ENTITY_LINK));
     assert.match(html, new RegExp(`<a href="#/tasks/${ids.linked}"[^>]*>[\\s\\S]*?Alpha task[\\s\\S]*?<span[^>]*>completed</span>[\\s\\S]*?</a>`));
     assert.ok(internal(html, '#/tasks?branch=feat%2Falpha%20work').includes(views.ENTITY_LINK));
     const bare = await get(`issues/${ids.bareIssue}`);
-    const plain = views.sidebar(bare.issue, bare.tasks);
+    const plain = views.sidebar(bare);
     assert.match(plain, /GH 5/);
     assert.ok(!plain.includes('target="_blank"'));
   });

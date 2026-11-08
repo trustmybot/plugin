@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { GitBranchIcon } from '@primer/octicons-react';
-import type { Row } from '../../api.ts';
+import type { LabelTaxonomy, Row } from '../../api.ts';
 import { Badge } from '../../shared/Badge.tsx';
 import { ENTITY_LINK, hrefFor } from '../../shared/columns.tsx';
 import { RemoteIssueLink, remoteIssue } from '../../shared/remote.tsx';
@@ -22,14 +22,14 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 
 const None = ({ children }: { children: ReactNode }) => <span className="text-fg-muted">{children}</span>;
 
-export function Sidebar({ issue, labels, tasks }: { issue: Row; labels: string[]; tasks: Row[] }) {
+export function Sidebar({ issue, labels, taxonomy, tasks }: { issue: Row; labels: string[]; taxonomy: LabelTaxonomy; tasks: Row[] }) {
   const branches = [...new Set(tasks.map((t) => String(t['branch_id'] ?? '')).filter(Boolean))];
   const done = tasks.filter((t) => DONE.has(String(t['status']))).length;
   const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
   return (
     <aside aria-label="Issue details" className="min-w-0">
       <Section title="Labels">
-        {labels.length ? <div className="flex flex-wrap gap-1">{labels.map((l) => <IssueLabel key={l} name={l} />)}</div> : <None>None yet</None>}
+        {labels.length ? <div className="flex flex-wrap gap-1">{labels.map((l) => <IssueLabel key={l} name={l} taxonomy={taxonomy} />)}</div> : <None>None yet</None>}
       </Section>
       <Section title="Milestone">{issue['milestone'] ? <span className="text-fg">{String(issue['milestone'])}</span> : <None>No milestone</None>}</Section>
       <Section title="Branches">
