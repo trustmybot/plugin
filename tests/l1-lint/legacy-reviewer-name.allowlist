@@ -1,4 +1,4 @@
-# <path><TAB><reason>; a path ending in / covers its subtree. See legacy-reviewer-name.sh.
+# <path><TAB><reason>; a path ending in / covers its subtree. See legacy-reviewer-name.test.mjs.
 CHANGELOG.md	release history names the reviewer as it was called when each entry shipped
 changelog.d/	unreleased fragments name the reviewer as it was called when each one landed
 docs/reference/UPGRADE.md	the GH 1641 upgrade section explains the hard rename and the v51 migration
@@ -7,7 +7,7 @@ mcp/trajectory-server/src/test/schema-upgrade.test.ts	v50 to v51 migration test 
 mcp/trajectory-server/src/test/fixtures/	historical schema snapshots seed the old agent name
 mcp/trajectory-server/src/test/agent-scope.test.ts	SC2: validation_record rejects the pre-rename name and writes no row
 tests/fixtures/hook-corpus/git-push-guard/deny-pr-reviewer.json	SC4: a push whose payload names the pre-rename agent is denied
-tests/l1-lint/legacy-reviewer-name.sh	this lint
+tests/l1-lint/legacy-reviewer-name.test.mjs	this lint
 tests/l1-lint/legacy-reviewer-name.allowlist	this allowlist
 research/gh1346-ab/m3/questions.ts	the v51-migration question asks about the v50 to v51 rename
 tests/fixtures/hook-golden/git-push-guard.json	golden keys name the allowlisted corpus file deny-pr-reviewer.json
