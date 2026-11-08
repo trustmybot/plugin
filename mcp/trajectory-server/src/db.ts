@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 57;
+export const TARGET_SCHEMA_VERSION = 58;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -827,6 +827,9 @@ function runMigrations(
   }
   if (fromVersion < 57 && toVersion >= 57) {
     migrateV56toV57(db);
+  }
+  if (fromVersion < 58 && toVersion >= 58) {
+    migrateV57toV58(db);
   }
 }
 
@@ -3182,6 +3185,25 @@ function migrateV56toV57(db: DatabaseSync): void {
       if (!hasColumn(db, 'review_findings', 'class')) {
         db.exec('ALTER TABLE review_findings ADD COLUMN class TEXT');
       }
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v57→v58: each swe run's hook-block turn cost (GH 1915). agent_runs gains a
+// nullable hook_block_tokens; existing rows stay NULL (no backfill).
+function migrateV57toV58(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'hook_block_tokens')) {
+      db.exec('ALTER TABLE agent_runs ADD COLUMN hook_block_tokens INTEGER');
     }
     commitTransaction(db);
   } catch (err) {

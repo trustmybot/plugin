@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { STOP_DETAIL_MAX_CHARS, hookBlockDetail, sweStopCause } from '../hooks/swe-stop-cause.js';
+import { STOP_DETAIL_MAX_CHARS, hookBlockCost, hookBlockDetail, sweStopCause } from '../hooks/swe-stop-cause.js';
 import { gateNames } from '../hooks/registry.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -228,6 +228,95 @@ describe('swe-stop-cause (GH 1905)', () => {
       const t = f.transcript([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'completed', false)]);
       assert.deepEqual(sweStopCause(payload(t), f.env), ALLOWED);
       assert.deepEqual(f.row(), { stop_cause: null, stop_detail: null });
+    });
+  });
+
+  describe('hook-block turn cost (GH 1915)', () => {
+    const since = Date.parse(SINCE);
+    const jsonl = (lines: unknown[]) => lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n');
+    const TIMEOUT = 'PreToolUse:Edit hook error: containment-guard: dispatch failed (exit 124)';
+    const reply = (ts: string, usage: Record<string, number> | undefined) => ({
+      timestamp: ts,
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'retrying' }], ...(usage ? { usage } : {}) },
+    });
+    const THREE_BLOCKS = [
+      toolUse('2026-10-25T09:58:00.000Z', 'toolu_0', 'Bash'),
+      toolResult('2026-10-25T09:58:01.000Z', 'toolu_0', DENY, true),
+      reply('2026-10-25T09:58:02.000Z', { input_tokens: 999, cache_read_input_tokens: 999, cache_creation_input_tokens: 999 }),
+      toolUse('2026-10-25T10:01:00.000Z', 'toolu_1', 'Bash'),
+      toolResult('2026-10-25T10:01:01.000Z', 'toolu_1', DENY, true),
+      reply('2026-10-25T10:01:02.000Z', { input_tokens: 10, cache_read_input_tokens: 20_000, cache_creation_input_tokens: 300, output_tokens: 50 }),
+      reply('2026-10-25T10:01:03.000Z', { input_tokens: 7_777, cache_read_input_tokens: 7_777 }),
+      toolUse('2026-10-25T10:02:00.000Z', 'toolu_2', 'Write'),
+      toolResult('2026-10-25T10:02:01.000Z', 'toolu_2', [{ type: 'text', text: 'PreToolUse:Write hook error: BLOCKED: containment' }], true),
+      reply('2026-10-25T10:02:02.000Z', { input_tokens: 4, cache_read_input_tokens: 21_000 }),
+      toolUse('2026-10-25T10:03:00.000Z', 'toolu_3', 'Read'),
+      toolResult('2026-10-25T10:03:01.000Z', 'toolu_3', 'Error: no such file', true),
+      reply('2026-10-25T10:03:02.000Z', { input_tokens: 5_555 }),
+      toolUse('2026-10-25T10:04:00.000Z', 'toolu_4', 'Edit'),
+      toolResult('2026-10-25T10:04:01.000Z', 'toolu_4', TIMEOUT, true),
+      reply('2026-10-25T10:04:02.000Z', { input_tokens: 2, cache_read_input_tokens: 22_000, cache_creation_input_tokens: 600 }),
+    ];
+    const THREE_BLOCKS_TOKENS = 10 + 20_000 + 300 + (4 + 21_000) + (2 + 22_000 + 600);
+
+    it('counts three in-window blocks (two denials, one timed-out gate) and sums the context of the turn after each', () => {
+      assert.deepEqual(hookBlockCost(jsonl(THREE_BLOCKS), since), { blocks: 3, tokens: THREE_BLOCKS_TOKENS });
+    });
+
+    it('ignores a block before the window; a block with no later assistant entry adds 0', () => {
+      assert.deepEqual(hookBlockCost(jsonl(THREE_BLOCKS.slice(0, 3)), since), { blocks: 0, tokens: 0 });
+      const trailing = [...THREE_BLOCKS, toolUse('2026-10-25T10:05:00.000Z', 'toolu_5', 'Bash'), toolResult('2026-10-25T10:05:01.000Z', 'toolu_5', DENY, true)];
+      assert.deepEqual(hookBlockCost(jsonl(trailing), since), { blocks: 4, tokens: THREE_BLOCKS_TOKENS });
+    });
+
+    it('counts a block whose next assistant entry has no usage as 0 and skips malformed lines', () => {
+      const lines = [
+        '{not json',
+        toolUse('2026-10-25T10:01:00.000Z', 'toolu_1', 'Bash'),
+        toolResult('2026-10-25T10:01:01.000Z', 'toolu_1', DENY, true),
+        reply('2026-10-25T10:01:02.000Z', undefined),
+        'null',
+      ];
+      assert.deepEqual(hookBlockCost(jsonl(lines), since), { blocks: 1, tokens: 0 });
+      assert.deepEqual(hookBlockCost('', since), { blocks: 0, tokens: 0 });
+    });
+
+    const tokensOf = (f: Fixture) => {
+      const r = new DatabaseSync(f.db);
+      const out = r.prepare('SELECT hook_block_tokens FROM agent_runs WHERE task_id = ? AND spawn_id = ? ORDER BY id DESC LIMIT 1').get(TASK_ID, SWE) as {
+        hook_block_tokens: number | null;
+      };
+      r.close();
+      return out.hook_block_tokens;
+    };
+
+    it('sweStopCause writes the run\'s block-turn cost to hook_block_tokens in the stop_cause UPDATE', () => {
+      const f = fixture();
+      assert.equal(tokensOf(f), null);
+      const t = f.transcript(THREE_BLOCKS);
+      assert.deepEqual(sweStopCause(payload(t), f.env), ALLOWED);
+      assert.equal(tokensOf(f), THREE_BLOCKS_TOKENS);
+      assert.deepEqual(f.row(), { stop_cause: 'hook_block', stop_detail: TIMEOUT });
+    });
+
+    it('writes 0 for a run with no blocks, a missing transcript or a malformed one', () => {
+      for (const lines of [[toolUse('2026-10-25T10:01:00.000Z', 'toolu_1', 'Bash'), toolResult('2026-10-25T10:01:01.000Z', 'toolu_1', 'ok')], null, ['{oops', 'nope']]) {
+        const f = fixture();
+        const path = lines === null ? join(f.root, 'missing.jsonl') : f.transcript([]);
+        if (lines !== null) writeFileSync(path, jsonl(lines));
+        assert.deepEqual(sweStopCause(payload(path), f.env), ALLOWED);
+        assert.equal(tokensOf(f), 0);
+      }
+    });
+
+    it('on a DB without the column still records stop_cause and fails nothing', () => {
+      const f = fixture();
+      const d = new DatabaseSync(f.db);
+      d.exec('ALTER TABLE agent_runs DROP COLUMN hook_block_tokens');
+      d.close();
+      assert.deepEqual(sweStopCause(payload(f.transcript(THREE_BLOCKS)), f.env), ALLOWED);
+      assert.deepEqual(f.row(), { stop_cause: 'hook_block', stop_detail: TIMEOUT });
     });
   });
 

@@ -249,17 +249,18 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB: agent_runs ends with nullable stop_cause and stop_detail and tasks with checkpoint (v52)', () => {
+  it('fresh DB: agent_runs ends with nullable stop_cause, stop_detail (v52) and hook_block_tokens (v58) and tasks with checkpoint', () => {
     const db = tempDB();
     const tail = (table: string, n: number) =>
       db
         .all<{ name: string; type: string; notnull: number; dflt_value: unknown }>(`PRAGMA table_info(${table})`)
         .slice(-n)
         .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));
-    assert.deepEqual(tail('agent_runs', 3), [
+    assert.deepEqual(tail('agent_runs', 4), [
       { name: 'plugin_version', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'stop_cause', type: 'TEXT', notnull: 0, dflt_value: null },
       { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
+      { name: 'hook_block_tokens', type: 'INTEGER', notnull: 0, dflt_value: null },
     ]);
     assert.deepEqual(tail('tasks', 3), [
       { name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null },
@@ -288,14 +289,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 57 in plugin_meta', () => {
+  it('fresh DB has schema_version = 58 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 57);
+    assert.equal(meta.schema_version, 58);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
