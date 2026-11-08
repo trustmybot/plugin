@@ -1,6 +1,6 @@
 # Where the trajectory DB lives
 
-One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). `tmb_db_path` in [`scripts/hooks/lib/query-task.sh`](../../scripts/hooks/lib/query-task.sh) is the copy the Codex L5/L6 shell chain sources, and among the shell scripts [`tests/l1-lint/no-private-db-path.sh`](../../tests/l1-lint/no-private-db-path.sh) fails on a third copy.
+One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). The Codex L5/L6 shell chain sources the shim [`scripts/hooks/lib/query-task.sh`](../../scripts/hooks/lib/query-task.sh), whose `tmb_db_path` prints `dbPath` through `dist/cli.js hook-lib db-path`, and among the shell scripts [`tests/l1-lint/no-private-db-path.sh`](../../tests/l1-lint/no-private-db-path.sh) fails on a third copy.
 
 ## Resolution order
 
@@ -19,7 +19,7 @@ Nothing under `$HOME` takes part in the rule.
 
 ## The project root
 
-The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), on both sides: the hooks' `tmb_project_root`, the server's spawn cwd and its tool defaults. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A relative `repos.path` resolves against the project root.
+The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), on both sides: the hooks' `projectRoot` (`src/hooks/lib/db.ts`), the server's spawn cwd and its tool defaults. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A relative `repos.path` resolves against the project root.
 
 ## Who opens and migrates it
 
@@ -33,7 +33,7 @@ Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`
 
 `/onboard` Round 0 shows the same list (`onboard_state_get` → `nesting`). When the session sits below the project root, or another DB exists, it asks whether to use the workspace, make the session directory its own project (`onboard_apply(standalone=true)` writes the `standalone` marker and a fresh DB there, then the session must restart), or cancel. On the workspace answer it offers to remove each empty stray DB (`onboard_apply(remove_stray_dbs=[…])`); a DB with any issue or task is never removed.
 
-`<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset). The `.claude` host directory is one variable in each implementation (`TMB_STATE_HOST_DIR` in the hook lib, `CLAUDE_STATE_HOST_DIR` in `platform.ts`).
+`<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset). The `.claude` host directory is one variable in each implementation (`TMB_STATE_HOST_DIR` in `src/hooks/lib/project-env.ts`, `CLAUDE_STATE_HOST_DIR` in `platform.ts`).
 
 ## What the hooks do with the result
 
@@ -43,4 +43,4 @@ Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`
 | `ok` | The DB answers a read | Decide normally | Run normally |
 | `error` | The DB resolved but the read failed — busy, corrupt, or unreadable | Deny with `BLOCKED: trajectory DB unavailable — <hook> could not read <path> …` in the gate's normal deny format | Allow, print one stderr line |
 
-Deny-capable gates read through `tmb_gate_read`, which prints `__ERR__` on a sqlite3 failure so "no rows" and "DB unavailable" never look alike.
+Deny-capable gates read through `gateRead` (`src/hooks/lib/db.ts`), which returns `__ERR__` on a sqlite3 failure so "no rows" and "DB unavailable" never look alike.

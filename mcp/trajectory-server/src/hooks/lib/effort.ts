@@ -1,5 +1,5 @@
 /**
- * TypeScript port of query-task.sh's tmb_effort_defaults (GH 1692). The
+ * TypeScript port of the former shell lib query-task.sh's effort defaults (GH 1692). The
  * server's twin is resolveEffortDefaults in src/tools/config.ts.
  */
 import { gateRead, GATE_READ_ERROR, sqlInt } from './db.js';

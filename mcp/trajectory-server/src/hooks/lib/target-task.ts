@@ -1,7 +1,7 @@
 /**
- * The target-to-task helpers of scripts/hooks/lib/query-task.sh and
- * cmd-analysis.sh (GH 1692): tmb_worktree_root_for_target,
- * tmb_resolve_task_id_for_target and tmb_path_digest.
+ * The target-to-task helpers ported from the former shell libs query-task.sh
+ * and cmd-analysis.sh (GH 1692): worktreeRootForTarget,
+ * resolveTaskIdForTarget and pathDigest.
  */
 import { createHash } from 'node:crypto';
 import { pathCanonical } from './agent-context.js';

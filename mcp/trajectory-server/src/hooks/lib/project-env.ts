@@ -1,5 +1,5 @@
 /**
- * The project-environment half of scripts/hooks/lib/query-task.sh (GH 1692):
+ * The project-environment half of the former shell lib query-task.sh (GH 1692):
  * the state host dir, the DB filename, the plugin name and the paths the .sh
  * reads from CLAUDE_PROJECT_DIR, HOME and the shell's working directory, each
  * resolved from the `env` a caller passes (process.env in a gate).

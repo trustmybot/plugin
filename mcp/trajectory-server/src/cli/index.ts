@@ -2,7 +2,8 @@
  * Entry of dist/cli.js (GH 1692), the MCP-down fallbacks, the health check,
  * bro's integrate, the assert-sql verification check, the prompt-author-lint
  * pre-write lint, the stale-docs pre-close check and the Human-run maintenance tools (heal-mcp-cache,
- * trajectory-doctor, backfill-agent-runs) run with
+ * trajectory-doctor, backfill-agent-runs) and the hook-lib answers the L5/L6
+ * shell shims ask for run with
  * `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" <subcommand> ...`.
  * They read and write the trajectory DB through node:sqlite and never need the
  * server process. SIGINT and SIGTERM exit 130 and 143 as the shell traps did,
@@ -15,6 +16,7 @@ import { broSqliteReadonly } from './bro-sqlite-readonly.js';
 import type { CliIo } from './fallback-db.js';
 import { healMcpCache } from './heal-mcp-cache.js';
 import { health } from './health.js';
+import { hookLib } from './hook-lib.js';
 import { integrate } from './integrate.js';
 import { promptAuthorLint } from './prompt-author-lint.js';
 import { staleDocs } from './stale-docs.js';
@@ -29,6 +31,7 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   'bro-sqlite-readonly': broSqliteReadonly,
   'heal-mcp-cache': healMcpCache,
   health,
+  'hook-lib': hookLib,
   integrate,
   'prompt-author-lint': promptAuthorLint,
   'stale-docs': staleDocs,
