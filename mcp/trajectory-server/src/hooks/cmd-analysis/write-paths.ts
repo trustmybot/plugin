@@ -44,8 +44,13 @@ const PROG_DIR = '/.tmb-prog-dir';
 const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
 const WATCH_VALUE = /^(-[A-Za-z]*[nq]|--interval|--equexit)$/;
 const BODY_UNRESOLVED = /^UNRESOLVED:(?!\$\(|PWD:)/;
-/** Text that may run something after the command's last statement: a background `&`, a process substitution, `trap`, `coproc` or `setsid` (GH 1789). */
-const RUNS_LATER = /(^|[^&>|<])&(?![&>])|[<>]\(|\b(trap|coproc|setsid)\b/;
+/**
+ * Text that may run something after the command's last statement starts: a
+ * background `&`, a pipe `|` or `|&` (every stage runs at once), a process
+ * substitution, `trap`, `coproc`, `setsid` or a launcher that starts a job
+ * detached or on a schedule (GH 1789).
+ */
+const RUNS_LATER = /(^|[^&>|<])&(?![&>])|(^|[^|>])\|(?!\|)|[<>]\(|\b(trap|coproc|setsid|at|batch|tmux|screen|systemd-run|daemonize|start-stop-daemon)\b/;
 const MKTEMP_TEMPLATE = /^[A-Za-z0-9._-]*XXX+$/;
 const MKTEMP_PATH = /^\/[^\s*?[\]{}~$`\\\x00-\x1f\x7f]*$/;
 /** The options that make an interpreter print information and exit, judged only among its own options. */

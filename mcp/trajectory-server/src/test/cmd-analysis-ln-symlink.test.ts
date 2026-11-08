@@ -4,8 +4,9 @@
  * operand, the -t / --target-directory value or ./<basename TARGET> for a
  * single operand, with no TARGET-derived path. TARGET is still judged where a
  * later write could go through the link: a statement after the ln, something
- * that may run after the command (a background job, a trap, a process
- * substitution), a nested shell body, a hard link, or an option word after an
+ * that may run after the command (a background job, a pipeline stage, a
+ * trap, a process substitution, a coprocess), a nested shell body, a hard
+ * link, or an option word after an
  * operand, which BSD ln reads as an operand.
  */
 import { describe, it } from 'node:test';
@@ -28,6 +29,8 @@ const LINK_ONLY: ReadonlyArray<readonly [string, string[]]> = [
   ['ln -s -- /a -l', ['/w/-l']],
   ['cd sub && ln -s /o/x link', ['/w/sub/link']],
   ['ln -s /o link >/dev/null 2>&1', ['/dev/null', '/w/link']],
+  ['true || ln -s /o link', ['/w/link']],
+  ['ln -s /o link >| out', ['/w/out', '/w/link']],
 ];
 
 const TARGET_KEPT: ReadonlyArray<readonly [string, string]> = [
@@ -36,6 +39,15 @@ const TARGET_KEPT: ReadonlyArray<readonly [string, string]> = [
   ['ln -s /o link | cat', 'a pipeline after it'],
   ['for i in 1; do ln -s /o link; done', 'a loop around it'],
   ['(sleep 1; echo x > link/f) & ln -s /o link', 'a background job'],
+  ['(sleep 1; echo x > link/f) | ln -s /o link', 'a subshell pipeline stage before it'],
+  ['{ sleep 1; echo x > link/f; } | ln -s /o link', 'a group pipeline stage before it'],
+  ['while sleep 1; do echo x > link/f; done | ln -s /o link', 'a loop pipeline stage before it'],
+  ['(sleep 1; echo x > link/f) |& ln -s /o link', 'a |& pipeline stage before it'],
+  ['sleep 1 | ln -s /o link', 'a command pipeline stage before it'],
+  ['coproc { sleep 1; echo x > link/f; }; ln -s /o link', 'a coprocess'],
+  ['sleep 1 & wait; ln -s /o link', 'a background job and wait'],
+  ['tmux new -d "sleep 1; echo x > link/f"; ln -s /o link', 'a detached tmux session'],
+  ['at now <<< "echo x > link/f"; ln -s /o link', 'an at job'],
   ["trap 'echo x > link/f' EXIT; ln -s /o link", 'an EXIT trap'],
   ['cat <(sleep 1) ; ln -s /o link', 'a process substitution'],
   ["bash -c 'ln -s /o link'", 'a bash -c body'],
