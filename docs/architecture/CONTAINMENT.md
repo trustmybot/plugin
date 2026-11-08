@@ -75,7 +75,7 @@ The invariant above covers what TMB itself writes. The agents it runs are held t
 |---|---|
 | The run's root — a swe's own task worktree (none until its run is bound), else the project | The work itself |
 | `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) | The shared embedding model cache, the one TMB path outside the project |
-| Host-owned: the host's temp dir, `$TMPDIR` when the host sets it, and its realpath | Ephemeral space the Claude Code sandbox itself leaves writable (`/tmp/claude-<uid>`). `/tmp` outside it is denied. TMB's own scripts and server never write there (`no-home-writes.sh`). |
+| Host-owned: the host's temp dir, `$TMPDIR` when the host sets it, and its realpath | Ephemeral space the Claude Code sandbox itself leaves writable (`/tmp/claude-<uid>`). `/tmp` outside it is denied. TMB's own scripts and server never write there (`no-home-writes.test.mjs`). |
 | Host-owned: the harness's `/tmp/claude-<uid>` (`<uid>` from `id -u`), whatever `$TMPDIR` the hook sees | Claude Code's per-user temp root, which holds its scratchpad dirs. Since `/tmp` is shared, an existing one counts only when it is a real dir the user owns, not a symlink. A sibling such as `/tmp/claude-<uid>-x` is not covered. |
 | Sanctioned scratch inside the root: `<root>/.claude/tmb/scratch/` | Throwaway scripts, logs and data dumps; prose files are denied by the no-prose-in-scratch gate. It is under the run's root, so containment allows it already; `no-source-edit-from-main` also exempts it, and deny messages from both hooks name it. `.claude/scratch/` and other paths stay under the normal rules. |
 | Host-owned, **main session only**: Claude Code's per-project dir `~/.claude/projects/<slug>/` (the project path with every non-alphanumeric character turned into `-`, e.g. `-Users-Zax-Git-GitHub-TMB`) and its plans dir `~/.claude/plans/` (`$CLAUDE_CONFIG_DIR` replaces `~/.claude` when set) | Claude Code's own state — auto-memory, session files, plan mode — not TMB's artifacts. Allowed when no `agent_type` (or `bro`) is on the payload, wherever its cwd is; swe, code-reviewer and consultants keep the strict rule. Every other path under `~/.claude`, and another project's slug, stays denied. |
@@ -125,7 +125,7 @@ The keys are `sandbox.enabled` and `sandbox.filesystem.allowWrite` (siblings `de
 
 | Check | What it fails on |
 |---|---|
-| [`tests/l1-lint/no-home-writes.sh`](../../tests/l1-lint/no-home-writes.sh) | Any write under the home directory from `scripts/`, `skills/*/scripts/` or the server |
+| [`tests/l1-lint/no-home-writes.test.mjs`](../../tests/l1-lint/no-home-writes.test.mjs) | Any write under the home directory from `scripts/`, `skills/*/scripts/` or the server |
 | [`tests/l1-lint/no-unpinned-scan-in-tests.test.mjs`](../../tests/l1-lint/no-unpinned-scan-in-tests.test.mjs) | A unit test file under `mcp/trajectory-server/src/test/` that references `walkProject`, `scan_run` or `project_scan` without, outside comments, a `pinScanEnv(` call or a `TRAJECTORY_DB_PATH` assignment (a mention is not a pin) |
 | Resolver rule (`dbPath`, [`src/test/db-resolver-l3.test.ts`](../../mcp/trajectory-server/src/test/db-resolver-l3.test.ts)) | A DB resolved by walking up while `TMB_FORBID_LIVE_SYNC=1` or `TMB_TEST_RUN_ID` is set and neither `TRAJECTORY_DB_PATH` nor `CLAUDE_PROJECT_DIR` is |
 | [`src/test/hook-onfailure.test.ts`](../../mcp/trajectory-server/src/test/hook-onfailure.test.ts) | A deny-capable hooks.json registration without `"onFailure": "block"`, (warns on an observe-only one that carries the key) |

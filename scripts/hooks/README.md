@@ -33,7 +33,7 @@ Every gate is TypeScript (GH 1692); macOS is the bar.
 ### SessionStart — preflight
 `ensure-gitignore`, `mcp-health-check`, `deferred-tools-drift-warn`, `plugin-hooks-marker`, `session-start-persona`, `session-start-prescan`, `ensure-mcp-deps-installed`, `substrate-preflight`, `orphan-scan` — make sure the gitignore, MCP server, its `@huggingface/transformers` runtime dependency, and required host binaries are in place before a session does real work, inject bro's persona (the plugin's `CLAUDE.md`, which Claude Code never loads itself, shared with `user-prompt-persona` through `src/hooks/lib/persona.ts`; neither hook writes the project's `CLAUDE.md`), mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about pre-1.1.0 TMB hooks left in `~/.claude/settings.json` (the prescan's `Plugin:` line), and say once per session when a user-scope install is ignored for the project's (or recommend `--scope project` when only a user-scope install exists).
 
-Every file a hook writes lives under `<project>/.claude/<plugin>/` (logs, locks, session markers); nothing is written under `$HOME` (`tests/l1-lint/no-home-writes.sh`).
+Every file a hook writes lives under `<project>/.claude/<plugin>/` (logs, locks, session markers); nothing is written under `$HOME` (`tests/l1-lint/no-home-writes.test.mjs`).
 
 #### `orphan-scan` — project-scoped cross-upgrade orphan scan
 

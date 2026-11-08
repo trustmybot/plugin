@@ -51,7 +51,7 @@ Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the projec
 | `.claude/tmb/resolve-hook.mjs` | `onboard_apply`, on **Yes** to the headless-enforcement consent | The resolver the shim entries call |
 | `.gitignore` (one `.claude/settings.local.json` line) | `onboard_apply`, when it creates `settings.local.json` in a git work tree that does not ignore it | Keeps the local settings file out of commits (below) |
 
-Nothing is written under `~/.claude` or anywhere else in your home directory. The one path outside the project is the embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) — a shared, re-downloadable cache. `tests/l1-lint/no-home-writes.sh` enforces this; [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md) is the full rule.
+Nothing is written under `~/.claude` or anywhere else in your home directory. The one path outside the project is the embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) — a shared, re-downloadable cache. `tests/l1-lint/no-home-writes.test.mjs` enforces this; [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md) is the full rule.
 
 ## What `/onboard` writes
 
