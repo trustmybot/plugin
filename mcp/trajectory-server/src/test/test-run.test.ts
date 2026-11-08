@@ -6,7 +6,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +36,7 @@ function fixture(output: string, rc = 0): string {
 
 function run(command: string, extra: string[] = []): Run {
   const logPath = join(dir, `run-${n++}.log`);
-  const res = spawnSync(process.execPath, [WRAPPER, '--log', logPath, ...extra, '--', command], {
+  const res = spawnSync(process.execPath, [WRAPPER, '--log', logPath, ...extra, '--', 'bash', '-c', command], {
     cwd: dir,
     encoding: 'utf8',
   });
@@ -306,6 +306,39 @@ describe('test-run wrapper', () => {
     );
     assert.ok(SUMMARY_RE.test(res.stdout.trim().split('\n')[0]!));
     assert.deepEqual(JSON.parse(readFileSync(logPath, 'utf8').trim()), [arg]);
+  });
+
+  it('runs a one-word argv directly, with no shell (GH 2438)', () => {
+    const script = join(dir, 'has space.sh');
+    writeFileSync(script, '#!/bin/sh\nprintf ran\n');
+    chmodSync(script, 0o755);
+    for (const [program, rc] of [[script, 0], ['true', 0], ['false', 1]] as const) {
+      const logPath = join(dir, `run-${n++}.log`);
+      const res = spawnSync(process.execPath, [WRAPPER, '--log', logPath, '--', program], { cwd: dir, encoding: 'utf8' });
+      assert.equal(res.status, rc, `${program}: ${res.stderr}`);
+      assert.match(res.stdout, new RegExp(`^test-run: exit=${rc} `));
+      if (program === script) assert.equal(readFileSync(logPath, 'utf8'), 'ran');
+    }
+  });
+
+  it('refuses a shell builtin or assignment as argv[0] with exit 2 and the bash -c hint, spawning nothing (GH 2438)', () => {
+    for (const args of [['FOO=1', 'true'], ['exit', '3'], ['cd', '/'], ['source', 'x.sh']]) {
+      const logPath = join(dir, `run-${n++}.log`);
+      const res = spawnSync(process.execPath, [WRAPPER, '--log', logPath, '--', ...args], { cwd: dir, encoding: 'utf8' });
+      assert.equal(res.status, 2, `args ${JSON.stringify(args)}`);
+      assert.ok(res.stderr.includes("use -- bash -c '<cmd>' for shell syntax"), res.stderr);
+      assert.equal(res.stdout, '');
+      assert.equal(existsSync(logPath), false);
+    }
+  });
+
+  it('exits 127 on a missing program and prints the bash -c hint to stderr and the log (GH 2438)', () => {
+    const logPath = join(dir, `run-${n++}.log`);
+    const res = spawnSync(process.execPath, [WRAPPER, '--log', logPath, '--', 'gh2438-no-such-cmd'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(res.status, 127);
+    assert.match(res.stdout, /^test-run: exit=127 /);
+    assert.match(res.stderr, /gh2438-no-such-cmd \(ENOENT\); use -- bash -c '<cmd>' for shell syntax/);
+    assert.match(readFileSync(logPath, 'utf8'), /gh2438-no-such-cmd \(ENOENT\); use -- bash -c '<cmd>' for shell syntax/);
   });
 
   it('writes the default log under the temp dir', () => {
