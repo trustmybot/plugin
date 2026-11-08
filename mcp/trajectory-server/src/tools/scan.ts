@@ -969,7 +969,7 @@ export function scanTools(
             type: 'string',
             enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan, a full rebuild of every repo; bro_auto_post_close = the run-scan.mjs invoker\'s default source; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server\'s connect-time catch-up, which on a warm DB runs each known repo\'s incremental reindex to its target commit (a full rebuild only when the stamp is NULL, unreachable or from another extractor or schema) instead of walking the workspace. Reads and task spawns reindex on their own and need no scan. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace. Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],

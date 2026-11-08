@@ -1152,7 +1152,7 @@ export function worldModelTools(
         'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
         'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
         'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null. ' +
-        'Each read first brings the repo index to its target (origin/<target>, else HEAD): indexed_commit, target_commit; stale:true (and files[].stale) when another session holds the reindex.',
+        'Reads reindex to the target first: indexed_commit, target_commit; stale:true (+files[].stale) while another session reindexes.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1212,7 +1212,7 @@ export function worldModelTools(
     {
       name: 'world_model_search',
       description:
-        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a hit has stale: true when its file is not yet indexed at its commit or another session is reindexing it. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
+        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a hit has stale: true while its file awaits reindex. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1244,7 +1244,7 @@ export function worldModelTools(
       name: 'world_model_symbol',
       description:
         "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
-        "note: by-name resolution, lists may be incomplete. symbol.stale: another session is still reindexing its file; indexed_commit, target_commit: the commit the card is from and the read's target. impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
+        "note: by-name resolution, lists may be incomplete. symbol.stale: its file awaits reindex; indexed_commit/target_commit: the card's and the read's commit. impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
         "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag).",
       inputSchema: {
         type: 'object',

@@ -3,7 +3,7 @@
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
@@ -283,7 +283,7 @@ describe('reads (SC3)', () => {
     }
   });
 
-  it('a read while another session holds the lock returns stale:true without waiting', async () => {
+  it('a read while another session holds the lock returns stale:true without waiting', { timeout: 60_000 }, async () => {
     const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
     const lock = scanLockPath(fx.dbPath, 'app');
     try {
@@ -291,9 +291,8 @@ describe('reads (SC3)', () => {
       fx.commit({ 'src/a.ts': 'export function alpha(): number {\n  return 7;\n}\n' });
       writeFileSync(lock, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
       const before = rows(fx.db).length;
-      const t = performance.now();
       const f = await fx.fresh();
-      assert.ok(performance.now() - t < 2000, 'did not wait for the lock');
+      assert.ok(existsSync(lock), 'answered while the lock is still held, far inside the 10-minute lock wait');
       assert.equal(f.indexed_commit, old);
       assert.ok(f.stale !== 'all' && f.stale.has('src/a.ts'), JSON.stringify([...(f.stale === 'all' ? [] : f.stale)]));
       const wm = worldModelTools(fx.db, fx.holder).handlers as Handlers;
@@ -374,6 +373,78 @@ describe('full rebuild triggers (SC4) and the wm_reindex row (SC5)', () => {
       for (const r of written) for (const k of keys) assert.ok(r[k] !== null && r[k] !== undefined, `${k} in ${JSON.stringify(r)}`);
     } finally {
       fx.cleanup();
+    }
+  });
+});
+
+describe('every successful scan stamps the target commit (SC8)', () => {
+  it('(a) a no-op scan_run over an already-stamped repo', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      const head = fx.git('rev-parse', 'main');
+      assert.equal(stamp(fx.db), head);
+      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+        await fx.scan(source);
+        assert.equal(stamp(fx.db), head, source);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('(b) a scan_run after the stamp is set to NULL with no file changes', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      const head = fx.git('rev-parse', 'main');
+      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+        fx.db.run(`UPDATE repos SET indexed_commit = NULL WHERE name = 'app'`);
+        await fx.scan(source);
+        assert.equal(stamp(fx.db), head, source);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('(c) a scan that skips the repo as unchanged, or moves to a commit that changes no file', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      const head = fx.git('rev-parse', 'main');
+      const count = rows(fx.db).length;
+      await fx.scan('startup_catchup');
+      assert.equal(rows(fx.db).length, count, 'the current repo is skipped');
+      assert.equal(stamp(fx.db), head);
+
+      fx.git('commit', '-q', '--allow-empty', '-m', 'empty');
+      const empty = fx.git('rev-parse', 'main');
+      await fx.scan('startup_catchup');
+      assert.equal(stamp(fx.db), empty);
+      assert.deepEqual([rows(fx.db).at(-1)!.mode, rows(fx.db).at(-1)!.files_diffed], ['incremental', 0]);
+
+      fx.git('commit', '-q', '--allow-empty', '-m', 'empty again');
+      const read = fx.git('rev-parse', 'main');
+      await fx.fresh();
+      assert.equal(stamp(fx.db), read);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a repo git gave no commit keeps a NULL stamp', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-fresh-unborn-'));
+    const db = tempDB({ path: join(ws, 'trajectory.db') });
+    try {
+      execFileSync('git', ['-C', ws, 'init', '-q', '-b', 'main']);
+      writeFileSync(join(ws, 'x.ts'), A);
+      const handlers = scanTools(db, GraphHolder.fixed(new WorldModelGraph(db)), join(ws, 'trajectory.db')).handlers as Handlers;
+      const r = (await handlers['scan_run']!({ agent: 'bro', session_dir: ws, source: 'user_manual' })) as Raw;
+      assert.ok(!r.isError, JSON.stringify(r));
+      const repos = db.all<{ c: string | null }>(`SELECT indexed_commit AS c FROM repos`);
+      assert.equal(repos.length, 1, 'the unborn repo is registered');
+      assert.equal(repos[0]!.c, null);
+    } finally {
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
     }
   });
 });

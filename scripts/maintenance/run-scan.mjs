@@ -67,6 +67,11 @@ async function main() {
       return;
     }
     const summary = JSON.parse(result.content[0].text);
+    if (summary.repos_discovered === undefined) {
+      const repos = (summary.repos ?? []).map((r) => `${r.repo}@${r.indexed_commit?.slice(0, 12) ?? 'none'} (${r.mode ?? 'current'})`);
+      console.error(`${TAG} OK — caught up ${repos.length} repos: ${repos.join(', ')}`);
+      return;
+    }
     console.error(
       `${TAG} OK — discovered ${summary.repos_discovered} repos, ` +
         `upserted ${summary.repos_upserted}, retired ${summary.repos_retired ?? 0}; ` +
