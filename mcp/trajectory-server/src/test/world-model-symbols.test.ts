@@ -139,6 +139,27 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.deepEqual(symbolRows(db, repo), before);
   });
 
+  it('the inline task_reopen handler in composites.ts is a tool:task_reopen symbol calling ensureTaskWorktree (GH 1970)', () => {
+    const row = db.get<{ id: number; path: string; kind: string }>(
+      `SELECT id, path, kind FROM wm_symbols WHERE repo = ? AND qualified_name = 'tool:task_reopen'`,
+      [repo],
+    );
+    assert.ok(row, 'tool:task_reopen is indexed');
+    assert.equal(row.path, 'mcp/trajectory-server/src/tools/composites.ts');
+    assert.equal(row.kind, 'function');
+    const n = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'ensureTaskWorktree'`,
+      [row.id],
+    )!.n;
+    assert.ok(n >= 1, 'tool:task_reopen calls ensureTaskWorktree');
+    const caller = db.get<{ qualified_name: string }>(
+      `SELECT s.qualified_name FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE e.dst_id = ? AND e.kind = 'calls'`,
+      [row.id],
+    );
+    assert.equal(caller?.qualified_name, 'compositeTools');
+  });
+
   it('world_model_search returns symbol hits with id, qualified_name, path, line_start and signature', async () => {
     const wm = worldModelTools(db, holder).handlers;
     const out = parse<{ results: Payload[] }>(
@@ -1027,7 +1048,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 13);
+      assert.equal(EXTRACTOR_VERSION, 14);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1866,8 +1887,8 @@ describe('member calls skip named-import and sourced-file binding (GH 2472)', ()
     assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
   });
 
-  it('the extractor version is 13', () => {
-    assert.equal(EXTRACTOR_VERSION, 13);
+  it('the extractor version is 14', () => {
+    assert.equal(EXTRACTOR_VERSION, 14);
   });
 });
 
@@ -2342,5 +2363,107 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
     await scan(db, holder, ws);
     assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
     assert.equal(await noteOf('readItems'), undefined);
+  });
+});
+
+describe('inline self-naming tool handlers are tool:<name> symbols (GH 1970)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-tools-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const TOOLS_TS = [
+    'function helper(): void {}',
+    'function go(): void {}',
+    'function x(): void {}',
+    'export function tools() {',
+    '  return {',
+    '    foo_bar: requireRoles(',
+    "      'foo_bar',",
+    "      ['bro'],",
+    '      wrap(async () => {',
+    '        helper();',
+    '      }),',
+    '    ),',
+    "    task_reopen: wrap('task_reopen', () => go()),",
+    '    onClick: debounce(() => go()),',
+    "    a: wrap('b', () => x()),",
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+
+  before(async () => {
+    mkdirSync(join(root, 'src/test'), { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'src/tools.ts'), TOOLS_TS);
+    writeFileSync(join(root, 'src/test/tools.test.ts'), "import { tools } from '../tools.js';\nit('x', () => { tools(); });\n");
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const row = (name: string) =>
+    db.get<{ id: number; kind: string; start_line: number; end_line: number; signature: string }>(
+      `SELECT id, kind, start_line, end_line, signature FROM wm_symbols WHERE repo = 'app' AND qualified_name = ?`,
+      [name],
+    );
+
+  it('a pair whose call chain names its key and holds a closure is a function symbol spanning the pair, calling helper', () => {
+    const sym = row('tool:foo_bar');
+    assert.ok(sym, 'tool:foo_bar is indexed');
+    assert.deepEqual({ kind: sym.kind, start_line: sym.start_line, end_line: sym.end_line, signature: sym.signature }, {
+      kind: 'function',
+      start_line: 6,
+      end_line: 12,
+      signature: 'foo_bar: requireRoles(',
+    });
+    const edge = db.get<{ dst_id: number | null; resolution: string }>(
+      `SELECT dst_id, resolution FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'helper'`,
+      [sym.id],
+    );
+    assert.deepEqual({ ...edge }, { dst_id: row('helper')!.id, resolution: 'exact' });
+  });
+
+  it('the enclosing function calls the tool: symbol, so a handler-only helper keeps its transitive callers and tests', async () => {
+    const edge = db.get<{ dst_id: number | null; resolution: string }>(
+      `SELECT dst_id, resolution FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'tool:foo_bar'`,
+      [row('tools')!.id],
+    );
+    assert.deepEqual({ ...edge }, { dst_id: row('tool:foo_bar')!.id, resolution: 'exact' });
+    const wm = worldModelTools(db, holder).handlers;
+    const card = parse<{ impact: { levels: Array<{ refs: Payload[] }>; tests: Payload[] } }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'helper', impact: 3 })) as CallToolResult,
+    );
+    const levels = card.impact.levels.map((l) => l.refs.map((r) => r['qualified_name']));
+    assert.deepEqual(levels.slice(0, 2), [['tool:foo_bar'], ['tools']]);
+    assert.ok(
+      card.impact.tests.some((t) => t['path'] === 'src/test/tools.test.ts'),
+      JSON.stringify(card.impact.tests),
+    );
+  });
+
+  it('a pair with no string literal, or a literal other than its key, is no tool: symbol', () => {
+    const tools = db
+      .all<{ qualified_name: string }>(`SELECT qualified_name FROM wm_symbols WHERE repo = 'app' AND qualified_name LIKE 'tool:%' ORDER BY qualified_name`)
+      .map((r) => r.qualified_name);
+    assert.deepEqual(tools, ['tool:foo_bar', 'tool:task_reopen']);
+  });
+
+  it('a keyword search for the tool name returns the tool: symbol', async () => {
+    const wm = worldModelTools(db, holder).handlers;
+    const out = parse<{ results: Payload[] }>(
+      (await wm['world_model_search']!({ agent: 'bro', repo: 'app', query: 'task_reopen', mode: 'keyword', k: 10 })) as CallToolResult,
+    );
+    assert.ok(
+      out.results.some((r) => r['kind'] === 'symbol' && r['qualified_name'] === 'tool:task_reopen'),
+      JSON.stringify(out.results),
+    );
   });
 });
