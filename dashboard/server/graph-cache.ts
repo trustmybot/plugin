@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { graph, graphRollup, graphTarget } from './queries.ts';
 
@@ -54,10 +54,14 @@ export function graphStamp(db: DatabaseSync, repo: string): string {
   return `e${part('em')}.${part('ec')}-s${part('sm')}.${part('sc')}-f${part('files')}-t${part('scanned')}-v${String(version ?? '')}`;
 }
 
-// The body also lists every repo, so the tag carries a hash of that list.
+// The body also lists every repo, so the tag carries a hash of that list. The
+// per-process nonce keeps a restarted server (maybe a new body shape) on an
+// unchanged DB from answering a client's old tag with a stale 304.
+const PROCESS_NONCE = randomUUID().slice(0, 8);
+
 export function graphEtag(repo: string, stamp: string, repos: string[]): string {
   const list = createHash('sha1').update(repos.join('\n')).digest('hex').slice(0, 8);
-  return `"${encodeURIComponent(repo)}@${encodeURIComponent(stamp)}.${list}"`;
+  return `"${encodeURIComponent(repo)}@${encodeURIComponent(stamp)}.${list}.${PROCESS_NONCE}"`;
 }
 
 // RFC 9110 If-None-Match: `*`, or a list of entity tags compared weakly.
