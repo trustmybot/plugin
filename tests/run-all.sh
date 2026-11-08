@@ -236,6 +236,7 @@ live_cli_check "L2" || FAIL=1
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  node "$HERE/l3-integration/mcp/run.mjs"
 run_step "L3 integration: L5 scorer unit tests"                      node --experimental-strip-types --experimental-sqlite --test "$HERE/l5-l6/lib/scorers.test.ts"
 run_step "L3 integration: L5/L6 helper libs (TS)"                     node --experimental-strip-types --experimental-sqlite --test "$HERE/l5-l6/lib/flow-helpers.test.ts" "$HERE/l5-l6/lib/l6-chain-helpers.test.ts" "$HERE/l5-l6/lib/sandbox.test.ts" "$HERE/l5-l6/lib/smoke-helpers.test.ts" "$HERE/l5-l6/lib/timeout.test.ts"
+run_step "L3 integration: L5 runner (run-l5.ts, stub claude)"         node --experimental-strip-types --experimental-sqlite --test "$HERE/l5-l6/run-l5.test.ts"
 run_step "L3 integration: L6 chain runner (TS)"                      node --experimental-strip-types --experimental-sqlite --test "$HERE/l5-l6/run-l6-chain.test.ts"
 run_step "L3 integration: sandbox network probe + inspect-trajectory" node --experimental-strip-types --test "$HERE/l5-l6/probes/sandbox-network-probe.test.ts" "$HERE/l5-l6/inspect-trajectory.test.ts"
 run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
