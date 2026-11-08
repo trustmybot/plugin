@@ -21,6 +21,7 @@ import {
   parseSkipDirs,
   parseTaskRow,
   postAtomicCloseReadme,
+  SKIP_DIRS_KEY,
   touchedDirs,
 } from '../hooks/post-atomic-close-readme.js';
 import { buildSandbox, commit, GIT_ENV, initRepo, resetDb, trajectoryDb } from './hooks-readme-staleness-parity.suite.js';
@@ -239,8 +240,8 @@ describe('post-atomic-close-readme scope and cap (GH 1965)', { skip: !GIT && 'ne
   const setSkipDirs = (valueJson: string | null): void => {
     const d = new DatabaseSync(db);
     try {
-      d.prepare("DELETE FROM plugin_config WHERE key = 'readme_nudge_skip_dirs'").run();
-      if (valueJson !== null) d.prepare("INSERT INTO plugin_config (key, value_json) VALUES ('readme_nudge_skip_dirs', ?)").run(valueJson);
+      d.prepare('DELETE FROM plugin_config WHERE key = ?').run(SKIP_DIRS_KEY);
+      if (valueJson !== null) d.prepare('INSERT INTO plugin_config (key, value_json) VALUES (?, ?)').run(SKIP_DIRS_KEY, valueJson);
       d.prepare("DELETE FROM audit WHERE event_type = 'readme_staleness_surfaced'").run();
     } finally {
       d.close();

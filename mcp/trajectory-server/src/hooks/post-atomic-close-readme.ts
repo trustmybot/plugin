@@ -37,7 +37,8 @@ export const GATE_NAME = 'post-atomic-close-readme';
 export const BYPASS_ENV = 'TMB_DISABLE_README_STALENESS_HOOK';
 const ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 const ROOT_DIR = '.';
-const SKIP_DIRS_SQL = "SELECT value_json FROM plugin_config WHERE key = 'readme_nudge_skip_dirs';";
+export const SKIP_DIRS_KEY = 'readme_nudge_skip_dirs';
+const SKIP_DIRS_SQL = `SELECT value_json FROM plugin_config WHERE key = '${SKIP_DIRS_KEY}';`;
 export const DEFAULT_SKIP_DIRS: readonly string[] = ['dist', 'build', 'changelog.d', 'fixtures', 'test', 'tests', '__tests__', 'node_modules'];
 export const NUDGE_DIR_CAP = 10;
 
