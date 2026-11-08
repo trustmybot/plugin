@@ -5,6 +5,7 @@ export const SECTIONS = [
   ['cost', 'Cost'],
   ['time', 'Time'],
   ['quality', 'Quality'],
+  ['efficiency', 'Efficiency'],
   ['throughput', 'Throughput'],
   ['explore', 'Explore'],
 ] as const;
@@ -87,7 +88,7 @@ export type FilterKey = (typeof FILTER_KEYS)[number];
 
 export const FILTER_LABELS: Record<FilterKey, string> = { repo: 'Repo', agent: 'Agent', model: 'Model', effort: 'Effort' };
 
-export const TASK_LEVEL_SECTIONS: ReadonlySet<string> = new Set(['quality', 'throughput']);
+export const TASK_LEVEL_SECTIONS: ReadonlySet<string> = new Set(['quality', 'efficiency', 'throughput']);
 export const AGENT_LEVEL_FILTERS: readonly FilterKey[] = ['agent', 'model'];
 
 export interface InsightParams {
@@ -201,6 +202,32 @@ export const periodUnpriced = (n: 1 | 2, count: number) =>
 export const NAME_HEADER = 'Name';
 export const pairText = (label: string, v1: string, v2: string) => `${label}: ${periodName(1)} ${v1}, ${periodName(2)} ${v2}`;
 
+// pm decision 2211 and frontend decision 2212: every Token Efficiency string.
+export const EFFICIENCY_TITLE = 'Token Efficiency';
+export const EFFICIENCY_SUBTITLE = 'What each changed line cost, and how much went to rework.';
+export const BY_TYPE = 'By Task Type';
+export const BY_WEEK = 'By Week';
+export const TYPE_HEADER = 'Type';
+export const WEEK_HEADER = 'Week';
+export const weekOf = (day: string) => `Week of ${day}`;
+export const EFFICIENCY_COLUMNS = {
+  n: { header: 'Tasks', title: 'Tasks finished in this group.' },
+  first_pass_rate: { header: 'First Pass %', title: 'Share of tasks done in one swe run with no failed code review.' },
+  fp_tok_line: { header: 'Tokens/Line', title: 'Tokens per changed line on first-pass tasks, as total tokens over total lines.' },
+  fp_tok_line_median: { header: 'Median', title: 'Tokens per changed line of the middle first-pass task.' },
+  rw_tok_line: { header: 'Rework Tokens/Line', title: 'Tokens per changed line on tasks that needed another swe run or failed code review.' },
+  rw_tok_line_median: { header: 'Median', title: 'Tokens per changed line of the middle reworked task.' },
+  rework_share: { header: 'Rework Cost %', title: "Share of the group's cost spent on reworked tasks, with tokens weighted by price." },
+  cache_hit: { header: 'Cache-Hit %', title: 'Share of context tokens served from cache, which costs far less than fresh input.' },
+  fp_sec_line: { header: 'Sec/Line', title: 'Wall-clock seconds per changed line on first-pass tasks.' },
+  rw_sec_line: { header: 'Rework Sec/Line', title: 'Wall-clock seconds per changed line on reworked tasks.' },
+} as const;
+export const FEW_TASKS = 'Few tasks';
+export const FEW_TASKS_TITLE = 'Fewer than 3 tasks, so treat these numbers as rough.';
+export const FEW_CAPTION = 'Groups with fewer than 3 tasks are shown as —.';
+export const EFFICIENCY_EMPTY = 'No finished tasks with code changes in this period yet. Pick a longer range, or finish a task to see its cost per line.';
+export const EFFICIENCY_FOOTNOTE = 'A line is any added or removed line. Code tasks skip docs, generated files and lockfiles; docs tasks count every line.';
+
 
 const DEFAULT_AGG: AggKey = 'p50';
 const DEFAULT_DIMS: DimKey[] = ['agent'];
@@ -272,6 +299,12 @@ export function compareApiPath(p: InsightParams): string {
   const query = filterQuery(p);
   query.delete('range');
   return `insights/compare?${query.toString()}${compareQuery(p.compare)}`.replace('?&', '?');
+}
+
+export function efficiencyApiPath(p: InsightParams): string {
+  const query = filterQuery(p);
+  for (const k of AGENT_LEVEL_FILTERS) query.delete(k);
+  return `insights/efficiency?${query.toString()}`;
 }
 
 export function exploreApiPath(p: InsightParams): string {

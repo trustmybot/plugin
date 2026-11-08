@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { Row } from '../../api.ts';
 import { DataTable, type Column as TableColumn } from '../../DataTable.tsx';
 import { agentCell, entityLink } from '../../shared/columns.tsx';
+import { Loading } from '../../shared/Loading.tsx';
 import { Blankslate } from '../../ui/Blankslate.tsx';
 import { Box } from '../../ui/Box.tsx';
 import { Button } from '../../ui/Button.tsx';
@@ -13,8 +14,21 @@ import { ChartCard } from './ChartCard.tsx';
 import { BarList, ColumnChart, Histogram, OverlayHistogram, PairedBarList, niceAxis, shareOf, type Column, type OverlayPeriod, type PairedRow } from './charts.tsx';
 import { POLARITY, compareSlug, delta, sliceLabel, type Compare, type DeltaMeasure } from './compare.ts';
 import { CompareTile, DeltaLabel, PerTaskStrip, totalRuns } from './compare.tsx';
-import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
+import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, fine, pct, plain, ratio, shortDay, usd } from './format.ts';
 import {
+  BY_TYPE,
+  BY_WEEK,
+  EFFICIENCY_COLUMNS,
+  EFFICIENCY_EMPTY,
+  EFFICIENCY_FOOTNOTE,
+  EFFICIENCY_SUBTITLE,
+  EFFICIENCY_TITLE,
+  FEW_CAPTION,
+  FEW_TASKS,
+  FEW_TASKS_TITLE,
+  TYPE_HEADER,
+  WEEK_HEADER,
+  weekOf,
   BRO_COST_PER_SESSION,
   BRO_EXCLUDED_CAPTION,
   BRO_TASKS_CAPTION,
@@ -56,7 +70,7 @@ import {
   type InsightParams,
   type MetricKey,
 } from './params.ts';
-import type { AgentKey, AgentStats, Comparison, Insights, Metric, Outlier } from './types.ts';
+import type { AgentKey, AgentStats, Comparison, Efficiency, Insights, Metric, Outlier } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
@@ -514,6 +528,83 @@ export function QualitySection({ data, params }: SectionProps) {
         <h3 className="text-sm font-semibold text-fg">Slowest Verification Commands</h3>
         <DataTable rows={q.slowest_commands as unknown as Row[]} columns={slowColumns} filter={false} />
       </section>
+    </div>
+  );
+}
+
+type EfficiencyKey = keyof typeof EFFICIENCY_COLUMNS;
+
+const muted = (text: ReactNode) => <span className={`${NUMERIC} text-fg-muted`}>{text}</span>;
+
+function efficiencyMetric(key: EfficiencyKey, fmt: (v: number) => string, opts: { median?: boolean; hideBelow?: 'md' } = {}): TableColumn {
+  return {
+    key,
+    header: EFFICIENCY_COLUMNS[key].header,
+    title: EFFICIENCY_COLUMNS[key].title,
+    ...(opts.hideBelow ? { hideBelow: opts.hideBelow } : {}),
+    cell: (r) => {
+      const v = r[key];
+      if (r['few'] === true || typeof v !== 'number') return muted('—');
+      return opts.median ? muted(fmt(v)) : numeric(fmt(v));
+    },
+  };
+}
+
+const groupName = (label: (r: Row) => string) => (r: Row) => (
+  <span className="inline-flex items-center gap-2 whitespace-nowrap">
+    {label(r)}
+    {r['few'] === true && (
+      <span title={FEW_TASKS_TITLE}>
+        <Label variant="secondary">{FEW_TASKS}</Label>
+      </span>
+    )}
+  </span>
+);
+
+const efficiencyColumns = (name: TableColumn): TableColumn[] => [
+  name,
+  { key: 'n', header: EFFICIENCY_COLUMNS.n.header, title: EFFICIENCY_COLUMNS.n.title, cell: (r) => numeric(plain(Number(r['n']))) },
+  efficiencyMetric('first_pass_rate', pct),
+  efficiencyMetric('fp_tok_line', compact),
+  efficiencyMetric('fp_tok_line_median', compact, { median: true, hideBelow: 'md' }),
+  efficiencyMetric('rw_tok_line', compact, { hideBelow: 'md' }),
+  efficiencyMetric('rw_tok_line_median', compact, { median: true, hideBelow: 'md' }),
+  efficiencyMetric('rework_share', pct),
+  efficiencyMetric('cache_hit', pct, { hideBelow: 'md' }),
+  efficiencyMetric('fp_sec_line', fine, { hideBelow: 'md' }),
+  efficiencyMetric('rw_sec_line', fine, { hideBelow: 'md' }),
+];
+
+const TYPE_COLUMNS = efficiencyColumns({ key: 'type', header: TYPE_HEADER, cell: groupName((r) => String(r['type'])) });
+const WEEK_COLUMNS = efficiencyColumns({ key: 'week', header: WEEK_HEADER, cell: groupName((r) => weekOf(shortDay(String(r['week'])))) });
+
+function EfficiencyTable({ title, rows, columns, divider }: { title: string; rows: object[]; columns: TableColumn[]; divider?: (r: Row) => boolean }) {
+  return (
+    <section className="space-y-2" aria-label={title}>
+      <h3 className="text-sm font-semibold text-fg">{title}</h3>
+      <DataTable rows={rows as Row[]} columns={columns} filter={false} {...(divider ? { divider } : {})} />
+      <p className="text-xs text-fg-muted">{FEW_CAPTION}</p>
+    </section>
+  );
+}
+
+function EfficiencyTables({ e }: { e: Efficiency }) {
+  if (e.by_type.every((g) => g.n === 0)) return <p className="text-sm text-fg-muted">{EFFICIENCY_EMPTY}</p>;
+  return (
+    <>
+      <EfficiencyTable title={BY_TYPE} rows={e.by_type} columns={TYPE_COLUMNS} divider={(r) => r['type'] === 'docs'} />
+      <EfficiencyTable title={BY_WEEK} rows={e.by_week} columns={WEEK_COLUMNS} />
+      <p className="text-xs text-fg-muted">{EFFICIENCY_FOOTNOTE}</p>
+    </>
+  );
+}
+
+export function EfficiencySection({ efficiency }: { efficiency?: { data?: Efficiency; error: Error | null } }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading>{EFFICIENCY_TITLE}</SectionHeading>
+      <p className="text-sm text-fg-muted">{EFFICIENCY_SUBTITLE}</p>
+      <Loading q={efficiency ?? { error: null }}>{(e) => <EfficiencyTables e={e} />}</Loading>
     </div>
   );
 }

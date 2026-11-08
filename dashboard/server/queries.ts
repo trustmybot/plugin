@@ -589,7 +589,7 @@ const AGENT_OF_RUN = `CASE
 
 const DAY_MS = 86_400_000;
 
-const sinceOf = (range: InsightRange, now: Date): string | null => {
+export const sinceOf = (range: InsightRange, now: Date): string | null => {
   const days = INSIGHT_RANGES[range];
   return days === null ? null : new Date(now.getTime() - days * DAY_MS).toISOString();
 };
