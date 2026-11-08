@@ -590,6 +590,26 @@ describe('git-guards l3: target dir from the command, heredocs are data (GH 1196
     hasNot(out, 'shared workflow base', 'never the protected-branch rule the agent did not break');
   });
 
+  it("GH 2510: SWE bare 'git commit' with the payload cwd inside its linked worktree: judged there, allowed", () => {
+    const out = run('swe', wt, 'git commit -q -m x');
+    hasNot(out, 'ambiguous_git_target', 'git proves the cwd is a linked worktree: one checkout');
+    allow(out, 'the commit lands on the worktree branch fix/thing');
+    mkdirSync(join(wt, 'sub'));
+    allow(run('swe', join(wt, 'sub'), 'git commit -q -m x'), 'a subdirectory of the linked worktree is judged there too');
+  });
+
+  it("GH 2510: SWE bare 'git commit' with the payload cwd at the main checkout beside linked worktrees: still ambiguous", () =>
+    has(run('swe', repo, 'git commit -q -m x'), 'ambiguous_git_target', 'the main checkout holding linked worktrees is not one checkout'));
+
+  it("GH 2510: 'git -C $W commit' and 'cd $D && git commit' from a linked worktree cwd: still ambiguous", () => {
+    let out = run('swe', wt, 'git -C $W commit -q -m x');
+    has(out, 'ambiguous_git_target', 'an unresolved -C dir may name any checkout');
+    has(out, 'comes through a variable', 'the deny names the unresolved dir');
+    out = run('swe', wt, 'cd $D && git commit -m x');
+    has(out, 'ambiguous_git_target', 'an unresolved cd dir may name any checkout');
+    has(out, 'comes through a variable', 'the deny names the unresolved dir');
+  });
+
   it('GH 1196: markdown-only heredoc mentioning git commit / gh pr merge: allowed', () => {
     const heredoc = [`cat > ${wt}/notes.md <<'EOF'`, "Run git commit -m 'x' on dev, then gh pr merge 12 --merge.", 'git merge feat/x', 'EOF'].join('\n');
     allow(run('swe', repo, heredoc), 'heredoc content is data');
