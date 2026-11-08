@@ -1442,3 +1442,89 @@ describe('an l3 hook test links to the TS gate it runs (GH 1839)', () => {
     assert.deepEqual(card.tests.refs.map((r) => r['path']), ['mcp/trajectory-server/src/test/g1-l3.test.ts']);
   });
 });
+
+describe('world_model_symbol impact reaches import-linked tests and table readers (GH 2333)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-impact-2333-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  interface Impact {
+    levels: Array<{ depth: number; refs: Payload[]; total: number }>;
+    tests: Payload[];
+    truncated: boolean;
+  }
+  const impactOf = async (qualified_name: string, impact: number) =>
+    parse<{ impact: Impact }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name, impact })) as CallToolResult,
+    ).impact;
+  const names = (refs: Payload[]) => refs.map((r) => r['qualified_name']);
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/core.ts': 'export function coreFn(): number {\n  return 1;\n}\n',
+      'src/caller.ts': "import { coreFn } from './core.js';\nexport function callerFn(): number {\n  return coreFn();\n}\n",
+      'src/test/caller.test.ts': "import { callerFn } from '../caller.js';\nexport const subject = callerFn;\n",
+      'src/test/core.test.ts': "import { coreFn } from '../core.js';\nexport const subject = coreFn;\n",
+      'schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n',
+      'src/writer.ts':
+        "export function writeItem(db: { run(sql: string): void }): void {\n  db.run('INSERT INTO items (id) VALUES (1)');\n}\n",
+      'src/reader.ts': [
+        'export function readItems(db: { all(sql: string): unknown[] }): unknown[] {',
+        "  return db.all('SELECT id FROM items');",
+        '}',
+        'export function readerCaller(db: { all(sql: string): unknown[] }): number {',
+        '  return readItems(db).length;',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a test module importing a caller lands in tests at depth 2, one importing the symbol at depth 1, neither in levels', async () => {
+    const one = await impactOf('coreFn', 1);
+    assert.deepEqual(one.tests.map((r) => r['path']), ['src/test/core.test.ts']);
+    assert.deepEqual(one.levels.map((l) => [l.depth, names(l.refs)]), [[1, ['callerFn']]]);
+    assert.equal(one.levels[0]!.refs[0]!['via'], 'call');
+    assert.ok(one.levels[0]!.total > 0);
+
+    const two = await impactOf('coreFn', 2);
+    assert.deepEqual(two.tests.map((r) => r['path']).sort(), ['src/test/caller.test.ts', 'src/test/core.test.ts']);
+    const levelPaths = two.levels.flatMap((l) => l.refs.map((r) => r['path']));
+    assert.ok(!levelPaths.some((p) => String(p).startsWith('src/test/')), JSON.stringify(levelPaths));
+  });
+
+  it('a writer reaches the readers of the table it writes with via table:<name>, and their callers by call', async () => {
+    const one = await impactOf('writeItem', 1);
+    assert.deepEqual(one.levels.map((l) => [l.depth, l.refs.map((r) => [r['qualified_name'], r['via']])]), [
+      [1, [['readItems', 'table:items']]],
+    ]);
+    assert.ok(one.levels[0]!.total > 0);
+
+    const two = await impactOf('writeItem', 2);
+    assert.deepEqual(two.levels.map((l) => [l.depth, l.refs.map((r) => [r['qualified_name'], r['via']])]), [
+      [1, [['readItems', 'table:items']]],
+      [2, [['readerCaller', 'call']]],
+    ]);
+    for (const level of two.levels) {
+      assert.equal(level.total, level.refs.length);
+      for (const ref of level.refs) assert.ok(typeof ref['via'] === 'string', JSON.stringify(ref));
+    }
+  });
+});
