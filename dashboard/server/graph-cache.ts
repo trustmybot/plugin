@@ -32,7 +32,9 @@ function hasIndexedCommit(db: DatabaseSync): boolean {
 }
 
 // repos.indexed_commit when the column exists and is set for `repo`, else a
-// fingerprint of the symbol tables plus the repo's last scan time.
+// fingerprint of the symbol tables, the repo's last scan time and
+// PRAGMA data_version, which moves on every commit from another connection, so
+// an edge rewrite that reuses rowids or keeps the counts still misses.
 export function graphStamp(db: DatabaseSync, repo: string): string {
   if (hasIndexedCommit(db)) {
     const sha = row(db, 'SELECT indexed_commit FROM repos WHERE name = ?', repo)?.['indexed_commit'];
@@ -47,8 +49,9 @@ export function graphStamp(db: DatabaseSync, repo: string): string {
     repo,
     repo,
   );
+  const version = row(db, 'PRAGMA data_version')?.['data_version'];
   const part = (key: string): string => String(t?.[key] ?? '');
-  return `e${part('em')}.${part('ec')}-s${part('sm')}.${part('sc')}-f${part('files')}-t${part('scanned')}`;
+  return `e${part('em')}.${part('ec')}-s${part('sm')}.${part('sc')}-f${part('files')}-t${part('scanned')}-v${String(version ?? '')}`;
 }
 
 // The body also lists every repo, so the tag carries a hash of that list.
