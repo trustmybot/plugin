@@ -2,3 +2,4 @@
 export { TrajectoryDB } from './db.js';
 export { GraphHolder, WorldModelGraph } from './graph-db.js';
 export { scanTools } from './tools/scan.js';
+export { reindexOnRefMove } from './world-model/freshness.js';

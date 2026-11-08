@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context and wm-read-before-provision have no hook-corpus
+ * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context, wm-read-before-provision and ref-move-reindex have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -82,6 +82,7 @@ export const ROUTER_CORPUS_GATES = [
   'attribution-footer',
   'clean-merged-branch',
   'close-issue-on-merge',
+  'ref-move-reindex',
   'swe-spawn-bind',
   'swe-spawn-rollback',
   'bro-turn-usage',
@@ -486,6 +487,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
   if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
+  if (want('ref-move-reindex')) cases.push(...refMoveCases(join(root, 'ref-move')));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
   const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
@@ -838,6 +840,68 @@ function worktreeAdoptCases(dir: string, nonGit: string): RouterCase[] {
     ['other-tool', linked, payload('task_list')],
   ];
   return scenarios.map(([file, root, input]) => ({ gate: 'worktree-adopt-guard', file, input, env: clean({ ...base, CLAUDE_PROJECT_DIR: root }), cwd: root, fakeUid: false }));
+}
+
+/**
+ * ref-move-reindex's cases over a repo with a bare origin and a temp trajectory
+ * DB: commands that name no ref move (plain, heredoc, quoted), a push and a fetch
+ * with the stamp at the target, a fetch from a linked worktree with the stamp
+ * behind it, forge merges as bro and as swe, and a failed merge. NODE_TEST_CONTEXT
+ * keeps the detached reindex from starting; the siblings that act on a merge are off.
+ */
+function refMoveCases(dir: string): RouterCase[] {
+  const origin = join(dir, 'origin.git');
+  const main = join(dir, 'main');
+  const linked = join(dir, 'linked');
+  mkdirSync(dir, { recursive: true });
+  const git = (...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q', '--bare', '-b', 'main', origin);
+  git('init', '-q', '-b', 'main', main);
+  git('-C', main, 'commit', '-q', '--allow-empty', '-m', 'base');
+  git('-C', main, 'remote', 'add', 'origin', origin);
+  git('-C', main, 'push', '-q', 'origin', 'main');
+  git('-C', main, 'worktree', 'add', '-q', '-b', 'feature', linked);
+  const head = git('-C', main, 'rev-parse', 'HEAD');
+  const db = join(dir, 'trajectory.db');
+  const d = new DatabaseSync(db);
+  try {
+    d.exec(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8'));
+    d.prepare("INSERT INTO repos (name, path, target_branch, indexed_commit) VALUES ('current', ?, 'main', ?)").run(realpathSync(main), head);
+  } finally {
+    d.close();
+  }
+  const env = clean({
+    PATH: process.env.PATH,
+    HOME: join(dir, 'home'),
+    TRAJECTORY_DB_PATH: db,
+    CLAUDE_PROJECT_DIR: main,
+    LC_ALL: LOCALE,
+    NODE_TEST_CONTEXT: 'child',
+    TMB_DISABLE_CLEAN_MERGED_BRANCH: '1',
+    TMB_DISABLE_CLOSE_ISSUE_ON_MERGE: '1',
+  });
+  const post = (command: string, cwd = main, extra: object = {}, response: object = { stdout: '', stderr: '', interrupted: false }): string =>
+    JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: 't', tool_response: response, ...extra });
+  const scenarios: readonly (readonly [string, string, string?])[] = [
+    ['unrelated', post('npm test')],
+    ['heredoc', post('cat <<EOF\ngit push origin main\nEOF')],
+    ['quoted', post('echo "git fetch && gh pr merge 1"')],
+    ['push-current', post('git push origin main')],
+    ['fetch-current', post(`git -C ${main} fetch -q origin`)],
+    ['fetch-behind-linked', post('git fetch -q origin', linked), 'behind'],
+    ['merge-bro', post('gh pr merge 12 --squash')],
+    ['merge-swe', post('gh pr merge 12 --squash', main, { agent_id: 'a1', agent_type: 'tmb:swe' })],
+    ['merge-failed', post('gh pr merge 12 --squash', main, {}, { stdout: '', stderr: 'pull request is not mergeable', interrupted: false })],
+  ];
+  const stamp = (commit: string) => (): void => {
+    const b = new DatabaseSync(db);
+    try {
+      b.prepare("UPDATE repos SET indexed_commit = ? WHERE name = 'current'").run(commit);
+    } finally {
+      b.close();
+    }
+  };
+  return scenarios.map(([file, input, state]) => ({ gate: 'ref-move-reindex', file, input, env, cwd: main, fakeUid: false, reset: stamp(state === 'behind' ? '0'.repeat(40) : head) }));
 }
 
 /** wm-read-before-provision's cases over a temp trajectory DB: a recent world-model read, an old one, none in a long transcript, no transcript, and another tool. */
