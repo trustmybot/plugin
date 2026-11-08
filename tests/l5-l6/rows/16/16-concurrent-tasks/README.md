@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` commits `src/cli.py` (a todo CLI with `add` and `list`, JSON store at `todos.json`) on `main` and inserts the `repos` row for the project (`INSERT OR IGNORE`, target `main`, `github-flow`) so `task_provision` resolves the repo and creates each task's worktree.
+`onboarding-named` fixture. `setup-l5.ts` commits `src/cli.py` (a todo CLI with `add` and `list`, JSON store at `todos.json`) on `main` and inserts the `repos` row for the project (`INSERT OR IGNORE`, target `main`, `github-flow`) so `task_provision` resolves the repo and creates each task's worktree.
 
 ## Turns
 

@@ -1,17 +1,16 @@
-#!/usr/bin/env bash
-# L5 isolation setup for 06-swe-atomic-close: simulates the chain state
-# step 04 leaves behind — the todo CLI already exists on disk + commit,
-# plus tests/test_cli.py. Bro is asked to add a small feature
-# (--priority flag); SWE dispatches + atomic-closes for that feature.
-set -uo pipefail
+// L5 isolation setup for 06-swe-atomic-close: simulates the chain state
+// step 04 leaves behind — the todo CLI already exists on disk + commit,
+// plus tests/test_cli.py. Bro is asked to add a small feature
+// (--priority flag); SWE dispatches + atomic-closes for that feature.
+import { realpathSync } from 'node:fs';
+import { gitCommit, setupArgs, withDb, writeFile } from '../../../lib/setup-helpers.ts';
 
-PROJECT="$1"
-# shellcheck disable=SC2034  # SCENARIO_DIR passed by runner; reserved for future use
-SCENARIO_DIR="$2"
+const { project } = setupArgs(import.meta.dirname);
 
-mkdir -p "$PROJECT/src" "$PROJECT/tests"
-cat > "$PROJECT/src/cli.py" <<'PY'
-"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
+writeFile(
+  project,
+  'src/cli.py',
+  `"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
 import argparse
 import json
 import os
@@ -71,10 +70,13 @@ def main():
 
 if __name__ == "__main__":
     main()
-PY
+`,
+);
 
-cat > "$PROJECT/tests/test_cli.py" <<'PY'
-"""Tests for the todo CLI core."""
+writeFile(
+  project,
+  'tests/test_cli.py',
+  `"""Tests for the todo CLI core."""
 import os
 import tempfile
 from pathlib import Path
@@ -88,22 +90,17 @@ def test_add_and_list(tmp_path, capsys):
         cli.list_(None)
     out = capsys.readouterr().out
     assert "buy milk" in out
-PY
+`,
+);
 
-(
-  cd "$PROJECT" || exit 1
-  git add src/cli.py tests/test_cli.py
-  git commit -qm 'feat: todo CLI with add/list/done/remove + tests'
-) >/dev/null
+gitCommit(project, ['src/cli.py', 'tests/test_cli.py'], 'feat: todo CLI with add/list/done/remove + tests');
 
-# Simulate step 04's "scan ran + repo registered" state so the gate
-# doesn't re-fire for this row.
-PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
-REPO_NAME="${EXISTING_REPO:-todo-cli}"
+// Simulate step 04's "scan ran + repo registered" state so the gate
+// doesn't re-fire for this row.
+const repo = process.env.EXISTING_REPO || 'todo-cli';
 
-sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT OR REPLACE INTO repos (name, path) VALUES ('$REPO_NAME', '$PROJECT_REAL');
-
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'Scan completed at step 04.', '{"source":"step04"}', datetime('now'));
-SQL
+withDb(project, (db) => {
+  db.prepare('INSERT OR REPLACE INTO repos (name, path) VALUES (?, ?)').run(repo, realpathSync(project));
+  db.exec(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'Scan completed at step 04.', '{"source":"step04"}', datetime('now'));`);
+});

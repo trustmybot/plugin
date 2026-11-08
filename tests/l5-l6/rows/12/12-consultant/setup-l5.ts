@@ -1,18 +1,16 @@
-#!/usr/bin/env bash
-# Pre-seed prior chain context: by step 10 the TODO CLI exists with JSON
-# storage (matches what step 04/05 SWE would produce in L6 chain). Bro is
-# asked an architecture question about scaling the CLI's storage; bro must
-# classify as a tech-strategy ask, invoke /tmb:agent-create cto via the
-# consultant-spawn-required hook routing, and spawn cto for analysis.
-set -uo pipefail
+// Pre-seed prior chain context: by step 10 the TODO CLI exists with JSON
+// storage (matches what step 04/05 SWE would produce in L6 chain). Bro is
+// asked an architecture question about scaling the CLI's storage; bro must
+// classify as a tech-strategy ask, invoke /tmb:agent-create cto via the
+// consultant-spawn-required hook routing, and spawn cto for analysis.
+import { gitCommit, setupArgs, sql, writeFile } from '../../../lib/setup-helpers.ts';
 
-PROJECT="$1"
-# shellcheck disable=SC2034
-SCENARIO_DIR="$2"
+const { project } = setupArgs(import.meta.dirname);
 
-mkdir -p "$PROJECT/src"
-cat > "$PROJECT/src/cli.py" <<'PY'
-"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
+writeFile(
+  project,
+  'src/cli.py',
+  `"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
 import argparse
 import json
 import os
@@ -46,17 +44,15 @@ def main():
     a = sub.add_parser("add"); a.add_argument("text"); a.set_defaults(func=add)
     args = p.parse_args()
     args.func(args)
-PY
+`,
+);
 
-(
-  cd "$PROJECT" || exit 1
-  git add src/cli.py
-  git commit -qm 'feat: todo CLI with JSON storage'
-) >/dev/null
+gitCommit(project, ['src/cli.py'], 'feat: todo CLI with JSON storage');
 
-sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
-INSERT INTO issues (objective, description, status, created_at, updated_at)
+sql(
+  project,
+  `INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES ('Evaluate TODO CLI storage scale-out',
         'Team usage is rising; JSON-file storage is single-user. Open question on SQLite vs small backend service.',
-        'open', datetime('now'), datetime('now'));
-SQL
+        'open', datetime('now'), datetime('now'));`,
+);

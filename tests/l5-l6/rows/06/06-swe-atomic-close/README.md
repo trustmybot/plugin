@@ -11,7 +11,7 @@ Two production bug classes captured:
 
 ## Pre-state
 
-`onboarding-named` fixture, plus `setup-l5.sh` simulates step 04's output: full TODO CLI committed at `src/cli.py` (add/list/done/remove on JSON storage at `~/.todo-cli/todos.json`) + `tests/test_cli.py`, `repos` row, `deep_scan_completed` audit row.
+`onboarding-named` fixture, plus `setup-l5.ts` simulates step 04's output: full TODO CLI committed at `src/cli.py` (add/list/done/remove on JSON storage at `~/.todo-cli/todos.json`) + `tests/test_cli.py`, `repos` row, `deep_scan_completed` audit row.
 
 ## Turns
 

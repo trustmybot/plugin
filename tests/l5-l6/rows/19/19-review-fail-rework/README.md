@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` seeds:
+`onboarding-named` fixture. `setup-l5.ts` seeds:
 
 - `main`: `src/cli.py` (todo CLI, `add` + `list`) and a 3-item `todos.json`.
 - Branch `feat/add-count-subcommand` checked out in the linked worktree `.claude/worktrees/add-count-subcommand`, holding the first attempt: `count` prints `len(STORE.read_text())` (the file's character count) and crashes on a missing store.

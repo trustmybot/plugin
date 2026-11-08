@@ -2,7 +2,7 @@
 -- about the architectural decision made in step 08.
 
 -- (a) The discussions_embeddings table has at least one row — either seeded
--- by setup-l5.sh (L5 mode) or produced organically by step 08 + server
+-- by setup-l5.ts (L5 mode) or produced organically by step 08 + server
 -- backfill (L6 chain mode). This verifies the search substrate exists.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
