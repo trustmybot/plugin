@@ -9,7 +9,8 @@ import { topKByCosine, type WorldModelEmbeddableTable } from '../embeddings/stor
 import { backfillMissing, startWorldModelBackfill, WORLD_MODEL_TABLES } from '../embeddings/backfill.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { probeBaseRef, resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { gitUnanswered, runGit } from '../utils/git-run.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -75,32 +76,36 @@ interface UnmergedBranch {
 type Integration = 'integrated' | 'unmerged' | 'unresolvable' | 'spawn-error';
 
 function git(repoPath: string, args: string[]): SpawnSyncReturns<string> {
-  return spawnSync('git', ['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
+  return runGit(repoPath, args);
 }
 
-function patchIds(repoPath: string, args: string[]): string[] | null {
-  const opts = { encoding: 'utf8' as const, timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: PATCH_ID_MAX_BUFFER };
-  const patch = spawnSync('git', ['-C', repoPath, ...args], opts);
-  if (patch.error || patch.status !== 0) return null;
+function patchIds(repoPath: string, args: string[]): string[] | null | 'spawn-error' {
+  const patch = runGit(repoPath, args, { maxBuffer: PATCH_ID_MAX_BUFFER });
+  if (gitUnanswered(patch)) return 'spawn-error';
+  if (patch.status !== 0) return null;
   if (!patch.stdout.trim()) return [];
-  const ids = spawnSync('git', ['-C', repoPath, 'patch-id', '--stable'], { ...opts, input: patch.stdout });
-  if (ids.error || ids.status !== 0) return null;
+  const ids = runGit(repoPath, ['patch-id', '--stable'], { maxBuffer: PATCH_ID_MAX_BUFFER, input: patch.stdout });
+  if (gitUnanswered(ids)) return 'spawn-error';
+  if (ids.status !== 0) return null;
   return ids.stdout
     .split('\n')
     .map((line) => line.split(' ')[0]?.trim())
     .filter((id): id is string => !!id);
 }
 
-function netDiffLandedOn(repoPath: string, tip: string, target: string): boolean {
+function netDiffLandedOn(repoPath: string, tip: string, target: string): boolean | 'spawn-error' {
   const mb = git(repoPath, ['merge-base', target, tip]);
+  if (gitUnanswered(mb)) return 'spawn-error';
   const base = mb.stdout?.trim();
   if (mb.status !== 0 || !base) return false;
   const branch = patchIds(repoPath, ['diff', '--no-color', '--no-ext-diff', base, tip]);
+  if (branch === 'spawn-error') return branch;
   if (!branch || branch.length === 0) return false;
   const landed = patchIds(repoPath, [
     'log', '-p', '--no-color', '--no-ext-diff', '--no-merges', '--format=commit %H',
     '-n', String(NET_DIFF_MAX_TARGET_COMMITS), `${base}..${target}`,
   ]);
+  if (landed === 'spawn-error') return landed;
   return !!landed && landed.includes(branch[0]!);
 }
 
@@ -119,21 +124,26 @@ function netDiffLandedOn(repoPath: string, tip: string, target: string): boolean
 // An upstream reported `[gone]` is not used: a PR closed unmerged looks the same.
 export function tipIntegratedInto(repoPath: string, tip: string, target: string): Integration {
   const ancestor = git(repoPath, ['merge-base', '--is-ancestor', tip, target]);
-  if (ancestor.error) return 'spawn-error';
+  if (gitUnanswered(ancestor)) return 'spawn-error';
   if (ancestor.status === 0) return 'integrated';
   if (ancestor.status !== 1) return 'unresolvable';
 
   const merged = git(repoPath, ['merge-tree', '--write-tree', target, tip]);
+  if (gitUnanswered(merged)) return 'spawn-error';
   if (merged.status === 0) {
     const targetTree = git(repoPath, ['rev-parse', `${target}^{tree}`]);
+    if (gitUnanswered(targetTree)) return 'spawn-error';
     const mergedTree = merged.stdout.split('\n')[0]?.trim();
     if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return 'integrated';
   }
 
   const cherry = git(repoPath, ['cherry', target, tip]);
+  if (gitUnanswered(cherry)) return 'spawn-error';
   if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return 'integrated';
 
-  if (netDiffLandedOn(repoPath, tip, target)) return 'integrated';
+  const landed = netDiffLandedOn(repoPath, tip, target);
+  if (landed === 'spawn-error') return landed;
+  if (landed) return 'integrated';
   return 'unmerged';
 }
 
@@ -164,15 +174,13 @@ function computeUnmergedWork(
   const repoPath = repoRowPath(db, repoRow.path);
   const targetBranch = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
 
-  const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {
-    encoding: 'utf8',
-    timeout: SUBPROCESS_TIMEOUT_MS,
-  });
+  const gitCheck = git(repoPath, ['rev-parse', '--is-inside-work-tree']);
   if (gitCheck.error || gitCheck.status !== 0) {
     return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
   }
 
-  const target = resolveBaseRef(repoPath, targetBranch);
+  const target = probeBaseRef(repoPath, targetBranch);
+  if (target === 'unanswered') return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
   if (!target) return { unmerged_work: [] };
 
   const rows = db.all<{
@@ -205,11 +213,8 @@ function computeUnmergedWork(
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
     // Require a live local ref: a deleted branch means the work was integrated
     // or abandoned.
-    const refCheck = spawnSync(
-      'git',
-      ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch_id}`],
-      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
-    );
+    const refCheck = git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch_id}`]);
+    if (gitUnanswered(refCheck)) return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
     if (refCheck.status !== 0) continue; // absent ref → integrated or abandoned, skip
     const tip = refCheck.stdout.trim();
 
