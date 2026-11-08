@@ -101,8 +101,12 @@ function pySafeValue(q: string): boolean {
 const PY_PATH = new Set(['pathlib.Path', 'pathlib.PurePath']);
 const PY_METHODS = new Set([
   'strip', 'split', 'rsplit', 'join', 'get', 'items', 'keys', 'values', 'lower', 'upper', 'startswith', 'endswith', 'read',
-  'readlines', 'format', 'count', 'find', 'append', 'extend', 'write', 'writelines', 'close', 'flush',
+  'readlines', 'format', 'count', 'find', 'append', 'extend', 'write', 'writelines', 'close', 'flush', 'add', 'update',
+  'discard', 'remove', 'pop', 'setdefault', 'sort', 'insert', 'copy', 'clear',
 ]);
+/** The container mutators of PY_METHODS, never proven on argv, a stream or the environment, whose stores are unproven too. */
+const PY_MUTATORS = new Set(['add', 'update', 'discard', 'remove', 'pop', 'setdefault', 'sort', 'insert', 'clear']);
+const PY_STREAM_FILES = new Set(['sys.stdout', 'sys.stderr']);
 const PY_STR_METHODS = new Set(['read', 'read_text', 'decode', 'strip', 'lstrip', 'rstrip', 'lower', 'upper', 'replace', 'format', 'join']);
 const PY_DUNDERS = new Set(['__name__', '__file__', '__doc__']);
 const PY_UNPROVEN = new Set([
@@ -110,7 +114,7 @@ const PY_UNPROVEN = new Set([
   'wildcard_import', 'relative_import', 'type_alias_statement',
 ]);
 const JSON_HOOKS = ['object_hook', 'object_pairs_hook', 'parse_float', 'parse_int', 'parse_constant', 'cls', 'default'];
-/** The argument positions and keywords of a safe call that it calls back. */
+/** The argument positions and keywords of a safe call that it calls back; `.sort` is the method on a local or literal. */
 const PY_CALLBACKS: Record<string, { pos: number[]; kw: string[] }> = {
   map: { pos: [0], kw: [] },
   filter: { pos: [0], kw: [] },
@@ -122,6 +126,8 @@ const PY_CALLBACKS: Record<string, { pos: number[]; kw: string[] }> = {
   'json.load': { pos: [], kw: JSON_HOOKS },
   'json.loads': { pos: [], kw: JSON_HOOKS },
   'json.dumps': { pos: [], kw: JSON_HOOKS },
+  'json.dump': { pos: [], kw: JSON_HOOKS },
+  '.sort': { pos: [], kw: ['key'] },
   'collections.defaultdict': { pos: [0], kw: ['default_factory'] },
   'itertools.accumulate': { pos: [1], kw: ['func'] },
   'itertools.starmap': { pos: [0], kw: [] },
@@ -131,7 +137,7 @@ const PY_CALLBACKS: Record<string, { pos: number[]; kw: string[] }> = {
   'itertools.groupby': { pos: [1], kw: ['key'] },
 };
 
-const JS_SAFE_GLOBAL_CALLS = new Set(['parseInt', 'parseFloat', 'Number', 'String']);
+const JS_SAFE_GLOBAL_CALLS = new Set(['parseInt', 'parseFloat', 'Number', 'String', 'Boolean']);
 const JS_SAFE_GLOBALS = new Set([
   ...JS_SAFE_GLOBAL_CALLS, 'console', 'JSON', 'Math', 'Object', 'Array', 'undefined', 'NaN', 'Infinity', 'Map', 'Set', 'Date', 'RegExp', 'Error',
 ]);
@@ -148,10 +154,14 @@ const JS_METHODS = new Set([
   'includes', 'indexOf', 'join', 'keys', 'lastIndexOf', 'map', 'reduce', 'reduceRight', 'slice', 'some', 'values', 'toSorted',
   'toReversed', 'toString', 'charAt', 'charCodeAt', 'codePointAt', 'endsWith', 'localeCompare', 'match', 'matchAll',
   'normalize', 'padEnd', 'padStart', 'repeat', 'replace', 'replaceAll', 'search', 'split', 'startsWith', 'substring',
-  'toLowerCase', 'toUpperCase', 'trim', 'trimEnd', 'trimStart', 'write', 'end', 'close',
+  'toLowerCase', 'toUpperCase', 'trim', 'trimEnd', 'trimStart', 'write', 'end', 'close', 'push', 'pop', 'shift', 'unshift',
+  'splice', 'reverse', 'sort', 'fill', 'get', 'set', 'has', 'add', 'delete', 'clear',
 ]);
+/** The container mutators of JS_METHODS, never proven on `process.argv` / `env` / a stream, whose stores are unproven too. */
+const JS_MUTATORS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'reverse', 'sort', 'fill', 'set', 'add', 'delete', 'clear']);
 const JS_CALLBACK_METHODS = new Set([
   'every', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flatMap', 'forEach', 'map', 'reduce', 'reduceRight', 'some', 'toSorted',
+  'sort',
 ]);
 const JS_UNPROVEN = new Set(['class_declaration', 'class', 'import_statement', 'export_statement', 'with_statement', 'import']);
 const JS_HIDDEN = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__']);
@@ -164,7 +174,8 @@ const SCRIPT_WORDS = new Set([
   'do', 'end', 'then', 'nil', 'true', 'false', 'in', 'BEGIN', 'END', 'write', 'close', 'sleep',
 ]);
 
-type Bind = { kind: 'import'; q: string } | { kind: 'def' } | { kind: 'local' };
+/** An `import` binding with `json` set came from a required `.json` file: plain data, safe to use as a value. */
+type Bind = { kind: 'import'; q: string; json?: boolean } | { kind: 'def' } | { kind: 'local' };
 
 /** The names a program binds: every binding of each, merged by `resolve`. */
 class Bindings {
@@ -348,7 +359,19 @@ class PyProof extends Proof {
     if (PY_SAFE_CALLS.has(q) || safeModuleMember(q)) return true;
     const at = q.lastIndexOf('.');
     const last = q.slice(at + 1);
-    return at > 0 && last !== 'replace' && PY_METHODS.has(last) && this.safeValue(q.slice(0, at)) && q.slice(0, at).includes('.');
+    return at > 0 && last !== 'replace' && PY_METHODS.has(last) && !PY_MUTATORS.has(last) && this.safeValue(q.slice(0, at)) && q.slice(0, at).includes('.');
+  }
+
+  /** `json.dump(obj, fp)` whose `fp`, positional or keyword, is exactly `sys.stdout` or `sys.stderr`. */
+  private dumpToStream(args: Node | null): boolean {
+    const list = args ? kids(args).filter((a) => a.type !== 'comment') : [];
+    if (list.some(splat)) return false;
+    const kw = list.find((a) => a.type === 'keyword_argument' && field(a, 'name')?.text === 'fp');
+    const fp = kw ? field(kw, 'value') : (list.filter((a) => a.type !== 'keyword_argument')[1] ?? null);
+    if (!fp || (fp.type !== 'attribute' && fp.type !== 'identifier')) return false;
+    const { root, parts } = chain(fp, 'attribute', 'object', 'attribute');
+    const q = this.qualified(root, parts);
+    return q !== undefined && PY_STREAM_FILES.has(q);
   }
 
   private qualified(root: Node, parts: string[]): string | undefined {
@@ -437,7 +460,7 @@ class PyProof extends Proof {
       const last = parts[parts.length - 1];
       if (q !== undefined) {
         callee = q;
-        if (!this.safeCall(q) && !PY_PATH.has(q)) {
+        if (!this.safeCall(q) && !PY_PATH.has(q) && !(q === 'json.dump' && this.dumpToStream(args))) {
           if (judgedCall('py', q)) this.judge(args);
           else return this.fail();
         }
@@ -445,7 +468,10 @@ class PyProof extends Proof {
         this.visit(root);
         const literal = root.type === 'string' && parts.length === 1;
         const pre = root.type === 'identifier' ? [root.text, ...parts.slice(0, -1)].join('.') : '?';
-        if (last === 'replace' ? !literal && !strReplace(root, parts, args) : !PY_METHODS.has(last)) {
+        // dict, list and set copy() take no argument; Path.copy(target) (3.14) writes
+        const pathCopy = last === 'copy' && args !== null && kids(args).some((a) => a.type !== 'comment');
+        if (last === 'sort') callee = '.sort';
+        if (last === 'replace' ? !literal && !strReplace(root, parts, args) : !PY_METHODS.has(last) || pathCopy) {
           if (judgedCall('py', `${pre}.${last}`)) this.judge(args);
           else return this.fail();
         }
@@ -558,6 +584,11 @@ class PyProof extends Proof {
 
 /** The module a literal `require` loads, or undefined when loading it could run code: a node builtin, or a .json file. */
 function requiredModule(node: Node): string | undefined {
+  return requiredSource(node)?.mod;
+}
+
+/** The module a literal `require` loads and whether it is a .json file, or undefined as for requiredModule. */
+function requiredSource(node: Node): { mod: string; json: boolean } | undefined {
   if (node.type !== 'call_expression' || field(node, 'function')?.text !== 'require') return undefined;
   const args = field(node, 'arguments');
   const list = args ? kids(args) : [];
@@ -565,8 +596,8 @@ function requiredModule(node: Node): string | undefined {
   const lit = list[0].text.slice(1, -1);
   if (/[\\'"]/.test(lit)) return undefined;
   const bare = lit.replace(/^node:/, '');
-  if (builtinModules.includes(bare)) return bare;
-  return /^(\.{0,2}\/).*\.json$/.test(lit) ? lit : undefined;
+  if (builtinModules.includes(bare)) return { mod: bare, json: false };
+  return /^(\.{0,2}\/).*\.json$/.test(lit) ? { mod: lit, json: true } : undefined;
 }
 
 class JsProof extends Proof {
@@ -595,11 +626,11 @@ class JsProof extends Proof {
   }
 
   /** The module path a declaration's value names: `require('<m>')` or a member chain on one. */
-  private moduleOf(value: Node | null): string | undefined {
+  private moduleOf(value: Node | null): { q: string; json: boolean } | undefined {
     if (!value) return undefined;
     const { root, parts } = chain(value, 'member_expression', 'object', 'property');
-    const mod = requiredModule(root);
-    return mod === undefined ? undefined : [mod, ...parts].join('.');
+    const src = requiredSource(root);
+    return src === undefined ? undefined : { q: [src.mod, ...parts].join('.'), json: src.json };
   }
 
   collect(node: Node): void {
@@ -609,12 +640,12 @@ class JsProof extends Proof {
         const value = field(node, 'value');
         const mod = this.moduleOf(value);
         if (!name) break;
-        if (mod !== undefined && name.type === 'identifier') this.binds.add(name.text, { kind: 'import', q: mod });
+        if (mod !== undefined && name.type === 'identifier') this.binds.add(name.text, { kind: 'import', q: mod.q, json: mod.json });
         else if (mod !== undefined && name.type === 'object_pattern') {
           for (const p of kids(name)) {
-            if (p.type === 'shorthand_property_identifier_pattern') this.binds.add(p.text, { kind: 'import', q: `${mod}.${p.text}` });
+            if (p.type === 'shorthand_property_identifier_pattern') this.binds.add(p.text, { kind: 'import', q: `${mod.q}.${p.text}`, json: mod.json });
             else if (p.type === 'pair_pattern' && field(p, 'value')?.type === 'identifier' && field(p, 'key')?.type === 'property_identifier') {
-              this.binds.add(field(p, 'value')!.text, { kind: 'import', q: `${mod}.${field(p, 'key')!.text}` });
+              this.binds.add(field(p, 'value')!.text, { kind: 'import', q: `${mod.q}.${field(p, 'key')!.text}`, json: mod.json });
             } else this.bindPattern(p);
           }
         } else if (name.type === 'identifier' && (value?.type === 'arrow_function' || value?.type === 'function_expression' || value?.type === 'function')) {
@@ -660,7 +691,8 @@ class JsProof extends Proof {
   private safeCall(q: string): boolean {
     if (JS_SAFE_CALLS.has(q) || JS_SAFE_ROOT_CALL.test(q)) return true;
     const at = q.lastIndexOf('.');
-    return at > 0 && JS_METHODS.has(q.slice(at + 1)) && JS_SAFE_VALUE.test(q.slice(0, at));
+    const last = q.slice(at + 1);
+    return at > 0 && JS_METHODS.has(last) && !JS_MUTATORS.has(last) && JS_SAFE_VALUE.test(q.slice(0, at));
   }
 
   /** The dotted name of a chain rooted at a module alias, a literal require or a known global. */
@@ -676,7 +708,7 @@ class JsProof extends Proof {
 
   private name(node: Node): void {
     const b = this.binds.resolve(node.text);
-    if (b?.kind === 'import') this.fail();
+    if (b?.kind === 'import' && b.json !== true) this.fail();
     else if (!b && !JS_SAFE_GLOBALS.has(node.text)) this.fail();
   }
 

@@ -130,3 +130,36 @@
 {"src":"GH 1913","cmd":"c=\"cd /etc\"; eval $c; touch f","expect":"fail_closed"}
 {"src":"GH 1913","cmd":"for c in \"touch \"{a,/etc/x}; do eval $c; done","expect":"fail_closed"}
 {"src":"GH 1913","cmd":"c='touch *'; eval $c","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e 'const t=[];t.push(1);console.log(t)'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const t=[3,1,2];t.pop();t.shift();t.unshift(0);t.splice(0,1);t.reverse();t.fill(0);console.log(t)'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const a=[3,1];a.sort((x,y)=>x-y);console.log(a)'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const s=new Set();s.add(1);console.log(s.has(1))'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const m=new Map();m.set(\"a\",1);console.log(m.get(\"a\"),m.has(\"a\"));m.delete(\"a\");m.clear()'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'console.log([1,0,\"\",2].filter(Boolean))'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const r=require(\"./r.json\"); console.log(Object.keys(r))'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const {a}=require(\"./r.json\"); console.log([a].map(x=>x))'","expect":"empty"}
+{"src":"gh2480","cmd":"node -e 'const f=require(\"fs\");f.writeFileSync(\"o\",\"x\")'","expect":"resolves","paths":["/w/o"]}
+{"src":"gh2480","cmd":"node -e 'const c=require(\"child_process\");[c].map(x=>x)'","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e 'const a=[2,1];a.sort((x,y)=>h(x,y))'","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e 'const fs=require(\"fs\");[2,1].sort(fs.writeFileSync)'","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e 'process.argv.push(\"x\")'","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e '[1].forEach(process.argv.push)'","expect":"fail_closed"}
+{"src":"gh2480","cmd":"node -e 'const r=require(\"./r.json\");r()'","expect":"fail_closed"}
+{"src":"gh1936","cmd":"python3 -c 's=set();s.add(1);s.update([2,3]);s.discard(1);s.remove(2);print(s)'","expect":"empty"}
+{"src":"gh1936","cmd":"python3 -c 'd={};d.setdefault(\"a\",[]).append(1);print(d.copy());d.pop(\"a\");d.clear()'","expect":"empty"}
+{"src":"gh1936","cmd":"python3 -c 'l=[3,1];l.sort();l.insert(0,5);l.pop();print(l)'","expect":"empty"}
+{"src":"gh1936","cmd":"python3 -c 'l=[\"b\",\"A\"];l.sort(key=str.lower);l.sort(key=lambda x:-len(x));print(l)'","expect":"empty"}
+{"src":"gh1936","cmd":"python3 -c \"import pathlib;pathlib.Path('o').write_text('x')\"","expect":"resolves","paths":["/w/o"]}
+{"src":"gh1936","cmd":"python3 -c \"import pathlib;p=pathlib.Path('a');p.copy('b')\"","expect":"fail_closed"}
+{"src":"gh1936","cmd":"python3 -c \"import os;os.environ.pop('HOME')\"","expect":"fail_closed"}
+{"src":"gh1936","cmd":"python3 -c \"import os;l=['HOME'];l.sort(key=os.environ.pop)\"","expect":"fail_closed"}
+{"src":"gh1936","cmd":"python3 -c \"import os;sorted(['HOME'],key=os.environ.pop)\"","expect":"fail_closed"}
+{"src":"gh1936","cmd":"python3 -c \"import sys;sys.argv.insert(1,'x')\"","expect":"fail_closed"}
+{"src":"gh2038","cmd":"python3 -c 'import json,sys;d={\"a\":1};json.dump(d, sys.stdout)'","expect":"empty"}
+{"src":"gh2038","cmd":"python3 -c 'import json,sys;d={\"a\":1};json.dump(d, sys.stderr, indent=2)'","expect":"empty"}
+{"src":"gh2038","cmd":"python3 -c 'import json;from sys import stdout;json.dump({}, fp=stdout, default=str)'","expect":"empty"}
+{"src":"gh2038","cmd":"python3 -c \"import json;d={};json.dump(d, open('o','w'))\"","expect":"fail_closed","danger":"/w/o"}
+{"src":"gh2038","cmd":"python3 -c \"import json,sys;f=sys.stdout;json.dump({}, f)\"","expect":"fail_closed"}
+{"src":"gh2038","cmd":"python3 -c \"import json,sys;json.dump({}, sys.stdout.buffer)\"","expect":"fail_closed"}
+{"src":"gh2038","cmd":"python3 -c \"import json,sys;a=[sys.stdout];json.dump({}, *a)\"","expect":"fail_closed"}
+{"src":"gh2038","cmd":"python3 -c \"import json,sys,os;json.dump({}, sys.stdout, default=os.system)\"","expect":"fail_closed"}
