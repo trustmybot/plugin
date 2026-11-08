@@ -1,6 +1,6 @@
 # tests
 
-> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `l5-l6/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.sh`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `l5-l6/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.ts`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
 
 How to run, what each layer covers, when to add a test where.
 
@@ -15,8 +15,8 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), hook suites `mcp/trajectory-server/src/test/*-l3.test.ts` (node:test, run with L2) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.ts`](./l5-l6/run-l5.ts), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.ts`](./l5-l6/run-l6-chain.ts), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.ts` (if present) to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.ts`](./l5-l6/run-l5.ts), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
+| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.ts`. | [`l5-l6/run-l6-chain.ts`](./l5-l6/run-l6-chain.ts), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`l0-install/release-canary.Dockerfile`](./l0-install/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
@@ -67,7 +67,7 @@ tests/
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.ts, run-l6-chain.ts
     ├── lib/                    ← flow-helpers, l6-chain-helpers, sandbox, scorers, smoke-helpers, timeout (.ts, each with a .test.ts)
-    ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
+    ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.ts (optional) + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
 ```
@@ -157,7 +157,7 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.ts` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.ts` is ignored).
 
 ```bash
 # Chained run — walks all 15 chain rows against a cumulative trajectory DB.
@@ -184,10 +184,10 @@ When an L6 step fails, the failure can come from either the step itself or from 
 node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts <NN>-<step-name>     # e.g. 12-consultant
 ```
 
-L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
+L5 applies the step's `setup-l5.ts` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
 
 - **L5 passes** — the L6 failure is upstream contamination. Bisect by running the chain `--from` earlier steps; the step whose post-state breaks the next step's L5 pre-conditions is the real culprit.
-- **L5 fails** — the step itself is broken (prompt drift, stale scorer, bad `setup-l5.sh`). Fix in isolation, re-run L5 until green, then re-run the chain.
+- **L5 fails** — the step itself is broken (prompt drift, stale scorer, bad `setup-l5.ts`). Fix in isolation, re-run L5 until green, then re-run the chain.
 
 Faster iteration: ~$0.20 per L5 row vs ~$5–10 for a full L6 chain run.
 
@@ -272,7 +272,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/l3-integration/mcp/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook | `mcp/trajectory-server/src/test/<name>-l3.test.ts` | `node:test` + `node:assert/strict`; `makeSandbox()` + `runGate()` from `src/test/hook-sandbox.ts`, `CLAUDE_PROJECT_DIR` pinned to the sandbox (skeleton below) |
-| L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
+| L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + optional `setup-l5.ts` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 
 ### Hook test skeleton
 
