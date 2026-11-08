@@ -10,13 +10,14 @@
  * sqlite3 CLI on PATH (the .sh allows).
  */
 import { ALLOW, type Gate } from './gate.js';
-import { PARSE_REASON } from './git-guards.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
+import { denyResult } from './lib/deny.js';
 import { cmdStatements, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite } from './lib/db.js';
 import { jqCapture, jqGet, jqInput, jqRaw, JqUnindexable } from './lib/jq-raw.js';
 import { shellCapture } from './lib/lint-shell.js';
 import { repoRemotes } from './lib/repo.js';
-import { denyResult, payloadCwdOf, statementRows } from './lib/statement-rows.js';
+import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'no-remote-auth-guard';
 
@@ -52,7 +53,7 @@ export const noRemoteAuthGuard: Gate = async (payload, env) => {
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
-  if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
   let tool = '';
   let matchedDir = '';
   for (const { dir, stmt } of statementRows(listed.statements)) {
@@ -74,5 +75,6 @@ export const noRemoteAuthGuard: Gate = async (payload, env) => {
   if (hasRemoteUrl(remotes) !== 'false') return ALLOW;
   return denyResult(
     `BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`,
+    'policy',
   );
 };

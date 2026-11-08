@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
-import { BYPASS_ENV, codeReviewerPreflight, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
+import { BYPASS_ENV, codeReviewerPreflight, preflightFix, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 
@@ -117,7 +117,9 @@ function denial(stdout: string): PreflightFailure {
   assert.notEqual(stdout, '', 'expected a deny');
   const out = JSON.parse(stdout);
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
-  return JSON.parse(out.hookSpecificOutput.permissionDecisionReason) as PreflightFailure;
+  const { fix, ...failure } = JSON.parse(out.hookSpecificOutput.permissionDecisionReason) as PreflightFailure & { fix: unknown };
+  assert.deepEqual(fix, preflightFix(failure.check, String(TASK_ID)));
+  return failure;
 }
 
 async function run(f: Fixture, input = payload()) {

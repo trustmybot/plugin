@@ -17,11 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
 import { encode } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements } from '../hooks/cmd-analysis/index.js';
-import { gitPushGuard, PARSE_REASON } from '../hooks/git-push-guard.js';
+import { gitPushGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT } from '../hooks/git-push-guard.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { CODE_REVIEWER_ROLE } from '../hooks/lib/role.js';
 import { findGate } from '../hooks/registry.js';
 import { buildSandbox, materialize } from './hooks-git-push-guard-parity.suite.js';
 
+const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const PUSH_CORPUS = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../tests/fixtures/hook-corpus/git-push-guard');
 const INTEGRATE = 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>';
 
@@ -120,7 +122,7 @@ describe('git-push-guard: GH 1692 the rebased-commit deny names cli.js integrate
       const why = reason((await gitPushGuard(c.input, env)).stdout);
       assert.ok(why.includes(phrase), why);
       assert.ok(why.includes('Then rebase it with cli.js integrate, which re-runs verification[]'), why);
-      assert.ok(why.endsWith(`\n  ${INTEGRATE}`), why);
+      assert.ok(why.endsWith(` Allowed form: ${INTEGRATE}`), why);
       assert.ok(!why.includes('skills/tmb_planning/scripts'), why);
     });
   }

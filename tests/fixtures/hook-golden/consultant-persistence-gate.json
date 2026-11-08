@@ -70,7 +70,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>) then return.\"}\n",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>), then return\"}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -137,7 +137,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='pm', issue_id=2, author='pm', kind='analysis', body=<your analysis>) then return.\"}\n",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='pm', issue_id=2, author='pm', kind='analysis', body=<your analysis>), then return\"}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -338,7 +338,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>) then return.\"}\n",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>), then return\"}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -405,7 +405,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='ceo', issue_id=2, author='ceo', kind='analysis', body=<your analysis>) then return.\"}\n",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='ceo', issue_id=2, author='ceo', kind='analysis', body=<your analysis>), then return\"}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -874,7 +874,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"BLOCKED: trajectory DB unavailable — consultant-persistence-gate could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.\"}\n",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"BLOCKED: trajectory DB unavailable — consultant-persistence-gate could not read @SANDBOX@/bad/.claude/tmb/trajectory.db (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads\"}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

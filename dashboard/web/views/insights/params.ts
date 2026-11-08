@@ -276,7 +276,7 @@ export const typeSubject = (type: string, what: string) => `${type} ${what}`;
 export const TOK_LINE_BY_TYPE = 'First-Pass Tokens/Line by Type';
 export const TOKENS_PER_LINE_UNIT = 'Tokens per Line';
 export const PERIOD_HEADER = 'Period';
-export const EFFICIENCY_FOOTNOTE ='A line is any added or removed line. Code tasks skip docs, generated files and lockfiles; docs tasks count every line.';
+export const EFFICIENCY_FOOTNOTE = 'A line is any added or removed line. Code tasks skip docs, generated files and lockfiles; docs tasks count every line.';
 
 
 const DEFAULT_AGG: AggKey = 'p50';

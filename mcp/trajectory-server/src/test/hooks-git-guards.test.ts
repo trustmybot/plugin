@@ -14,8 +14,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { gitGuards, needsGitGuard, PARSE_REASON } from '../hooks/git-guards.js';
+import { gitGuards, needsGitGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT } from '../hooks/git-guards.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { findGate, gateNames } from '../hooks/registry.js';
+
+const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -129,7 +132,7 @@ describe('git-guards: the TypeScript gate', () => {
     assert.deepEqual(await gitGuards(payload(sync, dir), env), { stdout: '', code: 0 });
     const quoted = `echo "é" && ${sync}`;
     const r = await gitGuards(payload(quoted, dir), env);
-    assert.match(reason(r.stdout), /To sync a branch with its own upstream/);
+    assert.match(reason(r.stdout), /Syncing a branch with its own upstream/);
     const utf8 = await gitGuards(payload(quoted, dir), { ...env, LC_ALL: 'en_US.UTF-8' });
     assert.deepEqual(utf8, r, 'the locale picks no other answer');
   });

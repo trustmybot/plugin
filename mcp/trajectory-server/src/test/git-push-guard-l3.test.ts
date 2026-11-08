@@ -381,7 +381,7 @@ describe('git-push-guard l3: GH 1196 role from identity, dir from the command', 
   it("bro bare 'git push' while worktrees exist → ambiguous_git_target, not an SWE rule", () => {
     const out = run(undefined, r.repo, 'git push origin main', newDb(r.repo));
     has(out, 'ambiguous_git_target', 'the deny names the real reason');
-    has(out, 'git -C <path> or cd <path>', 'the deny carries the remedy');
+    has(out, 'Allowed form: git -C <path> push origin main', 'the deny carries the remedy');
     hasNot(out, 'SWE must never push', 'bro is never told an SWE rule');
   });
 

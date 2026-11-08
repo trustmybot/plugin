@@ -19,6 +19,7 @@ import {
   sqlInt,
   stripTrailingNewlines,
 } from './lib/db.js';
+import type { DenyFix } from './lib/deny.js';
 import { gitOut } from './lib/git.js';
 import { jqAlternatives } from './lib/jq.js';
 import { jqRawText } from './lib/project-env.js';
@@ -55,8 +56,8 @@ function rawField(value: unknown): string {
   return value === null || value === undefined || value === false ? '' : stripTrailingNewlines(jqRawText(value));
 }
 
-function deny(reason: string): GateResult {
-  return denyPreToolUse(reason);
+function deny(reason: string, fix: DenyFix): GateResult {
+  return denyPreToolUse(reason, fix);
 }
 
 interface WorktreeRow {
@@ -107,7 +108,8 @@ async function worktreeDeny(db: string, taskId: string, safeId: string, env: Nod
       ? ` The main checkout currently has ${branch} checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere).`
       : '';
   return deny(
-    `BLOCKED: task_id=${taskId} is pending and branch ${branch} has no linked worktree (expected ${expected}).${sw} Call task_reopen(task_id=${taskId}, reason="<why>") to create the worktree, then respawn swe.`,
+    `BLOCKED: task_id=${taskId} is pending and branch ${branch} has no linked worktree (expected ${expected}).${sw}`,
+    { allowed: `task_reopen(task_id=${taskId}, reason="<why>") to create the worktree, then the same swe spawn` },
   );
 }
 
@@ -164,9 +166,10 @@ function specShapeVerdict(db: string, taskId: string, safeId: string, env: NodeJ
   return deny(
     `BLOCKED: task_id=${taskId} adds a column, field, tool, table or migration, and its spec_body is missing a ${missing} line. ` +
       'Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and ' +
-      '`Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. ' +
+      '`Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`. ' +
       `To waive, bro first records audit_append(event_type="spec_shape_gate_waived", from_node="bro", issue_id=${issue}, branch_id="${branch}", ` +
       `summary=<why>, content_json={"task_id":${taskId},"gate":"spec_shape","reason":"<why, >= 10 chars>"}) and then respawns.`,
+    { allowed: `task_update_spec(task_id=${taskId}, ...) with the ${missing} line, then the same swe spawn` },
   );
 }
 
@@ -176,6 +179,7 @@ export const requireTaskSpec: Gate = async (payload, env) => {
   if (taskId === '') {
     return deny(
       'BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id).',
+      { allowed: "Agent(subagent_type='swe', prompt starting 'task_id=<N>')" },
     );
   }
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
@@ -183,7 +187,11 @@ export const requireTaskSpec: Gate = async (payload, env) => {
   const safeId = sqlInt(taskId);
   const row = gateRead(db, `SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${safeId};`, env);
   if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME, env);
-  if (row === '') return deny(`BLOCKED: task_id=${taskId} does not exist in the tasks table.`);
+  if (row === '') {
+    return deny(`BLOCKED: task_id=${taskId} does not exist in the tasks table.`, {
+      allowed: "task_create_batch for the work, then Agent(subagent_type='swe', prompt starting 'task_id=<new id>')",
+    });
+  }
   const fields = row.split(/[|\n]/);
   const status = fields[0] ?? '';
   const bodyLen = (fields[1] ?? '').trim();
@@ -201,18 +209,21 @@ export const requireTaskSpec: Gate = async (payload, env) => {
     if (live === GATE_READ_ERROR) return denyUnreadable(GATE_NAME, env);
     if (live !== '') {
       return deny(
-        `BLOCKED: task_id=${taskId} is running with a live swe run: agent_runs ${live}. Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.`,
+        `BLOCKED: task_id=${taskId} is running with a live swe run: agent_runs ${live}. Wait for that swe to return.`,
+        { allowed: `if that swe is gone, task_update_status(task_id=${taskId}, status='failed'), then task_reopen(task_id=${taskId}, ...) and the same spawn` },
       );
     }
   }
   if (status !== 'pending' && status !== 'running') {
     return deny(
-      `BLOCKED: task_id=${taskId} has status=${status}, expected pending, or running with no live swe run. Reopen finished work with task_reopen.`,
+      `BLOCKED: task_id=${taskId} has status=${status}, expected pending, or running with no live swe run.`,
+      { allowed: `task_reopen(task_id=${taskId}, ...), then the same spawn` },
     );
   }
   if (/^-?[0-9]+$/.test(bodyLen || '0') && Number(bodyLen || '0') === 0) {
     return deny(
-      `BLOCKED: task_id=${taskId} has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.`,
+      `BLOCKED: task_id=${taskId} has empty spec_body. bro must populate spec_body before SWE can execute.`,
+      { allowed: `task_update_spec(task_id=${taskId}, ...) with the spec body, then the same spawn` },
     );
   }
   if (status === 'pending') {

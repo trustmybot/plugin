@@ -14,13 +14,14 @@
  */
 import { statSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
-import { PARSE_REASON } from './git-guards.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
+import { denyResult } from './lib/deny.js';
 import { cmdStatements, denyAmbiguousGitTarget, gitSubcommand } from './cmd-analysis/index.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote } from './lib/db.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoGitRoot } from './lib/repo.js';
-import { denyResult, payloadCwdOf, readTabFields, statementRows } from './lib/statement-rows.js';
+import { payloadCwdOf, readTabFields, statementRows } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'stay-on-base-guard';
 
@@ -56,7 +57,7 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
   if (!command.includes('checkout') && !command.includes('switch')) return ALLOW;
 
   const listed = await cmdStatements(command, payloadCwdOf(input, env), env);
-  if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON) : ALLOW;
+  if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
   let lines = '';
   for (const { dir, stmt } of statementRows(listed.statements)) {
     const sub = gitSubcommand(stmt);
@@ -96,7 +97,8 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
     const loc = taskLocation(db, openTask, env);
     const wt = loc.code === 0 ? loc.worktree : `${await repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
     return denyResult(
-      `the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`,
+      `the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}.`,
+      { allowed: `cd ${wt}` },
     );
   }
   return ALLOW;

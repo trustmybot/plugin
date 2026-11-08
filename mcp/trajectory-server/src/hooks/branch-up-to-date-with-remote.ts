@@ -12,13 +12,14 @@
  * (the .sh allows).
  */
 import { ALLOW, type Gate } from './gate.js';
-import { PARSE_REASON } from './git-guards.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
+import { denyResult } from './lib/deny.js';
 import { cmdStatements, gitSubcommand, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoNameForRoot } from './lib/repo.js';
-import { denyResult, payloadCwdOf, statementRows } from './lib/statement-rows.js';
+import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'branch-up-to-date-with-remote';
 
@@ -39,7 +40,7 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
-  if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
   let wtDir = '';
   let wtSub = '';
   for (const { dir, stmt } of statementRows(listed.statements)) {
@@ -76,6 +77,7 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
 
   const behind = await behindCount(root, `${branch}..origin/${prTarget}`, env);
   return denyResult(
-    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`,
+    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`,
+    { allowed: `git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}, then the same worktree add` },
   );
 };

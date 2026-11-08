@@ -2,7 +2,7 @@ import { AlertIcon, ArrowDownIcon, ArrowSwitchIcon, ArrowUpIcon, DashIcon, GitCo
 import { useId, useState, type KeyboardEvent } from 'react';
 import { FIELD } from '../../shared/classes.ts';
 import { Button } from '../../ui/Button.tsx';
-import { labelClass } from '../../ui/Label.tsx';
+import { LABEL_ICON, labelClass } from '../../ui/Label.tsx';
 import { SegmentedControl } from '../../ui/SegmentedControl.tsx';
 import {
   dateDraft,
@@ -56,7 +56,7 @@ export function DeltaLabel({ measure, subject, p1, p2 }: { measure: DeltaMeasure
   const Icon = d.direction === 'up' ? ArrowUpIcon : d.direction === 'down' ? ArrowDownIcon : d.text.startsWith('—') ? null : DashIcon;
   return (
     <span role="img" className={labelClass(d.variant)} aria-label={d.aria} title={d.title} data-delta={d.variant}>
-      {Icon && <Icon size={12} aria-hidden="true" />}
+      {Icon && <Icon size={LABEL_ICON} aria-hidden="true" />}
       {d.text}
     </span>
   );

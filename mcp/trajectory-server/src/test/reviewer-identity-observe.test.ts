@@ -203,7 +203,7 @@ describe('reviewer-identity-observe: a code-reviewer validation_record records i
     const before = rows();
     const out = chain(payload('', '', 'toolu_main', 4));
     assert.equal(decision(out), 'deny', 'agent-arg-matches-caller denies the main loop');
-    assert.ok(out.includes("pass agent='bro'"), `agent-arg-matches-caller's reason: ${out}`);
+    assert.ok(out.includes("call with agent='bro'"), `agent-arg-matches-caller's reason: ${out}`);
     assert.equal(rows(), before, 'no row written');
     assert.equal(state(4), '0|-|-', 'the reviewer row stays unconsumed and unsuperseded');
   });

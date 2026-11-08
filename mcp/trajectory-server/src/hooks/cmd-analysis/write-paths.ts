@@ -62,6 +62,7 @@ const CAP_LINE = `UNRESOLVED:${COMPUTED}${CAP_TEXT}`;
 
 /** The deny of a gate that acts on the cap itself, in the shape router/records.ts reads as no path judged. */
 export const CAP_REASON = `BLOCKED: write target "${CAP_TEXT}" cannot be judged: the analyzer stopped before it finished reading this command, so the guard cannot tell what it writes.`;
+export const CAP_FIX = { allowed: 'the same work as several smaller commands' } as const;
 
 export const isCapLine = (line: string): boolean => line === CAP_LINE;
 

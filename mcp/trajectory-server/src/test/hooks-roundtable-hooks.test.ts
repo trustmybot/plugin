@@ -10,7 +10,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { consultantPersistenceGate, recoveryMessage, stoppingAgent } from '../hooks/consultant-persistence-gate.js';
+import { consultantPersistenceGate, recoveryFix, recoveryMessage, stoppingAgent } from '../hooks/consultant-persistence-gate.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
 import { roundtableAuqShape, shapeViolations } from '../hooks/roundtable-auq-shape.js';
 import { missingSurfaces, roundtableCleanupPostcheck, roundtableIdField } from '../hooks/roundtable-cleanup-postcheck.js';
@@ -91,7 +92,7 @@ describe('roundtable and consultant hooks without jq or the sqlite3 CLI (decisio
   it('consultant-persistence-gate blocks, where the .sh lets the consultant stop without jq or sqlite3', () => {
     buildSandbox(s);
     const r = consultantPersistenceGate('{"subagent_type":"pm"}', env());
-    assert.deepEqual(JSON.parse(r.stdout), { decision: 'block', reason: recoveryMessage('pm', '2') });
+    assert.deepEqual(JSON.parse(r.stdout), { decision: 'block', reason: fixedReason(recoveryMessage(), recoveryFix('pm', '2')) });
   });
 
   it('consultant-persistence-gate lets code-reviewer stop with no discussion row (a backbone role)', () => {
@@ -107,7 +108,7 @@ describe('roundtable and consultant hooks without jq or the sqlite3 CLI (decisio
     assert.equal(out.decision, 'block');
     assert.equal(
       out.reason,
-      `BLOCKED: trajectory DB unavailable — consultant-persistence-gate could not read ${bad} (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.`,
+      `BLOCKED: trajectory DB unavailable — consultant-persistence-gate could not read ${bad} (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads`,
     );
   });
 

@@ -3,7 +3,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-bypass.json": {
@@ -24,14 +24,14 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-deadline-invalid-local-id.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-echo-quoted-remote-write.json": {
@@ -52,7 +52,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#10 → #50 (GitHub)  local #10: \\\"Local ten\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#10 → #50 (GitHub)  local #10: \\\"Local ten\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-gh-issue-view-read.json": {
@@ -73,21 +73,21 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-glab-mr-create-local-id.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-glab-mr-update-both-iids-local-id.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#10 → #60 (GitLab)  local #10: \\\"Local ten\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#10 → #60 (GitLab)  local #10: \\\"Local ten\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-heredoc-quoted-remote-write.json": {
@@ -101,21 +101,21 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-issue-comment-heredoc-local-id.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\n#7 → #88 (GitLab)  local #7: \\\"Local seven\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-issue-create-escapes-local-id.json": {
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#11 → #77 (GitHub)  local #11: \\\"back\\\\slash \\t tab A A \\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#11 → #77 (GitHub)  local #11: \\\"back\\\\slash \\t tab A A \\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-missing-db.json": {
@@ -143,7 +143,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-pr-create-no-text.json": {
@@ -171,7 +171,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:\\n#042 → #42 (GitHub)  local #042: \\\"Local forty-two\\\"\\n#05 → #42 (GitHub)  local #05: \\\"Local five | pipe title\\\"\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote:\\n#042 → #42 (GitHub)  local #042: \\\"Local forty-two\\\"\\n#05 → #42 (GitHub)  local #05: \\\"Local five | pipe title\\\"\\n#5 → #42 (GitHub)  local #5: \\\"Local five | pipe title\\\"\\nA bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.) Allowed form: the same command with each local #N replaced by the remote iid shown above\"}}\n"
     }
   },
   "bash-pr-edit-matching-iid.json": {

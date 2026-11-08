@@ -33,7 +33,8 @@ import type { Node } from 'web-tree-sitter';
 import { bashParser } from './cmd-analysis/parser.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { stripTrailingNewlines } from './lib/db.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { pluginName, posixBasename, posixDirname, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { repoGitRoot } from './lib/repo.js';
 
@@ -59,11 +60,14 @@ const AUTHORS = new Set(['echo', 'printf', 'cat']);
 const WRAPPERS = new Set(['command', 'builtin', 'env', 'exec', 'nohup', 'sudo', 'time', 'nice', 'timeout', 'stdbuf', 'xargs', 'eval', 'bash', 'sh', 'zsh', 'dash', 'ksh']);
 
 const BODY_FILE_REASON =
-  'BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB. Pass the text with --body, or with --body-file - on stdin.';
+  'BLOCKED: this gh command reads its body from a file, and a body file is prose standing in for the trajectory DB.';
+const BODY_FILE_FIX: DenyFix = { allowed: 'the same gh command with the text passed by --body, or by --body-file - on stdin' };
 
 function proseReason(target: string): string {
-  return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec. Command output belongs in a .log file.`;
+  return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec.`;
 }
+
+const PROSE_FIX: DenyFix = { allowed: 'one of those trajectory DB calls for prose, or the same write to a .log file for command output' };
 
 function capture(text: string): string {
   return stripTrailingNewlines(text.replace(/\0/g, ''));
@@ -73,9 +77,8 @@ function field(input: string, ...paths: string[][]): string {
   return capture(jqAlternatives(input, paths));
 }
 
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
+function denyProse(target: string): GateResult {
+  return denyResult(proseReason(target), PROSE_FIX);
 }
 
 function under(path: string, dir: string): boolean {
@@ -329,19 +332,19 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   if (lines.some(isCapLine)) return ALLOW;
   if (lines.some(isUnparsed)) {
     const unparsed = await unparsedProse(command, cwd, tmpdir, env);
-    if (unparsed !== '') return deny(proseReason(unparsed));
+    if (unparsed !== '') return denyProse(unparsed);
   }
   const prose = proseTargets(lines);
   if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
 
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return ALLOW;
-  if (listed.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny(BODY_FILE_REASON);
+  if (listed.statements.some(({ stmt }) => readsBodyFile(stmt))) return denyResult(BODY_FILE_REASON, BODY_FILE_FIX);
   if (prose.length === 0) return ALLOW;
   const blanked = capture((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join('\n')).split('\n');
   const authored = blanked.some((line) => isCapLine(line) || isUnparsed(line)) ? prose : proseTargets(blanked);
   for (const path of await withoutRmTargets(authored, listed.statements, cwd, runEnv)) {
-    if (await deniedProse(path, tmpdir, env)) return deny(proseReason(path));
+    if (await deniedProse(path, tmpdir, env)) return denyProse(path);
   }
   return ALLOW;
 }
@@ -350,7 +353,7 @@ async function fileRule(input: string, toolName: string, env: NodeJS.ProcessEnv)
   const target = field(input, ['tool_input', 'file_path'], ['tool_input', 'notebook_path']);
   if (target === '') return ALLOW;
   const path = target.startsWith('/') ? target : `${payloadCwd(input, env)}/${target}`;
-  return (await deniedProse(path, effectiveTmpdir(input, toolName, env), env)) ? deny(proseReason(target)) : ALLOW;
+  return (await deniedProse(path, effectiveTmpdir(input, toolName, env), env)) ? denyProse(target) : ALLOW;
 }
 
 export const noProseInScratch: Gate = async (payload, env) => {

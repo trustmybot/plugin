@@ -173,7 +173,7 @@ describe('swe-resume-gate', () => {
     const f = fixture({ runEffort: 'low', taskEffort: 'high' });
     const reason = denyReason(run(f).stdout);
     assert.match(reason, /swe agent-swe-1 ran task 3 at effort low; the task's effort is now high/);
-    assert.match(reason, /Spawn a fresh swe at the task's effort instead: Agent\(subagent_type='swe', effort='high'/);
+    assert.match(reason, /Allowed form: Agent\(subagent_type='swe', effort='high', prompt starting 'task_id=3'\)$/);
   });
 
   it('judges the swe by its latest run of the task', () => {

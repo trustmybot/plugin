@@ -80,7 +80,7 @@ describe('swe-boundary l3: programs, variables and loops', () => {
       has(out, DENY, 'an unresolvable target is denied');
       has(
         out,
-        'write target \\"$UNKNOWN/f\\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.',
+        'write target \\"$UNKNOWN/f\\" cannot be judged: depends on a variable the guard cannot resolve in this command. Allowed form: the same command with the path inlined, or with the variable set in the same command',
         'the deny names the variable',
       );
       has(swe(f, wtPlain, 'F=$(mktemp -u); echo x > "$F"'), 'write target \\"$F\\"', 'a value built by $( ) is unresolvable');

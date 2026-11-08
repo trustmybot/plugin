@@ -89,7 +89,7 @@ describe('no-prose-in-scratch', () => {
       for (const name of ['issue_create', 'issue_update_description', 'discussion_append', 'decision', 'analysis', 'note', 'task_update_spec', 'task_create_batch']) {
         assert.ok(text.includes(name), name);
       }
-      assert.match(text, /Command output belongs in a \.log file/);
+      assert.match(text, /or the same write to a \.log file for command output$/);
     });
 
     it('allow what is not prose in a zone', async () => {
@@ -272,7 +272,7 @@ describe('no-prose-in-scratch', () => {
       });
 
       it('still denies a gh body file', async () => {
-        assert.match(await shell(`gh issue create --body-file ${S}/b.md`), /--body, or with --body-file - on stdin/);
+        assert.match(await shell(`gh issue create --body-file ${S}/b.md`), /--body, or by --body-file - on stdin$/);
       });
     });
 
@@ -379,7 +379,7 @@ describe('no-prose-in-scratch', () => {
   });
 
   describe('gh body files', () => {
-    const REASON = /--body, or with --body-file - on stdin/;
+    const REASON = /--body, or by --body-file - on stdin$/;
 
     it('allow stdin and an inline body', async () => {
       assert.equal(await shell('gh issue edit 1 --body-file - <<EOF\nhi\nEOF'), '');

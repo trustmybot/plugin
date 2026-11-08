@@ -46,7 +46,8 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { auditAppend, dbWrite, nowIso, type WriteResult } from './lib/audit.js';
-import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
+import { type DenyFix, denyJson } from './lib/deny.js';
+import { branchSlug, DB_RETRY_FIX, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
 import { gitRun, isDir } from './lib/git.js';
 import { firstLine } from './lib/host.js';
 import { jqCompact, jqNumberLiteral, jqRawElements } from './lib/jq.js';
@@ -83,10 +84,15 @@ const TAIL_LINES = 20;
 const FAILURE_LINES = 15;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
 
-const DB_UNAVAILABLE_DENY =
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
-const WAIVER_UNRECORDED_DENY =
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
+const DB_UNAVAILABLE_DENY = `${denyJson(
+  'BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read).',
+  DB_RETRY_FIX,
+)}\n`;
+const WAIVER_UNRECORDED_DENY = `${denyJson(
+  'BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured.',
+  { allowed: 'the same call again, once the trajectory DB is writable' },
+)}\n`;
+const RETRY_FIXED: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report) again once the fix is committed" };
 const NO_VERIFICATION_CONTEXT =
   "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"TMB: task has no typed verification[] — verification gate skipped. Ask bro to set the task's verification[] field (Typed Rails #673) to enforce verification commands.\"}}\n";
 const UNRECORDED_PASS_CONTEXT =
@@ -110,8 +116,8 @@ function afterBar(s: string): string {
   return i < 0 ? s : s.slice(i + 1);
 }
 
-function deny(reason: string): string {
-  return `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`;
+function deny(reason: string, fix: DenyFix): string {
+  return `${denyJson(reason, fix)}\n`;
 }
 
 function context(text: string): string {
@@ -436,7 +442,7 @@ class VerificationRun {
     const remaining = this.c.timeoutS - Math.trunc(this.activeMs() / 1000);
     if (remaining <= 0) {
       await this.recordFinish(124, 1);
-      return deny(this.timeoutReason(ordinal, recordedCmd, '', msToS(this.activeMs())));
+      return deny(this.timeoutReason(ordinal, recordedCmd, '', msToS(this.activeMs())), 'policy');
     }
     const outPath = `${this.c.scratch}/out-${ordinal}`;
     const cmdStart = Date.now();
@@ -455,7 +461,7 @@ class VerificationRun {
     this.recordCommand(ordinal, recordedCmd, rc, elapsed, tail);
     if (rc === 124 && fired) {
       await this.recordFinish(124, 1);
-      return deny(this.timeoutReason(ordinal, recordedCmd, elapsed, total));
+      return deny(this.timeoutReason(ordinal, recordedCmd, elapsed, total), 'policy');
     }
     return { rc, out, elapsed, total, tail };
   }
@@ -491,6 +497,7 @@ class VerificationRun {
           commandSubstitution(
             `BLOCKED: verification failed.\nFailing command (${this.ordinal}/${c.cmdTotal}): ${cmd}\nExit ${r.rc} after ${r.elapsed}s; ${r.total}s cumulative.${this.recordNote()}${hitsBlock}\n\nOutput (last ${TAIL_LINES} lines):\n${r.tail}`,
           ),
+          RETRY_FIXED,
         );
       }
     }
@@ -526,6 +533,7 @@ class VerificationRun {
       await this.recordFinish(probeRc, 0);
       return deny(
         `BLOCKED: verification failed — review finding probe(s) failed; ${msToS(this.activeMs())}s cumulative.${this.recordNote()}${probeFail}\n\nFix each finding so its probe exits 0 (task_brief.open_findings lists the open ones).`,
+        RETRY_FIXED,
       );
     }
 
@@ -668,6 +676,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
     return {
       stdout: deny(
         `BLOCKED: verification gate could not locate the task worktree at ${missingAt} — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.`,
+        'policy',
       ),
       code: 0,
     };
@@ -719,7 +728,8 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
       if (setup.error !== undefined) {
         const timedOut = setup.commands.some((c) => c.timed_out);
         return deny(
-          `BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.\n${describeSetupFailure(setup)}\n\n${timedOut ? `Worktree setup counts against the ${runCtx.timeoutS}s verification budget. ${raise}` : `Fix the command or ${WORKTREE_SETUP_FILE} and retry.`}`,
+          `BLOCKED: worktree setup failed, so verification[] did not run and no verification run was recorded.\n${describeSetupFailure(setup)}\n\n${timedOut ? `Worktree setup counts against the ${runCtx.timeoutS}s verification budget. ${raise}` : `Fix the command or ${WORKTREE_SETUP_FILE}.`}`,
+          timedOut ? 'policy' : RETRY_FIXED,
         );
       }
       if (!setup.ran) return new VerificationRun(runCtx).run();
@@ -727,6 +737,7 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
       if (leftS <= 0) {
         return deny(
           `BLOCKED: worktree setup used up the ${runCtx.timeoutS}s verification budget (${setupS}s), so verification[] did not run and no verification run was recorded. ${raise}`,
+          'policy',
         );
       }
       return new VerificationRun({ ...runCtx, timeoutS: leftS, setupS }).run();
@@ -744,7 +755,8 @@ export const sweVerificationGate: Gate = async (payload, env): Promise<GateResul
       const slot = await acquireSuiteSlot({ command: suiteCommand, worktree, env: genv, maxWaitS: capS, stderr });
       if (slot.kind === 'busy') {
         return deny(
-          `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded. Retry task_update_status(status='completed') once that suite finishes.`,
+          `BLOCKED: suite slot busy — every suite slot is ${describeHolder(slot.holder)}; waited ${slot.waitedS}s, the cap of ${capS}s (${capWhy}). No verification run was recorded.`,
+          { allowed: "task_update_status(status='completed', commit_sha, report) again once that suite finishes" },
         );
       }
       try {
