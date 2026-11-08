@@ -1,8 +1,8 @@
 /**
  * Six small l3 bash suites in node:test (GH 1692): the attribution-footer and
  * orphan-scan gates run as `node dist/hooks.js <gate>` with CLAUDE_PROJECT_DIR
- * pinned and PWD set; the enums-stable lint and its perl extractor run
- * unchanged through perl; resolveTaskIdForTarget, taskBySlug and repoRemotes
+ * pinned and PWD set; the enums-stable lint runs as its node:test file and
+ * its perl extractor runs unchanged through perl; resolveTaskIdForTarget, taskBySlug and repoRemotes
  * run as shipped TS; the live Claude Code hook-env proof runs only with
  * TMB_L3_LIVE_CC=1.
  */
@@ -184,7 +184,7 @@ exit 0
 });
 
 describe('enums-stable lint and extractor l3', () => {
-  const LINT = join(PLUGIN_ROOT, 'tests/l1-lint/enums-stable.sh');
+  const LINT = join(PLUGIN_ROOT, 'tests/l1-lint/enums-stable.test.mjs');
   const EXTRACT = join(PLUGIN_ROOT, 'tests/l1-lint/enums-stable-extract.pl');
   const LINT_FIXTURES = join(PLUGIN_ROOT, 'tests/l1-lint/fixtures/enums-stable');
   const SOURCES = join(PLUGIN_ROOT, 'tests/l3-integration/hooks/fixtures/enums-stable-extract');
@@ -213,7 +213,7 @@ describe('enums-stable lint and extractor l3', () => {
   }
 
   function runLint(name: string): { exit: number | null; output: string } {
-    const r = spawnSync('bash', [LINT, join(work, name)], { env: sb.env, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [LINT, join(work, name)], { env: sb.env, encoding: 'utf8' });
     return { exit: r.status, output: cap(r.stdout + r.stderr) };
   }
 
