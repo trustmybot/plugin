@@ -176,17 +176,17 @@ class ProbeExit extends Error {
   }
 }
 
-/** Shell-sourcing semantics: a quoted value ends at its closing quote; an unquoted one ends before a ` #` comment. */
+/** Shell-sourcing semantics: a quoted value ends at its closing quote; an unquoted one ends before a `#` that whitespace precedes. CRLF counts as a line ending. */
 export function parseDotEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
     const [, name, raw] = m ?? [];
     if (name === undefined || raw === undefined) continue;
     const value = raw.trim();
     const quote = value[0];
     const close = quote === '"' || quote === "'" ? value.indexOf(quote, 1) : -1;
-    out[name] = close > 0 ? value.slice(1, close) : value.replace(/(^|\s+)#.*$/, '');
+    out[name] = close > 0 ? value.slice(1, close) : raw.replace(/\s+#.*$/, '').trim();
   }
   return out;
 }
