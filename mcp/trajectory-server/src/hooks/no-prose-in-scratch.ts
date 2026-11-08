@@ -13,16 +13,18 @@
  * Bash is judged, with its line continuations joined first (the analyzer ends a
  * statement at one, GH 1978), by the targets writePaths finds, less the ones an
  * `rm` statement removes and the ones a redirect of command output writes (GH 2405:
- * a statement authoring text, with a heredoc or here-string in it or its pipeline's
- * first command, or as `echo`, `printf` or `cat` with no file operand, keeps its
- * redirects judged), and by `gh issue|pr create|edit|comment` reading its
- * body from a file. UNRESOLVED lines are containment-guard's; a cap line is denied
- * by the gates that already deny it. On those, and on a command that does not
- * parse, this gate allows. A cap line ends the gate before cmdStatements runs,
- * since that has no work cap of its own (GH 2229).
+ * a statement authoring text, with a heredoc or here-string, `echo` or `printf` in it
+ * or any command piped into it (GH 2470), or `cat` with no file operand at its
+ * pipeline's head, keeps its redirects judged), and by `gh issue|pr create|edit|comment`
+ * reading its body from a file. UNRESOLVED lines are containment-guard's; a cap line is denied
+ * by the gates that already deny it. On those this gate allows. A command tree-sitter
+ * cannot parse fails closed (GH 2469): each word naming a prose file in a zone is
+ * denied, unless `bash -n` finds a syntax error, so the command never runs. A cap line
+ * ends the gate before cmdStatements runs, since that has no work cap of its own (GH 2229).
  *
  * TMB_ALLOW_PROSE_SCRATCH=1 in the environment lifts the whole gate.
  */
+import { spawnSync } from 'node:child_process';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { isProseFile } from '../prose-files.js';
 import { harnessTmp, runTmpdir } from './containment-guard.js';
@@ -209,25 +211,50 @@ function memberCommand(member: Node | null | undefined): Node | null | undefined
   return member.childForFieldName('body');
 }
 
+/** The commands <member> pipes, in order: tree-sitter hangs the `2>/dev/null` of `a | b 2>/dev/null | c` on `a | b`, a pipeline inside the pipeline (GH 2470). */
+function pipedCommands(member: Node | null | undefined): (Node | null | undefined)[] {
+  const command = memberCommand(member);
+  return command?.type === 'pipeline' ? present(command.namedChildren).flatMap(pipedCommands) : [command];
+}
+
+/** The commands the pipelines around <owner> pipe into it, or null when an inline body hangs on one of the statements between. */
+function pipedInto(owner: Node): (Node | null | undefined)[] | null {
+  const before: (Node | null | undefined)[] = [];
+  for (let child = owner, up = owner.parent; up !== null; child = up, up = up.parent) {
+    if (up.type === 'pipeline') {
+      const members = present(up.namedChildren);
+      before.unshift(...members.slice(0, members.findIndex((member) => member.id === child.id)).flatMap(pipedCommands));
+    } else if (up.type !== 'redirected_statement' || up.childForFieldName('body')?.id !== child.id) break;
+    else if (hasInlineBody(up)) return null;
+  }
+  return before;
+}
+
+/** Whether <command> is a `cat` with no inline body, which past a pipeline's head relays its stdin. */
+function relays(command: Node): boolean {
+  const name = command.childForFieldName('name');
+  return !hasInlineBody(command) && name?.namedChildCount === 1 && name.namedChildren[0]?.type === 'word' && posixBasename(name.text) === 'cat';
+}
+
 /**
  * Whether the statement <redirect> belongs to writes command output only. tree-sitter hangs a
  * redirect on the whole `a && b` or `a | b` before it, where the shell gives it to `b`: the
- * statement is the last command of that list, and its pipeline's first command counts too.
+ * statement is the last command of that list, and every command piped into it counts too.
  */
 function ownerCapturesOnly(redirect: Node): boolean {
   const owner = redirect.parent;
   if (owner === null) return false;
-  if (owner.type === 'command') return capturesOnly(owner);
-  if (owner.type !== 'redirected_statement' || hasInlineBody(owner)) return false;
-  let body = owner.childForFieldName('body');
-  while (body?.type === 'list') body = body.namedChildren.at(-1) ?? null;
-  if (body === null || body === undefined) return false;
-  const members = body.type === 'pipeline' ? present(body.namedChildren).map(memberCommand) : [body];
-  if (!members.every((member) => member?.type === 'command') || !capturesOnly(members[0]) || !capturesOnly(members.at(-1))) return false;
-  const outer = owner.parent;
-  if (outer?.type !== 'pipeline') return true;
-  const head = outer.namedChildren[0];
-  return head?.id === owner.id || capturesOnly(memberCommand(head));
+  let members: (Node | null | undefined)[] = [owner];
+  if (owner.type !== 'command') {
+    if (owner.type !== 'redirected_statement' || hasInlineBody(owner)) return false;
+    let body = owner.childForFieldName('body');
+    while (body?.type === 'list') body = body.namedChildren.at(-1) ?? null;
+    if (body === null || body === undefined) return false;
+    members = pipedCommands(body);
+  }
+  const before = pipedInto(owner);
+  if (before === null) return false;
+  return [...before, ...members].every((member, k) => capturesOnly(member) || (k > 0 && member?.type === 'command' && relays(member)));
 }
 
 /** The span of <redirect>, through its first destination, when it captures command output into a plain name; null otherwise. */
@@ -240,10 +267,14 @@ function captureSpan(redirect: Node): readonly [number, number] | null {
   return ownerCapturesOnly(redirect) ? [redirect.startIndex, destination.endIndex] : null;
 }
 
-/** <command> with each redirect of command output blanked, so writePaths finds only the targets a statement authors or a command writes itself. */
+/** <command> with each redirect of command output blanked, so writePaths finds only the targets a statement authors or a command writes itself; unchanged when it does not parse cleanly (GH 2469). */
 async function withoutOutputCapture(command: string): Promise<string> {
   const tree = (await bashParser()).parse(command);
   if (tree === null) return command;
+  if (tree.rootNode.hasError) {
+    tree.delete();
+    return command;
+  }
   const spans = present(tree.rootNode.descendantsOfType('file_redirect')).flatMap((redirect) => {
     const span = captureSpan(redirect);
     return span === null ? [] : [span];
@@ -258,6 +289,36 @@ function proseTargets(lines: readonly string[]): string[] {
   return lines.filter((line) => line !== '' && !line.startsWith('UNRESOLVED:') && isProseFile(line));
 }
 
+function isUnparsed(line: string): boolean {
+  return line.startsWith('UNRESOLVED:$(parse)');
+}
+
+/** Each word of <command> naming a prose file, read as text where tree-sitter could not parse it: quotes and a `--flag=` prefix dropped, $TMPDIR and $HOME expanded, a relative one under <cwd>. */
+function lexicalProse(command: string, cwd: string, tmpdir: string, env: NodeJS.ProcessEnv): string[] {
+  const home = env.HOME ?? '';
+  return command.split(/[\s;&|()<>`]+/).flatMap((token) => {
+    let word = token.replace(/['"]/g, '').replace(/^[^=/]*=/, '');
+    if (tmpdir !== '') word = word.replace(/^\$(?:TMPDIR|\{TMPDIR\})(?=\/|$)/, tmpdir);
+    if (home !== '') word = word.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
+    if (word.includes('$') || !isProseFile(word)) return [];
+    return [word.startsWith('/') ? word : `${cwd}/${word}`];
+  });
+}
+
+/** Whether bash reads <command> with no syntax error, so it runs; an unknown answer counts as yes. */
+function bashReads(command: string, env: NodeJS.ProcessEnv): boolean {
+  const run = spawnSync('bash', ['-n'], { input: command, env, stdio: ['pipe', 'ignore', 'ignore'], timeout: 5000 });
+  return run.status !== 2;
+}
+
+/** The first prose file in a zone that <command>, which tree-sitter could not parse but bash runs, names; '' when none (GH 2469: a parse error fails closed). */
+async function unparsedProse(command: string, cwd: string, tmpdir: string, env: NodeJS.ProcessEnv): Promise<string> {
+  for (const path of lexicalProse(command, cwd, tmpdir, env)) {
+    if (await deniedProse(path, tmpdir, env)) return bashReads(command, env) ? path : '';
+  }
+  return '';
+}
+
 async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
   const command = await joinContinuations(field(input, ['tool_input', 'command']));
   if (command === '') return ALLOW;
@@ -266,6 +327,10 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   const cwd = payloadCwd(input, env);
   const lines = capture((await writePaths(command, { cwd, env: runEnv })).join('\n')).split('\n');
   if (lines.some(isCapLine)) return ALLOW;
+  if (lines.some(isUnparsed)) {
+    const unparsed = await unparsedProse(command, cwd, tmpdir, env);
+    if (unparsed !== '') return deny(proseReason(unparsed));
+  }
   const prose = proseTargets(lines);
   if (prose.length === 0 && !/\bgh\b/.test(command)) return ALLOW;
 
@@ -274,7 +339,7 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   if (listed.statements.some(({ stmt }) => readsBodyFile(stmt))) return deny(BODY_FILE_REASON);
   if (prose.length === 0) return ALLOW;
   const blanked = capture((await writePaths(await withoutOutputCapture(command), { cwd, env: runEnv })).join('\n')).split('\n');
-  const authored = blanked.some((line) => isCapLine(line) || line.startsWith('UNRESOLVED:$(parse)')) ? prose : proseTargets(blanked);
+  const authored = blanked.some((line) => isCapLine(line) || isUnparsed(line)) ? prose : proseTargets(blanked);
   for (const path of await withoutRmTargets(authored, listed.statements, cwd, runEnv)) {
     if (await deniedProse(path, tmpdir, env)) return deny(proseReason(path));
   }
