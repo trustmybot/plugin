@@ -243,3 +243,100 @@ export function briefLocations(
   const loc: BriefLocations = { files, symbols, truncated, ...(unresolved.length > 0 ? { unresolved_paths: unresolved } : {}) };
   return capToSize(loc, kept.map(rank), maxChars);
 }
+
+export const CONCEPTS_MAX_CHARS = 3000;
+const MAX_CONCEPTS = 5;
+const MAX_CONCEPT_ANCHORS = 5;
+const CONCEPT_BODY_CHARS = 500;
+
+export interface ConceptAnchor {
+  ordinal: number;
+  path: string;
+  qualified_name: string;
+  trust: string;
+}
+
+export interface BriefConcept {
+  id: number;
+  name: string;
+  kind: string;
+  status: string;
+  status_reason: string | null;
+  flagged: boolean;
+  body: string;
+  anchors: ConceptAnchor[];
+}
+
+export interface BriefConcepts {
+  items: BriefConcept[];
+  truncated: boolean;
+}
+
+// The L2 concepts whose steps anchor to the task: a step path under files[],
+// a path locations names, or a (path, qualified_name) locations resolved.
+// Retired concepts never show; suspect and broken ones follow verified ones,
+// flagged, so they never read as fact.
+export function briefConcepts(
+  db: TrajectoryDB,
+  repo: string,
+  taskFiles: string[],
+  locations: BriefLocations | null,
+  maxChars: number = CONCEPTS_MAX_CHARS,
+): BriefConcepts | null {
+  if (!locations) return null;
+  const namedPaths = new Set(locations.files.map((f) => f.path));
+  const namedSymbols = new Set(locations.symbols.map((s) => `${s.path}\0${s.qualified_name}`));
+  const rows = db.all<{
+    concept_id: number;
+    name: string;
+    kind: string;
+    status: string;
+    status_reason: string | null;
+    body: string;
+    ordinal: number;
+    path: string;
+    qualified_name: string;
+    trust: string;
+  }>(
+    `SELECT c.id AS concept_id, c.name, c.kind, c.status, c.status_reason, c.body,
+            s.ordinal, s.path, s.qualified_name, s.trust
+       FROM wm_concept_steps s JOIN wm_concepts c ON c.id = s.concept_id
+      WHERE s.repo = ? AND c.repo = ? AND c.status <> 'retired'
+      ORDER BY c.id, s.ordinal`,
+    [repo, repo],
+  );
+  const matched = new Map<number, { row: (typeof rows)[number]; anchors: ConceptAnchor[] }>();
+  for (const r of rows) {
+    const hit =
+      underFiles(r.path, taskFiles) || namedPaths.has(r.path) || (r.qualified_name !== '' && namedSymbols.has(`${r.path}\0${r.qualified_name}`));
+    if (!hit) continue;
+    const entry = matched.get(r.concept_id) ?? { row: r, anchors: [] };
+    entry.anchors.push({ ordinal: Number(r.ordinal), path: r.path, qualified_name: r.qualified_name, trust: r.trust });
+    matched.set(r.concept_id, entry);
+  }
+  const ranked = [...matched.values()].sort(
+    (a, b) =>
+      Number(a.row.status !== 'verified') - Number(b.row.status !== 'verified') ||
+      b.anchors.length - a.anchors.length ||
+      a.row.concept_id - b.row.concept_id,
+  );
+  const items = ranked.slice(0, MAX_CONCEPTS).map(
+    ({ row, anchors }): BriefConcept => ({
+      id: row.concept_id,
+      name: row.name,
+      kind: row.kind,
+      status: row.status,
+      status_reason: row.status_reason,
+      flagged: row.status !== 'verified',
+      body: frameUntrusted('concept-body', row.body.slice(0, CONCEPT_BODY_CHARS)),
+      anchors: anchors.slice(0, MAX_CONCEPT_ANCHORS),
+    }),
+  );
+  const out: BriefConcepts = { items, truncated: ranked.length > items.length };
+  const fits = () => JSON.stringify(out).length <= maxChars;
+  while (!fits() && out.items.length > 0) {
+    out.items.pop();
+    out.truncated = true;
+  }
+  return out;
+}
