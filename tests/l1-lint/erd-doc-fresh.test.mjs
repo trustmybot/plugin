@@ -1,7 +1,7 @@
 // L1 lint: the generated part of docs/architecture/ERD.md (between the erd:generated markers) and its `schema_version = N` token match src/schema.sql, src/schema-eval.sql and TARGET_SCHEMA_VERSION in src/db.ts.
 import { strict as assert } from 'node:assert';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -54,4 +54,21 @@ test('self-test: an ERD with a stale schema_version fails naming ERD.md', () => 
 test('ERD.md generated section matches schema.sql, schema-eval.sql and TARGET_SCHEMA_VERSION', () => {
   const result = checkErd();
   assert.ok(result.ok, `${result.stderr}\n  To fix: node scripts/maintenance/gen-erd-doc.mjs\nErd-doc-fresh: FAIL`);
+});
+
+test('GH 2533: run through a symlinked directory, gen-erd-doc.mjs still runs main()', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-erd-doc-link-'));
+  try {
+    const link = join(dir, 'plugin');
+    symlinkSync(ROOT, link);
+    const run = spawnSync(
+      process.execPath,
+      [join(link, 'scripts', 'maintenance', 'gen-erd-doc.mjs'), '--check', '--root', join(dir, 'missing')],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /ENOENT/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -14,9 +14,9 @@
 // The parser and renderer are exported for the unit snapshot test
 // (mcp/trajectory-server/src/test/gen-erd-doc.test.ts).
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const BEGIN = '<!-- erd:generated:start -->';
 export const END = '<!-- erd:generated:end -->';
@@ -416,6 +416,6 @@ async function main() {
   writeFileSync(doc, want);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   await main();
 }

@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -124,4 +126,21 @@ test('GH 2034 V6: the labels.mjs README row names the tmb-report marker and Impa
   assert.ok(row, 'labels.mjs row missing from scripts/maintenance/README.md');
   assert.match(row, /tmb-report/);
   assert.match(row, /Impact/);
+});
+
+test('GH 2533: run through a symlinked directory, labels.mjs still runs main()', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-labels-link-'));
+  try {
+    const link = join(dir, 'plugin');
+    symlinkSync(ROOT, link);
+    const run = spawnSync(
+      process.execPath,
+      [join(link, 'scripts', 'maintenance', 'labels.mjs'), '--check', '--root', join(dir, 'missing')],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /ENOENT/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
