@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context and wm-read-before-provision have no hook-corpus
+ * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context and wm-read-before-provision have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -79,6 +79,7 @@ export const ROUTER_CORPUS_GATES = [
   'liveness-alert',
   'bash-output-trim',
   'swe-downstream-context',
+  'swe-edit-lint',
   'reviewer-downstream-context',
   'attribution-footer',
   'clean-merged-branch',
@@ -491,6 +492,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('no-prose-in-scratch')) cases.push(...noProseCases(join(root, 'no-prose'), emptyProject));
   if (want('bash-output-trim')) cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
   if (want('swe-downstream-context')) cases.push(...sweDownstreamCases(join(root, 'swe-downstream-context'), emptyProject));
+  if (want('swe-edit-lint')) cases.push(...sweEditLintCases(join(root, 'swe-edit-lint')));
   if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
   if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
@@ -806,7 +808,35 @@ function sweDownstreamCases(dir: string, cwd: string): RouterCase[] {
   return scenarios.map(([file, input]) => ({ gate: 'swe-downstream-context', file, input, env, cwd, fakeUid: false }));
 }
 
-/** reviewer-downstream-context's cases: a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */
+/** swe-edit-lint's cases: a git repo whose edit-lint.json fails a .txt holding BAD, each edit tool on it, and the calls the gate stays silent on. */
+function sweEditLintCases(dir: string): RouterCase[] {
+  const repo = join(dir, 'repo');
+  const bare = join(dir, 'bare');
+  mkdirSync(join(repo, '.config/tmb'), { recursive: true });
+  mkdirSync(bare, { recursive: true });
+  execFileSync('git', ['init', '-q', repo]);
+  writeFileSync(join(repo, '.config/tmb/edit-lint.json'), JSON.stringify({ version: 1, lints: [{ glob: '**/*.txt', command: '! grep -n BAD' }] }));
+  writeFileSync(join(repo, 'good.txt'), 'fine\n');
+  writeFileSync(join(repo, 'bad.txt'), 'line one\nBAD here\n');
+  writeFileSync(join(repo, 'code.ts'), 'BAD\n');
+  writeFileSync(join(bare, 'bad.txt'), 'BAD\n');
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), LC_ALL: LOCALE, ...GIT_ENV });
+  const post = (tool: string, toolInput: object, extra: object = { agent_id: 'a1', agent_type: 'tmb:swe' }): string =>
+    JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', cwd: repo, tool_name: tool, tool_input: toolInput, tool_response: {}, tool_use_id: 't', ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['write-pass', post('Write', { file_path: join(repo, 'good.txt'), content: 'fine\n' })],
+    ['write-fail', post('Write', { file_path: join(repo, 'bad.txt'), content: 'BAD\n' })],
+    ['edit-fail', post('Edit', { file_path: join(repo, 'bad.txt'), old_string: 'a', new_string: 'BAD' })],
+    ['multi-edit-fail', post('MultiEdit', { file_path: join(repo, 'bad.txt'), edits: [] })],
+    ['no-glob-match', post('Write', { file_path: join(repo, 'code.ts'), content: 'BAD\n' })],
+    ['no-checkout', post('Write', { file_path: join(bare, 'bad.txt'), content: 'BAD\n' })],
+    ['relative-path', post('Write', { file_path: 'bad.txt', content: 'BAD\n' })],
+    ['bro', post('Write', { file_path: join(repo, 'bad.txt'), content: 'BAD\n' }, {})],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'swe-edit-lint', file, input, env, cwd: repo, fakeUid: false }));
+}
+
+/** reviewer-downstream-context's cases:a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */
 function reviewerDownstreamCases(dir: string, cwd: string): RouterCase[] {
   mkdirSync(dir, { recursive: true });
   const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });

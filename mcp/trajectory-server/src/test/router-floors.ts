@@ -9,6 +9,8 @@
  * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
  * the router (bash-output-trim, swe-downstream-context, wm-read-before-provision) never had a registration; it takes the 4 s of
  * the lightest advisory one, and reviewer-downstream-context, which runs git, the 6 s of a git-reading one.
+ * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
+ * repo's lint commands on the edited file (GH 2570).
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -47,6 +49,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'liveness-alert': 6,
   'bash-output-trim': 4,
   'swe-downstream-context': 4,
+  'swe-edit-lint': 10,
   'reviewer-downstream-context': 6,
   'attribution-footer': 16,
   'clean-merged-branch': 11,

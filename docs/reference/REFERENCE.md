@@ -139,6 +139,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `attribution-footer.ts` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.ts` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.ts` | PostToolUse Bash | Close the local issue when its PR merges |
+| `swe-edit-lint.ts` | PostToolUse Write/Edit/MultiEdit | For a swe, run the edit lints the file's repo declares in `.config/tmb/edit-lint.json` on the edited file and block on the first failure with its command, exit code and last 20 output lines; a malformed config or a lint past the 10 s budget gives a note |
 | `swe-spawn-bind.ts` | PostToolUse Agent | Bind an accepted swe spawn's `tool_use:<tool_use_id>` run row to `tool_response.agentId` |
 | `swe-spawn-rollback.ts` | PermissionDenied Agent | Roll back a swe spawn auto mode refused: close its `tool_use:<tool_use_id>` run row as `swept_orphan` and, with no other swe run open, return the task to `pending` |
 | `bro-turn-usage.ts` | Stop | Meter bro's token usage into one `agent_runs` row per session. Runs async and does not block the turn; a lost run is recovered by the next, which re-reads the whole transcript |
