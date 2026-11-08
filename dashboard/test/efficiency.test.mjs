@@ -858,6 +858,20 @@ describe('Efficiency section in compare mode (GH 2069 C2)', () => {
     assert.ok(byWeek);
   });
 
+  test('GH 2545: the paired bars draw one divider, above the docs row, and none without docs', async () => {
+    const pairRows = (html) => [...html.matchAll(/<g data-pair="">(.*?)<\/g>/gs)].map((m) => m[1]);
+    const label = (row) => /<text[^>]*>([a-z]+)<\/text>/.exec(row)?.[1];
+    const html = await view('tasks:1-4', 'tasks:5-13');
+    const rows = pairRows(html);
+    assert.ok(rows.length > 1 && label(rows.at(-1)) === 'docs', rows.map(label).join());
+    assert.equal((html.match(/data-divider=""/g) ?? []).length, 1);
+    assert.match(rows.at(-1), /data-divider=""/);
+    const none = await view('tasks:1-4', 'tasks:5-8');
+    const plain = pairRows(none);
+    assert.ok(plain.length > 0 && !plain.map(label).includes('docs'), plain.map(label).join());
+    assert.doesNotMatch(none, /data-divider=/);
+  });
+
   test('SC3: one By Week table with a leading Period cell, Period 1 weeks first, divider before Period 2', async () => {
     const html = await view('tasks:1-4', 'tasks:5-13');
     const { copy } = mod;

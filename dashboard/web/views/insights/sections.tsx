@@ -773,7 +773,7 @@ function CompareEfficiencyBody({ e, compare }: { e: EfficiencyComparison; compar
         legend={periodLegend(compare, SERIES_COLOR)}
         caption={LOWER_BETTER}
       >
-        <PairedBarList label={`${TOK_LINE_BY_TYPE}: ${bars.map((r) => r.aria).join('; ')}`} rows={bars} format={(v) => compact(v)} axis={niceAxis((v) => compact(v))} />
+        <PairedBarList label={`${TOK_LINE_BY_TYPE}: ${bars.map((r) => r.aria).join('; ')}`} rows={bars} format={(v) => compact(v)} axis={niceAxis((v) => compact(v))} divider={(r) => r.key === 'docs'} />
       </ChartCard>
       <EfficiencyTable title={BY_TYPE} rows={pairs} columns={COMPARE_TYPE_COLUMNS} divider={(r) => r['type'] === 'docs'} />
       <EfficiencyTable title={BY_WEEK} rows={weeks} columns={COMPARE_WEEK_COLUMNS} divider={(r) => r['first'] === true} />

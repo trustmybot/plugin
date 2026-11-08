@@ -105,6 +105,8 @@ before(async () => {
         export * from './web/views/insights/compare.ts';
         export * as copy from './web/views/insights/params.ts';
         export { NO_PRICES, BRO_CAPTION } from './web/views/insights/sections.tsx';
+        export * as label from './web/ui/Label.tsx';
+        export { textWidth } from './web/views/insights/charts.tsx';
         import { parseInsightParams } from './web/views/insights/params.ts';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
@@ -483,6 +485,61 @@ describe('compare mode render: Time, Quality and Throughput (GH 2069 B1)', () =>
       assert.ok(both.includes(mod.copy.NO_RUNS_EITHER), section);
       const one = mod.page(`#/insights/${section}?range=30d&p1=tasks:1-2&p2=tasks:900-`, mod.comparison(db, 'tasks:1-2', 'tasks:900-'));
       assert.match(one, /data-period-empty="2"/, section);
+    }
+  });
+});
+
+describe('paired-bar change pills (GH 2545)', () => {
+  const db = seedQuality(seed(join(tmp, 'pills.db')));
+  const priced = seed(join(tmp, 'pills-priced.db'), PRICES);
+  after(() => {
+    db.close();
+    priced.close();
+  });
+  const TASKS = '&p1=tasks:1-2&p2=tasks:3-';
+  const unescape = (s) => s.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#x27;', "'").replaceAll('&amp;', '&');
+  const pages = () => ({
+    cost: mod.page(`#/insights/cost?range=30d${TASKS}`, mod.comparison(priced, 'tasks:1-2', 'tasks:3-')),
+    time: mod.page(`#/insights/time?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-')),
+    quality: mod.page(`#/insights/quality?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-')),
+    explore: mod.explorePage(
+      `#/insights/explore?range=30d&x=tokens_out&a=avg&g=agent${TASKS}`,
+      mod.comparison(db, 'tasks:1-2', 'tasks:3-'),
+      mod.exploreComparison(db, 'tasks:1-2', 'tasks:3-', 'm=tokens_out&a=avg&g=agent'),
+    ),
+  });
+
+  test('SC2: the pill chrome constants match the classes labelClass emits', () => {
+    const cls = mod.label.labelClass().split(' ');
+    for (const c of ['px-[7px]', 'border', 'gap-1']) assert.ok(cls.includes(c), c);
+    assert.equal(mod.label.LABEL_PAD_X, 7);
+    assert.equal(mod.label.LABEL_BORDER, 1);
+    assert.equal(mod.label.LABEL_ICON_GAP, 4);
+    assert.equal(mod.label.LABEL_ICON, 12);
+    assert.match(mod.deltaLabel({ measure: 'tokens_out', subject: 'swe p50 output tokens', p1: 100, p2: 80 }), /<svg[^>]*width="12"/);
+  });
+
+  test('SC1: every foreignObject is wide enough for its pill text, padding, border, icon and gap', () => {
+    const { LABEL_PAD_X, LABEL_BORDER, LABEL_ICON, LABEL_ICON_GAP } = mod.label;
+    let checked = 0;
+    for (const [section, html] of Object.entries(pages())) {
+      const pills = [...html.matchAll(/<foreignObject[^>]*width="([\d.]+)"[^>]*>(.*?)<\/foreignObject>/gs)];
+      assert.ok(pills.length > 0, section);
+      for (const [, width, inner] of pills) {
+        const text = unescape(inner.replace(/<svg.*?<\/svg>/gs, '').replace(/<[^>]+>/g, ''));
+        assert.ok(text.length > 0, `${section}: ${inner}`);
+        const need = mod.textWidth(text) + 2 * LABEL_PAD_X + 2 * LABEL_BORDER + LABEL_ICON + LABEL_ICON_GAP;
+        assert.ok(Number(width) >= need, `${section} "${text}": ${width} < ${need}`);
+        checked++;
+      }
+    }
+    assert.ok(checked >= 8, String(checked));
+  });
+
+  test('SC4: explore, cost, time and quality paired bars draw no divider', () => {
+    for (const [section, html] of Object.entries(pages())) {
+      assert.match(html, /<g data-pair=""/, section);
+      assert.doesNotMatch(html, /data-divider=/, section);
     }
   });
 });
