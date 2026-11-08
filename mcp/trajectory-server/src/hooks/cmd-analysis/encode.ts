@@ -266,7 +266,11 @@ export class Encoder {
     for (let i = from; i < to; i++) {
       const c = src[i];
       if (c !== '\\') {
-        if (c === '$' && this.marks && this.literalDollar(i)) out += DOLLAR;
+        if (this.marks && c === '$' && i + 1 < to && src[i + 1] === '$') {
+          // `$$` is the shell's pid, an expansion: neither `$` is literal (GH 2451).
+          out += '$$';
+          i++;
+        } else if (c === '$' && this.marks && this.literalDollar(i)) out += DOLLAR;
         else out += literalMark(c, this.marks) ? QM_LITERAL : c;
         continue;
       }
@@ -288,6 +292,10 @@ export class Encoder {
         const next = i + 1 < to ? src[i + 1] : undefined;
         if (next !== '\n') out += this.literal(next, true);
         if (next !== undefined) i++;
+      } else if (!literal && c === '$' && i + 1 < to && src[i + 1] === '$') {
+        // `$$` is the shell's pid in "…" too, never a literal `$` (GH 2451).
+        out += '$$';
+        i++;
       } else out += this.literal(c, literal || (c === '$' && this.literalDollar(i)));
     }
     return out;

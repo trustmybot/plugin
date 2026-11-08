@@ -894,6 +894,13 @@ describe('containment-guard l3', () => {
     hasNot(OUT, 'cannot be judged', 'judged, not unjudged');
   });
 
+  it('GH 2451: $$ is the shell pid, so it is not resolved as two literal $', () => {
+    assert.equal(swe('touch a$$'), 'allow', 'a<pid> is a file under the worktree');
+    const OUT = run(WT, 'swe', 'Bash', bashCmd('cd /etc && touch a$$'));
+    assert.equal(decision(OUT), 'deny', 'a<pid> lands outside the worktree');
+    has(OUT, 'cannot be judged', 'pid is unjudged, so denied');
+  });
+
   it('un-onboarded project → allow', () => {
     const BARE = join(SANDBOX, 'bare');
     mkdirSync(BARE, { recursive: true });

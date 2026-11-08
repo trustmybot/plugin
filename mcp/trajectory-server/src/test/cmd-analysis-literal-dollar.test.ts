@@ -63,6 +63,15 @@ describe('a bare $ starts no expansion, so it is literal and resolves against th
   it("a literal $ inside \"…\" resolves too", async () => {
     assert.deepEqual(await run("touch \"$'$HOME'\""), ["/r/wt/$'/h'"]);
   });
+
+  it('$$ is the shell pid, so it stays UNRESOLVED and is not read as two literal $', async () => {
+    assert.deepEqual(await run('touch a$$'), ['UNRESOLVED:$$:/r/wt/a$$']);
+    assert.deepEqual(await run('touch "a$$"'), ['UNRESOLVED:$$:/r/wt/a$$']);
+  });
+
+  it('$$$ is a pid and a literal $, so it stays UNRESOLVED', async () => {
+    assert.deepEqual(await run('touch a$$$'), ['UNRESOLVED:$$:/r/wt/a$$$']);
+  });
 });
 
 describe('without marks the encoder carries no DOLLAR byte (GH 2443)', () => {
