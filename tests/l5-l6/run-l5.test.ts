@@ -1,5 +1,5 @@
 // node:test suite for run-l5.ts: the CLI's token and PATH checks, leaf-row discovery, the filter,
-// a passing row, a failing setup-l5.sh, the per-row step env and the summary line. main runs
+// a passing row, a failing setup-l5.sh, a failing setup-l5.ts preferred over its .sh, the per-row step env and the summary line. main runs
 // against a fixture rows dir with a stub claude on PATH and a stubbed pre-flight; no test calls
 // the real claude.
 // Run: node --experimental-strip-types --experimental-sqlite --test tests/l5-l6/run-l5.test.ts
@@ -42,9 +42,10 @@ function writeRow(root: string, rel: string, files: Record<string, string>): str
   return dir;
 }
 
-function fixtureRows(): { rows: string; setupRecord: string } {
+function fixtureRows(): { rows: string; setupRecord: string; tsSetupRecord: string } {
   const rows = tempDir('tmb-run-l5-rows.');
   const setupRecord = join(rows, 'setup-project.txt');
+  const tsSetupRecord = join(rows, 'ts-setup-project.txt');
   writeRow(rows, '01-pass', { 'prompt.txt': 'say done\n' });
   writeRow(rows, '02-setup-fail', {
     'prompt.txt': 'unused\n',
@@ -53,7 +54,12 @@ function fixtureRows(): { rows: string; setupRecord: string } {
   writeRow(rows, '03/03.01-nested', { 'prompt.txt': 'nested\n', 'fixture.txt': 'onboarding-named\n' });
   writeRow(rows, '04-fixture-only', { 'fixture.txt': 'onboarding-named\n' });
   writeRow(rows, '05-container/nothing-here', { 'notes.md': 'x\n' });
-  return { rows, setupRecord };
+  writeRow(rows, '06-setup-ts-fail', {
+    'prompt.txt': 'unused\n',
+    'setup-l5.ts': `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(tsSetupRecord)}, process.argv[2]);\nprocess.exit(4);\n`,
+    'setup-l5.sh': 'exit 0\n',
+  });
+  return { rows, setupRecord, tsSetupRecord };
 }
 
 function stubEnv(): { env: NodeJS.ProcessEnv; record: string } {
@@ -148,14 +154,14 @@ describe('discoverRows', () => {
     const { rows } = fixtureRows();
     assert.deepEqual(
       discoverRows(rows).map((r) => r.name),
-      ['01-pass', '02-setup-fail', '04-fixture-only', '03.01-nested'],
+      ['01-pass', '02-setup-fail', '04-fixture-only', '06-setup-ts-fail', '03.01-nested'],
     );
   });
 });
 
 describe('main (stub claude, stubbed pre-flight)', { skip: NO_SQLITE3 }, () => {
-  test('runs every prompt row: a pass, a failed setup-l5.sh with its project removed, a skipped fixture-only row; exits 1', () => {
-    const { rows, setupRecord } = fixtureRows();
+  test('runs every prompt row: a pass, a failed setup-l5.sh and a failed setup-l5.ts with their projects removed, a skipped fixture-only row; exits 1', () => {
+    const { rows, setupRecord, tsSetupRecord } = fixtureRows();
     const { env, record } = stubEnv();
     const before = JSON.stringify(process.env);
     const { code, stdout, preFlights } = runMain([], rows, env);
@@ -167,11 +173,14 @@ describe('main (stub claude, stubbed pre-flight)', { skip: NO_SQLITE3 }, () => {
     assert.match(stdout, / {2}✗ 02-setup-fail: setup-l5\.sh failed\n/);
     assert.match(stdout, / {2}✓ 03\.01-nested passed\n/);
     assert.doesNotMatch(stdout, /04-fixture-only|nothing-here/);
-    assert.match(stdout, /\nL5: 2 passed, 1 failed\nFailed rows: 02-setup-fail\n$/);
+    assert.match(stdout, / {2}✗ 06-setup-ts-fail: setup-l5\.ts failed\n/);
+    assert.match(stdout, /\nL5: 2 passed, 2 failed\nFailed rows: 02-setup-fail 06-setup-ts-fail\n$/);
 
-    const setupProject = readFileSync(setupRecord, 'utf8');
-    assert.ok(setupProject.startsWith(join(env.TMPDIR as string, 'tmb-l5-')));
-    assert.equal(existsSync(setupProject), false);
+    for (const file of [setupRecord, tsSetupRecord]) {
+      const setupProject = readFileSync(file, 'utf8');
+      assert.ok(setupProject.startsWith(join(env.TMPDIR as string, 'tmb-l5-')));
+      assert.equal(existsSync(setupProject), false);
+    }
 
     const runs = calls(record);
     assert.deepEqual(runs.map((c) => c.FLOW_NAME), ['01-pass', '03.01-nested']);

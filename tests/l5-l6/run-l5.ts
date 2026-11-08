@@ -1,5 +1,5 @@
 // TypeScript port of run-l5.sh (GH 1692), the L5 per-row runner over the rows/ tree. Each leaf row
-// is an isolated eval: fixture.txt seeds the DB, setup-l5.sh (when present) pre-seeds state,
+// is an isolated eval: fixture.txt seeds the DB, setup-l5.ts (else setup-l5.sh) pre-seeds state,
 // claude runs the row's prompt.txt and script.json inside the per-step sandbox, then the row's
 // scorers and the trajectory doctor judge the result. The per-row env is an object; nothing here
 // writes process.env.
@@ -108,6 +108,22 @@ function printClaudeVersion(env: NodeJS.ProcessEnv): void {
 
 type RowResult = 'passed' | 'failed';
 
+interface RowSetup {
+  file: string;
+  command: string;
+  args: string[];
+}
+
+/** The row's setup-l5.ts run under node, else its setup-l5.sh under bash, else null. */
+function rowSetup(rowDir: string): RowSetup | null {
+  const ts = join(rowDir, 'setup-l5.ts');
+  if (isFile(ts)) {
+    return { file: 'setup-l5.ts', command: process.execPath, args: ['--experimental-strip-types', '--experimental-sqlite', ts] };
+  }
+  const sh = join(rowDir, 'setup-l5.sh');
+  return isFile(sh) ? { file: 'setup-l5.sh', command: 'bash', args: [sh] } : null;
+}
+
 function runRow(row: Row, runBase: string, pluginRoot: string, baseEnv: NodeJS.ProcessEnv): RowResult {
   const out = (text: string) => process.stdout.write(text);
   out(`\n=== L5 row: ${row.name} ===\n`);
@@ -122,9 +138,9 @@ function runRow(row: Row, runBase: string, pluginRoot: string, baseEnv: NodeJS.P
       return 'failed';
     }
 
-    const setup = join(row.dir, 'setup-l5.sh');
-    if (isFile(setup) && spawnSync('bash', [setup, project, row.dir], { env, stdio: 'inherit' }).status !== 0) {
-      out(`  ✗ ${row.name}: setup-l5.sh failed\n`);
+    const setup = rowSetup(row.dir);
+    if (setup !== null && spawnSync(setup.command, [...setup.args, project, row.dir], { env, stdio: 'inherit' }).status !== 0) {
+      out(`  ✗ ${row.name}: ${setup.file} failed\n`);
       return 'failed';
     }
 

@@ -4,7 +4,7 @@
 
 **Scenario:** Human pre-authorizes .DS_Store deletion in a single prompt. Verifies: all .DS_Store gone, keep-list intact, AskUserQuestion=0.
 
-**L5 mode:** `setup-l5.sh` scatters .DS_Store files + seeds keep-list files.
+**L5 mode:** `setup-l5.ts` scatters .DS_Store files + seeds keep-list files.
 **L6 mode:** Not in chain manifest (standalone row).
 
 ## Scorers

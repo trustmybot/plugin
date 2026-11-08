@@ -4,7 +4,7 @@
 
 **Scenario:** Onboarded project with named identity. User asks bro to write a Python CLI todo app — a simple, non-architectural code-touching ask. Bro should triage as simple, create issue + task, spawn SWE.
 
-**L5 mode:** `setup-l5.sh` seeds `onboarding-named` fixture state.
+**L5 mode:** `fixture.txt` seeds `onboarding-named` state; no setup script.
 **L6 mode:** Not in chain manifest (standalone row).
 
 ## Scorers
