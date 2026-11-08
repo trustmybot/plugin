@@ -1233,8 +1233,7 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         "Bro's task close: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
-        'Runs before code-reviewer: the result carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (reviewer_effort_assigned row). ' +
-        'With session_id it also carries reviewer_spawn {prompt, effort, subagent_type}, the code-reviewer Agent call to pass as is (else reviewer_spawn_unavailable names the missing input). ' +
+        'Runs before code-reviewer: the result carries review_pending=true, reviewer_effort (the effort that spawn must pass) and, with session_id, reviewer_spawn, that whole Agent call. ' +
         'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
         'Gates that refuse the close: scope, changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base); ' +
         'verification, a task with verification[] or a non-wontfix review finding needs a passing verification_runs row for the commit, run after any task_update_spec amend, whose commands match verification[] plus one `[probe <id>]` per such finding, or a verification_gate_waived row (else verification_run_missing); ' +
@@ -1279,8 +1278,8 @@ export function compositeTools(
           session_id: {
             ...RUN_SESSION_ID_SCHEMA,
             description:
-              "Optional: your host session id (the session_id=<id> the activation routine injects each turn). It becomes reviewer_spawn's subagent_session_id anchor; " +
-              "without it the result carries reviewer_spawn_unavailable: 'session_id' instead of reviewer_spawn.",
+              "Optional: your host session id (the session_id=<id> the activation routine injects each turn). With it the result carries reviewer_spawn {prompt, effort, subagent_type}, " +
+              "the code-reviewer Agent call to pass as is, whose subagent_session_id anchor it becomes; without it the result carries reviewer_spawn_unavailable: 'session_id' instead.",
           },
         },
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
