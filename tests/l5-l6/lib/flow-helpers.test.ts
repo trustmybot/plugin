@@ -47,6 +47,8 @@ function tempDir(prefix = 'tmb-flow-helpers.'): string {
 
 const HOME = tempDir();
 const baseEnv: NodeJS.ProcessEnv = { ...process.env, HOME, TMB_DISABLE_REMOTE_SYNC: '1' };
+delete baseEnv.FLOW_NAME;
+delete baseEnv.RUN_ID;
 
 function quietStderr<T>(fn: () => T): { value: T; stderr: string } {
   const write = process.stderr.write.bind(process.stderr);
@@ -358,6 +360,17 @@ describe('l5RunClaude (stub claude)', () => {
     const { value, stderr } = quietStderr(() => l5RunClaude(project, 'slow', { env }));
     assert.equal(value, 0);
     assert.match(stderr, /assistant_msgs=0, duration_ms=0/);
+  });
+
+  test("a caller's FLOW_NAME and RUN_ID do not reach the runs, so no run log lands in the checkout's state dir", () => {
+    assert.equal(baseEnv.FLOW_NAME, undefined);
+    assert.equal(baseEnv.RUN_ID, undefined);
+    const project = scratchProject();
+    const { env } = stubClaudeEnv();
+    quietStderr(() => l5RunClaude(project, 'go', { env }));
+    const state = tmbTestStateDir(PLUGIN_ROOT, env);
+    assert.ok(state !== null);
+    assert.equal(existsSync(join(state, 'l5-trajectories', String(process.env.FLOW_NAME ?? '-'), String(process.env.RUN_ID ?? '-'))), false);
   });
 });
 
