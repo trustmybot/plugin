@@ -1,17 +1,23 @@
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
 
-export type GitRunner = (args: string[], options: SpawnSyncOptionsWithStringEncoding) => SpawnSyncReturns<string>;
+export type GitRunOptions = SpawnSyncOptionsWithStringEncoding & { cwd: string };
+export type GitRunner = (args: string[], options: GitRunOptions) => SpawnSyncReturns<string>;
 
-const spawnGit: GitRunner = (args, options) => spawnSync('git', args, options);
+const spawnGit: GitRunner = (args, options) => spawnSync('git', args, { ...options, cwd: options.cwd });
 let runner: GitRunner = spawnGit;
 
 export function runGit(
   repoPath: string,
   args: string[],
-  options: Partial<SpawnSyncOptionsWithStringEncoding> = {},
+  options: Partial<Omit<SpawnSyncOptionsWithStringEncoding, 'cwd'>> = {},
 ): SpawnSyncReturns<string> {
-  return runner(['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, ...options });
+  return runner(['-C', repoPath, ...args], {
+    encoding: 'utf8',
+    timeout: SUBPROCESS_TIMEOUT_MS,
+    ...options,
+    cwd: repoPath,
+  });
 }
 
 // A timed-out, signalled or unspawnable git leaves error set or status null:
