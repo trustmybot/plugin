@@ -2,7 +2,8 @@
 // commit, its file list from `git ls-tree` and its blobs from one
 // `git cat-file --batch` process, never from the working tree.
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { gitUnanswered, runGit } from './git-run.js';
 
@@ -30,6 +31,80 @@ function out(repoPath: string, args: string[], timeout?: number): string | null 
 export function revParseCommit(repoPath: string, ref: string): string | null {
   const sha = out(repoPath, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])?.trim();
   return sha ? sha : null;
+}
+
+interface GitDirs {
+  gitDir: string;
+  commonDir: string;
+}
+
+const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+function gitDirsOf(repoPath: string): GitDirs | null {
+  const dotGit = join(repoPath, '.git');
+  let gitDir: string;
+  try {
+    if (statSync(dotGit).isDirectory()) gitDir = dotGit;
+    else {
+      const m = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'));
+      if (!m) return null;
+      gitDir = resolve(repoPath, m[1]!.trim());
+    }
+  } catch {
+    return null;
+  }
+  let commonDir = gitDir;
+  try {
+    commonDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
+  } catch {
+    /* not a linked worktree */
+  }
+  if (existsSync(join(commonDir, 'reftable'))) return null;
+  return { gitDir, commonDir };
+}
+
+function readOptional(path: string): string | null | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? null : undefined;
+  }
+}
+
+// A ref's sha read from the git dir: null when the ref does not exist,
+// undefined when the files cannot say (the caller asks git instead).
+function lookupRef(dirs: GitDirs, ref: string, depth = 0): string | null | undefined {
+  if (depth > 5 || !(ref === 'HEAD' || ref.startsWith('refs/')) || ref.split('/').includes('..')) return undefined;
+  const loose = readOptional(join(ref === 'HEAD' ? dirs.gitDir : dirs.commonDir, ref));
+  if (loose === undefined) return undefined;
+  if (loose !== null) {
+    const text = loose.trim();
+    if (FULL_SHA.test(text)) return text;
+    const sym = /^ref: (\S+)$/.exec(text);
+    return sym ? lookupRef(dirs, sym[1]!, depth + 1) : undefined;
+  }
+  if (ref === 'HEAD') return undefined;
+  const packed = readOptional(join(dirs.commonDir, 'packed-refs'));
+  if (packed === undefined) return undefined;
+  if (packed === null) return null;
+  for (const line of packed.split('\n')) {
+    if (line.startsWith('#') || line.startsWith('^')) continue;
+    const space = line.indexOf(' ');
+    if (space > 0 && line.slice(space + 1).trim() === ref) {
+      const sha = line.slice(0, space);
+      return FULL_SHA.test(sha) ? sha : undefined;
+    }
+  }
+  return null;
+}
+
+// revParseCommit for HEAD or a full refs/ name, read from the ref files when
+// they answer, so the per-read freshness check spawns no git.
+export function resolveRefCommit(repoPath: string, ref: string): string | null {
+  const dirs = gitDirsOf(repoPath);
+  const fast = dirs ? lookupRef(dirs, ref) : undefined;
+  return fast !== undefined ? fast : revParseCommit(repoPath, ref);
 }
 
 export function commitExists(repoPath: string, sha: string): boolean {

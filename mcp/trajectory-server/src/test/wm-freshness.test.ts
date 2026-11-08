@@ -14,6 +14,7 @@ import { worldModelTools } from '../tools/world_model.js';
 import { compositeTools } from '../tools/composites.js';
 import { ensureFresh, reindexIdle, type Freshness } from '../world-model/freshness.js';
 import { scanLockPath } from '../utils/scan-lock.js';
+import { resolveRefCommit } from '../utils/git-objects.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -233,6 +234,36 @@ describe('the git-range reindex on every ref move (SC2)', () => {
 });
 
 describe('reads (SC3)', () => {
+  it('resolveRefCommit reads loose, packed, symbolic and worktree refs as git rev-parse does', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-refs-'));
+    try {
+      const root = join(ws, 'r');
+      mkdirSync(root);
+      const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+      git(root, 'init', '-q', '-b', 'main');
+      git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'one');
+      const one = git(root, 'rev-parse', 'HEAD');
+      git(root, 'update-ref', 'refs/remotes/origin/main', one);
+      git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      assert.equal(resolveRefCommit(root, 'HEAD'), one);
+      assert.equal(resolveRefCommit(root, 'refs/remotes/origin/main'), one);
+      assert.equal(resolveRefCommit(root, 'refs/remotes/origin/HEAD'), one);
+      assert.equal(resolveRefCommit(root, 'refs/remotes/origin/missing'), null);
+      git(root, 'pack-refs', '--all');
+      git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'two');
+      const two = git(root, 'rev-parse', 'HEAD');
+      assert.equal(resolveRefCommit(root, 'refs/remotes/origin/main'), one, 'packed');
+      assert.equal(resolveRefCommit(root, 'HEAD'), two, 'loose wins over packed');
+      const wt = join(ws, 'wt');
+      git(root, 'worktree', 'add', '-q', '--detach', wt, one);
+      assert.equal(resolveRefCommit(wt, 'HEAD'), one, 'linked worktree HEAD');
+      assert.equal(resolveRefCommit(wt, 'refs/heads/main'), two, 'linked worktree reads the common dir');
+      assert.equal(resolveRefCommit(root, 'HEAD~1'), one, 'a non-ref name asks git');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('a no-op read has p95 under 50 ms over 1,000 reads and writes no row', async () => {
     const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
     try {

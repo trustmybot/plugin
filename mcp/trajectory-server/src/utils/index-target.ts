@@ -3,7 +3,7 @@
 // fetches.
 import type { TrajectoryDB } from '../db.js';
 import { normalizeBase, resolveRepoDefaultBranch } from './git-refs.js';
-import { revParseCommit } from './git-objects.js';
+import { resolveRefCommit } from './git-objects.js';
 
 export function targetBranchOf(db: TrajectoryDB, repo: string, repoPath: string): string {
   let configured: string | null = null;
@@ -19,7 +19,7 @@ export function targetBranchOf(db: TrajectoryDB, repo: string, repoPath: string)
 // checkout sets HEAD, so the index matches the dist/ it built).
 export function resolveIndexTarget(db: TrajectoryDB, repo: string, repoPath: string): string | null {
   const pinned = process.env['TMB_WM_INDEX_TARGET'];
-  if (pinned) return revParseCommit(repoPath, pinned);
+  if (pinned) return resolveRefCommit(repoPath, pinned);
   const branch = targetBranchOf(db, repo, repoPath);
-  return revParseCommit(repoPath, `refs/remotes/origin/${branch}`) ?? revParseCommit(repoPath, 'HEAD');
+  return resolveRefCommit(repoPath, `refs/remotes/origin/${branch}`) ?? resolveRefCommit(repoPath, 'HEAD');
 }
