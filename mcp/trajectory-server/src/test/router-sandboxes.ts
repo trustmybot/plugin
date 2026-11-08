@@ -18,7 +18,7 @@ import { buildTemplate as agentSpawnTemplate, caseEnv as agentSpawnEnv } from '.
 import { buildSandbox as healthSandbox, caseEnv as healthEnv, materialize as healthCase } from './hooks-health-parity.suite.js';
 import { buildSandbox as mergeSandbox, caseEnv as mergeEnv, materialize as mergeCase } from './hooks-merge-lifecycle-parity.suite.js';
 import { buildSandbox as readmeSandbox, caseEnv as readmeEnv, materialize as readmeCase, resetDb as readmeReset } from './hooks-readme-staleness-parity.suite.js';
-import { buildCloseSandbox, buildRescanSandbox, caseEnv as taskCloseEnv, materialize as taskCloseCase } from './hooks-task-close-parity.suite.js';
+import { buildCloseSandbox, caseEnv as taskCloseEnv, materialize as taskCloseCase } from './hooks-task-close-parity.suite.js';
 import { buildSandbox as worktreeSandbox, caseEnv as worktreeEnv, materialize as worktreeCase } from './hooks-worktree-lifecycle-parity.suite.js';
 import { buildSandbox as gitBranchSandbox, caseEnv as gitBranchEnv, GIT_BRANCH_GATES, materialize as gitBranchCase } from './hooks-git-branch-guards-parity.suite.js';
 import { buildSandbox as gitGuardsSandbox, materialize as gitGuardsCase } from './hooks-git-guards-parity.suite.js';
@@ -72,7 +72,6 @@ export const ROUTER_CORPUS_GATES = [
   'roundtable-auq-shape',
   'cleanup-worktree-on-task-close',
   'roundtable-cleanup-postcheck',
-  'post-task-close-rescan',
   'post-atomic-close-readme',
   'post-task-create-spawn-hint',
   'task-overrun-alert',
@@ -438,17 +437,10 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
     return { input: c.input, env: healthEnv(s, tmp, LOCALE, c.env, c.cwd), cwd: c.cwd };
   });
 
-  for (const [gate, build] of [
-    ['swe-atomic-close', buildCloseSandbox],
-    ['post-task-close-rescan', buildRescanSandbox],
-  ] as const) {
-    restored(gate, build, (file, s) => {
-      const c = taskCloseCase(file, s, paths);
-      const release = join(s, '..', 'rescan-release');
-      writeFileSync(release, '');
-      return { input: c.input, env: taskCloseEnv(s, LOCALE, c.env, c.cwd, { release, record: join(s, '..', 'rescan-record.json') }), cwd: c.cwd };
-    });
-  }
+  restored('swe-atomic-close', buildCloseSandbox, (file, s) => {
+    const c = taskCloseCase(file, s, paths);
+    return { input: c.input, env: taskCloseEnv(s, LOCALE, c.env, c.cwd), cwd: c.cwd };
+  });
 
   if (want('post-atomic-close-readme')) {
     const dir = join(root, 'post-atomic-close-readme/sandbox');
@@ -570,9 +562,8 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
 
   if (want('rework-waiver-capture')) cases.push(...reworkWaiverCases(join(root, 'rework-waiver-capture'), emptyProject));
 
-  // In-process, post-task-close-rescan's invoker is the real one: its launch is proven in hooks-task-close-parity.
   return {
-    cases: cases.map((c) => ({ ...c, env: { ...c.env, TMB_SKIP_AUTO_RESCAN: '1' } })),
+    cases,
     cleanup: () => {
       for (const f of cleanups) f();
       rmSync(root, { recursive: true, force: true });

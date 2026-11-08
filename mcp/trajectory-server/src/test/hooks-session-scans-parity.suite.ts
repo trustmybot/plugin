@@ -70,7 +70,6 @@ const UNSET = [
   'CLAUDE_PLUGIN_ROOT',
   'CLAUDE_CONFIG_DIR',
   'TMB_INSTALLED_JSON',
-  'TMB_SKIP_AUTO_PRESCAN',
   'TMB_DOCTOR_BUDGET_MS',
   'TMB_REVIEW_GRACE_HOURS',
   'TMB_STALE_RUNNING_HOURS',
@@ -423,7 +422,6 @@ export function sessionScanEnv(s: string, gate: string, locale: string, extra: R
     PWD: cwd,
   });
   if (gate === 'orphan-scan') Object.assign(env, { TMB_ORPHAN_SCAN_SELF_PID: SELF_PID });
-  else Object.assign(env, { TMB_SKIP_AUTO_PRESCAN: '1' });
   for (const [key, value] of Object.entries(extra)) {
     if (value === null) delete env[key];
     else env[key] = value;

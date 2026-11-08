@@ -3,7 +3,7 @@
     "C": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    Zeta _tools a a-b api dist node_modules src web\\nStacks detected:   plugin: PHP (Zeta/), Ruby (_tools/), Go (a-b/), +3 more\\nWorld model:       cold (no scan yet; 9 source files)\\nTrajectory DB:     healthy\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\\nworld model is cold — run /scan before planning so world_model_get has a project map\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    Zeta _tools a a-b api dist node_modules src web\\nStacks detected:   plugin: PHP (Zeta/), Ruby (_tools/), Go (a-b/), +3 more\\nWorld model:       cold (no scan yet; 9 source files)\\nTrajectory DB:     healthy\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\\nworld model is cold — the trajectory server's startup catch-up scan builds the index; re-read world_model_get before planning\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -181,7 +181,7 @@
     "en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    _tools a a-b api dist node_modules src web Zeta\\nStacks detected:   plugin: Ruby (_tools/), Go (a-b/), Rust (a/), +3 more\\nWorld model:       cold (no scan yet; 9 source files)\\nTrajectory DB:     healthy\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\\nworld model is cold — run /scan before planning so world_model_get has a project map\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    _tools a a-b api dist node_modules src web Zeta\\nStacks detected:   plugin: Ruby (_tools/), Go (a-b/), Rust (a/), +3 more\\nWorld model:       cold (no scan yet; 9 source files)\\nTrajectory DB:     healthy\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\\nworld model is cold — the trajectory server's startup catch-up scan builds the index; re-read world_model_get before planning\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
