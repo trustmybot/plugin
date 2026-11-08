@@ -1,10 +1,10 @@
 // node:test suite for sandbox.ts: init's env and on-disk setup, gh, glab and an https git push
-// failing inside the sandbox, and teardown's cleanup.
+// failing inside the sandbox, each stub's exact output, and teardown's cleanup.
 // Run: node --experimental-strip-types --test tests/l5-l6/lib/sandbox.test.ts
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -118,6 +118,55 @@ describe('isolation inside the sandbox', () => {
     assert.notEqual(r.status, 0, 'git push https exit code');
     const out = `${r.stdout}${r.stderr}`;
     assert.ok(out.includes('tmb sandbox') || NETWORK_BLOCKED.test(out), `git push https output: ${out}`);
+  });
+});
+
+const STUB_HEADERS: Record<string, { lines: string[]; remote: boolean }> = {
+  curl: { lines: ['tmb sandbox: curl disabled in test mode.', 'Reason: prevents accidental outbound network requests.'], remote: false },
+  wget: { lines: ['tmb sandbox: wget disabled in test mode.', 'Reason: prevents accidental outbound network requests.'], remote: false },
+  gh: { lines: ['tmb sandbox: gh CLI disabled in test mode.', 'Reason: prevents accidental real-API calls + abuse-detection triggers.'], remote: true },
+  glab: { lines: ['tmb sandbox: glab CLI disabled in test mode.', 'Reason: prevents accidental real-API calls + abuse-detection triggers.'], remote: true },
+  'git-remote-http': { lines: ['tmb sandbox: HTTP git transport disabled in sandbox.', 'Reason: prevents accidental real-remote git push/fetch.'], remote: true },
+  'git-remote-https': { lines: ['tmb sandbox: HTTPS git transport disabled in sandbox.', 'Reason: prevents accidental real-remote git push/fetch.'], remote: true },
+};
+
+describe('stub scripts', () => {
+  test('every stub is a node script and nothing else lives in lib/stubs', () => {
+    assert.deepEqual(readdirSync(STUBS_DIR).sort(), Object.keys(STUB_HEADERS).sort());
+    for (const name of Object.keys(STUB_HEADERS)) {
+      const path = join(STUBS_DIR, name);
+      assert.equal(readFileSync(path, 'utf8').split('\n')[0], '#!/usr/bin/env node', name);
+      assert.equal(statSync(path).mode & 0o111, 0o111, `${name} is executable`);
+    }
+  });
+
+  for (const [name, { lines, remote }] of Object.entries(STUB_HEADERS)) {
+    for (const remoteValue of remote ? [undefined, '', '/tmp/probe_remote.git'] : [undefined, '/tmp/probe_remote.git']) {
+      for (const stdin of ['piped', 'closed'] as const) {
+        test(`${name}: exact stderr, empty stdout, exit 1 (TMB_TEST_REMOTE=${remoteValue ?? 'unset'}, stdin ${stdin})`, () => {
+          const env: NodeJS.ProcessEnv = { PATH: process.env.PATH };
+          if (remoteValue !== undefined) env.TMB_TEST_REMOTE = remoteValue;
+          const r = spawnSync(join(STUBS_DIR, name), ['repo', 'create', 'two  spaces'], {
+            env,
+            encoding: 'utf8',
+            timeout: 30_000,
+            ...(stdin === 'piped' ? { input: 'payload\n'.repeat(10_000) } : { stdio: ['ignore', 'pipe', 'pipe'] }),
+          });
+          const expected = [...lines];
+          if (remote) expected.push(`For git remote tests, use: $TMB_TEST_REMOTE = ${remoteValue || '<not set>'}`);
+          expected.push(`Attempted: ${name} repo create two  spaces`);
+          assert.equal(r.stderr, `${expected.join('\n')}\n`);
+          assert.equal(r.stdout, '');
+          assert.equal(r.status, 1);
+        });
+      }
+    }
+  }
+
+  test('gh with no arguments keeps the trailing space after its name', () => {
+    const r = spawnSync(join(STUBS_DIR, 'gh'), [], { env: { PATH: process.env.PATH }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    assert.equal(r.stderr.split('\n').at(-2), 'Attempted: gh ');
+    assert.equal(r.status, 1);
   });
 });
 
