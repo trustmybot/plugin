@@ -110,7 +110,7 @@ run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" node --test "$HERE/l1-lin
 run_step "L1 lint: Codex Scope-4 Agent contract"      bash "$HERE/l1-lint/codex-scope4-contract.sh"
 run_step "L1 lint: legacy reviewer name only where allowlisted (GH 1641)"  node --test "$HERE/l1-lint/legacy-reviewer-name.test.mjs"
 run_step "L1 lint: version sync (4 manifests agree)"  node --test "$HERE/l1-lint/version-sync.test.mjs"
-run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
+run_step "L1 lint: changelog top section current"     node --test "$HERE/l1-lint/changelog-current.test.mjs"
 run_step "L1 lint: link-check (relative md links)"    node --test "$HERE/l1-lint/link-check.test.mjs"
 run_step "L1 lint: shellcheck on shell scripts"       node --test "$HERE/l1-lint/shellcheck-hooks.test.mjs"
 run_step "L1 lint: no bare mktemp (explicit path template)"  node --test "$HERE/l1-lint/no-bare-mktemp.test.mjs"

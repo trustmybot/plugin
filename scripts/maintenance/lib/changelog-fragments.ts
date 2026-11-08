@@ -1,5 +1,5 @@
 // Shared rules for changelog.d/ fragments, imported by bump-version.ts (assembly)
-// and run by tests/l1-lint/changelog-current.sh (validation). Format: changelog.d/README.md.
+// and run by tests/l1-lint/changelog-current.test.mjs (validation). Format: changelog.d/README.md.
 //
 //   node --experimental-strip-types scripts/maintenance/lib/changelog-fragments.ts list <dir>
 //   node --experimental-strip-types scripts/maintenance/lib/changelog-fragments.ts validate <fragment>...
