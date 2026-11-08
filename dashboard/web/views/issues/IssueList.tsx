@@ -1,10 +1,15 @@
 import { CheckIcon, CommentIcon, IssueClosedIcon, IssueOpenedIcon, TasklistIcon } from '@primer/octicons-react';
+import { lazy, Suspense } from 'react';
 import type { Row } from '../../api.ts';
-import { EntityList, type ListSort, type ListTab } from '../../shared/list/EntityList.tsx';
+import { EntityList, type ListChip, type ListSort, type ListTab } from '../../shared/list/EntityList.tsx';
 import { ListRow } from '../../shared/list/ListRow.tsx';
 import { RemoteIssueLink, remoteIssue } from '../../shared/remote.tsx';
 import { RelativeTime } from '../../ui/RelativeTime.tsx';
+import { hasLabel, labelsByCount } from './label-stats.ts';
+import { LabelMenu } from './LabelMenu.tsx';
 import { IssueLabel, parseLabels } from './labels.tsx';
+
+const LabelStats = lazy(() => import('./LabelStats.tsx').then((m) => ({ default: m.LabelStats })));
 
 export type IssueState = 'open' | 'closed';
 
@@ -67,19 +72,30 @@ function IssueRow({ issue }: { issue: Row }) {
   );
 }
 
-export function IssueList({ rows, state }: { rows: Row[]; state: IssueState }) {
+export function IssueList({ rows, state, label = null }: { rows: Row[]; state: IssueState; label?: string | null }) {
+  const shown = label ? rows.filter((r) => hasLabel(r, label)) : rows;
+  const chips: ListChip[] = label ? [{ key: 'label', label: `Label: ${label}`, clearLabel: 'Remove label filter' }] : [];
   return (
-    <EntityList
-      rows={rows}
-      tabs={TABS}
-      sorts={SORTS}
-      matches={matches}
-      renderRow={(r) => <IssueRow issue={r} />}
-      tab={state}
-      path="issues"
-      noun={['issue', 'issues', 'Issues']}
-      emptyIcon={IssueOpenedIcon}
-      searchPlaceholder="Search by objective, label or #id"
-    />
+    <div className="space-y-4">
+      {label && (
+        <Suspense fallback={<p className="text-sm text-fg-muted">Loading label stats…</p>}>
+          <LabelStats rows={shown} label={label} />
+        </Suspense>
+      )}
+      <EntityList
+        rows={shown}
+        tabs={TABS}
+        sorts={SORTS}
+        matches={matches}
+        renderRow={(r) => <IssueRow issue={r} />}
+        chips={chips}
+        tab={state}
+        path="issues"
+        noun={['issue', 'issues', 'Issues']}
+        emptyIcon={IssueOpenedIcon}
+        searchPlaceholder="Search by objective, label or #id"
+        controls={<LabelMenu labels={labelsByCount(rows)} value={label} />}
+      />
+    </div>
   );
 }
