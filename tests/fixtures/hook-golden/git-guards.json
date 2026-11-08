@@ -23,6 +23,12 @@
       "stdout": ""
     }
   },
+  "allow-commit-detached-task-slug-stacked-parent.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stdout": ""
+    }
+  },
   "allow-commit-feature-branch.json": {
     "C,en_US.UTF-8": {
       "code": 0,
@@ -209,12 +215,6 @@
       "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. This repo has no remote — leave the branch unmerged and surface it to the Human for integration. This is policy: stop and report.\"}}\n"
     }
   },
-  "deny-commit-detached-task-slug-parent-branch.json": {
-    "C,en_US.UTF-8": {
-      "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: feat/det is a shared workflow base — no direct commits/merges/rebases. Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>\"}}\n"
-    }
-  },
   "deny-commit-gitflow-dev.json": {
     "C,en_US.UTF-8": {
       "code": 0,
@@ -381,6 +381,13 @@
     }
   },
   "generic/allow-commit-detached-no-task.json": {
+    "C,UTF-8,en_US.UTF-8": {
+      "audit": [],
+      "code": 0,
+      "stdout": ""
+    }
+  },
+  "generic/allow-commit-detached-task-slug-stacked-parent.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
@@ -598,13 +605,6 @@
     }
   },
   "generic/deny-cherry-pick-no-remote.json": {
-    "C,UTF-8,en_US.UTF-8": {
-      "audit": [],
-      "code": 0,
-      "stdout": ""
-    }
-  },
-  "generic/deny-commit-detached-task-slug-parent-branch.json": {
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,

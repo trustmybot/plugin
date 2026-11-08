@@ -242,7 +242,10 @@ class GitGuards {
     return isDir(dir);
   }
 
-  /** rule2_protected_bases: protected_branches ∪ target ∪ repos.pr_target ∪ every task's parent_branch_id. */
+  /**
+   * rule2_protected_bases: protected_branches ∪ target ∪ repos.pr_target ∪ every task's parent_branch_id
+   * that no task owns as its branch_id. A stacked task branch is not a shared base (GH 2607).
+   */
   private rule2ProtectedBases(): Set<string> {
     const out = [...this.protectedBranches.split('\n'), this.prTarget];
     if (this.dbReadable) {
@@ -256,7 +259,8 @@ class GitGuards {
       out.push(
         ...sqliteRo(
           this.db,
-          `SELECT DISTINCT parent_branch_id FROM tasks WHERE parent_branch_id IS NOT NULL AND parent_branch_id != '' AND ${filter};`,
+          `SELECT DISTINCT parent_branch_id FROM tasks WHERE parent_branch_id IS NOT NULL AND parent_branch_id != '' AND ${filter}
+             AND parent_branch_id NOT IN (SELECT branch_id FROM tasks WHERE branch_id IS NOT NULL AND branch_id != '' AND ${filter});`,
           this.env,
         ).split('\n'),
       );
