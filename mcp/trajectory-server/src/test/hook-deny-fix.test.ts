@@ -30,7 +30,7 @@ import { GOLDEN_DIR } from './golden.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const HOOKS_SRC = join(SERVER_ROOT, 'src/hooks');
 const CORPUS_ROOT = resolve(GOLDEN_DIR, '../hook-corpus');
-const DENY_LITERAL =/permissionDecision\s*:\s*['"]deny['"]|decision\s*:\s*['"]block['"]/;
+const DENY_LITERAL = /permissionDecision\\?['"]?\s*:\s*\\?['"]deny\\?['"]|decision\\?['"]?\s*:\s*\\?['"]block\\?['"]/;
 
 function tsFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -128,8 +128,22 @@ describe('hook deny fix', () => {
   });
 
   it('the lint pattern catches each spelling', () => {
-    for (const text of ["permissionDecision: 'deny'", 'permissionDecision: "deny"', "decision: 'block'", 'decision: "block"']) {
-      assert.ok(DENY_LITERAL.test(text), text);
+    for (const [key, value] of [['permissionDecision', 'deny'], ['decision', 'block']]) {
+      for (const text of [
+        `${key}: '${value}'`,
+        `${key}: "${value}"`,
+        `"${key}":"${value}"`,
+        `"${key}": "${value}"`,
+        `\\"${key}\\":\\"${value}\\"`,
+      ]) {
+        assert.ok(DENY_LITERAL.test(text), text);
+      }
+    }
+  });
+
+  it('the lint pattern skips other decisions', () => {
+    for (const text of ["permissionDecision: 'allow'", '"permissionDecision":"ask"', '"decision":"approve"', "decision: 'approve'"]) {
+      assert.equal(DENY_LITERAL.test(text), false, text);
     }
   });
 
