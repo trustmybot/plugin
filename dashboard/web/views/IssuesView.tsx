@@ -7,5 +7,6 @@ export function IssuesView() {
   const q = useApi<Row[]>('issues');
   const state = useHashParam('state') === 'closed' ? 'closed' : 'open';
   const label = useHashParam('label') || null;
-  return <Loading q={q}>{(rows) => <IssueList rows={rows} state={state} label={label} />}</Loading>;
+  const milestone = useHashParam('milestone') || null;
+  return <Loading q={q}>{(rows) => <IssueList rows={rows} state={state} label={label} milestone={milestone} />}</Loading>;
 }
