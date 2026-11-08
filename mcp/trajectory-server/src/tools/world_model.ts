@@ -57,6 +57,8 @@ const PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
 const SYMBOL_POOL = 40;
 const FILE_RANK_POOL = 20;
 const PATH_RANK_K = 10;
+const AUX_WEIGHT = 0.5;
+const DIR_WEIGHT = 0.5;
 const SEARCH_K_MAX = 100;
 const DEFAULT_IMPACT_DEPTH = 2;
 const SOURCE_MAX_LINES = 200;
@@ -503,18 +505,27 @@ function isBuildOutput(path: string): boolean {
 }
 
 function pathWeight(path: string): number {
-  return isTestPath(path) || /(^|\/)changelog\.d\//.test(path) ? 0.5 : 1;
+  return isTestPath(path) || /(^|\/)changelog\.d\//.test(path) ? AUX_WEIGHT : 1;
+}
+
+// A dir weighs as a file inside it would, times dirWeight.
+function hitWeight(hit: SearchHit, dirWeight: number): number {
+  if (hit.kind === 'dir') return pathWeight(`${hit.node.path}/x`) * dirWeight;
+  if (hit.kind === 'file') return pathWeight(WorldModelGraph.relativeFilePath(hit.node));
+  return pathWeight(hit.node.path);
 }
 
 // Keyword ranking across dirs, files and symbols. A repo-relative path scores
 // w/(K + rank) once for the rank of its first symbol hit and once for its
 // file-hit rank, so a file matched both ways rises; tests and changelog
 // fragments count half. The path's first hit takes the path score, each later
-// hit of the same path a falling share of it. Dirs score by their own rank.
+// hit of the same path a falling share of it. Dirs score w/(K + rank) by their
+// own rank, w scaled by dirWeight.
 function rankKeyword(
   dirs: DirectoryNode[],
   files: FileNode[],
   symbols: ScoredSymbol[],
+  dirWeight: number,
 ): Array<{ hit: SearchHit; score: number }> {
   const pathScore = new Map<string, number>();
   const bump = (path: string, rank: number) =>
@@ -531,7 +542,10 @@ function rankKeyword(
     return (pathScore.get(path) ?? 0) / (n + 1);
   };
   const ranked: Array<{ hit: SearchHit; score: number; order: number }> = [];
-  dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
+  dirs.forEach((d, rank) => {
+    const hit = dirHit(d);
+    ranked.push({ hit, score: hitWeight(hit, dirWeight) / (PATH_RANK_K + rank), order: ranked.length });
+  });
   const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b)! - pathScore.get(a)!);
   const symbolsByPath = new Map<string, ScoredSymbol[]>();
   for (const s of symbols) symbolsByPath.set(s.path, [...(symbolsByPath.get(s.path) ?? []), s]);
@@ -577,12 +591,13 @@ async function cosineHits(
   return hits.sort((a, b) => b.score - a.score);
 }
 
-// Reciprocal rank fusion: each ranked list adds 1/(RRF_K + rank + 1) to a hit.
-function fuse(lists: Array<SearchHit[]>): Array<{ hit: SearchHit; score: number }> {
+// Reciprocal rank fusion: each ranked list adds w/(RRF_K + rank + 1) to a hit,
+// w its hitWeight.
+function fuse(lists: Array<SearchHit[]>, dirWeight: number): Array<{ hit: SearchHit; score: number }> {
   const fused = new Map<string, { hit: SearchHit; score: number }>();
   for (const list of lists) {
     list.forEach((hit, rank) => {
-      const rrf = 1 / (RRF_K + rank + 1);
+      const rrf = hitWeight(hit, dirWeight) / (RRF_K + rank + 1);
       const entry = fused.get(hit.key);
       if (entry) entry.score += rrf;
       else fused.set(hit.key, { hit, score: rrf });
@@ -623,7 +638,8 @@ export async function rankWorldModel(
     || fileSearch.hits.length >= filePool
     || symbolSearch.hits.length >= symbolPool;
   const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
-  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
+  const dirWeight = symbolSearch.hits.length > 0 ? DIR_WEIGHT : 1;
+  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits, dirWeight);
   const hitsOf = (ranked: Array<{ hit: SearchHit }>): SearchHit[] => ranked.map(({ hit }) => hit);
 
   if (mode === 'keyword') return { ranked: keywordRanked, match, poolFull };
@@ -631,7 +647,13 @@ export async function rankWorldModel(
   await backfillWorldModel(db);
   const semantic = await cosineHits(db, graph, repo, query, pool);
   if (semantic.length === 0) return { ranked: keywordRanked, match, poolFull, warning: 'semantic_unavailable' };
-  if (mode === 'semantic') return { ranked: semantic, match, poolFull: false };
+  if (mode === 'semantic') {
+    const weighted = semantic.map(({ hit, score }) => {
+      const w = hitWeight(hit, 1);
+      return { hit, score: score >= 0 ? score * w : score / w };
+    });
+    return { ranked: weighted.sort((a, b) => b.score - a.score), match, poolFull: false };
+  }
 
   return {
     ranked: fuse([
@@ -639,7 +661,7 @@ export async function rankWorldModel(
       hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== 'dir')),
       hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
       hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
-    ]),
+    ], dirWeight),
     match,
     poolFull,
   };
