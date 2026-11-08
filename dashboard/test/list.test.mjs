@@ -1,7 +1,9 @@
 // Tasks list test: seed a temp trajectory DB from schema.sql with a task that
-// has a fail then a pass verdict and one open finding plus a task with neither,
-// start the built dashboard server and check /api/tasks carries last_verdict
-// and open_findings; then bundle the Tasks list with esbuild, render it to
+// has a fail then a pass verdict and one open finding, a task with neither and
+// tasks with mixed-severity findings, start the built dashboard server and
+// check /api/tasks carries last_verdict and open_findings (open blocking
+// findings only; every open finding on a DB without the severity column);
+// then bundle the Tasks list with esbuild, render it to
 // static HTML under a stubbed window.location.hash and check the hash filters
 // (state, branch, chips, tab counts), the <ul role="list"> rows, the aria-live
 // count and one distinct octicon per task status.
@@ -18,14 +20,22 @@ const DASH = new URL('..', import.meta.url).pathname;
 const SCHEMA = join(DASH, '../mcp/trajectory-server/src/schema.sql');
 const SERVER = join(DASH, 'dist/server.mjs');
 
-function seed(path) {
+function seedBase(path) {
   const db = new DatabaseSync(path);
   db.exec(readFileSync(SCHEMA, 'utf8'));
   const now = new Date().toISOString();
   const issue = Number(db.prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)').run('List issue', now, now).lastInsertRowid);
   const insert = db.prepare("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, 'd', ?, ?, ?)");
-  const reviewed = Number(insert.run(issue, 'feat/reviewed', 'Reviewed task', 'needs_validation', now, now).lastInsertRowid);
-  const bare = Number(insert.run(issue, 'feat/bare', 'Bare task', 'pending', now, now).lastInsertRowid);
+  const task = (branch, title, status) => Number(insert.run(issue, branch, title, status, now, now).lastInsertRowid);
+  return { db, now, task };
+}
+
+function seed(path) {
+  const { db, now, task } = seedBase(path);
+  const reviewed = task('feat/reviewed', 'Reviewed task', 'needs_validation');
+  const bare = task('feat/bare', 'Bare task', 'pending');
+  const mixed = task('feat/mixed', 'Mixed findings task', 'needs_validation');
+  const minor = task('feat/minor', 'Minor findings task', 'needs_validation');
   const attempt = db.prepare(
     'INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
   );
@@ -37,9 +47,35 @@ function seed(path) {
   );
   finding.run(`F${reviewed}-1`, reviewed, 'open', now);
   finding.run(`F${reviewed}-2`, reviewed, 'fixed', now);
+  const graded = db.prepare(
+    `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, severity)
+     VALUES (?, ?, 1, 'SC1', 'true', '0', '1', ?, ?, ?)`,
+  );
+  graded.run(`F${mixed}-1`, mixed, 'open', now, 'blocking');
+  graded.run(`F${mixed}-2`, mixed, 'open', now, 'nit');
+  graded.run(`F${mixed}-3`, mixed, 'open', now, 'pre_existing');
+  graded.run(`F${mixed}-4`, mixed, 'fixed', now, 'blocking');
+  graded.run(`F${minor}-1`, minor, 'open', now, 'nit');
+  graded.run(`F${minor}-2`, minor, 'open', now, 'pre_existing');
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   db.close();
-  return { reviewed, bare };
+  return { reviewed, bare, mixed, minor };
+}
+
+function seedWithoutSeverity(path) {
+  const { db, now, task } = seedBase(path);
+  db.exec('ALTER TABLE review_findings DROP COLUMN severity');
+  const legacy = task('feat/legacy', 'Legacy findings task', 'needs_validation');
+  const finding = db.prepare(
+    `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
+     VALUES (?, ?, 1, 'SC1', 'true', '0', '1', ?, ?)`,
+  );
+  finding.run(`F${legacy}-1`, legacy, 'open', now);
+  finding.run(`F${legacy}-2`, legacy, 'open', now);
+  finding.run(`F${legacy}-3`, legacy, 'fixed', now);
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  db.close();
+  return { legacy };
 }
 
 function startServer(dbPath) {
@@ -119,6 +155,33 @@ describe('/api/tasks', () => {
     const bare = rows.find((r) => r.id === ids.bare);
     assert.equal(bare.last_verdict, null);
     assert.equal(bare.open_findings, 0);
+  });
+
+  test('open_findings counts only open blocking findings, not nit or pre_existing', async () => {
+    const rows = await (await fetch(`${server.url}api/tasks`)).json();
+    assert.equal(rows.find((r) => r.id === ids.mixed).open_findings, 1);
+    assert.equal(rows.find((r) => r.id === ids.minor).open_findings, 0);
+  });
+});
+
+describe('/api/tasks on a DB without review_findings.severity', () => {
+  const tmp = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'tmb-dashboard-list-legacy-'));
+  const dbPath = join(tmp, 'trajectory.db');
+  const ids = seedWithoutSeverity(dbPath);
+  let server;
+  before(async () => {
+    server = await startServer(dbPath);
+  });
+  after(async () => {
+    await server?.stop();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('open_findings counts every open finding', async () => {
+    const res = await fetch(`${server.url}api/tasks`);
+    assert.equal(res.status, 200);
+    const rows = await res.json();
+    assert.equal(rows.find((r) => r.id === ids.legacy).open_findings, 2);
   });
 });
 

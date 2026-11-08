@@ -165,7 +165,15 @@ export function issueDetail(db: DatabaseSync, id: number): Row | null {
   };
 }
 
+// Nit and pre_existing findings stay open after a pass (schema 57+) and never
+// block a close; a DB without the severity column counts every open finding.
+function blockingFindingFilter(db: DatabaseSync): string {
+  const severity = one(db, `SELECT COUNT(*) AS n FROM pragma_table_info('review_findings') WHERE name = 'severity'`);
+  return Number(severity?.['n']) === 1 ? ` AND f.severity = 'blocking'` : '';
+}
+
 export function tasks(db: DatabaseSync): Row[] {
+  const blockingOnly = blockingFindingFilter(db);
   return all(
     db,
     `SELECT t.id, t.issue_id, i.objective AS issue_objective, t.branch_id, t.title,
@@ -174,7 +182,7 @@ export function tasks(db: DatabaseSync): Row[] {
             (SELECT v.verdict FROM validation_attempts v WHERE v.task_id = t.id
               ORDER BY v.id DESC LIMIT 1) AS last_verdict,
             (SELECT COUNT(*) FROM review_findings f WHERE f.task_id = t.id
-               AND f.status = 'open') AS open_findings
+               AND f.status = 'open'${blockingOnly}) AS open_findings
        FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
       ORDER BY t.id DESC LIMIT ?`,
     RECENT_LIMIT * 5,
