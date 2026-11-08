@@ -203,6 +203,12 @@ function capturesOnly(node: Node | null | undefined): boolean {
   return node !== null && node !== undefined && node.type === 'command' && !authors(node);
 }
 
+/** <member> of a pipeline, or the command under a redirect of its own (`find . 2>/dev/null`, GH 2468) when that redirect holds no inline body. */
+function memberCommand(member: Node | null | undefined): Node | null | undefined {
+  if (member?.type !== 'redirected_statement' || hasInlineBody(member)) return member;
+  return member.childForFieldName('body');
+}
+
 /**
  * Whether the statement <redirect> belongs to writes command output only. tree-sitter hangs a
  * redirect on the whole `a && b` or `a | b` before it, where the shell gives it to `b`: the
@@ -216,12 +222,12 @@ function ownerCapturesOnly(redirect: Node): boolean {
   let body = owner.childForFieldName('body');
   while (body?.type === 'list') body = body.namedChildren.at(-1) ?? null;
   if (body === null || body === undefined) return false;
-  const members = body.type === 'pipeline' ? present(body.namedChildren) : [body];
-  if (!members.every((member) => member.type === 'command') || !capturesOnly(members[0]) || !capturesOnly(members.at(-1))) return false;
+  const members = body.type === 'pipeline' ? present(body.namedChildren).map(memberCommand) : [body];
+  if (!members.every((member) => member?.type === 'command') || !capturesOnly(members[0]) || !capturesOnly(members.at(-1))) return false;
   const outer = owner.parent;
   if (outer?.type !== 'pipeline') return true;
   const head = outer.namedChildren[0];
-  return head?.id === owner.id || capturesOnly(head);
+  return head?.id === owner.id || capturesOnly(memberCommand(head));
 }
 
 /** The span of <redirect>, through its first destination, when it captures command output into a plain name; null otherwise. */
