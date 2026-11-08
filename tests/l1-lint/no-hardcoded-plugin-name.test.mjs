@@ -1,4 +1,4 @@
-// L1 lint: no hardcoded plugin-name string (.claude/tmb/, tmb-active-workspace, trustmybot-rc, ="tmb" / ='tmb') in the *.sh, *.ts and *.js files under scripts/ and mcp/trajectory-server/src/ outside the plugin-name resolvers. Exempt: scripts/hooks/lib/query-task.sh, scripts/publish-rc-channel.ts, any path containing "test", and lines carrying an inline fallback (jq -r '.name // "tmb"', jq -r .name, PLUGIN_NAME="tmb", PLUGIN_NAME='tmb'). Every run also checks fixtures/hardcoded-plugin-name/has-hardcoded.sh is caught.
+// L1 lint: no hardcoded plugin-name string (.claude/tmb/, tmb-active-workspace, trustmybot-rc, ="tmb" / ='tmb') in the *.sh, *.ts and *.js files under scripts/ and mcp/trajectory-server/src/ outside the plugin-name resolvers. Exempt: scripts/publish-rc-channel.ts, any path containing "test", and lines carrying an inline fallback (jq -r '.name // "tmb"', jq -r .name, PLUGIN_NAME="tmb", PLUGIN_NAME='tmb'). Every run also checks fixtures/hardcoded-plugin-name/has-hardcoded.sh is caught.
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'hardcoded-plugin-name', 'has-hardcoded.sh');
 const HARDCODED = /(\.claude\/tmb\/|tmb-active-workspace|trustmybot-rc|=["']tmb["'])/;
-const EXCLUDED_FILES = ['scripts/hooks/lib/query-task.sh', 'scripts/publish-rc-channel.ts'];
+const EXCLUDED_FILES = ['scripts/publish-rc-channel.ts'];
 const EXCLUDED_LINE_PATTERNS = [`jq -r '.name // "tmb"'`, 'jq -r .name', 'PLUGIN_NAME="tmb"', "PLUGIN_NAME='tmb'"];
 
 function sources(dir, out) {

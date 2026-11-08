@@ -19,7 +19,7 @@ The row deliberately uses a naturalistic prompt with no role name — bro must c
 
 This row used to gate on a `tmb_agent_created` audit row — the load-bearing signal that bro *followed* the nudge and ran the agent-creator ceremony. That's **model behaviour**, not the enforcement mechanism: the consultant-spawn hint fires every run, but bro's compliance with the advisory nudge varies, so the gate flaked (local twin of GH #651/#865).
 
-The gate now asserts the **deterministic** signal: the `consultant-spawn` class of `prompt-intent-hints.sh` writes a `consultant_spawn_nudged` audit row whenever it emits the domain-specialist nudge. That row is written by the UserPromptSubmit hook outside the LLM's control — it fires iff the enforcement mechanism fired, independent of whether bro then complied. `tmb_agent_created` stays in the picture only as an observational note (bro's compliance), never a pass criterion.
+The gate now asserts the **deterministic** signal: the `consultant-spawn` class of the `prompt-intent-hints` hook (`mcp/trajectory-server/src/hooks/prompt-intent-hints.ts`) writes a `consultant_spawn_nudged` audit row whenever it emits the domain-specialist nudge. That row is written by the UserPromptSubmit hook outside the LLM's control — it fires iff the enforcement mechanism fired, independent of whether bro then complied. `tmb_agent_created` stays in the picture only as an observational note (bro's compliance), never a pass criterion.
 
 ## Pass criteria
 
@@ -32,4 +32,4 @@ The gate now asserts the **deterministic** signal: the `consultant-spawn` class 
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` (consultants don't drive workflow state) |
 | `cost-budget.json` | Soft 200K / 600s |
 
-**Failure modes captured:** (a) the consultant-spawn pattern in `prompt-intent-hints.sh` stops matching the architecture-trade-off prompt — caught by the `consultant_spawn_nudged` audit row missing; (b) bro answers directly from general knowledge or spawns a consultant without the ceremony — caught by `tools-required` (`agent_resolve` / `agent_register` / `Agent` missing). Bro's *compliance* with the nudge (`tmb_agent_created`) is observational, not a gate.
+**Failure modes captured:** (a) the consultant-spawn pattern in the `prompt-intent-hints` hook stops matching the architecture-trade-off prompt — caught by the `consultant_spawn_nudged` audit row missing; (b) bro answers directly from general knowledge or spawns a consultant without the ceremony — caught by `tools-required` (`agent_resolve` / `agent_register` / `Agent` missing). Bro's *compliance* with the nudge (`tmb_agent_created`) is observational, not a gate.

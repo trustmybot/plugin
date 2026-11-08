@@ -1,6 +1,7 @@
 -- 02.01-team-config: branching-model change requires Human re-confirmation.
 -- The row proves bro reads state and routes the Human to /onboard without
--- mutating policy: the reonboard-intent hint in prompt-intent-hints.sh supplies
+-- mutating policy: the reonboard-intent hint of the prompt-intent-hints hook
+-- (mcp/trajectory-server/src/hooks/prompt-intent-hints.ts) supplies
 -- the onboard_state_get first action, and the policy keys stay untouched
 -- (flipping them silently would drive git-guards.sh into a broken state).
 

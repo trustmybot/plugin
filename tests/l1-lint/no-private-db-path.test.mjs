@@ -1,4 +1,4 @@
-// L1 lint: the trajectory-DB location rule lives in exactly two places — the server's findExistingClaudeDbUp (mcp/trajectory-server/src/platform.ts) and the hooks' dbPath (mcp/trajectory-server/src/hooks/lib/db.ts), documented once in docs/reference/TRAJECTORY_DB_LOCATION.md. A third copy starts with spelling the DB filename, so this lint fails on any `trajectory.db` literal (code or comment) in a file under scripts/ other than scripts/hooks/lib/query-task.sh; markdown under scripts/ is prose, not resolution logic, and is skipped. Allowlist: tests/l1-lint/no-private-db-path.allowlist, one repo-relative path per line (# comments allowed), for scripts that name the file without resolving it. Every run also plants a literal in a temp scripts/ tree.
+// L1 lint: the trajectory-DB location rule lives in exactly two places — the server's findExistingClaudeDbUp (mcp/trajectory-server/src/platform.ts) and the hooks' dbPath (mcp/trajectory-server/src/hooks/lib/db.ts), documented once in docs/reference/TRAJECTORY_DB_LOCATION.md. A third copy starts with spelling the DB filename, so this lint fails on any `trajectory.db` literal (code or comment) in a file under scripts/; markdown under scripts/ is prose, not resolution logic, and is skipped. Allowlist: tests/l1-lint/no-private-db-path.allowlist, one repo-relative path per line (# comments allowed), for scripts that name the file without resolving it. Every run also plants a literal in a temp scripts/ tree.
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,6 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const OWNER = 'scripts/hooks/lib/query-task.sh';
 const ALLOWLIST = 'tests/l1-lint/no-private-db-path.allowlist';
 
 function filesUnder(base, rel) {
@@ -22,7 +21,7 @@ function filesUnder(base, rel) {
 }
 
 export function scan(base) {
-  const allowed = new Set([OWNER]);
+  const allowed = new Set();
   if (existsSync(join(base, ALLOWLIST))) {
     for (const line of readFileSync(join(base, ALLOWLIST), 'utf8').split('\n')) {
       if (!/^\s*#/.test(line)) allowed.add(line);
@@ -42,17 +41,16 @@ export function scan(base) {
 
 function failMessage(hits) {
   return (
-    `no-private-db-path: FAIL — trajectory DB path spelled outside ${OWNER}:\n${hits.map((h) => `  ${h}\n`).join('')}` +
-    'Resolve the DB with tmb_db_path (or name a location with tmb_db_location) from scripts/hooks/lib/query-task.sh.'
+    `no-private-db-path: FAIL — trajectory DB path spelled under scripts/:\n${hits.map((h) => `  ${h}\n`).join('')}` +
+    'Resolve the DB through findExistingClaudeDbUp (mcp/trajectory-server/src/platform.ts) or dbPath (mcp/trajectory-server/src/hooks/lib/db.ts).'
   );
 }
 
-test('self-test: a planted trajectory.db literal outside OWNER and the allowlist fails', () => {
+test('self-test: a planted trajectory.db literal outside the allowlist fails', () => {
   const tmp = mkdtempSync(join((process.env.TMPDIR || tmpdir()).replace(/\/+$/, ''), 'tmb-no-private-db-path.'));
   try {
     mkdirSync(join(tmp, 'scripts/hooks/lib'), { recursive: true });
     mkdirSync(join(tmp, dirname(ALLOWLIST)), { recursive: true });
-    writeFileSync(join(tmp, OWNER), 'DB=.claude/tmb/trajectory.db\n');
     writeFileSync(join(tmp, 'scripts/named.sh'), '# trajectory.db\n');
     writeFileSync(join(tmp, 'scripts/README.md'), 'trajectory.db\n');
     writeFileSync(join(tmp, ALLOWLIST), '# named only\nscripts/named.sh\n');
@@ -64,7 +62,7 @@ test('self-test: a planted trajectory.db literal outside OWNER and the allowlist
   }
 });
 
-test('the DB filename appears under scripts/ only in the owner', () => {
+test('the DB filename appears under scripts/ only in allowlisted files', () => {
   const hits = scan(ROOT);
   assert.deepEqual(hits, [], failMessage(hits));
 });

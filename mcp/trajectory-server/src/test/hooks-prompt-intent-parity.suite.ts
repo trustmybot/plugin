@@ -1,6 +1,6 @@
 /**
  * Parity of the TypeScript prompt-intent-hints gate with
- * the bash prompt-intent-hints.sh (GH 1692), over
+ * the recorded goldens of the former bash gate (GH 1692), over
  * tests/fixtures/hook-corpus/prompt-intent-hints/. The sandbox is rebuilt at
  * the same path before each side runs; both sides must exit 0, print the same
  * stdout and stderr byte for byte, and leave the sandbox alike (the
