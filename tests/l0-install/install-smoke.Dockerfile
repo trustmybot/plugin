@@ -243,7 +243,7 @@ RUN ( \
 RUN echo "✓ A3c: discussion_search(mode=semantic) — results, semantic_unavailable, or cold-load timeout; no MCP error"
 
 # A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
-RUN bash tests/l1-lint/agent-line-budget.sh \
+RUN node --test tests/l1-lint/agent-line-budget.test.mjs \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
 # A5: the hook shell libraries are syntactically valid
