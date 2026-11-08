@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 60;
+export const TARGET_SCHEMA_VERSION = 61;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -837,6 +837,8 @@ function runMigrations(
   if (fromVersion < 60 && toVersion >= 60) {
     migrateV59toV60(db);
   }
+  // v60→v61: prs and pr_closes, the synced GitHub PR rows (GH 2513)
+  if (fromVersion < 61 && toVersion >= 61) migrateV60toV61(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3335,6 +3337,41 @@ function migrateV59toV60(db: DatabaseSync): void {
     throw err;
   } finally {
     db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v60→v61: GitHub PR rows (GH 2513). prs and pr_closes are new tables, written
+// by syncRemotePrs from issue_reconcile_remote and read by the dashboard's
+// PR open-to-merge tiles; no backfill.
+function migrateV60toV61(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS prs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo        TEXT    NOT NULL,
+        number      INTEGER NOT NULL CHECK (number > 0),
+        state       TEXT    NOT NULL CHECK (state IN ('open','closed','merged')),
+        created_at  DATETIME NOT NULL,
+        merged_at   DATETIME,
+        updated_at  DATETIME NOT NULL,
+        synced_at   DATETIME NOT NULL,
+        UNIQUE (repo, number)
+      );
+      CREATE TABLE IF NOT EXISTS pr_closes (
+        pr_id         INTEGER NOT NULL REFERENCES prs(id) ON DELETE CASCADE,
+        issue_number  INTEGER NOT NULL CHECK (issue_number > 0),
+        PRIMARY KEY (pr_id, issue_number)
+      );
+    `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
   }
 }
 

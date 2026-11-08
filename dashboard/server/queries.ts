@@ -96,8 +96,22 @@ function issueWebUrl(remotes: Map<string, WebRemote[]>, issue: Row): string | nu
   return remotes.get(String(issue['repo']))?.find((r) => r.provider === provider)?.base ?? null;
 }
 
+function prTablesAvailable(db: DatabaseSync): boolean {
+  const found = one(db, `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('prs', 'pr_closes')`);
+  return Number(found?.['n'] ?? 0) === 2;
+}
+
+// The PRs that close each issue, as a JSON array of {number, created_at,
+// merged_at}; '[]' on a DB older than the prs table (schema v61, GH 2513).
+const ISSUE_PRS_SQL = `(SELECT json_group_array(json_object('number', x.number, 'created_at', x.created_at, 'merged_at', x.merged_at))
+              FROM (SELECT p.number, p.created_at, p.merged_at
+                      FROM prs p JOIN pr_closes c ON c.pr_id = p.id
+                     WHERE p.repo = i.repo AND c.issue_number = i.gh_iid
+                     ORDER BY p.number) x)`;
+
 export function issues(db: DatabaseSync): Row[] {
   const remotes = webRemotes(db);
+  const prs = prTablesAvailable(db) ? ISSUE_PRS_SQL : `'[]'`;
   return all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
@@ -105,7 +119,8 @@ export function issues(db: DatabaseSync): Row[] {
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
                AND t.status IN ('completed','closed')) AS tasks_done,
-            (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count
+            (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count,
+            ${prs} AS prs
        FROM issues i
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`,
