@@ -44,7 +44,7 @@ If a flow's contract changes (new step, new role enforcement, new audit event), 
 
 ## Running
 
-The canonical runner is `bun test` per file (or the full suite via `run-all.sh`):
+The canonical runner is `bun test` per file (or the full suite via `run-all.ts`):
 
 ```
 bun test tests/l4-workflow-sim/flow-02-simple-task.test.mjs
@@ -54,7 +54,7 @@ bun test tests/l4-workflow-sim/*.test.mjs
 Or via the full suite:
 
 ```
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```
 
 Run locally before every push; the release-gate workflow (workflow_dispatch + RC tags) also runs them in CI.

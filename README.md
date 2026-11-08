@@ -114,7 +114,7 @@ Domain consultants outside this set are drafted on demand via `/tmb:agent-create
 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow + tests. Start with [`CLAUDE.md`](CLAUDE.md) (bro persona), [`docs/architecture/RESPONSIBILITIES.md`](docs/architecture/RESPONSIBILITIES.md) (per-agent contract), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema).
 
 ```bash
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```
 
 **License:** MIT. Fork it, ship it, sell it. Credit nice but not required.

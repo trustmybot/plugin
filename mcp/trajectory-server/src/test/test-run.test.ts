@@ -233,13 +233,13 @@ describe('test-run wrapper', () => {
     assert.equal(r.log, SPEC_FAIL);
   });
 
-  it('assert.sh pass: N/N passed', () => {
+  it('assert format pass: N/N passed', () => {
     const r = run(fixture('PASS one\nPASS two\n2/2 passed\n'));
     assert.equal(counts(r), 'exit=0 pass=2 fail=0 skip=0 format=assert');
     assert.equal(r.lines.length, 1);
   });
 
-  it('assert.sh fail: prints the FAIL lines', () => {
+  it('assert format fail: prints the FAIL lines', () => {
     const out = 'PASS one\n\x1b[0;31mFAIL\x1b[0m two — values differ\nPASS three\n2 passed, 1 failed (3 total)\n';
     const r = run(fixture(out, 1));
     assert.equal(counts(r), 'exit=1 pass=2 fail=1 skip=0 format=assert');

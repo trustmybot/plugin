@@ -10,7 +10,7 @@ There are two paths, depending on whether you've been granted access to the repo
 
 1. **Fork** `github.com/trustmybot/plugin` to your own account.
 2. In your fork, branch off `dev`: `<type>/<issue>-<slug>` (same convention as below).
-3. Make the change with tests; `bash tests/run-all.sh` must be green.
+3. Make the change with tests; `node --experimental-strip-types tests/run-all.ts` must be green.
 4. Open a **cross-repo pull request** from your fork's branch into `trustmybot/plugin`'s `dev`.
 5. A maintainer reviews and merges it.
 
@@ -20,7 +20,7 @@ A pull request is a *request* — you're asking a maintainer to pull your commit
 
 Either way you still don't push to `dev` or `main` directly — branch protection and `mcp/trajectory-server/src/hooks/git-guards.ts` block that. The pull request is always the merge path.
 
-**You don't need to run TMB itself to contribute** — plain git plus `bash tests/run-all.sh` (L1–L4) is all the local tooling a change requires.
+**You don't need to run TMB itself to contribute** — plain git plus `node --experimental-strip-types tests/run-all.ts` (L1–L4) is all the local tooling a change requires.
 
 **Maintainer-only steps.** A contributor (fork or collaborator) cannot:
 
@@ -41,7 +41,7 @@ Two things trip up first-time adapter PRs: the full Claude Code suite must stay 
 1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
 2. Branch off `dev`: `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`). Types: `feat fix refactor chore docs test perf`. Working from a fork? Branch off `dev` in your fork (see [Ways to contribute](#ways-to-contribute)).
 3. Make the change **with tests**.
-4. `bash tests/run-all.sh` — must be green (L1–L4).
+4. `node --experimental-strip-types tests/run-all.ts` — must be green (L1–L4).
 5. `gh pr create --base dev` — reference the issue (`Closes #N`); pick from the existing [labels](docs/contributing/LABELS.md).
 
 Direct commits to `dev` and `main` are blocked by `mcp/trajectory-server/src/hooks/git-guards.ts` + branch protection — always work on a branch and PR.
@@ -95,7 +95,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 3. **Typical feature workflow:** branch from `dev` → implement → local L0–L4 green → PR → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
 4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`. Rule 5's merge-on-green is carried out by hand: GitHub auto-merge is disabled on this repo, so `--auto` merges at once instead of waiting. Wait for green checks, then merge without `--auto`.
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
-6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the local sweep (`tests/run-all.sh` for the tiers they touch) + code-reviewer + any PR checks. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
+6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the local sweep (`tests/run-all.ts` for the tiers they touch) + code-reviewer + any PR checks. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
 8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
@@ -107,7 +107,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 
 `.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
 
-Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + code-reviewer + any PR checks** (rule 6 above).
+Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.ts`) + code-reviewer + any PR checks** (rule 6 above).
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
@@ -177,7 +177,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Pre-PR checklist
 
-- [ ] `bash tests/run-all.sh` green.
+- [ ] `node --experimental-strip-types tests/run-all.ts` green.
 - [ ] Tests added or updated.
 - [ ] Workflow state (issues, tasks, discussions, validation) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.

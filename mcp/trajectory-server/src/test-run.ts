@@ -2,7 +2,7 @@
  * `node dist/test-run.js [--log <path>] [--max-lines <n>] -- <command>` (GH 1907):
  * runs one test command with `bash -c`, writes its combined raw output to a
  * log file and prints one summary line plus capped failure excerpts instead of
- * the full output. Recognises node TAP, node spec and tests/lib/assert.sh
+ * the full output. Recognises node TAP, node spec and assert-style (`N/M passed`)
  * output; anything else prints its tail on a non-zero exit. A full suite
  * (isFullSuite) first waits for a suite slot (suite-lock.ts, GH 2092).
  */

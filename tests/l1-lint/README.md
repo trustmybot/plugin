@@ -1,6 +1,6 @@
 # L1 — Lint
 
-Fast, free, deterministic guards run before any heavier layer. Each script is a single-purpose check that catches a class of drift — stale versions, broken links, doctrine-doc parity, prompt-surface regressions — in milliseconds. They run together via the L1 step of `tests/run-all.sh`; each is also runnable standalone. `fixtures/` holds sample inputs some checks lint against.
+Fast, free, deterministic guards run before any heavier layer. Each script is a single-purpose check that catches a class of drift — stale versions, broken links, doctrine-doc parity, prompt-surface regressions — in milliseconds. They run together via the L1 step of `tests/run-all.ts`; each is also runnable standalone. `fixtures/` holds sample inputs some checks lint against.
 
 Run one directly:
 

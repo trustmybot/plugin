@@ -33,4 +33,4 @@ jobs:
           (cd dashboard && bun install --frozen-lockfile)
 
       - name: L1 lints (build:payload runs first)
-        run: bash tests/run-all.sh --l1-only
+        run: node --experimental-strip-types tests/run-all.ts --l1-only

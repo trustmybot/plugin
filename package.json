@@ -10,7 +10,7 @@
     "build": "bun --filter='*' run build",
     "build:payload": "bun run build && node scripts/maintenance/emit-data-contracts.mjs && bun run --cwd dashboard build",
     "postinstall": "bun --filter='*' run build",
-    "test": "bash tests/run-all.sh"
+    "test": "node --experimental-strip-types tests/run-all.ts"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.18.1"

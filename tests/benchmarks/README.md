@@ -170,5 +170,5 @@ A token-burn issue is considered resolved when:
 node --test tests/benchmarks/selftest.test.mjs
 
 # As part of the full test suite (wired into L1-adjacent section)
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```

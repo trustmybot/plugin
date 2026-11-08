@@ -36,7 +36,7 @@ Applies to:
 The escalation chain:
 
 ```
-Local run before push → bash tests/run-all.sh (L1–L4, free, < 2 min)
+Local run before push → node --experimental-strip-types tests/run-all.ts (L1–L4, free, < 2 min)
    ↓ green
 PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
    ↓ green
@@ -55,7 +55,7 @@ Promote RC → main → tag stable.
 tests/
 ├── README.md                   ← (this) framework + operational
 ├── EVALUATION.md               ← L5 + L6 evaluation system reference + TODO-CLI journey table
-├── run-all.sh                  ← orchestrator — runs L1–L4
+├── run-all.ts                  ← orchestrator — runs L1–L4
 ├── l0-install/                 ← L0 install-smoke + Release canary
 ├── l1-lint/                    ← L1 lints (version sync, links, doctrine docs, layer budgets)
 ├── l2-mcp-unit/                ← pointer — see mcp/trajectory-server/src/test/ for the actual tests
@@ -77,7 +77,7 @@ L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the 
 ## Run everything automated (L1–L4)
 
 ```bash
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
@@ -90,10 +90,10 @@ Two switches narrow a run:
 - `TMB_L1_SKIP` holds space-separated lint basenames (`tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
 
 ```bash
-TMB_L1_SKIP="tool-description-budget.test.mjs" bash tests/run-all.sh --l1-only
+TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types tests/run-all.ts --l1-only
 ```
 
-`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `bash tests/run-all.sh --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
+`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
@@ -113,7 +113,7 @@ Codex home.
 
 ## Test-environment posture
 
-- **Issue sync is off by default.** `run-all.sh` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
+- **Issue sync is off by default.** `run-all.ts` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
 - **CI is not your laptop.** GitHub runners have no `rg`, so scripts and lints use `grep`. `l1-lint/no-grep-q-in-pipelines.test.mjs` is textual: even a string literal, such as a fixture's verify command, must use `| grep PAT >/dev/null`. `gh --jq` separates expressions with `,`.
 
 ## Run an individual suite
@@ -347,7 +347,7 @@ When `$TMB_TEST_REMOTE` is set (test/sandbox mode), `origin` is a local bare rep
 3. `git push https://github.com/...` → exit 1 + sandbox-blocked message
 4. After teardown: `PATH`, `HOME`, `TMB_TEST_REMOTE` all restored / unset
 
-Run it directly: `node --experimental-strip-types --test tests/l5-l6/lib/sandbox.test.ts`. It runs automatically as part of `bash tests/run-all.sh` (the L5/L6 helper libs step).
+Run it directly: `node --experimental-strip-types --test tests/l5-l6/lib/sandbox.test.ts`. It runs automatically as part of `node --experimental-strip-types tests/run-all.ts` (the L5/L6 helper libs step).
 
 ## Anti-patterns
 
