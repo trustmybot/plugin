@@ -58,7 +58,7 @@ import {
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
-import { assignReviewerEffort } from '../reviewer-effort.js';
+import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
@@ -1233,7 +1233,7 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         "Bro's task close: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
-        'Runs before code-reviewer: the result carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (reviewer_effort_assigned row). ' +
+        'Runs before code-reviewer: the result carries review_pending=true, reviewer_effort (the effort that spawn must pass) and, with session_id, reviewer_spawn, that whole Agent call. ' +
         'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
         'Gates that refuse the close: scope, changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base); ' +
         'verification, a task with verification[] or a non-wontfix review finding needs a passing verification_runs row for the commit, run after any task_update_spec amend, whose commands match verification[] plus one `[probe <id>]` per such finding, or a verification_gate_waived row (else verification_run_missing); ' +
@@ -1274,6 +1274,12 @@ export function compositeTools(
             description:
               `Optional context for code-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); ` +
               'task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.',
+          },
+          session_id: {
+            ...RUN_SESSION_ID_SCHEMA,
+            description:
+              "Optional: your host session id (the session_id=<id> the activation routine injects each turn). With it the result carries reviewer_spawn {prompt, effort, subagent_type}, " +
+              "the code-reviewer Agent call to pass as is, whose subagent_session_id anchor it becomes; without it the result carries reviewer_spawn_unavailable: 'session_id' instead.",
           },
         },
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -3069,6 +3075,7 @@ export function compositeTools(
         const closeIssueIfLast = args['close_issue_if_last_task'] === true;
         const waiveScopeGate = args['waive_scope_gate'] === true;
         const spawnNote = parseSpawnNote(args['spawn_note'], 'bro_atomic_close');
+        const sessionId = parseRunSessionId(args['session_id']);
 
         const task = db.get<{
           id: number;
@@ -3083,8 +3090,9 @@ export function compositeTools(
           spec_body: string | null;
           completion_report: string | null;
           prompt_bearing: number;
+          worktree_path: string | null;
         }>(
-          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report, prompt_bearing
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report, prompt_bearing, worktree_path
              FROM tasks WHERE id = ? LIMIT 1`,
           [taskId],
         );
@@ -3241,6 +3249,7 @@ export function compositeTools(
             issue_closed: closed.issue_closed,
             review_pending: true,
             reviewer_effort: reviewerEffort.effort,
+            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort.effort, sessionId),
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
