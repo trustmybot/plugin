@@ -1,2 +1,2 @@
 ### Changed
-- **PR checks run every L1 lint, and the tool-description budget lint no longer measures a stale build** (GH 2064, GH 2492): `pr-check.yml` drops its `TMB_L1_SKIP`, so the tool-description-budget lint now gates each pull request too. That lint rebuilds the MCP server when `dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/`, instead of only when it is missing, so an out-of-date dist can no longer report a false budget failure. `TMB_L1_SKIP` itself stays available for local runs.
+- **PR checks run every L1 lint** (GH 2064, GH 2492): `pr-check.yml` drops its `TMB_L1_SKIP`, so the tool-description-budget lint now gates each pull request too. `TMB_L1_SKIP` itself stays available for local runs.
