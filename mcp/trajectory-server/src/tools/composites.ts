@@ -1469,7 +1469,6 @@ export function compositeTools(
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
         "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
-        'concepts {items, truncated} lists up to 5 non-retired L2 concepts whose steps anchor to files[] or locations (id, name, kind, status, status_reason, flagged for suspect/broken, framed body, matched anchors), verified first; at most 3000 chars, null when locations is. ' +
         'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
         type: 'object',
