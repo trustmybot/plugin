@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -444,6 +444,17 @@ describe('score-all CLI', () => {
     const bad = spawnSync(process.execPath, ['--experimental-strip-types', '--experimental-sqlite', SCORERS_TS, 'score-all'], {
       encoding: 'utf8',
     });
+    assert.equal(bad.status, 2);
+    assert.match(bad.stderr, /usage: scorers\.ts score-all/);
+  });
+  test('runs when invoked through a symlinked directory', () => {
+    const link = join(tempDir('l5-scorers-link-'), 'lib');
+    symlinkSync(HERE, link);
+    const bad = spawnSync(
+      process.execPath,
+      ['--experimental-strip-types', '--experimental-sqlite', join(link, 'scorers.ts'), 'score-all'],
+      { encoding: 'utf8' },
+    );
     assert.equal(bad.status, 2);
     assert.match(bad.stderr, /usage: scorers\.ts score-all/);
   });

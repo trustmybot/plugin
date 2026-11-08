@@ -20,8 +20,8 @@
 // run-log line that fails to parse ends the log.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
@@ -1072,6 +1072,6 @@ function main(argv: string[]): number {
   return scoreAll({ project, flow, scorerDir, runId });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exitCode = main(process.argv.slice(2));
 }
