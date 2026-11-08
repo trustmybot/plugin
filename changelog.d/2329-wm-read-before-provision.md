@@ -1,0 +1,2 @@
+### Added
+- **The `wm-read-before-provision` hook** (GH 2329): a new TypeScript-only advisory PreToolUse gate on `task_provision`. When bro's session transcript shows no `world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get` or `scope_suggest` call in the last 60 minutes, or the transcript cannot be read, the call still goes through but bro is told to read the world model before planning (`tmb_planning` §1), and a `wm_read_missing_before_provision` audit row records it. It never denies.

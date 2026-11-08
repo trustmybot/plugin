@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context and reviewer-downstream-context have no hook-corpus
+ * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, reviewer-downstream-context and wm-read-before-provision have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -60,6 +60,7 @@ export const ROUTER_CORPUS_GATES = [
   'no-source-edit-from-main',
   'no-prose-in-scratch',
   'worktree-adopt-guard',
+  'wm-read-before-provision',
   'swe-scope-fence',
   'naming-lint',
   'code-quality-lint',
@@ -492,6 +493,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('swe-downstream-context')) cases.push(...sweDownstreamCases(join(root, 'swe-downstream-context'), emptyProject));
   if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
+  if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
 
   // A sandbox's siblings in a SessionStart group would otherwise start a real install in it, or read the live trajectory-server of the Claude Code running the test.
   const noInstall = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ TMB_DRIFT_SELF_PID: '1', ...env, TMB_SKIP_MCP_DEPS_INSTALL: '1' });
@@ -845,6 +847,39 @@ function worktreeAdoptCases(dir: string, nonGit: string): RouterCase[] {
     ['other-tool', linked, payload('task_list')],
   ];
   return scenarios.map(([file, root, input]) => ({ gate: 'worktree-adopt-guard', file, input, env: clean({ ...base, CLAUDE_PROJECT_DIR: root }), cwd: root, fakeUid: false }));
+}
+
+/** wm-read-before-provision's cases over a temp trajectory DB: a recent world-model read, an old one, none in a long transcript, no transcript, and another tool. */
+function wmReadCases(dir: string, cwd: string): RouterCase[] {
+  const db = join(dir, 'trajectory.db');
+  mkdirSync(dir, { recursive: true });
+  const d = new DatabaseSync(db);
+  try {
+    d.exec(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8'));
+    d.exec("INSERT OR IGNORE INTO issues (id, objective, status, created_at, updated_at) VALUES (-1, 'system', 'open', '2026-11-08T00:00:00.000Z', '2026-11-08T00:00:00.000Z')");
+  } finally {
+    d.close();
+  }
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, CLAUDE_PROJECT_DIR: cwd, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE });
+  const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+  const use = (name: string, at: string): string => JSON.stringify({ type: 'assistant', timestamp: at, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name, input: {} }] } });
+  const filler = (n: number): string[] => Array.from({ length: n }, (_, i) => JSON.stringify({ type: 'user', timestamp: ago(1), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${i}`, content: 'x'.repeat(800) }] } }));
+  const transcript = (name: string, lines: readonly string[]): string => {
+    const path = join(dir, `${name}.jsonl`);
+    writeFileSync(path, `${lines.join('\n')}\n`);
+    return path;
+  };
+  const payload = (tool: string, path?: string): string =>
+    JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-wm', cwd, ...(path === undefined ? {} : { transcript_path: path }), tool_name: `mcp__plugin_tmb_trajectory-server__${tool}`, tool_input: { agent: 'bro', issue_id: -1 } });
+  const wm = 'mcp__plugin_tmb_trajectory-server__world_model_search';
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['recent-read', payload('task_provision', transcript('recent', [use(wm, ago(5)), ...filler(50)]))],
+    ['old-read', payload('task_provision', transcript('old', [use(wm, ago(90)), ...filler(50)]))],
+    ['no-read-long', payload('task_provision', transcript('long', [use('Read', ago(5)), ...filler(5000)]))],
+    ['no-transcript', payload('task_provision')],
+    ['other-tool', payload('task_list', transcript('other', [use('Read', ago(5))]))],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'wm-read-before-provision', file, input, env, cwd, fakeUid: false }));
 }
 
 /** Runs <fn> under the case's uid (containment-guard's fake one, or the real one). */

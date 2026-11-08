@@ -119,6 +119,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `reviewer-identity-observe.ts` | PreToolUse trajectory-server (validation_record) | Record the calling code-reviewer's `session_id`, `agent_id` and `tool_use_id` with `observed_at` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
 | `cheatcode-install-approval.ts` | PreToolUse trajectory-server (cheatcode_install) | Require Human approval before installing a cheatcode |
 | `worktree-adopt-guard.ts` | PreToolUse trajectory-server (task_provision, task_reopen, task_retry) | Allowlist on `adopt_worktree`: required, as the session's linked-worktree top level, from a session in a linked git worktree; refused from a main checkout or non-git root. Born in TypeScript |
+| `wm-read-before-provision.ts` | PreToolUse trajectory-server (task_provision) | Advisory: with no world-model read tool_use in the session transcript's last 60 minutes, allow with a nudge to read the world model first and audit `wm_read_missing_before_provision`. Born in TypeScript |
 | `askuserquestion-length-lint.ts` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.ts` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.ts` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
