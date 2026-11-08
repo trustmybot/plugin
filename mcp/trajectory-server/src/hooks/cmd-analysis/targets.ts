@@ -7,7 +7,65 @@ import { splitWords, under, unwrap } from './unwrap.js';
 
 const basename = (w: string): string => w.replace(/.*\//, '');
 
-function writeTargetWords(w: string[], out: string[]): void {
+interface LnArgs {
+  sym: boolean;
+  tdirs: string[];
+  ops: string[];
+  /** An option word after the first operand: GNU ln reads it as an option, BSD ln as an operand. */
+  late: boolean;
+}
+
+/**
+ * The ln words from w[first + 1] on, read as GNU ln reads them: `-t` and
+ * `-S` take a value (in their cluster or the next word), long options match
+ * by unique prefix, and `--` ends the options.
+ */
+function lnArgs(w: readonly string[], first: number): LnArgs {
+  const r: LnArgs = { sym: false, tdirs: [], ops: [], late: false };
+  let ended = false;
+  for (let k = first + 1; k < w.length; k++) {
+    const a = w[k];
+    if (ended || a === '-' || !a.startsWith('-')) {
+      r.ops.push(a);
+      continue;
+    }
+    if (r.ops.length > 0) r.late = true;
+    if (a === '--') {
+      ended = true;
+      continue;
+    }
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq < 0 ? a.slice(2) : a.slice(2, eq);
+      const value = eq < 0 ? undefined : a.slice(eq + 1);
+      const is = (long: string, min: number) => name.length >= min && long.startsWith(name);
+      if (is('target-directory', 1)) {
+        const d = value ?? w[++k];
+        if (d !== undefined) r.tdirs.push(d);
+      } else if (is('suffix', 2)) {
+        if (value === undefined) k++;
+      } else if (is('symbolic', 2)) r.sym = true;
+      continue;
+    }
+    for (let j = 1; j < a.length; j++) {
+      const c = a[j];
+      if (c === 't' || c === 'S') {
+        const v = j + 1 < a.length ? a.slice(j + 1) : w[++k];
+        if (c === 't' && v !== undefined) r.tdirs.push(v);
+        break;
+      }
+      if (c === 's') r.sym = true;
+    }
+  }
+  return r;
+}
+
+/**
+ * With `final` (nothing runs after this statement), a symbolic ln writes only
+ * its link paths: its TARGET is judged only where a later write through the
+ * link could reach it (GH 1789).
+ */
+function writeTargetWords(w: string[], out: string[], final = false): void {
   let pre = '';
   const u = unwrap(w, 0);
   for (const dir of u.dirs) {
@@ -43,45 +101,28 @@ function writeTargetWords(w: string[], out: string[]): void {
   } else if (cmd === 'npm') {
     diropts('-C', '--prefix', false);
   } else if (cmd === 'ln' || cmd === 'link') {
-    let sym = false;
-    let tdir = '';
-    for (let k = first + 1; k < nw; k++) {
-      const a = w[k];
-      if (a === '-t' || a === '--target-directory') {
-        if (k < nw - 1) tdir = w[k + 1];
-        k++;
-        continue;
-      }
-      if (a.startsWith('--target-directory=')) {
-        tdir = a.slice('--target-directory='.length);
-        continue;
-      }
-      if (a === '--symbolic') {
-        sym = true;
-        continue;
-      }
-      if (a.startsWith('--')) continue;
-      if (a.startsWith('-')) {
-        if (a.includes('s')) sym = true;
-        continue;
-      }
-      nonopt.push(a);
-    }
+    const { sym, tdirs, ops, late } = lnArgs(w, first);
+    nonopt.push(...ops);
     const nn = nonopt.length;
     let last = nn;
-    if (tdir !== '') put(tdir);
-    else if (nn >= 2) {
+    for (const d of tdirs) put(d);
+    if (tdirs.length === 0 && nn >= 2) {
       put(nonopt[nn - 1]);
       last = nn - 1;
+    } else if (tdirs.length === 0 && nn === 1) put('./' + basename(nonopt[0].replace(/\/+$/, '')));
+    if (late) {
+      put(w[nw - 1]);
+      for (const a of nonopt) put(a);
     }
+    if (cmd === 'ln' && sym && !late && final) return;
     for (let k = 0; k < last; k++) {
       const a = nonopt[k];
       if (!sym || a.startsWith('/')) {
         put(a);
         continue;
       }
-      if (tdir !== '') {
-        put(tdir + '/' + a);
+      if (tdirs.length > 0) {
+        for (const d of tdirs) put(d + '/' + a);
         continue;
       }
       if (nn < 2) {
@@ -180,13 +221,13 @@ function writeTargetWords(w: string[], out: string[]): void {
   }
 }
 
-/** tmb_cmd_write_targets of one encoded statement line. */
-export function writeTargets(line: string): string[] {
+/** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only. */
+export function writeTargets(line: string, final = false): string[] {
   const out: string[] = [];
   let w: string[] = [];
   let want = 0;
-  const flush = () => {
-    writeTargetWords(w, out);
+  const flush = (last = false) => {
+    writeTargetWords(w, out, last && final);
     w = [];
   };
   const n = line.length;
@@ -255,7 +296,7 @@ export function writeTargets(line: string): string[] {
     }
     w.push(word);
   }
-  flush();
+  flush(true);
   return out;
 }
 
@@ -423,9 +464,9 @@ function extraWrites(chain: boolean, words: string[], interp: Interp): string[] 
   return out;
 }
 
-/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on. */
-export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp): ExtraWrites {
-  const paths = writeTargets(stmt);
+/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` as in writeTargets. */
+export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false): ExtraWrites {
+  const paths = writeTargets(stmt, final);
   const { pre, words } = unwrapStatement(stmt);
   if (words.length <= 1) return { paths, words };
   if (pre === '') paths.push(...extraWrites(chain, words, interp));

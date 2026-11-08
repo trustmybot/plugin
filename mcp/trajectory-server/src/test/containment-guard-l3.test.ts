@@ -273,8 +273,8 @@ describe('containment-guard l3', () => {
     assert.equal(swe(`echo hi > ${WT}/src/../b.txt`), 'allow', 'Bash redirect to <root>/a/../b with no symlink');
   });
 
-  it('planting a link is a write → deny when either end is outside', () => {
-    for (const cmd of [`ln -s /outside ${WT}/link2`, 'link /etc/hosts h', 'cp -s /etc/hosts h', 'cp -l /etc/hosts h']) {
+  it('planting a link is a write → deny when the link or a hard-linked source is outside', () => {
+    for (const cmd of [`ln -s ${WT}/x ${SANDBOX}/link2`, 'link /etc/hosts h', 'cp -s /etc/hosts h', 'cp -l /etc/hosts h']) {
       assert.equal(swe(cmd), 'deny', cmd);
     }
     assert.equal(swe('ln -s a.ts src/alias.ts'), 'allow', 'a relative link inside the root');
@@ -308,6 +308,29 @@ describe('containment-guard l3', () => {
   it('every denial wrote an audit row', () => {
     assert.equal(denials(), count("SELECT COUNT(*) AS n FROM audit WHERE event_type='containment_denied'"), 'all rows from hook:containment-guard');
     assert.equal(denials(), 28, 'one row per denial above');
+  });
+
+  it('GH 1789: ln -s is judged by the link it creates; its target only where a later write could follow the link', () => {
+    const OUT_DIR = join(SANDBOX, 'outside-1789');
+    mkdirSync(join(WT, 'sub'), { recursive: true });
+    mkdirSync(OUT_DIR, { recursive: true });
+    assert.equal(swe(`ln -s ${SANDBOX}/main/mcp/trajectory-server/node_modules node_modules`), 'allow', 'a link inside the root to an outside target');
+    assert.equal(swe(`cd sub && ln -s ${OUT_DIR}/x link`), 'allow', 'a link made under a cd prefix');
+    assert.equal(swe(`ln -s ${WT}/x ${OUT_DIR}/link`), 'deny', 'the link itself is outside');
+    for (const cmd of [
+      `ln -s ${OUT_DIR} link3 && echo x > link3/f`,
+      `ln -s ${OUT_DIR} link3; touch link3/f`,
+      `(sleep 1; echo x > link3/f) & ln -s ${OUT_DIR} link3`,
+      `trap 'echo x > link3/f' EXIT; ln -s ${OUT_DIR} link3`,
+      `bash -c 'ln -s ${OUT_DIR} link3'`,
+      `ln ${OUT_DIR}/f h`,
+      `ln ${OUT_DIR}/f -s`,
+    ]) {
+      assert.equal(swe(cmd), 'deny', cmd);
+    }
+    symlinkSync(OUT_DIR, join(WT, 'premade'));
+    assert.equal(swe('echo x > premade/f'), 'deny', 'Bash write through a link made beforehand');
+    assert.equal(dec(WT, 'swe', 'Write', write(`${WT}/premade/f`)), 'deny', 'Write through a link made beforehand');
   });
 
   const NODE_OUT = ["node <<'EOF'", "require('fs').writeFileSync('/tmp/tmb-cg-x', 'y')", 'EOF'].join('\n');

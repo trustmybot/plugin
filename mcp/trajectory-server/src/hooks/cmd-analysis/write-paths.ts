@@ -44,6 +44,8 @@ const PROG_DIR = '/.tmb-prog-dir';
 const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
 const WATCH_VALUE = /^(-[A-Za-z]*[nq]|--interval|--equexit)$/;
 const BODY_UNRESOLVED = /^UNRESOLVED:(?!\$\(|PWD:)/;
+/** Text that may run something after the command's last statement: a background `&`, a process substitution, `trap`, `coproc` or `setsid` (GH 1789). */
+const RUNS_LATER = /(^|[^&>|<])&(?![&>])|[<>]\(|\b(trap|coproc|setsid)\b/;
 const MKTEMP_TEMPLATE = /^[A-Za-z0-9._-]*XXX+$/;
 const MKTEMP_PATH = /^\/[^\s*?[\]{}~$`\\\x00-\x1f\x7f]*$/;
 /** The options that make an interpreter print information and exit, judged only among its own options. */
@@ -811,8 +813,12 @@ class WritePaths {
     }
   }
 
-  /** _tmb_cmd_write_paths_in; the TS returns the variables tracked when it ends. */
-  run(cmd: string, base: string, depth: number, vars: string): string {
+  /**
+   * _tmb_cmd_write_paths_in; the TS returns the variables tracked when it
+   * ends. `top` marks the whole Bash command: its last statement is judged
+   * as the last that runs, unless RUNS_LATER matches the command.
+   */
+  run(cmd: string, base: string, depth: number, vars: string, top = false): string {
     this.charge(cmd.length);
     const encoded = encode(this.parser, cmd, this.charge, true);
     if (!encoded.ok) {
@@ -823,7 +829,7 @@ class WritePaths {
     this.held = encoded.held;
     this.spliced = encoded.spliced;
     try {
-      return this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
+      return this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars, top && !RUNS_LATER.test(cmd));
     } finally {
       this.held = outer.held;
       this.spliced = outer.spliced;
@@ -937,7 +943,7 @@ class WritePaths {
     level.why = why;
   }
 
-  private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string): string {
+  private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string, endsLast: boolean): string {
     const level: Level = { vars, oldtok: '-', why: '' };
     const { cwd } = this.opts;
     const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true, this.charge).filter((r) => !/^\t*$/.test(r.stmt));
@@ -976,6 +982,7 @@ class WritePaths {
       const dirs = dir.split(ALT);
       const each = (fn: (d: string, chain: boolean, tok: string) => void): void =>
         this.eachDir(level, dirs, why, (d) => fn(d, d === '-' && level.why === '', d + SEP + old + (level.why === '' ? '' : SEP + level.why)));
+      const final = endsLast && idx === records.length;
       const body = inner(record.stmt);
       const evaluated = evalArgs(words);
       const deferred = this.poisonSet(level, words, body === '');
@@ -988,7 +995,7 @@ class WritePaths {
       const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, decPath(p));
+          for (const p of stmtWritePaths(record.stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (body !== '' && !evaluated && heldProgram(body)) {
@@ -1010,7 +1017,7 @@ class WritePaths {
       }
       if (!ownWords) {
         each((d, chain) => {
-          for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== '') this.emit(level, d, decPath(p));
+          for (const p of stmtWritePaths(stmt, chain, this.interp, final).paths) if (p !== '') this.emit(level, d, decPath(p));
         });
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));
@@ -1100,7 +1107,7 @@ export function writePathsWith(parser: Parser, command: string, opts: Options): 
     if (spent > ANALYSIS_WORK_CAP) throw new WorkCapReached();
   });
   try {
-    w.run(command, '@', 0, '');
+    w.run(command, '@', 0, '', true);
   } catch (e) {
     if (e instanceof WorkCapReached || e instanceof RangeError) return [CAP_LINE];
     throw e;
