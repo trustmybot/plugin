@@ -157,7 +157,7 @@ describe('cleanup-worktree-on-task-close l3', () => {
         db,
         `ALTER TABLE tasks ADD COLUMN commit_sha TEXT;
          CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
-         CREATE TABLE audit (id INTEGER PRIMARY KEY, event_type TEXT, content_json TEXT, created_at TEXT);`,
+         CREATE TABLE audit (id INTEGER PRIMARY KEY, from_node TEXT, event_type TEXT, content_json TEXT, created_at TEXT);`,
       );
     });
 

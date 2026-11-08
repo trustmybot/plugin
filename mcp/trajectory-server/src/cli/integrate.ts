@@ -5,14 +5,16 @@
  *   node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>
  *
  * Run by bro from the main checkout, after bro's own verify and the code-reviewer
- * pass; on exit 0 bro spawns code-reviewer on the printed SHA, then pushes it.
+ * pass; on exit 0 bro pushes the printed SHA, because the pass carries over
+ * to it (GH 2082).
  * The task's repo, branch_id, commit_sha and verification[] come from the
  * trajectory DB (TRAJECTORY_DB_PATH, else CLAUDE_PROJECT_DIR, else a walk
  * up from cwd).
- *   1. No passing review for the task's commit_sha (a pass verdict at or after
- *      the first bro_verification_pass or task_integrated row naming the task
- *      and that commit) → exit 3, so an integrated head needs its own review
- *      before a second integrate.
+ *   1. No passing review for the task's commit_sha (HAS_PASS_SQL: the newest
+ *      verdict is a pass and one pass is at or after that commit's review
+ *      anchor, REVIEW_ANCHOR_AT_SQL) → exit 3. A head integrate made keeps the
+ *      anchor it carried, so a second integrate needs no new review unless a
+ *      verdict since says otherwise.
  *   2. <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
@@ -34,9 +36,12 @@
  *      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
  *      to the rebased SHA, then, in one transaction, sets tasks.commit_sha to
  *      it (only while it still names the reviewed SHA) and writes a
- *      task_integrated audit row (task_id, reviewed_sha, commit_sha, base,
- *      run_id), the review anchor HAS_PASS_SQL reads, so the integrated head
- *      needs a fresh code-reviewer pass; then it prints the SHA. When that
+ *      task_integrated audit row (task_id, reviewed_sha, review_anchor_at,
+ *      commit_sha, base, run_id), the review anchor HAS_PASS_SQL reads. Its
+ *      review_anchor_at is the anchor the reviewed SHA's pass was judged
+ *      against, so that pass covers the integrated head (Gerrit's
+ *      TRIVIAL_REBASE copyCondition: same patch-ids, passing run); then it
+ *      prints the SHA. When that
  *      write fails the branch has moved but the task row still names the
  *      reviewed SHA → exit 4, and code-reviewer-preflight denies a review of
  *      the rebased SHA (sha_mismatch).
@@ -68,7 +73,7 @@ import { jsonStream } from '../hooks/lib/jq.js';
 import { commandSubstitution, posixDirname } from '../hooks/lib/project-env.js';
 import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
 import { joinToolchainPath, parseBudget, shellLength, shellTail, toolchainDirs } from '../hooks/swe-verification-gate.js';
-import { HAS_PASS_SQL } from '../review-sql.js';
+import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
 import type { CliIo } from './fallback-db.js';
@@ -125,6 +130,7 @@ class Integration {
   private base = '';
   private branch = '';
   private reviewedSha = '';
+  private reviewAnchorAt = '';
   private commitSha = '';
   private baseSha = '';
   private repoRoot = '';
@@ -188,6 +194,7 @@ class Integration {
     const content = JSON.stringify({
       task_id: Number(this.taskId),
       reviewed_sha: this.reviewedSha,
+      review_anchor_at: this.reviewAnchorAt,
       commit_sha: newSha,
       base: this.base,
       run_id: Number(this.runId),
@@ -364,13 +371,14 @@ SELECT changes();`,
 
     const row = gateRead(
       db,
-      `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || issue_id || char(10) || ${HAS_PASS_SQL}
+      `SELECT 'task' || char(10) || COALESCE(repo, '') || char(10) || COALESCE(branch_id, '') || char(10) || COALESCE(commit_sha, '') || char(10) || issue_id || char(10) || COALESCE(${REVIEW_ANCHOR_AT_SQL}, '') || char(10) || ${HAS_PASS_SQL}
   FROM tasks t WHERE t.id = ${this.taskId};`,
       this.env,
     );
     if (row === GATE_READ_ERROR) this.die(4, `trajectory DB read failed: ${db}`);
     if (row === '') this.die(4, `no task ${this.taskId}`);
-    const [, taskRepo = '', branch = '', commitSha = '', issueId = '', hasPass = ''] = row.split('\n');
+    const [, taskRepo = '', branch = '', commitSha = '', issueId = '', reviewAnchorAt = '', hasPass = ''] = row.split('\n');
+    this.reviewAnchorAt = reviewAnchorAt;
     this.branch = branch;
     this.issueId = issueId;
     this.reviewedSha = commitSha;
