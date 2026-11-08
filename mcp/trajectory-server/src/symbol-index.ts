@@ -10,7 +10,7 @@
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
 // rows (parsing/hooks.ts), and a pass re-resolves the non-exact edges of
-// unchanged files that name a symbol this pass inserted (ADR 0002). A
+// unchanged files that name a symbol this pass inserted or deleted (ADR 0002). A
 // generated bundle with a sibling source map gets a 'module' row of its own,
 // re-read only when the map changes, with a 'bundles' edge to each in-repo
 // source the map lists (GH 2284). A manifest, task file or CI file the env
@@ -251,11 +251,16 @@ export function resolveImport(fromFile: string, spec: string | null, fileSet: Se
 
 class SymbolWriter {
   readonly inserted = new Set<string>();
+  readonly removed = new Set<string>();
 
   constructor(
     private readonly db: TrajectoryDB,
     private readonly repo: string,
   ) {}
+
+  deleteFile(path: string): void {
+    for (const n of deleteFileSymbols(this.db, this.repo, path)) this.removed.add(n);
+  }
 
   // Upsert one file's symbols by (kind, qualified_name) so unchanged symbols
   // keep their ids, drop the ones that disappeared, and replace its edges.
@@ -305,7 +310,10 @@ class SymbolWriter {
       }
       return Number(row.id);
     });
-    for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
+    for (const gone of existing.values()) {
+      for (const n of namesOf(gone.kind, gone.qualified_name, path)) this.removed.add(n);
+      this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
+    }
     return extraction.edges.map((edge) => ({
       rowid: Number(
         this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, ?, ?, ?)`, [
@@ -438,8 +446,20 @@ export function markOrphanedEdges(db: TrajectoryDB): void {
   );
 }
 
-export function deleteFileSymbols(db: TrajectoryDB, repo: string, path: string): void {
+// The names (namesOf) of the symbols stored under `paths`.
+function storedNames(db: TrajectoryDB, repo: string, paths: Iterable<string>): string[] {
+  return db
+    .all<{ kind: SymbolKind; qualified_name: string; path: string }>(
+      `SELECT kind, qualified_name, path FROM wm_symbols WHERE repo = ? AND path IN (SELECT value FROM json_each(?))`,
+      [repo, JSON.stringify([...paths])],
+    )
+    .flatMap((s) => namesOf(s.kind, s.qualified_name, s.path));
+}
+
+export function deleteFileSymbols(db: TrajectoryDB, repo: string, path: string): string[] {
+  const names = storedNames(db, repo, [path]);
   db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path]);
+  return names;
 }
 
 // The router table is a build artifact git does not track, so a commit read
@@ -482,10 +502,13 @@ function soleTables(db: TrajectoryDB, repo: string): string[] {
 
 // Files this pass did not re-parse keep their edges, so a caller of a symbol
 // that was just added, moved into another file or re-created under a new kind
-// stays unresolved. Re-run resolution, with each caller file's stored imports
-// and sources as context, over the edges naming an inserted symbol that are
-// not exact or lost their target, and over every edge whose target this pass
-// deleted (dst_id cleared by ON DELETE SET NULL, resolution not yet reset).
+// stays unresolved, and one whose name a deletion left unique stays
+// unresolved too. Re-run resolution, with each caller file's stored imports
+// and sources as context, over the edges naming a symbol this pass inserted
+// or deleted (`names`) that are not exact or lost their target, and over every
+// edge whose target this pass deleted (dst_id cleared by ON DELETE SET NULL,
+// resolution not yet reset). An edge that no longer resolves gets the value
+// the first pass writes for an unresolvable edge (GH 2615).
 // A table edge is exact only while its table has one definition outside test
 // and fixture paths, so a table edge naming an inserted symbol is revisited
 // even when exact, and a non-exact one whose table is now down to one such
@@ -515,9 +538,9 @@ function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip
   let resolved = 0;
   for (const c of candidates) {
     const { from, edge } = toPending(c);
-    const hit = resolver.resolve(from, edge);
-    if (!hit || (hit.how === c.resolution && hit.dst === (c.dst_id === null ? null : Number(c.dst_id)))) continue;
-    db.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, c.rowid]);
+    const target = resolver.resolve(from, edge) ?? { dst: null, how: NAME_ONLY_EDGES.has(edge.kind) ? 'name' : 'unresolved' };
+    if (target.how === c.resolution && target.dst === (c.dst_id === null ? null : Number(c.dst_id))) continue;
+    db.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [target.dst, target.how, c.rowid]);
     resolved++;
   }
   return resolved;
@@ -672,12 +695,15 @@ export async function indexRepoSymbols(
 // commit in one transaction with no await inside (GH 2584). `files` are the
 // repo's wm_files rows as they will be when the plan is applied, for a caller
 // whose file writes have not run yet; without it they are read from wm_files.
+// `dropped` holds the names of the symbols stored under the wm_files rows
+// `files` leaves out, which the caller's file writes delete.
 export interface SymbolPlan {
   repo: string;
   version: string;
   parsed: Parsed[];
   failed: Array<{ file: StaleFile; error: string }>;
   bundles: BundlePass;
+  dropped: string[];
 }
 
 function byPath(a: { path: string }, b: { path: string }): number {
@@ -741,11 +767,11 @@ export async function planRepoSymbols(
   const bundles: BundlePass = maps
     ? await readBundles(db, repo, repoPath, maps, version, read, dropped)
     : { write: [], gone: [], failed: [] };
-  return { repo, version, parsed, failed, bundles };
+  return { repo, version, parsed, failed, bundles, dropped: storedNames(db, repo, dropped) };
 }
 
 export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolIndexStats & { failed_paths: FailedPath[] } {
-  const { repo, version, parsed, failed, bundles } = plan;
+  const { repo, version, parsed, failed, bundles, dropped } = plan;
   return db.transaction(() => {
     const writer = new SymbolWriter(db, repo);
     const pending: PendingEdge[] = [];
@@ -755,12 +781,12 @@ export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolInde
         pending.push(...writer.writeFile(file.path, extraction));
         symbols += extraction.symbols.length;
       } else {
-        deleteFileSymbols(db, repo, file.path);
+        writer.deleteFile(file.path);
       }
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE repo = ? AND path = ?`, [version, repo, file.path]);
     }
     for (const { file } of failed) {
-      deleteFileSymbols(db, repo, file.path);
+      writer.deleteFile(file.path);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE repo = ? AND path = ?`, [
         version,
         FAILED_SUFFIX,
@@ -773,10 +799,10 @@ export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolInde
         pending.push(...writer.writeFile(path, extraction));
         symbols += extraction.symbols.length;
       } else {
-        deleteFileSymbols(db, repo, path);
+        writer.deleteFile(path);
       }
     }
-    for (const path of bundles.gone) deleteFileSymbols(db, repo, path);
+    for (const path of bundles.gone) writer.deleteFile(path);
     let resolved = 0;
     if (pending.length > 0) {
       const resolver = new Resolver(db, repo, pending);
@@ -787,7 +813,8 @@ export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolInde
         resolved++;
       }
     }
-    resolved += reresolveEdges(db, repo, writer.inserted, new Set(pending.map((p) => p.rowid)));
+    const touched = new Set([...writer.inserted, ...writer.removed, ...dropped]);
+    resolved += reresolveEdges(db, repo, touched, new Set(pending.map((p) => p.rowid)));
     markOrphanedEdges(db);
     return {
       files_parsed: parsed.filter((p) => p.extraction !== null).length,
