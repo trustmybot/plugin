@@ -7,6 +7,8 @@
 // and closed issues (closed_at set) back the label= filter and its Label stats
 // panel: the open/closed donut, the co-label BarList and the close-time tiles.
 // Seeded prs / pr_closes rows back each issue's prs column and the PR merge tiles.
+// Three issues carry a milestone and five none, backing the milestone= filter,
+// milestone=none and the Milestone menu's options.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -33,6 +35,8 @@ const LABELLED = [
   ['Closed workflow issue', ['Area: Workflow'], 5],
 ];
 const GH_IIDS = { 'Closed dashboard bug': 10, 'Closed dashboard feature': 11, 'Closed dashboard improvement': 12 };
+// Every other issue has no milestone (5 of the 8).
+const MILESTONES = { 'Open dashboard bug': 'v1.2.0', 'Closed dashboard bug': 'v1.2.0', 'Open dashboard tags': 'v1.1.0' };
 // [number, state, hours from open to merge or null, closing issue gh_iids]; #100
 // closes two Area: Dashboard issues and counts once: merged hours 2, 4, 12.
 const PRS = [
@@ -66,6 +70,10 @@ function seed(path) {
   db.prepare("INSERT INTO repos (name, path) VALUES ('app', '/work/app')").run();
   const link = db.prepare("UPDATE issues SET repo = 'app', gh_iid = ? WHERE objective = ?");
   for (const [objective, ghIid] of Object.entries(GH_IIDS)) link.run(ghIid, objective);
+  const milestone = db.prepare("INSERT INTO milestones (name, repo) VALUES (?, 'app')");
+  const setMilestone = db.prepare("UPDATE issues SET repo = 'app', milestone = ? WHERE objective = ?");
+  for (const name of new Set(Object.values(MILESTONES))) milestone.run(name);
+  for (const [objective, name] of Object.entries(MILESTONES)) setMilestone.run(name, objective);
   const pr = db.prepare("INSERT INTO prs (repo, number, state, created_at, merged_at, updated_at, synced_at) VALUES ('app', ?, ?, ?, ?, ?, ?)");
   const closes = db.prepare('INSERT INTO pr_closes (pr_id, issue_number) VALUES (?, ?)');
   for (const [number, state, mergeAfter, closesIids] of PRS) {
@@ -117,8 +125,10 @@ async function loadViews() {
         const provide = (el) => createElement(QueryClientProvider, { client: new QueryClient() }, el);
         const wrap = (el) => renderToStaticMarkup(provide(el));
         export const list = (rows, state) => wrap(createElement(IssueList, { rows, state }));
-        export async function labelList(rows, state, label) {
-          const { prelude } = await prerenderToNodeStream(provide(createElement(IssueList, { rows, state, label })));
+        export async function labelList(rows, state, label, milestone = null, q = '') {
+          globalThis.window = q ? { location: { hash: '#/issues?q=' + encodeURIComponent(q) } } : undefined;
+          const { prelude } = await prerenderToNodeStream(provide(createElement(IssueList, { rows, state, label, milestone })));
+          globalThis.window = undefined;
           let html = '';
           for await (const chunk of prelude) html += chunk;
           return html.replaceAll('<!-- -->', '');
@@ -202,6 +212,66 @@ describe('dashboard issues', () => {
     assert.ok(!html.includes('data-label-stats'), 'no label stats panel without a label');
     assert.match(html, /aria-haspopup="menu"[^>]*>.*?Label<\/span>/);
     assert.match(html, /role="menuitemradio" aria-checked="true"[^>]*>.*?All labels/);
+  });
+
+  test('milestone= filters the list and its tab counts, and combines with label= and search', async () => {
+    const rows = await get('issues');
+    const html = await views.labelList(rows, 'open', null, 'v1.2.0');
+    assert.match(html, />1 Open</);
+    assert.match(html, />1 Closed</);
+    assert.ok(html.includes('Open dashboard bug'));
+    assert.ok(!html.includes('Open dashboard tags'));
+    assert.ok(!html.includes('GitHub-style issues'));
+    assert.match(html, /Milestone: v1\.2\.0<\/span><a href="#\/issues" aria-label="Remove milestone filter"/);
+    assert.ok(!html.includes('data-label-stats'), 'no label stats panel without a label');
+    const closed = await views.labelList(rows, 'closed', null, 'v1.2.0');
+    assert.ok(closed.includes('Closed dashboard bug'));
+    assert.ok(!closed.includes('Closed dashboard feature'));
+    const both = await views.labelList(rows, 'open', 'Bug', 'v1.2.0');
+    assert.match(both, />1 Open</);
+    assert.match(both, /aria-label="Remove label filter"/);
+    assert.match(both, /aria-label="Remove milestone filter"/);
+    assert.match(await views.labelList(rows, 'open', 'Feature', 'v1.2.0'), /No Open Issues/);
+    const searched = await views.labelList(rows, 'open', null, 'v1.2.0', 'bug');
+    assert.match(searched, />1 Open</);
+    assert.match(searched, />1 Closed</);
+    const missed = await views.labelList(rows, 'open', null, 'v1.2.0', 'tags');
+    assert.match(missed, />0 Open</);
+    assert.match(missed, /No Results Matched Your Search/);
+  });
+
+  test('milestone=none lists only issues without a milestone', async () => {
+    const html = await views.labelList(await get('issues'), 'open', null, 'none');
+    assert.match(html, />2 Open</);
+    assert.match(html, />3 Closed</);
+    assert.ok(html.includes('GitHub-style issues'));
+    assert.ok(html.includes('Unlabelled issue'));
+    assert.ok(!html.includes('Open dashboard bug'));
+    assert.ok(!html.includes('Open dashboard tags'));
+    assert.match(html, /<span[^>]*>No milestone<\/span><a [^>]*aria-label="Remove milestone filter"/);
+  });
+
+  test('the Milestone menu lists each milestone newest first with its count, then No milestone, the active one checked', async () => {
+    const rows = await get('issues');
+    const menu = (html) => /<div [^>]*role="menu" aria-label="Filter by milestone"[^>]*>(.*?)<\/div>/.exec(html)?.[1] ?? '';
+    const options = (html) =>
+      [...menu(html).matchAll(/aria-checked="(true|false)".*?<span class="min-w-0 flex-1 truncate">([^<]*)<\/span>(?:<span [^>]*>(\d+)<\/span>)?/g)].map((m) => [m[2], m[3] ?? null, m[1]]);
+    const all = await views.labelList(rows, 'open', null);
+    assert.match(all, /aria-haspopup="menu"[^>]*>.*?Milestone<\/span>/);
+    assert.deepEqual(options(all), [
+      ['All milestones', null, 'true'],
+      ['v1.2.0', '2', 'false'],
+      ['v1.1.0', '1', 'false'],
+      ['No milestone', '5', 'false'],
+    ]);
+    const active = await views.labelList(rows, 'open', null, 'v1.1.0');
+    assert.deepEqual(options(active).map(([name, , checked]) => [name, checked]), [
+      ['All milestones', 'false'],
+      ['v1.2.0', 'false'],
+      ['v1.1.0', 'true'],
+      ['No milestone', 'false'],
+    ]);
+    assert.match(active, /aria-haspopup="menu"[^>]*>.*?Milestone: v1.1.0<\/span>/);
   });
 
   test('a label whose issues are all open shows the closed Blankslate', async () => {

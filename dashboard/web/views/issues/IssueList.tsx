@@ -8,6 +8,8 @@ import { RelativeTime } from '../../ui/RelativeTime.tsx';
 import { hasLabel, labelsByCount } from './label-stats.ts';
 import { LabelMenu } from './LabelMenu.tsx';
 import { IssueLabel, parseLabels } from './labels.tsx';
+import { MilestoneMenu } from './MilestoneMenu.tsx';
+import { hasMilestone, milestoneLabel } from './milestones.ts';
 
 const LabelStats = lazy(() => import('./LabelStats.tsx').then((m) => ({ default: m.LabelStats })));
 
@@ -72,9 +74,22 @@ function IssueRow({ issue }: { issue: Row }) {
   );
 }
 
-export function IssueList({ rows, state, label = null }: { rows: Row[]; state: IssueState; label?: string | null }) {
-  const shown = label ? rows.filter((r) => hasLabel(r, label)) : rows;
-  const chips: ListChip[] = label ? [{ key: 'label', label: `Label: ${label}`, clearLabel: 'Remove label filter' }] : [];
+export function IssueList({
+  rows,
+  state,
+  label = null,
+  milestone = null,
+}: {
+  rows: Row[];
+  state: IssueState;
+  label?: string | null;
+  milestone?: string | null;
+}) {
+  const shown = rows.filter((r) => (!label || hasLabel(r, label)) && (!milestone || hasMilestone(r, milestone)));
+  const chips: ListChip[] = [
+    ...(label ? [{ key: 'label', label: `Label: ${label}`, clearLabel: 'Remove label filter' }] : []),
+    ...(milestone ? [{ key: 'milestone', label: milestoneLabel(milestone), clearLabel: 'Remove milestone filter' }] : []),
+  ];
   return (
     <div className="space-y-4">
       {label && (
@@ -94,7 +109,12 @@ export function IssueList({ rows, state, label = null }: { rows: Row[]; state: I
         noun={['issue', 'issues', 'Issues']}
         emptyIcon={IssueOpenedIcon}
         searchPlaceholder="Search by objective, label or #id"
-        controls={<LabelMenu labels={labelsByCount(rows)} value={label} />}
+        controls={
+          <>
+            <LabelMenu labels={labelsByCount(rows)} value={label} />
+            <MilestoneMenu rows={rows} value={milestone} />
+          </>
+        }
       />
     </div>
   );
