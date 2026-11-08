@@ -434,11 +434,11 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
     {
       name: 'task_stats',
       description:
-        "Tokens, cost and duration of one task's swe and code-reviewer runs, with a per-spawn breakdown (usage_source, host, model, root_dir, exit_reason, hook_blocks, hook_block_tokens: summed context tokens of the turn after each hook block, null when unmeasured). tokens_total sums tokens_in, tokens_out and both cache counts. " +
-        'cost_estimate (USD) prices rows by plugin_config.model_prices[model]; rows with no priced model count as unpriced_tokens; cost_groups splits both by (host, model). ' +
-        'Also wall_clock_ms, review_fail_count, swe_spawn_count, rework_count (spawns - 1), reworks {fresh, resumed (through SendMessage)} each with count, wall_clock_ms, tool_uses, cache_read_tokens, ' +
-        'hook_blocks {denials, gate_failures (timed-out or crashed gates), by_reason} from hook_denied audit rows, hook_block_tokens (task total), and tool_output per agent_type: the top 10 tools by est_tokens (result chars / 4). ' +
-        'Pass task_id for one task, or since without task_id for {since, window {runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason, hook_block_tokens, hook_block_share (of the swe runs\' tokens_total), runs_with_cost (runs measured)}, tool_output}.',
+        "Tokens, cost and duration of one task's swe and code-reviewer runs, per spawn (usage_source, host, model, root_dir, exit_reason, hook_blocks, hook_block_tokens: context of the turn after each block, null if unmeasured). tokens_total = tokens_in + tokens_out + both caches. " +
+        'cost_estimate (USD) prices rows by plugin_config.model_prices[model]; unpriced rows count as unpriced_tokens; cost_groups splits both by (host, model). ' +
+        'Also wall_clock_ms, review_fail_count, swe_spawn_count, rework_count (spawns - 1), reworks {fresh, resumed (SendMessage)} each with count, wall_clock_ms, tool_uses, cache_read_tokens, ' +
+        'hook_blocks {denials, gate_failures (timed out/crashed), by_reason} from hook_denied audit, hook_block_tokens (task total), and tool_output per agent_type: top 10 tools by est_tokens (chars / 4). ' +
+        'task_id for one task, or since alone for {since, window {runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason, hook_block_tokens, hook_block_share (of swe tokens_total), runs_with_cost}, tool_output}.',
       inputSchema: {
         type: 'object',
         properties: {
