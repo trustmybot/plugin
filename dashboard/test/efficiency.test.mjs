@@ -7,14 +7,15 @@
 // skip (unknown repo, missing or relative path, bad or unknown SHA, no repo).
 // Check GET /api/insights/efficiency against hand-computed values, its filters
 // and 400s, that the DB file and the repo are unchanged after the requests,
-// and render the Efficiency section to static HTML.
+// that another endpoint answers while git holds a cold request, and render the
+// Efficiency section to static HTML.
 process.env.TZ = 'America/Los_Angeles';
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -131,10 +132,10 @@ function seed(shas) {
   db.close();
 }
 
-function startServer(dbPath) {
+function startServer(dbPath, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0' },
+      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -180,7 +181,7 @@ before(async () => {
         };
         export const page = (hash, data, efficiency) => withHash(hash, () =>
           renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data, error: null }, efficiency: { data: efficiency, error: null } })));
-        export { commitType, numstatPath, isGenerated, isDoc, parseNumstat, linesOf, localMonday, efficiency } from './server/efficiency.ts';
+        export { commitType, numstatPath, isGenerated, isDoc, parseNumstat, linesOf, localMonday, commitsOf, parseLog, efficiency } from './server/efficiency.ts';
         export { insightFilter } from './server/queries.ts';
         export { paramsOf, copy };`,
       resolveDir: DASH,
@@ -346,6 +347,17 @@ describe('efficiency helpers', () => {
     assert.equal(mod.localMonday('2025-03-16T23:00:00-07:00'), WEEK_B);
     assert.equal(mod.localMonday('nope'), null);
   });
+
+  test('commitsOf keeps commits by input order; parseLog splits NUL-framed commits', () => {
+    const full = 'a'.repeat(40);
+    const tree = 'b'.repeat(40);
+    const check = `${full} commit\ndeadbee missing\n${tree} tree\nabc1234 ambiguous\n`;
+    assert.deepEqual([...mod.commitsOf(['aaaaaaa', 'deadbee', tree, 'abc1234'], check)], [['aaaaaaa', full]]);
+    const log = mod.parseLog(`\0${full}\0feat: x\n\n3\t1\tsrc/a.ts\n-\t-\tb.png\n\0${tree}\0Update stuff\n`);
+    assert.deepEqual([...log.keys()], [full, tree]);
+    assert.deepEqual(log.get(full), { subject: 'feat: x', files: [{ path: 'src/a.ts', added: 3, deleted: 1 }] });
+    assert.deepEqual(log.get(tree), { subject: 'Update stuff', files: [] });
+  });
 });
 
 describe('GET /api/insights/efficiency', () => {
@@ -378,16 +390,16 @@ describe('GET /api/insights/efficiency', () => {
     assert.deepEqual([none.by_type, none.by_week, none.skipped], [[], [], 0]);
   });
 
-  test('Period: only tasks completed since the range start count', () => {
+  test('Period: only tasks completed since the range start count', async () => {
     const db = new DatabaseSync(DB_PATH, { readOnly: true });
     try {
       const filter = mod.insightFilter(new URLSearchParams('range=7d'));
-      const body = mod.efficiency(db, filter, new Date('2025-03-14T00:00:00.000Z'));
+      const body = await mod.efficiency(db, filter, new Date('2025-03-14T00:00:00.000Z'));
       assert.equal(body.range.since, '2025-03-07T00:00:00.000Z');
       assert.deepEqual(body.by_type.map((r) => [r.type, r.n, r.few]), [['feat', 2, true], ['fix', 2, true], ['docs', 3, false]]);
       assert.deepEqual(body.by_week.map((r) => [r.week, r.n, r.few]), [[WEEK_B, 3, false], [WEEK_A, 1, true]]);
       assert.equal(body.skipped, 0);
-      assert.deepEqual(mod.efficiency(db, mod.insightFilter(new URLSearchParams('range=30d'))).by_type, []);
+      assert.deepEqual((await mod.efficiency(db, mod.insightFilter(new URLSearchParams('range=30d')))).by_type, []);
     } finally {
       db.close();
     }
@@ -404,6 +416,77 @@ describe('GET /api/insights/efficiency', () => {
   test('SC5: the DB file, the repo status and HEAD are unchanged after the requests', async () => {
     await get('range=all');
     assert.deepEqual(fingerprint(), before_);
+  });
+});
+
+// A `git` shim on PATH logs each call's argv, then holds every call until the
+// release file exists, so a cold efficiency request stays pending on git.
+describe('SC6: numstat never blocks the event loop', () => {
+  const SHIM_DIR = join(tmp, 'shim');
+  const CALLS = join(tmp, 'git-calls.jsonl');
+  const STARTED = join(tmp, 'git-started');
+  const RELEASE = join(tmp, 'git-release');
+  let slow;
+
+  before(async () => {
+    mkdirSync(SHIM_DIR);
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+    writeFileSync(
+      join(SHIM_DIR, 'git'),
+      `#!${process.execPath}
+const { appendFileSync, existsSync, writeFileSync } = require('node:fs');
+const { spawn } = require('node:child_process');
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify(args) + '\\n');
+writeFileSync(${JSON.stringify(STARTED)}, '');
+const deadline = Date.now() + 10000;
+const go = () => spawn(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).on('exit', (code) => process.exit(code ?? 1));
+const wait = () => (existsSync(${JSON.stringify(RELEASE)}) || Date.now() > deadline ? go() : setTimeout(wait, 10));
+wait();
+`,
+      { mode: 0o755 },
+    );
+    slow = await startServer(DB_PATH, { PATH: `${SHIM_DIR}:${process.env.PATH}` });
+  });
+  after(() => slow?.stop());
+
+  const calls = () =>
+    readFileSync(CALLS, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
+      .map((argv) => [argv[argv.indexOf('-C') + 1], argv.find((a) => a === 'cat-file' || a === 'log')]);
+  const byRepo = (list) => Object.fromEntries([REPO, join(tmp, 'missing')].map((p) => [p, list.filter(([c]) => c === p).map(([, sub]) => sub)]));
+  const waitFor = async (path) => {
+    for (let i = 0; i < 500 && !existsSync(path); i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(existsSync(path), path);
+  };
+
+  test('efficiency.ts uses no sync child_process call', () => {
+    assert.doesNotMatch(readFileSync(join(DASH, 'server/efficiency.ts'), 'utf8'), /execFileSync|spawnSync|execSync/);
+  });
+
+  test('/api/summary answers while a cold efficiency request waits on git, which runs at most twice per repo', async () => {
+    let settled = false;
+    const pending = fetch(`${slow.url}api/insights/efficiency?range=all`).then(async (res) => {
+      settled = true;
+      return { status: res.status, body: await res.json() };
+    });
+    await waitFor(STARTED);
+    const summary = await fetch(`${slow.url}api/summary`);
+    assert.equal(summary.status, 200);
+    await summary.json();
+    assert.equal(settled, false);
+    writeFileSync(RELEASE, '');
+    const { status, body } = await pending;
+    assert.equal(status, 200);
+    assertGroup(row(body.by_type, 'type', 'feat'), FEAT);
+    assert.equal(body.skipped, SKIPPED);
+    assert.deepEqual(byRepo(calls()), { [REPO]: ['cat-file', 'log'], [join(tmp, 'missing')]: ['cat-file'] });
+    const cold = calls().length;
+    const warm = await (await fetch(`${slow.url}api/insights/efficiency?range=all`)).json();
+    assertGroup(row(warm.by_type, 'type', 'feat'), FEAT);
+    assert.ok(!calls().slice(cold).some(([, sub]) => sub === 'log'));
   });
 });
 

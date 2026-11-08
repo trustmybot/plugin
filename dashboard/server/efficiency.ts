@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { nearestRank, sinceOf, type InsightFilter } from './queries.ts';
@@ -79,27 +79,93 @@ export function linesOf(stat: Numstat, type: TaskType): number {
     .reduce((s, f) => s + f.added + f.deleted, 0);
 }
 
-const numstats = new Map<string, Numstat>();
-
-function numstatOf(repo: string, path: string, sha: string): Numstat | null {
-  const key = `${repo}:${sha}`;
-  const cached = numstats.get(key);
-  if (cached) return cached;
-  let out: string;
-  try {
-    out = execFileSync('git', ['-C', path, '-c', 'core.quotePath=false', 'show', '--no-color', '--numstat', '--format=%s', sha], {
-      encoding: 'utf8',
+// One `git` run with `input` on stdin, argv only and never a shell; rejects on
+// a spawn error, a non-zero exit, a timeout or output over GIT_MAX_BUFFER.
+function gitRun(path: string, args: readonly string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', path, '-c', 'core.quotePath=false', ...args], {
       env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['pipe', 'pipe', 'ignore'],
       timeout: GIT_TIMEOUT_MS,
-      maxBuffer: GIT_MAX_BUFFER,
     });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    child.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > GIT_MAX_BUFFER) child.kill();
+      else chunks.push(chunk);
+    });
+    child.stdin.on('error', () => {});
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0 && size <= GIT_MAX_BUFFER) resolve(Buffer.concat(chunks).toString('utf8'));
+      else reject(new Error(`git ${args[0]} exited ${code}`));
+    });
+    child.stdin.end(input);
+  });
+}
+
+// The full commit SHA of each input SHA that names a commit; missing,
+// ambiguous and non-commit objects are dropped.
+export function commitsOf(shas: readonly string[], batchCheck: string): Map<string, string> {
+  const lines = batchCheck.split('\n');
+  const full = new Map<string, string>();
+  shas.forEach((sha, i) => {
+    const [name, type] = (lines[i] ?? '').split(' ');
+    if (type === 'commit' && name !== undefined && SHA.test(name)) full.set(sha, name);
+  });
+  return full;
+}
+
+// `git log --format=%x00%H%x00%s --numstat` output, keyed by full SHA.
+export function parseLog(out: string): Map<string, Numstat> {
+  const parts = out.split('\0');
+  const stats = new Map<string, Numstat>();
+  for (let i = 1; i + 1 < parts.length; i += 2) stats.set(parts[i]!, parseNumstat(parts[i + 1]!));
+  return stats;
+}
+
+const numstats = new Map<string, Numstat>();
+const cacheKey = (repo: string, sha: string) => `${repo}:${sha}`;
+
+// Fills `numstats` for one repo's uncached SHAs with at most two git runs:
+// `cat-file --batch-check` to drop SHAs that are not commits, then one
+// `log --no-walk=unsorted --stdin --numstat` over the rest. A git failure
+// leaves them uncached, so their tasks are skipped.
+async function loadRepo(repo: string, path: string, shas: readonly string[]): Promise<void> {
+  try {
+    const full = commitsOf(shas, await gitRun(path, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], shas.map((s) => `${s}\n`).join('')));
+    if (full.size === 0) return;
+    const commits = [...new Set(full.values())];
+    const log = parseLog(await gitRun(path, ['log', '--no-color', '--no-walk=unsorted', '--stdin', '--numstat', '--format=%x00%H%x00%s'], commits.map((c) => `${c}\n`).join('')));
+    for (const [sha, name] of full) {
+      const stat = log.get(name);
+      if (stat) numstats.set(cacheKey(repo, sha), stat);
+    }
   } catch {
-    return null;
+    return;
   }
-  const stat = parseNumstat(out);
-  numstats.set(key, stat);
-  return stat;
+}
+
+interface Target {
+  repo: string;
+  path: string;
+  sha: string;
+}
+
+const targetOf = (r: TaskRow): Target | null =>
+  SHA.test(r.commit_sha) && r.repo !== null && r.repo_path !== null && isAbsolute(r.repo_path) ? { repo: r.repo, path: r.repo_path, sha: r.commit_sha } : null;
+
+async function loadNumstats(rows: readonly TaskRow[]): Promise<void> {
+  const pending = new Map<string, { path: string; shas: Set<string> }>();
+  for (const r of rows) {
+    const t = targetOf(r);
+    if (t === null || numstats.has(cacheKey(t.repo, t.sha))) continue;
+    const entry = pending.get(t.repo) ?? { path: t.path, shas: new Set<string>() };
+    entry.shas.add(t.sha);
+    pending.set(t.repo, entry);
+  }
+  await Promise.all([...pending].map(([repo, { path, shas }]) => loadRepo(repo, path, [...shas])));
 }
 
 interface TaskRow {
@@ -224,9 +290,9 @@ function taskRows(db: DatabaseSync, f: InsightFilter, since: string | null): Tas
 
 function factsOf(r: TaskRow): TaskFacts | null {
   const week = localMonday(r.completed_at);
-  if (!SHA.test(r.commit_sha) || r.repo === null || r.repo_path === null || !isAbsolute(r.repo_path) || week === null) return null;
-  const stat = numstatOf(r.repo, r.repo_path, r.commit_sha);
-  if (stat === null) return null;
+  const t = targetOf(r);
+  const stat = t === null ? undefined : numstats.get(cacheKey(t.repo, t.sha));
+  if (week === null || stat === undefined) return null;
   const type = commitType(stat.subject);
   const context = r.tokens_in + r.cache_read + r.cache_creation;
   return {
@@ -244,12 +310,15 @@ function factsOf(r: TaskRow): TaskFacts | null {
 
 // GET /api/insights/efficiency: tokens per changed line of closed tasks by
 // commit type and by local ISO week (code types only). Read-only: git runs
-// `show --numstat` through execFile, never a shell.
-export function efficiency(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Row {
+// asynchronously through spawn with argv, never a shell, at most twice per
+// repo with uncached SHAs.
+export async function efficiency(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Promise<Row> {
   const since = sinceOf(f.range, now);
+  const rows = taskRows(db, f, since);
+  await loadNumstats(rows);
   const facts: TaskFacts[] = [];
   let skipped = 0;
-  for (const r of taskRows(db, f, since)) {
+  for (const r of rows) {
     const t = factsOf(r);
     if (t === null) skipped += 1;
     else facts.push(t);
