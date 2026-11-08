@@ -120,3 +120,19 @@ describe('GH 1723: a proven program writing through a name has only that name as
     assert.ok(out.includes('/w/docs/a.md') && out.includes('/h/.jobduck'), JSON.stringify(out));
   });
 });
+
+describe('GH 2463: a call inside an f-string interpolation leaves a python program unproven', () => {
+  const run = (program: string): Promise<string[]> =>
+    writePaths(`python3 - <<'EOF'\n${program}\nEOF`, { cwd: '/w', root: '/w', env: { HOME: '/h' } });
+
+  for (const [label, program] of [
+    ['a standalone f-string (F533-2)', `p='a'\nopen(p,'w')\nx=f'{open("/etc/q","w")}'`],
+    ['an f-string as re.sub repl (F533-2)', `import re\np='a'\nre.sub('a', f'{open("/etc/q","w")}', 'c')\nopen(p,'w')`],
+    ['a call in a format spec', `p='a'\nopen(p,'w')\nx=f'{p:>{len(open("/etc/q","w").name)}}'`],
+  ]) {
+    it(`GH 2463 ${label} is not judged inside the worktree`, async () => {
+      const out = await run(program);
+      assert.ok(out.some((l) => l.startsWith('UNRESOLVED:$(unproven):')), JSON.stringify(out));
+    });
+  }
+});

@@ -502,6 +502,9 @@ class PyProof extends Proof {
         return this.attribute(node);
       case 'call':
         return this.call(node);
+      case 'interpolation':
+        if (node.descendantsOfType('call').length > 0) return this.fail();
+        break;
       case 'keyword_argument': {
         const value = field(node, 'value');
         if (value) this.visit(value);
