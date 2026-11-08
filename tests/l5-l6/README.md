@@ -16,7 +16,7 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`run-l6-chain.sh`](./run-l6-chain.sh) | Multi-turn chain runner — walks the manifest rows against one cumulative trajectory DB |
 | [`rows/`](./rows/) | The canonical row tree, organized into family folders `<NN>/` that hold the primary step `<NN>-<name>/` plus its edge cases `<NN>.<MM>-<name>/` (standalone `23-bulk-cleanup/` stays flat). Each leaf row dir holds `prompt.txt`, `script.json`, `fixture.txt`, `setup-l5.sh`, `outcome.sql`, `tools-required.json`, `tools-forbidden.json`, `cost-budget.json`, and optional outcome bundles |
 | [`l6-chain/`](./l6-chain/) | Chain configuration — `chain-manifest.json` (ordered steps) + `seeds/` (between-row SQL bridges). See its [`README.md`](./l6-chain/README.md) |
-| [`lib/`](./lib/) | Shared shell helpers — flow/chain helpers, scorers, sandbox, stubs, timeout shim |
+| [`lib/`](./lib/) | Shared helpers — flow/chain shell helpers, the TypeScript scorers ([`scorers.ts`](./lib/scorers.ts), tested by [`scorers.test.ts`](./lib/scorers.test.ts)), sandbox, stubs, timeout shim |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
 | [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
 

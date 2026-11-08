@@ -305,7 +305,8 @@ tests/l5-l6/
 ├── lib/
 │   ├── flow-helpers.sh       # row-level setup + run + score helpers
 │   ├── l6-chain-helpers.sh   # l6c_run_step, l6c_score_step, l6c_snapshot_db, etc.
-│   ├── scorers.sh            # outcome / coherence / git / trajectory / cost scorer impls
+│   ├── scorers.ts            # the ten scorers (outcome / trajectory / cost / files / coherence / git / usage / materialized / no_sandbox); `score-all` CLI
+│   ├── scorers.test.ts       # node:test suite for scorers.ts
 │   ├── smoke-helpers.sh      # pre-flight substrate health (MCP spawn + auth + plugin-load)
 │   └── timeout-shim.sh       # cross-platform timeout wrapper
 ├── rows/<NN>/<row-name>/     # canonical row layout in family folders (used by both L5 + L6)
@@ -390,7 +391,7 @@ A row passes when every scorer it ships passes. Missing optional scorers are ski
 |---|---|---|
 | New standalone L5 row | `tests/l5-l6/rows/<NN>/<NN>.<MM>-<name>/` (under its family folder) | scaffold per canonical layout; chain manifest unchanged |
 | New L6 chain step | `tests/l5-l6/rows/<NN>/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir under its family folder; append entry to manifest with `step`, `id`, `row_dir` (`rows/<NN>/<NN>-<name>`), `seed_before`/`seed_after` |
-| New scorer type | `tests/l5-l6/lib/scorers.sh` | add `score_<name>`; register in `l5_score_flow` / `l6c_score_step` |
+| New scorer type | `tests/l5-l6/lib/scorers.ts` | add a `score<Name>` scorer and its cases in `scorers.test.ts`; register it in `SCORERS`, which `score-all` (called by `l5_score_flow` / `l6c_score_step`) runs in order |
 
 When you add or modify a chain step, update the **Per-step I/O table** above so the Input/Output/Carried-from columns stay accurate — those columns are the contract the next-row author reads to know what their step inherits.
 

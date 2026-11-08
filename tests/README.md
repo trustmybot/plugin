@@ -66,7 +66,7 @@ tests/
 ├── lib/                        ← shared shell-assert helpers
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
-    ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
+    ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers.ts (+ scorers.test.ts), smoke-helpers, timeout-shim
     ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
