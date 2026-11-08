@@ -99,7 +99,7 @@ function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; b
   const limit = rawLimit === null ? CHANGE_IMPACT_LIMIT : Math.min(Number(rawLimit), CHANGE_IMPACT_MAX_LIMIT);
   const reader = statsReader(db);
   try {
-    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id } }) };
+    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id }, series: true }) };
     return { status: 200, body: computeChangeImpact(reader, undefined, { ...(source === null ? {} : { source: source as ChangeSource }), limit }) };
   } catch (err) {
     if (err instanceof Error && UNKNOWN_CHANGE.test(err.message)) return { status: 404, body: { error: err.message } };
