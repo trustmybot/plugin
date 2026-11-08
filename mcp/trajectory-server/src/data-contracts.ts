@@ -232,7 +232,7 @@ const UNCOVERED_HOT_AREAS = `(SELECT d.repo AS repo, ${areaOf('d.path')} AS area
              WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k JOIN wm_concept_steps p ON p.concept_id = k.id
                                 WHERE k.status = 'verified' AND p.repo = h.repo AND ${areaOf('p.path')} = h.area)`;
 
-const UNCONCEPTUALIZED_REPOS =`(SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= ${CONCEPTS_MIN_SYMBOLS}) s
+const UNCONCEPTUALIZED_REPOS = `(SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= ${CONCEPTS_MIN_SYMBOLS}) s
              WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired')`;
 
 // The plugin / MCP-server names the scan fixtures in src/test/ register.

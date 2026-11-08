@@ -101,6 +101,8 @@ jobs:
           node-version: '22'
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Cache HuggingFace ONNX model
         uses: actions/cache@v5
@@ -198,6 +200,8 @@ jobs:
           node-version: '22'
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install deps
         run: |
