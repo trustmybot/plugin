@@ -47,7 +47,7 @@ import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js'
 import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 14;
+export const EXTRACTOR_VERSION = 15;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
