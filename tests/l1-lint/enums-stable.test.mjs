@@ -16,21 +16,21 @@
 // scripts/hooks/lib/audit-events.txt are the enum's own source and are skipped
 // so a documented event must be written or read somewhere else.
 //
-// Literal extraction is enums-stable-extract.pl. Run as the entry point it
+// Literal extraction is enums-stable-extract.mjs. Run as the entry point it
 // self-tests fixtures/enums-stable/, then checks process.argv[2] (default: this
 // repo). enumsStable(root) checks another tree and returns its failure lines.
 
 import { strict as assert } from 'node:assert';
-import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { extract } from './enums-stable-extract.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
-const EXTRACT = join(HERE, 'enums-stable-extract.pl');
 const FIXTURES = join(HERE, 'fixtures/enums-stable');
 
 const SECTIONS = [
@@ -100,11 +100,8 @@ function codeFiles(root) {
   return files.sort();
 }
 
-function extract(section, schema, files) {
-  const r = spawnSync('perl', [EXTRACT, section, schema, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (r.error) throw r.error;
-  return (r.stdout ?? '')
-    .split('\n')
+function foundLiterals(section, schema, files) {
+  return extract(section, schema, files)
     .map((line) => {
       const tab = line.indexOf('\t');
       return tab === -1 ? { value: line, file: '' } : { value: line.slice(0, tab), file: line.slice(tab + 1) };
@@ -143,7 +140,7 @@ export function enumsStable(root) {
       continue;
     }
     const documentedSet = new Set(documented);
-    const found = extract(section, schema, files);
+    const found = foundLiterals(section, schema, files);
 
     for (const { value, file } of found) {
       if (section === 'audit.from_node' && value.startsWith('hook:')) {

@@ -1172,9 +1172,9 @@ describe('Perl subs and constants (GH 2284)', () => {
     assert.equal(needsParser('perl'), false);
   });
 
-  it('indexing tests/l1-lint/enums-stable-extract.pl yields its named subs', () => {
-    const src = readFileSync(join(WORKTREE, 'tests/l1-lint/enums-stable-extract.pl'), 'utf8');
-    const subs = extractFile(null, 'tests/l1-lint/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
+  it('indexing the fixture copy of enums-stable-extract.pl yields its named subs', () => {
+    const src = readFileSync(join(WORKTREE, 'mcp/trajectory-server/src/test/fixtures/perl/enums-stable-extract.pl'), 'utf8');
+    const subs = extractFile(null, 'mcp/trajectory-server/src/test/fixtures/perl/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
     assert.deepEqual(subs.map((s) => s.qualified_name), ['slurp', 'lits', 'strip_js_comments', 'const_value', 'emit']);
     const line = (n: string) => subs.find((s) => s.qualified_name === n)!;
     const at = (n: string) => src.split('\n').findIndex((l) => l.startsWith(`sub ${n} `)) + 1;
@@ -1228,10 +1228,10 @@ describe('a Perl sub ends on the line of its own closing brace (GH 2302)', () =>
 
   it('a brace inside a same-line [...] such as a regex class [^}] does not end the sub', () => {
     assert.deepEqual(spans(['sub cls {', '  while ($c =~ /\\{([^}]*)\\}/g) {', '    1;', '  }', '}']), [['cls', 1, 5]]);
-    const src = readFileSync(join(WORKTREE, 'tests/l1-lint/enums-stable-extract.pl'), 'utf8');
+    const src = readFileSync(join(WORKTREE, 'mcp/trajectory-server/src/test/fixtures/perl/enums-stable-extract.pl'), 'utf8');
     const at = (n: string) => src.split('\n').findIndex((l) => l.startsWith(`sub ${n} `)) + 1;
     const close = (n: string) => src.split('\n').findIndex((l, i) => i >= at(n) && l === '}') + 1;
-    const real = extractFile(null, 'tests/l1-lint/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
+    const real = extractFile(null, 'mcp/trajectory-server/src/test/fixtures/perl/enums-stable-extract.pl', 'perl', src).symbols.filter((s) => s.kind === 'function');
     for (const n of ['slurp', 'strip_js_comments', 'const_value']) {
       assert.equal(real.find((s) => s.qualified_name === n)!.end_line, close(n), n);
     }
