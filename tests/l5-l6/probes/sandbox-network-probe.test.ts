@@ -111,7 +111,13 @@ test('parseDotEnv reads values the way sourcing the file does', () => {
       'G=',
       '# H=commented',
       'I=  spaced  ',
+      'J=#x',
+      'K= #x',
     ].join('\n'),
   );
-  assert.deepEqual(env, { A: 'plain', B: 'exported', C: 'token', D: 'quoted # kept', E: 'single', F: 'a#b', G: '', I: 'spaced' });
+  assert.deepEqual(env, { A: 'plain', B: 'exported', C: 'token', D: 'quoted # kept', E: 'single', F: 'a#b', G: '', I: 'spaced', J: '#x', K: '' });
+});
+
+test('parseDotEnv reads CRLF lines', () => {
+  assert.deepEqual(parseDotEnv('A=one\r\nB="two"\r\n'), { A: 'one', B: 'two' });
 });
