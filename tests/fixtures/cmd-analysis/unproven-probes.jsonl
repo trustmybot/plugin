@@ -204,3 +204,45 @@
 {"src":"gh2481","cmd":"node -e 'let t=[];t=t.concat([1]);console.log(t)'","expect":"empty"}
 {"src":"gh2481","cmd":"python3 -c \"import os;x0=os.environ or {};x1=x0 or x0;x2=x1 or x1;x3=x2 or x2;x4=x3 or x3;x5=x4 or x4;x6=x5 or x5;x7=x6 or x6;x8=x7 or x7;x9=x8 or x8;x10=x9 or x9;x11=x10 or x10;x12=x11 or x11;x13=x12 or x12;x14=x13 or x13;x15=x14 or x14;x16=x15 or x15;x17=x16 or x16;x18=x17 or x17;x19=x18 or x18;x20=x19 or x19;x21=x20 or x20;x22=x21 or x21;x23=x22 or x22;x24=x23 or x23;x25=x24 or x24;x26=x25 or x25;x27=x26 or x26;x28=x27 or x27;x29=x28 or x28;x30=x29 or x29;x31=x30 or x30;x32=x31 or x31;x33=x32 or x32;x34=x33 or x33;x35=x34 or x34;x36=x35 or x35;x37=x36 or x36;x38=x37 or x37;x39=x38 or x38;x40=x39 or x39;x40['A']=1\"","expect":"fail_closed"}
 {"src":"gh2481","cmd":"node -e 'let x0={};let x1=x0||x0;let x2=x1||x1;let x3=x2||x2;let x4=x3||x3;let x5=x4||x4;let x6=x5||x5;let x7=x6||x6;let x8=x7||x7;let x9=x8||x8;let x10=x9||x9;let x11=x10||x10;let x12=x11||x11;let x13=x12||x12;let x14=x13||x13;let x15=x14||x14;let x16=x15||x15;let x17=x16||x16;let x18=x17||x17;let x19=x18||x18;let x20=x19||x19;let x21=x20||x20;let x22=x21||x21;let x23=x22||x22;let x24=x23||x23;let x25=x24||x24;let x26=x25||x25;let x27=x26||x26;let x28=x27||x27;let x29=x28||x28;let x30=x29||x29;let x31=x30||x30;let x32=x31||x31;let x33=x32||x32;let x34=x33||x33;let x35=x34||x34;let x36=x35||x35;let x37=x36||x36;let x38=x37||x37;let x39=x38||x38;let x40=x39||x39;x0=x40;x40.a=1;console.log(x0)'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;e=[os.environ][0];e['HOME']='/etc'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;e,f=os.environ,1;e['HOME']='/etc'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os\ndef f(x): x['A']='1'\nf(os.environ)\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os\nfor e in [os.environ]: e['A']='1'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;a=[];a.append(os.environ);a[0]['A']='1'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"from os import environ\ndef f(x): x['A']='1'\nf(environ)\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;e=os.environ;g=lambda: e;g()['A']='1'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;(os.environ).update(HOME='/etc')\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;(os.environ or {}).pop('HOME')\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os,json\ndef f(o): o['HOME']='/etc'\njson.dumps(os.environ, default=f)\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os,json\ndef f(o): o['HOME']='/etc'\njson.dumps(obj=os.environ, default=f)\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;d=dict(e=os.environ);x=d['e'];x['HOME']='/etc'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;d={};d['k']=x=os.environ;d['k']['A']='1'\"","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const e=[process.env][0];e.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const [e]=[process.env];e.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e '[process.env].forEach(e=>e.HOME=\"/etc\")'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'function f(x){x.HOME=\"/etc\"};f(process.env)'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const o={e:process.env};o.e.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'for(const e of [process.env]) e.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const a=Array.of(process.env);a[0].HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const e=process.env;const o={e};o.e.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const g=this;g.process.env.HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e '(process.argv).push(\"x\")'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'JSON.stringify(process.env,(k,v)=>{v.HOME=\"/etc\";return v})'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"node -e 'const f=()=>process.env;f().HOME=\"/etc\"'","expect":"fail_closed"}
+{"src":"gh2490","cmd":"python3 -c \"import os;print(os.environ)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import os,json;print(json.dumps(dict(os.environ)))\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import sys;x=1;print(x, file=sys.stderr)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import sys\nfor a in sys.argv[1:]: print(a)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import os\nfor k in os.environ: print(k)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import os;print('HOME' in os.environ)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import sys;print(*sys.argv, sep=' ')\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import os;print({**os.environ})\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"import json,sys;json.dump({}, sys.stdout, default=str)\"","expect":"empty"}
+{"src":"gh2490","cmd":"python3 -c \"def f(x): x['A']=1\nf({})\"","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'console.log(process.env)'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'console.log(JSON.stringify(process.env))'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'console.log(Object.keys(process.env))'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'const c={...process.env};console.log(c)'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'for(const a of process.argv) console.log(a)'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e '[{}].forEach(o=>o.a=1)'","expect":"empty"}
+{"src":"gh2490","cmd":"node -e 'const e=process.env;console.log(e, \"HOME\" in e)'","expect":"empty"}
