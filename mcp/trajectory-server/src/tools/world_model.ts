@@ -1122,10 +1122,10 @@ export function worldModelTools(
     {
       name: 'world_model_get',
       description:
-        "The world model as a directory tree, the primary map for code-touching cold starts. Each node has a README summary (summary_source='readme', with trust 'current' | 'drifting(n)' | 'dead_refs(k)', summary_sha, commits_behind, dead_refs) or a structural one, first line only below the root. " +
-        'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work lists closed-task branch tips not merged into the target branch. ' +
-        'checkout_behind_upstream counts the commits the indexed checkout trails origin/<target> as of the last fetch, so missing files or shifted lines may be checkout lag; absent when current. ' +
-        'last_scan {at, source, ok, errors} reports the newest scan_run, errors listing each {stage, repo, error} that failed (ok is false when any did); null before the first scan.',
+        "The world model as a directory tree, the map for code-touching cold starts. Each node has a README summary (summary_source='readme', trust current|drifting(n)|dead_refs(k), summary_sha, commits_behind, dead_refs) or a structural one, first line only below root. " +
+        'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
+        'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
+        'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1216,9 +1216,9 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by, up to 50 refs each, with full-count totals. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
-        "note flags by-name resolution, so lists may be incomplete. symbol.stale: file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated). " +
-        "index_error carries the message when the newest scan's symbol index failed for the symbol's repo, so its lists may be out of date; absent otherwise.",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
+        "note: by-name resolution, lists may be incomplete. symbol.stale: file changed since indexing (rescan). impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
+        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag).",
       inputSchema: {
         type: 'object',
         properties: {

@@ -833,9 +833,9 @@ export function scanTools(
     {
       name: 'scan_run',
       description:
-        "Deterministic project scan: discovers git repos under session_dir, enumerates tracked files (.gitignore-aware) and writes directory + file rows to the world model, dir summaries from README.md (summary_source='readme') or structural. Emits a deep_scan_completed audit row. " +
-        `errors (always an array, at most ${SCAN_ERRORS_MAX}) lists each per-repo stage that threw as {stage, repo, error}, stage one of symbol_index, symbol_purpose, concept_refresh, concept_proposals, milestone_sync; the audit row carries it too. ` +
-        'A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array) lists repos whose remotes have no sync row while issue_sync is on (no_sync_remote). Hard timeout 10 minutes.',
+        "Deterministic scan of git repos under session_dir: writes tracked files (.gitignore-aware) and dirs to the world model, dir summaries from README.md (summary_source='readme') or structural, and a deep_scan_completed audit row. " +
+        `errors[] (max ${SCAN_ERRORS_MAX}, also in that row): {stage, repo, error} per repo stage that threw. ` +
+        'A renamed repo goes to rename_candidates (for repo_rename), not a new row. warnings[]: no_sync_remote per repo whose remotes lack a sync row while issue_sync is on. 10-min hard timeout.',
       inputSchema: {
         type: 'object',
         properties: {
