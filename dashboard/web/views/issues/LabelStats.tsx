@@ -16,6 +16,8 @@ const slug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').
 
 const issues = (n: number) => `${n} ${n === 1 ? 'issue' : 'issues'}`;
 
+const mergedPrs = (n: number) => `${n} merged ${n === 1 ? 'PR' : 'PRs'}`;
+
 export function statusTable({ open, closed }: Pick<LabelStatsData, 'open' | 'closed'>): TableData {
   const total = open + closed;
   return {
@@ -47,6 +49,7 @@ export function LabelStats({ rows, label }: { rows: Row[]; label: string }) {
     return { key: c.label, label: c.label, value: c.open + c.closed, color: CO_LABEL, note, aria: `${c.label}: ${note}`, tip: `${c.label}: ${note}` };
   });
   const few = `fewer than ${MIN_CLOSED} closed`;
+  const prHint = s.prMedianHours === null ? `${mergedPrs(s.mergedPrCount)}, fewer than ${MIN_CLOSED}` : mergedPrs(s.mergedPrCount);
   return (
     <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="rounded-md border border-(--borderColor-default)" data-label-stats="">
       <summary className="cursor-pointer px-4 py-2 text-sm font-semibold text-fg focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color)">
@@ -84,7 +87,7 @@ export function LabelStats({ rows, label }: { rows: Row[]; label: string }) {
         </ChartCard>
         <ChartCard
           title="Time to Close"
-          subtitle="Hours from opened to closed"
+          subtitle="Hours from opened to closed or merged"
           section="issues-close-time"
           range={range}
           table={{
@@ -93,6 +96,9 @@ export function LabelStats({ rows, label }: { rows: Row[]; label: string }) {
               ['Median', formatHours(s.medianHours)],
               ['Mean', formatHours(s.meanHours)],
               ['Closed', s.closedCount],
+              ['PR merge median', formatHours(s.prMedianHours)],
+              ['PR merge mean', formatHours(s.prMeanHours)],
+              ['Merged PRs', s.mergedPrCount],
             ],
           }}
         >
@@ -100,6 +106,8 @@ export function LabelStats({ rows, label }: { rows: Row[]; label: string }) {
             <Tile term="Median" value={formatHours(s.medianHours)} hint={s.medianHours === null ? few : undefined} primary />
             <Tile term="Mean" value={formatHours(s.meanHours)} hint={s.meanHours === null ? few : 'Skewed by outliers'} />
             <Tile term="Closed" value={String(s.closedCount)} />
+            <Tile term="PR merge median" value={formatHours(s.prMedianHours)} hint={prHint} />
+            <Tile term="PR merge mean" value={formatHours(s.prMeanHours)} hint={prHint} />
           </dl>
         </ChartCard>
       </div>

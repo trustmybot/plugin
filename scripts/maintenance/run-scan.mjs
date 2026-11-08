@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Standalone scan invoker. Used by post-task-close-rescan.sh hook to
-// re-run /scan against the current commit after bro_atomic_close.
+// Standalone scan invoker. The trajectory server's connect-time catch-up
+// (startup-catchup.ts) spawns it to re-run /scan against the current commit.
 //
 // Reads the same scan_run logic as the MCP tool, so pruning / summary
 // preservation behave identically. The DB is checked before any tool module
@@ -19,7 +19,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const TAG = '[post-close-rescan]';
+const TAG = '[run-scan]';
 
 function fail(code, message) {
   console.error(`${TAG} ${message}`);

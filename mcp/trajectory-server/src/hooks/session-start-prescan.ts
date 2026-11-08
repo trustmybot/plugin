@@ -3,14 +3,13 @@
  * stacks, world model state, trajectory DB contracts, git state, open
  * issues, pending tasks, last commits) as additionalContext, plus the cold
  * world model, version skew, duplicate install and leftover user-hook notes.
- * A cold world model with tracked source files starts the deterministic
- * initial scan in the background unless TMB_SKIP_AUTO_PRESCAN=1. Without jq
- * it prints only the Tooling line; any failure exits 0 silently.
+ * It never starts a scan: on a cold world model with tracked source files the
+ * note points at the trajectory server's startup catch-up. Without jq it
+ * prints only the Tooling line; any failure exits 0 silently.
  *
  * Divergence: the .sh exits 0 silently without the sqlite3 CLI; this gate
  * reads the DB through node:sqlite.
  */
-import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
@@ -385,24 +384,7 @@ function doctorState(root: string, db: string, env: NodeJS.ProcessEnv): string {
   return 'healthy';
 }
 
-function startInitialScan(invoker: string, db: string, env: NodeJS.ProcessEnv): void {
-  const child = spawn('node', ['--experimental-sqlite', invoker], {
-    env: { ...env, TRAJECTORY_DB_PATH: db },
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.on('error', () => undefined);
-  child.unref();
-}
-
-function coldNote(root: string, db: string, env: NodeJS.ProcessEnv): string {
-  const invoker = `${root}/scripts/hooks/../maintenance/run-scan-initial.mjs`;
-  if ((env.TMB_SKIP_AUTO_PRESCAN ?? '0') !== '1' && isFile(`${root}/mcp/trajectory-server/dist/run-scan.js`) && isFile(invoker) && commandOnPath('node', env)) {
-    startInitialScan(invoker, db, env);
-    return 'world model was cold — a deterministic scan is running in the background; re-read world_model_get before planning';
-  }
-  return 'world model is cold — run /scan before planning so world_model_get has a project map';
-}
+export const COLD_NOTE = "world model is cold — the trajectory server's startup catch-up scan builds the index; re-read world_model_get before planning";
 
 function pluginRoot(): string {
   return installRoot(posixDirname(fileURLToPath(import.meta.url))) ?? '';
@@ -460,7 +442,7 @@ export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: strin
     env,
   );
   const worldModel = worldModelLine(wmDirs, sourceFiles, scanRow);
-  const cold = wmDirs === '0' && sourceFiles !== 0 ? coldNote(root, db, env) : '';
+  const cold = wmDirs === '0' && sourceFiles !== 0 ? COLD_NOTE : '';
   const doctor = doctorState(root, db, env);
 
   let suffix = cold === '' ? '' : `\n${cold}`;

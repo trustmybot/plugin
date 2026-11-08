@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 60, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 61, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -552,6 +552,32 @@ CREATE TABLE IF NOT EXISTS pr_review_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
+
+-- GitHub PRs read by issue_reconcile_remote (syncRemotePrs, GH 2513), one row
+-- per (repo, number); repo is the local repos.name, as issues.repo. The sync is
+-- read-only toward the remote. merged_at is NULL unless state = 'merged'.
+-- pr_closes holds each PR's same-repo closingIssuesReferences, replaced whole
+-- on every sync of that PR; the dashboard joins it to issues.gh_iid for
+-- open-to-merge time per label.
+CREATE TABLE IF NOT EXISTS prs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo        TEXT    NOT NULL,
+  number      INTEGER NOT NULL CHECK (number > 0),
+  state       TEXT    NOT NULL CHECK (state IN ('open','closed','merged')),
+  created_at  DATETIME NOT NULL,
+  merged_at   DATETIME,
+  updated_at  DATETIME NOT NULL,
+  synced_at   DATETIME NOT NULL,
+  UNIQUE (repo, number)
+);
+
+CREATE TABLE IF NOT EXISTS pr_closes (
+  pr_id         INTEGER NOT NULL REFERENCES prs(id) ON DELETE CASCADE,
+  issue_number  INTEGER NOT NULL CHECK (issue_number > 0),
+  PRIMARY KEY (pr_id, issue_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pr_closes_issue ON pr_closes(issue_number);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
 -- content= tables shadow the source table so SQLite keeps them in sync

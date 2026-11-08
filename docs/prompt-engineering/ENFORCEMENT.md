@@ -35,7 +35,6 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `mcp/trajectory-server/src/hooks/branch-up-to-date-with-remote.ts` |
 | Worktree cleanup on task close | 2 | `mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts` |
 | `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
-| World model auto-refresh after `bro_atomic_close` | 4 | `mcp/trajectory-server/src/hooks/post-task-close-rescan.ts` PostToolUse on `bro_atomic_close` backgrounds a fresh `scan_run` |
 | MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
 | `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
 | `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
