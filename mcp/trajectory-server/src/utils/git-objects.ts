@@ -90,7 +90,11 @@ export function lastCommitByPath(repoPath: string, range: string): Map<string, s
   return byPath;
 }
 
+// A regular file's content at `commit`; null for a symlink (its blob is the
+// link target, not file content), a missing path or a git failure.
 export function readBlobSync(repoPath: string, commit: string, relPath: string): string | null {
+  const entry = out(repoPath, ['ls-tree', '-z', commit, '--', relPath]);
+  if (!entry || !/^100[0-7]{3} blob /.test(entry)) return null;
   return out(repoPath, ['cat-file', 'blob', `${commit}:${relPath}`]);
 }
 
@@ -129,14 +133,32 @@ export class BlobReader {
     });
     child.on('error', () => this.fail());
     child.on('close', () => this.fail());
+    this.hold(false);
+  }
+
+  // The child keeps the event loop alive only while a read waits on it, so a
+  // reader nobody closed never holds its process open.
+  private hold(on: boolean): void {
+    const c = this.child;
+    if (!c) return;
+    for (const h of [c, c.stdin, c.stdout] as Array<{ ref?: () => void; unref?: () => void }>) {
+      if (on) h.ref?.();
+      else h.unref?.();
+    }
   }
 
   read(objectName: string): Promise<Buffer | null> {
     if (this.closed || !this.child || /[\n\r]/.test(objectName)) return Promise.resolve(null);
     return new Promise((resolvePromise) => {
+      if (this.queue.length === 0) this.hold(true);
       this.queue.push({ resolve: resolvePromise });
       this.child!.stdin.write(`${objectName}\n`);
     });
+  }
+
+  private settle(content: Buffer | null): void {
+    this.queue.shift()!.resolve(content);
+    if (this.queue.length === 0) this.hold(false);
   }
 
   async readText(objectName: string): Promise<string | null> {
@@ -157,6 +179,7 @@ export class BlobReader {
   private fail(): void {
     this.closed = true;
     for (const p of this.queue.splice(0)) p.resolve(null);
+    this.hold(false);
   }
 
   private drain(): void {
@@ -169,7 +192,7 @@ export class BlobReader {
       const fields = header.split(' ');
       if (fields.length !== 3) {
         this.consume(buf, nl + 1);
-        this.queue.shift()!.resolve(null);
+        this.settle(null);
         continue;
       }
       const size = Number.parseInt(fields[2]!, 10);
@@ -177,7 +200,7 @@ export class BlobReader {
       if (buf.length < end + 1) return;
       const content = Buffer.from(buf.subarray(nl + 1, end));
       this.consume(buf, end + 1);
-      this.queue.shift()!.resolve(content);
+      this.settle(content);
     }
   }
 

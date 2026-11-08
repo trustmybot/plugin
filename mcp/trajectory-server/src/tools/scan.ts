@@ -711,10 +711,12 @@ async function persistScan(
         repos_stale_kept.push({ name: r.name, path: r.path, reason: 'task_referenced' });
         continue;
       }
-      // Milestones no issue references (e.g. a scan-seeded one) go with the
-      // repo; the savepoint restores them when the repo itself can't retire.
+      // Milestones no issue references (e.g. a scan-seeded one) and the
+      // repo's wm_reindex history go with the repo; the savepoint restores
+      // them when the repo itself can't retire.
       db.run(`SAVEPOINT retire_repo`);
       try {
+        db.run(`DELETE FROM audit WHERE event_type = 'wm_reindex' AND repo = ?`, [r.name]);
         db.run(
           `DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
              (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`,

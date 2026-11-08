@@ -24,7 +24,13 @@ import type { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
 const scanPin = pinScanEnv();
-after(() => scanPin.restore());
+const savedIndexTarget = process.env['TMB_WM_INDEX_TARGET'];
+process.env['TMB_WM_INDEX_TARGET'] = 'HEAD';
+after(() => {
+  scanPin.restore();
+  if (savedIndexTarget === undefined) delete process.env['TMB_WM_INDEX_TARGET'];
+  else process.env['TMB_WM_INDEX_TARGET'] = savedIndexTarget;
+});
 
 const WORKTREE = fileURLToPath(new URL('../../../../', import.meta.url)).replace(/\/$/, '');
 
@@ -426,7 +432,7 @@ describe('a file whose extraction throws is recorded, not left unstamped (GH 185
     assert.equal(failed.files_failed, 1);
     assert.equal(failed.failed_paths.length, 1);
     assert.equal(failed.failed_paths[0]!.path, 'src/bad.ts');
-    assert.match(failed.failed_paths[0]!.error, /EISDIR/);
+    assert.match(failed.failed_paths[0]!.error, /cannot read src\/bad\.ts/);
     assert.ok(failed.failed_paths[0]!.error.length <= 200);
     assert.equal(row('src/bad.ts').symbols_md5, `${symbolsStamp('edited')}${FAILED_SUFFIX}`);
     assert.ok(row('src/bad.ts').symbols_md5!.endsWith(':failed'));
@@ -650,18 +656,27 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     }
   });
 
-  it('source: true refuses a start_line past the end of a shrunken file and never inverts the range (GH 1851)', async () => {
-    writeFileSync(join(root, 'src/shrink.ts'), 'export function shrinkHead(): number {\n  return 1;');
+  it('source: true refuses a start_line past the end of the file and never inverts the range (GH 1851)', async () => {
+    const lines = SHRINK_TS.split('\n').length;
+    const range = (name: string) =>
+      db.get<{ start_line: number; end_line: number }>(`SELECT start_line, end_line FROM wm_symbols WHERE repo = 'app' AND qualified_name = ?`, [name])!;
+    const tailRange = range('shrinkTail');
+    const headRange = range('shrinkHead');
+    const setRange = (name: string, start: number, end: number) =>
+      db.run(`UPDATE wm_symbols SET start_line = ?, end_line = ? WHERE repo = 'app' AND qualified_name = ?`, [start, end, name]);
+    setRange('shrinkTail', lines + 3, lines + 5);
+    setRange('shrinkHead', 1, lines + 40);
     try {
       const tail = await symbol({ qualified_name: 'shrinkTail', source: true });
       assert.equal(tail['source'], null);
       assert.equal(tail['source_reason'], 'range-past-eof');
       const head = await symbol({ qualified_name: 'shrinkHead', source: true });
       const source = head['source'] as { start_line: number; end_line: number };
-      assert.deepEqual([source.start_line, source.end_line], [1, 2]);
+      assert.deepEqual([source.start_line, source.end_line], [1, lines]);
       assert.ok(source.end_line >= source.start_line);
     } finally {
-      writeFileSync(join(root, 'src/shrink.ts'), SHRINK_TS);
+      setRange('shrinkTail', tailRange.start_line, tailRange.end_line);
+      setRange('shrinkHead', headRange.start_line, headRange.end_line);
     }
   });
 
@@ -676,7 +691,7 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     assert.equal((await indexRepoSymbols(db, 'app', root)).files_parsed, indexed);
   });
 
-  it('stale flips on an edit after indexing and back after a rescan', async () => {
+  it('a working-tree edit leaves the index and stale alone; the commit is picked up by the next read (GH 2584)', async () => {
     const searchHit = async () => {
       const out = parse<{ results: Payload[] }>(
         (await wm['world_model_search']!({ agent: 'bro', repo: 'app', query: 'stepA', mode: 'keyword', k: 10 })) as CallToolResult,
@@ -689,13 +704,15 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     assert.equal((await searchHit())['stale'], false);
 
     writeFileSync(join(root, 'src/chain.ts'), CHAIN_TS('// edited'));
-    assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], true);
-    assert.equal((await searchHit())['stale'], true);
-
-    commit();
-    await scan(db, holder, ws);
     assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], false);
     assert.equal((await searchHit())['stale'], false);
+    const md5Before = db.get<{ m: string }>(`SELECT content_md5 AS m FROM wm_files WHERE repo = 'app' AND path = 'src/chain.ts'`)!.m;
+
+    commit();
+    const after = await symbol({ qualified_name: 'stepA' });
+    assert.equal(after.symbol['stale'], false);
+    assert.equal((await searchHit())['stale'], false);
+    assert.notEqual(db.get<{ m: string }>(`SELECT content_md5 AS m FROM wm_files WHERE repo = 'app' AND path = 'src/chain.ts'`)!.m, md5Before);
   });
 });
 

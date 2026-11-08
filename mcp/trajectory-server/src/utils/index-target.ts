@@ -15,7 +15,11 @@ export function targetBranchOf(db: TrajectoryDB, repo: string, repoPath: string)
   return normalizeBase(repoPath, configured || resolveRepoDefaultBranch(repoPath));
 }
 
+// TMB_WM_INDEX_TARGET pins the target to one ref (a test that indexes its own
+// checkout sets HEAD, so the index matches the dist/ it built).
 export function resolveIndexTarget(db: TrajectoryDB, repo: string, repoPath: string): string | null {
+  const pinned = process.env['TMB_WM_INDEX_TARGET'];
+  if (pinned) return revParseCommit(repoPath, pinned);
   const branch = targetBranchOf(db, repo, repoPath);
   return revParseCommit(repoPath, `refs/remotes/origin/${branch}`) ?? revParseCommit(repoPath, 'HEAD');
 }
