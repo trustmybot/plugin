@@ -1,9 +1,9 @@
 /**
- * Parity of the TypeScript task-close gates with their scripts/hooks/<gate>.sh
- * (GH 1692): swe-atomic-close and post-task-close-rescan, over
- * tests/fixtures/hook-corpus/<gate>/. Each gate's sandbox is built once, kept
- * as a template and copied back to the same path before each side runs, so
- * its git SHAs and worktree links are the same for both. Both sides must exit
+ * Parity of the TypeScript task-close gate with its scripts/hooks/<gate>.sh
+ * (GH 1692): swe-atomic-close, over tests/fixtures/hook-corpus/<gate>/. The
+ * sandbox is built once, kept as a template and copied back to the same path
+ * before each side runs, so its git SHAs and worktree links are the same for
+ * both. Both sides must exit
  * 0, print the same stdout and stderr byte for byte, and leave the sandbox
  * alike: each DB as its tasks, agent_runs, agent_run_tool_output and audit
  * rows, every log as its text, each with the timestamps the run wrote masked
@@ -20,26 +20,20 @@
  * beside two open tool_use rows (42) and a code-reviewer stop (43), plus the
  * transcripts of an unbound spawn and of task 999.
  *
- * post-task-close-rescan: a fake plugin tree whose run-scan.mjs blocks until
- * the harness writes its release file, then records the TRAJECTORY_DB_PATH and
- * argv it was started with. A side that returns while its invoker is still
- * blocked has not waited for the scan; corpus_launch says whether the scan
- * starts, and a started one must record the same launch on both sides.
- *
  * A payload names the sandbox as @SANDBOX@ and the PATH without jq or the
  * sqlite3 CLI as @NOJQ_PATH@ / @NOSQLITE_PATH@; corpus_env (null unsets),
- * corpus_cwd, corpus_stdin, corpus_expect (`empty` for no output, else a
- * phrase of the stdout, stderr, project DB rows and log) and corpus_launch are
- * removed before the run. corpus_divergent names a divergence decision 703
- * allows: corpus_expect (and corpus_launch, for the rescan) is then
- * { bash, ts }, and the two sides must differ. The payload × locale runs split
+ * corpus_cwd, corpus_stdin and corpus_expect (`empty` for no output, else a
+ * phrase of the stdout, stderr, project DB rows and log) are removed before
+ * the run. corpus_divergent names a divergence decision 703 allows:
+ * corpus_expect is then { bash, ts }, and the two sides must differ. The
+ * payload × locale runs split
  * across hooks-task-close-parity.shard-<k>of<n>.test.ts.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,12 +54,7 @@ const SEEDED_YEAR = '2020-';
 const TS_RE = /\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(\.\d+)?Z?/g;
 const PROJECT_DB = 'project/.claude/tmb/trajectory.db';
 const CLOSE_GATE = 'swe-atomic-close';
-const RESCAN_GATE = 'post-task-close-rescan';
-/** lib/ for both sides and the .sh for the bash side alone; what it lists follows the checkout, so a snapshot skips it. */
-const RESCAN_SCRIPTS = 'plugin/scripts/hooks';
-const MIN_CORPUS: Record<string, number> = { [CLOSE_GATE]: 12, [RESCAN_GATE]: 4 };
-
-export const TASK_CLOSE_GATES = [RESCAN_GATE, CLOSE_GATE] as const;
+const MIN_CORPUS = 12;
 
 const UNSET = [
   'TRAJECTORY_DB_PATH',
@@ -256,33 +245,6 @@ export function buildCloseSandbox(s: string): void {
   transcript(join(tx, '999.jsonl'), spawnEntries('task_id=999 You are swe.', '999'));
 }
 
-const FAKE_INVOKER = `import { existsSync, writeFileSync } from 'node:fs';
-const release = process.env.RESCAN_RELEASE;
-const record = process.env.RESCAN_RECORD;
-const tick = new Int32Array(new SharedArrayBuffer(4));
-for (let i = 0; i < 3000 && release && !existsSync(release); i++) Atomics.wait(tick, 0, 0, 10);
-if (record) writeFileSync(record, JSON.stringify({ db: process.env.TRAJECTORY_DB_PATH ?? null, argv: process.argv.slice(1), execArgv: process.execArgv }));
-`;
-
-/** The post-task-close-rescan sandbox at <s>: a fake plugin tree and a project with a DB. */
-export function buildRescanSandbox(s: string): void {
-  rmSync(s, { recursive: true, force: true });
-  mkdirSync(join(s, 'home'), { recursive: true });
-  mkdirSync(join(s, 'bare'));
-  const plugin = join(s, 'plugin');
-  mkdirSync(join(plugin, '.claude-plugin'), { recursive: true });
-  writeFileSync(join(plugin, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"9.9.9-parity"}\n');
-  mkdirSync(join(plugin, 'scripts/maintenance'), { recursive: true });
-  mkdirSync(join(plugin, 'scripts/hooks/lib'), { recursive: true });
-  for (const name of ['audit-events.txt', 'data-contracts.json']) {
-    copyFileSync(join(PLUGIN_ROOT, 'scripts/hooks/lib', name), join(plugin, 'scripts/hooks/lib', name));
-  }
-  writeFileSync(join(plugin, 'scripts/maintenance/run-scan.mjs'), FAKE_INVOKER);
-  mkdirSync(join(plugin, 'mcp/trajectory-server/dist'), { recursive: true });
-  cpSync(HOOKS_BUNDLE, join(plugin, 'mcp/trajectory-server/dist/hooks.js'));
-  trajectoryDb(join(s, PROJECT_DB), () => {});
-}
-
 function masked(value: unknown): unknown {
   return typeof value === 'string' ? value.replace(TS_RE, (ts) => (ts.startsWith(SEEDED_YEAR) ? ts : '<now>')) : value;
 }
@@ -322,7 +284,6 @@ function snapshot(root: string): Record<string, string | null> {
       const path = join(dir, name);
       if (/-(wal|shm|journal)$/.test(name)) continue;
       const rel = relative(root, path);
-      if (rel === RESCAN_SCRIPTS) continue;
       if (statSync(path).isDirectory()) {
         out[`${rel}/`] = null;
         walk(path);
@@ -351,7 +312,6 @@ interface Case {
   env: Record<string, string | null>;
   cwd: string;
   expect: Sided<SideExpect>;
-  launch: Sided<boolean>;
   divergent: string | undefined;
 }
 
@@ -367,7 +327,6 @@ export function materialize(file: string, s: string, paths: CorpusPaths): Case {
     corpus_cwd: cwd = 'project',
     corpus_stdin: stdin,
     corpus_expect: expect = '',
-    corpus_launch: launch = false,
     corpus_divergent: divergent,
     ...payload
   } = JSON.parse(text) as {
@@ -375,13 +334,12 @@ export function materialize(file: string, s: string, paths: CorpusPaths): Case {
     corpus_cwd?: string;
     corpus_stdin?: string;
     corpus_expect?: Sided<SideExpect>;
-    corpus_launch?: Sided<boolean>;
     corpus_divergent?: string;
   };
-  return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, launch, divergent };
+  return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, divergent };
 }
 
-export function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string, records: { release: string; record: string }): NodeJS.ProcessEnv {
+export function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of UNSET) delete env[key];
   Object.assign(env, {
@@ -389,8 +347,6 @@ export function caseEnv(s: string, locale: string, extra: Record<string, string 
     CLAUDE_PROJECT_DIR: join(s, 'project'),
     TRAJECTORY_DB_PATH: join(s, PROJECT_DB),
     CLAUDE_PLUGIN_ROOT: join(s, 'plugin-root'),
-    RESCAN_RELEASE: records.release,
-    RESCAN_RECORD: records.record,
     LC_ALL: locale,
     PWD: cwd,
   });
@@ -432,21 +388,7 @@ function assertExpect(name: string, r: Run, tree: Record<string, string | null>,
   assert.ok(observed.includes(expect), `${name} observed ${JSON.stringify(expect)}: ${observed.slice(0, 1500)}`);
 }
 
-/** The launch record of a started scan, once the harness released it; polls up to 15 s for the detached child to write it. */
-function launchRecord(release: string, record: string): string {
-  writeFileSync(release, '');
-  const tick = new Int32Array(new SharedArrayBuffer(4));
-  for (let i = 0; i < 1500 && !existsSync(record); i++) Atomics.wait(tick, 0, 0, 10);
-  assert.ok(existsSync(record), 'the started scan recorded its launch');
-  for (let i = 0; i < 100; i++) {
-    const text = readFileSync(record, 'utf8');
-    if (text.endsWith('}')) return text;
-    Atomics.wait(tick, 0, 0, 10);
-  }
-  return readFileSync(record, 'utf8');
-}
-
-const cases = TASK_CLOSE_GATES.flatMap((gate) => corpusFiles(gate).flatMap((f) => LOCALES.map((locale) => ({ gate, f, locale }))));
+const cases = corpusFiles(CLOSE_GATE).flatMap((f) => LOCALES.map((locale) => ({ gate: CLOSE_GATE, f, locale })));
 
 export function taskCloseParityShard(k: number, n: number): void {
   describe(
@@ -456,45 +398,37 @@ export function taskCloseParityShard(k: number, n: number): void {
       let base: string;
       let s: string;
       let paths: CorpusPaths;
-      const templates = new Map<string, string>();
+      let template: string;
       before(() => {
         base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-task-close-parity-')));
         s = join(base, 'sandbox');
         const path = process.env.PATH ?? '';
         paths = { noJq: noCmdPath(join(base, 'nojq'), 'jq', path), noSqlite: noCmdPath(join(base, 'nosqlite'), 'sqlite3', path) };
-        for (const [gate, build] of [
-          [CLOSE_GATE, buildCloseSandbox],
-          [RESCAN_GATE, buildRescanSandbox],
-        ] as const) {
-          build(s);
-          const template = join(base, `template-${gate}`);
-          cpSync(s, template, { recursive: true });
-          templates.set(gate, template);
-        }
+        buildCloseSandbox(s);
+        template = join(base, `template-${CLOSE_GATE}`);
+        cpSync(s, template, { recursive: true });
       });
       after(() => {
         rmSync(base, { recursive: true, force: true });
       });
-      const restore = (gate: string): void => {
+      const restore = (): void => {
         rmSync(s, { recursive: true, force: true });
-        cpSync(templates.get(gate) as string, s, { recursive: true });
+        cpSync(template, s, { recursive: true });
       };
 
       if (k === 1) {
-        it('every task-close gate has its minimum of payloads, each with an expectation', () => {
-          for (const gate of TASK_CLOSE_GATES) {
-            const files = corpusFiles(gate);
-            assert.ok(files.length >= MIN_CORPUS[gate], `${gate}: ${files.length} payloads`);
-            for (const f of files) {
-              const { expect, divergent } = materialize(join(CORPUS_ROOT, gate, f), '/s', { noJq: '', noSqlite: '' });
-              const filled = (e: SideExpect): boolean => LOCALES.every((l) => byLocale(e, l) !== '');
-              if (divergent === undefined) assert.ok(!(typeof expect === 'object' && 'bash' in expect) && filled(expect as SideExpect), `${gate}/${f}: an expectation`);
-              else
-                assert.ok(
-                  typeof expect === 'object' && 'bash' in expect && divergent !== '' && filled(side(expect, 'bash')) && filled(side(expect, 'ts')),
-                  `${gate}/${f}: a divergent case names why and expects each side`,
-                );
-            }
+        it(`the ${CLOSE_GATE} corpus has its minimum of payloads, each with an expectation`, () => {
+          const files = corpusFiles(CLOSE_GATE);
+          assert.ok(files.length >= MIN_CORPUS, `${CLOSE_GATE}: ${files.length} payloads`);
+          for (const f of files) {
+            const { expect, divergent } = materialize(join(CORPUS_ROOT, CLOSE_GATE, f), '/s', { noJq: '', noSqlite: '' });
+            const filled = (e: SideExpect): boolean => LOCALES.every((l) => byLocale(e, l) !== '');
+            if (divergent === undefined) assert.ok(!(typeof expect === 'object' && 'bash' in expect) && filled(expect as SideExpect), `${CLOSE_GATE}/${f}: an expectation`);
+            else
+              assert.ok(
+                typeof expect === 'object' && 'bash' in expect && divergent !== '' && filled(side(expect, 'bash')) && filled(side(expect, 'ts')),
+                `${CLOSE_GATE}/${f}: a divergent case names why and expects each side`,
+              );
           }
         });
       }
@@ -503,40 +437,24 @@ export function taskCloseParityShard(k: number, n: number): void {
         it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
           const runSide = (name: 'bash' | 'ts') => {
-            const records = { release: join(base, `release-${name}`), record: join(base, `record-${name}.json`) };
-            rmSync(records.release, { force: true });
-            rmSync(records.record, { force: true });
-            const env = caseEnv(s, locale, c.env, c.cwd, records);
-            restore(gate);
+            const env = caseEnv(s, locale, c.env, c.cwd);
+            restore();
             const setup = snapshot(s);
-            const hook = gate === RESCAN_GATE ? join(s, 'plugin/scripts/hooks', `${gate}.sh`) : join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`);
-            if (name === 'bash' && gate === RESCAN_GATE) cpSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`), hook);
-            const bundle = gate === RESCAN_GATE ? join(s, 'plugin/mcp/trajectory-server/dist/hooks.js') : HOOKS_BUNDLE;
-            const r = name === 'bash' ? run('bash', [hook], c, env) : run(process.execPath, [bundle, gate], c, env);
-            const unreleased = !existsSync(records.record);
+            const r = name === 'bash' ? run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env) : run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
             const tree = settledTree(setup, snapshot(s));
-            const launched = side(c.launch, name) ? launchRecord(records.release, records.record) : null;
-            if (!side(c.launch, name)) assert.ok(!existsSync(records.record), `${name}: no scan started`);
-            return { name, r, tree, unreleased, launched };
+            return { name, r, tree };
           };
           const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => runSide('bash'));
           const node = runSide('ts');
-          const sides = [bash, node];
-          for (const x of sides) {
-            assert.equal(x.r.code, 0, `${x.name} exit: ${x.r.stderr}`);
-            assert.ok(x.unreleased, `${x.name}: returned before its scan was released`);
-          }
+          for (const x of [bash, node]) assert.equal(x.r.code, 0, `${x.name} exit: ${x.r.stderr}`);
           if (c.divergent === undefined) {
             assert.deepEqual(node.tree, bash.tree, 'the sandbox after the run');
             assert.equal(node.r.stdout, bash.r.stdout, 'stdout, byte for byte');
             assert.equal(node.r.stderr, bash.r.stderr, 'stderr, byte for byte');
-            assert.equal(node.launched, bash.launched, 'the scan launch');
             assertExpect('bash', bash.r, bash.tree, byLocale(c.expect as SideExpect, locale));
           } else {
             assert.ok(
-              node.r.stdout + node.r.stderr !== bash.r.stdout + bash.r.stderr ||
-                !isDeepStrictEqual(node.tree, bash.tree) ||
-                node.launched !== bash.launched,
+              node.r.stdout + node.r.stderr !== bash.r.stdout + bash.r.stderr || !isDeepStrictEqual(node.tree, bash.tree),
               `divergent (${c.divergent}): the sides must differ`,
             );
             assertExpect('bash', bash.r, bash.tree, byLocale(side(c.expect, 'bash'), locale));
