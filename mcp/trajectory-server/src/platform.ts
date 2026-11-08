@@ -565,8 +565,8 @@ export function otherClaudeDbs(
 
 /**
  * The one trajectory-DB location rule, shared with the hooks' `dbPath`
- * (src/hooks/lib/db.ts; `tmb_db_path` in scripts/hooks/lib/query-task.sh is
- * the Codex L5/L6 shell copy) and documented in
+ * (src/hooks/lib/db.ts; the Codex L5/L6 shell harness reaches it through the
+ * scripts/hooks/lib/query-task.sh shim) and documented in
  * docs/reference/TRAJECTORY_DB_LOCATION.md. Returns the existing DB, or null
  * when unresolved:
  *

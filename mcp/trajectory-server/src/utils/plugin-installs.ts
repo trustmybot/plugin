@@ -1,7 +1,7 @@
 /**
  * Enabled copies of this plugin for the project, read from Claude Code's
  * `installed_plugins.json` and the `enabledPlugins` maps — the same rules as
- * `tmb_duplicate_installs` in `scripts/hooks/lib/resolve-install.sh`. Read-only.
+ * `duplicateInstalls` in `src/hooks/lib/install.ts`. Read-only.
  *
  * - applies: a user-scope entry, or a project/local entry whose canonical
  *   projectPath is the canonical project dir; a key with both reports its

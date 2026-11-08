@@ -1,6 +1,6 @@
 /**
  * The hook trajectory-DB resolver (`dbPath` in src/hooks/lib/db.ts, the TS
- * port of query-task.sh's tmb_db_path and _tmb_db_probe), node:test form of
+ * port of the former shell lib query-task.sh's DB resolver), node:test form of
  * the three former l3 shell tests (GH 1692):
  *
  * - no walk-up under a test flag: TMB_FORBID_LIVE_SYNC=1 or a set

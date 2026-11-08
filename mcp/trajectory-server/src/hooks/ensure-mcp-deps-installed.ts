@@ -350,7 +350,7 @@ function probeDb(db: string, env: NodeJS.ProcessEnv): DbProbe {
   return r.stdout.includes('prompt_bearing') ? 'current' : 'stale';
 }
 
-/** The trajectory DB the way lib/query-task.sh's _tmb_db_resolve finds it. */
+/** The trajectory DB the way dbResolve in lib/db.ts finds it. */
 function resolveDb(env: NodeJS.ProcessEnv, root: string): string | undefined {
   const override = env.TRAJECTORY_DB_PATH;
   if (override) return isFile(override) ? override : undefined;

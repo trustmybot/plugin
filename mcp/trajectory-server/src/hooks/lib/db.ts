@@ -1,5 +1,6 @@
 /**
- * TypeScript port of scripts/hooks/lib/query-task.sh (GH 1692): where the
+ * TypeScript port of the former shell lib query-task.sh (GH 1692), now a
+ * shim that asks `cli.js hook-lib db-path` for dbPath: where the
  * trajectory DB lives, whether it reads, and the fail-closed read helpers the
  * gates use. Every function takes the `env` it resolves from (process.env in a
  * gate) and returns what the .sh's `$(...)` capture holds: its stdout without

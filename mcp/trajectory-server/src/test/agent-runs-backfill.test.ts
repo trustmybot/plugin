@@ -3,21 +3,14 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
-import {
-  agentRunsBackfillTools,
-  defaultTranscriptsDir,
-  spawnStats,
-  taskIdFromTranscript,
-} from '../tools/agent-runs-backfill.js';
+import { agentRunsBackfillTools, defaultTranscriptsDir, spawnStats } from '../tools/agent-runs-backfill.js';
 import { transcriptStats } from '../hooks/swe-atomic-close.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
-const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const SESSION = 'sess-0001';
 const T0 = Date.parse('2026-10-01T10:00:00.000Z');
 const at = (s: number): string => new Date(T0 + s * 1000).toISOString();
@@ -325,15 +318,6 @@ describe('agent_runs_backfill parity with the hooks', { skip: !haveJq() && 'jq n
   after(() => {
     fixture.db.close();
     rmSync(root, { recursive: true, force: true });
-  });
-
-  it('taskIdFromTranscript matches tmb_task_id_from_transcript', () => {
-    const lib = join(PLUGIN_ROOT, 'scripts', 'hooks', 'lib', 'query-task.sh');
-    for (const f of files) {
-      const shell = execFileSync('bash', ['-c', '. "$1"; tmb_task_id_from_transcript "$2"', '_', lib, f]).toString().trim();
-      const ts = taskIdFromTranscript(f);
-      assert.equal(ts === null ? '' : String(ts), shell === '' ? '' : String(Number(shell)), f);
-    }
   });
 
   it('spawnStats matches the SubagentStop gate transcriptStats', () => {
