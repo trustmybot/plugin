@@ -4,6 +4,7 @@
 // directory summaries and file purposes (GH 1632).
 import type { TrajectoryDB } from './db.js';
 import { toFtsOrQuery, toFtsQuery, withFtsGuard } from './fts-query.js';
+import { markOrphanedEdges } from './symbol-index.js';
 
 export interface DirectoryNode {
   key: string;
@@ -236,9 +237,7 @@ export class WorldModelGraph {
       this.db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, f.path]);
       this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
     }
-    if (stale.length > 0) {
-      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
-    }
+    if (stale.length > 0) markOrphanedEdges(this.db);
     return stale.length;
   }
 
@@ -361,7 +360,7 @@ export class WorldModelGraph {
       this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_concepts SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_concept_steps SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+      markOrphanedEdges(this.db);
       return moved;
     });
   }

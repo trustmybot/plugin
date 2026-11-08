@@ -14,6 +14,8 @@ import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  configKeyReaders,
+  coveringRunners,
   fileRefKey,
   IMPACT_MAX_DEPTH,
   isTestPath,
@@ -23,6 +25,7 @@ import {
   symbolCard,
   symbolImpact,
   symbolsByName,
+  type CoveringRunner,
   type ScoredSymbol,
   type SymbolRow,
 } from '../symbol-index.js';
@@ -267,8 +270,33 @@ interface TreeNode extends DriftView {
   summary_source: string;
   summary_updated_at: string | null;
   file_count: number;
+  covered_by?: CoveringRunner[];
+  covered_by_truncated?: true;
   children: TreeNode[];
   files?: FileView[];
+}
+
+const COVERED_BY_CAP = 10;
+
+// The runners whose covers edge names dir or one of its ancestors, nearest
+// first, each once, their commands framed; {} when none.
+function coveredByView(
+  covers: Map<string, CoveringRunner[]>,
+  dir: string,
+): { covered_by?: CoveringRunner[]; covered_by_truncated?: true } {
+  const seen = new Set<string>();
+  const runners: CoveringRunner[] = [];
+  for (let d: string | null = dir; d !== null; d = d === '' ? null : d.includes('/') ? d.slice(0, d.lastIndexOf('/')) : '') {
+    for (const r of covers.get(d) ?? []) {
+      const key = `${r.path}\u0000${r.runner}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      runners.push(r);
+    }
+  }
+  if (runners.length === 0) return {};
+  const framed = runners.slice(0, COVERED_BY_CAP).map((r) => ({ ...r, command: frameUntrusted('runner-command', r.command) }));
+  return { covered_by: framed, ...(runners.length > COVERED_BY_CAP ? { covered_by_truncated: true as const } : {}) };
 }
 
 interface FileView {
@@ -603,7 +631,7 @@ function wrap(fn: Fn): Fn {
 type Payload = Record<string, unknown>;
 
 const LOGGED_ARGS: readonly string[] = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'];
-const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source'] };
+const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source', 'config_key'] };
 
 function treeNodeCount(node: Payload): number {
   const children = Array.isArray(node['children']) ? (node['children'] as Payload[]) : [];
@@ -614,7 +642,8 @@ function treeNodeCount(node: Payload): number {
 const RESULT_COUNTS: Record<string, (p: Payload) => number> = {
   world_model_get: (p) => (p['root'] && typeof p['root'] === 'object' ? treeNodeCount(p['root'] as Payload) : 0),
   world_model_search: (p) => (Array.isArray(p['results']) ? p['results'].length : 0),
-  world_model_symbol: (p) => (p['symbol'] && typeof p['symbol'] === 'object' ? 1 : 0),
+  world_model_symbol: (p) =>
+    p['symbol'] && typeof p['symbol'] === 'object' ? 1 : Array.isArray(p['readers']) ? p['readers'].length : 0,
   world_model_concepts: (p) => (Array.isArray(p['concepts']) ? p['concepts'].length : 0) + (p['derived'] != null ? 1 : 0),
   world_model_concept_get: () => 1,
   world_model_concept_upsert: (p) => (typeof p['id'] === 'number' ? 1 : 0),
@@ -690,7 +719,7 @@ export function buildTree(
   rows: DirRow[],
   rootPath: string,
   depth: number | null,
-  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number },
+  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number; covers?: Map<string, CoveringRunner[]> },
 ): TreeNode | null {
   const byParent = new Map<string, DirRow[]>();
   for (const r of rows) {
@@ -737,6 +766,7 @@ export function buildTree(
       summary_updated_at: node.summary_updated_at,
       file_count: node.file_count,
       ...driftView(node),
+      ...(opts?.covers ? coveredByView(opts.covers, node.path) : {}),
       children,
     };
   }
@@ -879,8 +909,8 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by (generated bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, or qualified_name plus optional path. " +
-        "note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by, up to 50 refs each, with full-count totals. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
+        "note flags by-name resolution, so lists may be incomplete. symbol.stale: file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -893,6 +923,11 @@ export function worldModelTools(
           path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
           qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
           name: { type: 'string', description: 'Alias of qualified_name; qualified_name wins when both are given.' },
+          config_key: {
+            type: 'string',
+            description:
+              "A plugin_config key, e.g. 'verification_timeout_s'. Returns {config_key, readers: [{qualified_name, kind, repo, path, line}]}: the symbols whose SELECT reads it, instead of a card.",
+          },
           impact: {
             type: ['boolean', 'integer'],
             description: `Transitive inbound callers and readers of tables a walked symbol writes. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers and test modules importing any walked symbol go to impact.tests and are not walked past.`,
@@ -1008,7 +1043,7 @@ export function worldModelTools(
 
         const rows: DirRow[] = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path, depth, { nodeCounter });
+        const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
         if (!tree) {
           return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
         }
@@ -1080,6 +1115,18 @@ export function worldModelTools(
       'world_model_symbol',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
       logged(db, 'world_model_symbol', wrap(async (args) => {
+        const configKey = args['config_key'];
+        if (configKey !== undefined && configKey !== null) {
+          if (typeof configKey !== 'string' || !configKey) return err('config_key must be a non-empty string');
+          const resolved = resolveRepo(args['repo']);
+          const allRepos = resolved.warning !== undefined;
+          const repos = allRepos ? resolved.available_repos : [resolved.name];
+          return ok({
+            config_key: configKey,
+            readers: configKeyReaders(db, repos, configKey),
+            ...(allRepos ? { repo_source: 'all' } : sourceOf(resolved)),
+          });
+        }
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource } = {};

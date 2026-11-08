@@ -20,7 +20,8 @@ export type SymbolKind =
   | 'sql_index'
   | 'sql_trigger'
   | 'module'
-  | 'hook';
+  | 'hook'
+  | 'runner';
 
 export type EdgeKind =
   | 'calls'
@@ -32,7 +33,9 @@ export type EdgeKind =
   | 'writes_table'
   | 'indexes'
   | 'triggers_on'
-  | 'bundles';
+  | 'bundles'
+  | 'reads_config'
+  | 'covers';
 
 export type SourceLanguage = IndexedGrammar | 'sql' | 'perl';
 
@@ -267,6 +270,82 @@ function sqlRefs(text: string): Array<[EdgeKind, string]> {
   return out;
 }
 
+const CONFIG_KEY = /^[\w.:-]+$/;
+const UNKNOWN = '\u0000';
+const CONFIG_SELECT = /\bSELECT\b[\s\S]*?\bFROM\s+["`]?plugin_config\b/i;
+const SQL_WRITE = /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i;
+
+// The plugin_config keys the SELECTs of a SQL text read, in order: each
+// quoted literal a `key =` or `key IN (...)` test names, where a
+// `?` or `?N` placeholder reads as params' value at its index (a null or
+// missing value names no key).
+function configKeyReads(sql: string, params: ReadonlyArray<string | null> = []): string[] {
+  if (!/plugin_config/i.test(sql)) return [];
+  let next = 0;
+  const bound = sql.replace(/\?(\d*)/g, (_, n: string) => {
+    const at = n ? Number(n) - 1 : next;
+    next = Math.max(next, at + 1);
+    const value = params[at];
+    return typeof value === 'string' && CONFIG_KEY.test(value) ? `'${value}'` : UNKNOWN;
+  });
+  const keys = new Set<string>();
+  for (const stmt of bound.split(';')) {
+    const from = CONFIG_SELECT.exec(stmt);
+    if (!from || SQL_WRITE.test(stmt)) continue;
+    const where = stmt.slice(from.index + from[0].length);
+    for (const m of where.matchAll(/\bkey\s*(?:=\s*'([^']*)'|IN\s*\(([^)]*)\))/gi)) {
+      const literals = m[1] !== undefined ? [m[1]] : m[2]!.split(',').map((s) => /^\s*'([^']*)'\s*$/.exec(s)?.[1]);
+      for (const k of literals) if (k !== undefined && CONFIG_KEY.test(k)) keys.add(k);
+    }
+  }
+  return [...keys];
+}
+
+const literalText = (node: Node): string | null =>
+  node.type === 'string' || (node.type === 'template_string' && !named(node).some((c) => c.type === 'template_substitution'))
+    ? node.text.slice(1, -1)
+    : null;
+
+// Each name a file binds once with `const NAME = 'x'` (or a template literal
+// with no substitutions) to its value; a name bound twice is dropped.
+function stringConsts(root: Node): Map<string, string> {
+  const seen = new Map<string, string | null>();
+  for (const d of root.descendantsOfType('variable_declarator')) {
+    const n = d?.childForFieldName('name');
+    if (n?.type !== 'identifier' || d!.parent?.type !== 'lexical_declaration' || !/^const\b/.test(d!.parent.text)) continue;
+    const value = d!.childForFieldName('value');
+    const text = value ? literalText(value) : null;
+    if (text === null) continue;
+    seen.set(n.text, seen.has(n.text) && seen.get(n.text) !== text ? null : text);
+  }
+  const consts = new Map<string, string>();
+  for (const [k, v] of seen) if (v !== null) consts.set(k, v);
+  return consts;
+}
+
+// A string or template literal's text, with each `${NAME}` of a same-file
+// const replaced by its value and every other substitution by UNKNOWN.
+function boundSqlText(node: Node, consts: Map<string, string>): string {
+  let text = node.text;
+  const subs = named(node)
+    .filter((c) => c.type === 'template_substitution')
+    .sort((a, b) => b.startIndex - a.startIndex);
+  for (const s of subs) {
+    const expr = named(s);
+    const value = expr.length === 1 && expr[0]!.type === 'identifier' ? consts.get(expr[0]!.text) : undefined;
+    text = text.slice(0, s.startIndex - node.startIndex) + (value ?? UNKNOWN) + text.slice(s.endIndex - node.startIndex);
+  }
+  return text;
+}
+
+// The values of the parameter array passed right after a SQL literal in the
+// same call: string literals and same-file consts, null for anything else.
+function callParams(sqlNode: Node, consts: Map<string, string>): Array<string | null> {
+  const array = sqlNode.parent?.type === 'arguments' ? sqlNode.nextNamedSibling : null;
+  if (array?.type !== 'array') return [];
+  return named(array).map((e) => literalText(e) ?? (e.type === 'identifier' ? (consts.get(e.text) ?? null) : null));
+}
+
 class Collector {
   readonly symbols: ExtractedSymbol[] = [];
   readonly edges: ExtractedEdge[] = [];
@@ -463,6 +542,7 @@ function receiverTypes(root: Node): Map<string, string> {
 function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number, relPath: string): void {
   if (isTestPath(relPath)) testGateRuns(src, out, moduleSymbol);
   const types = receiverTypes(root);
+  const consts = stringConsts(root);
   const definition = (node: Node, kind: SymbolKind, qualifiedName: string): number =>
     out.symbol({
       kind,
@@ -549,7 +629,9 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
       if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
     } else if (t === 'string' || t === 'template_string') {
       const text = node.text;
-      for (const [kind, table] of sqlRefs(text)) out.edge(scope, kind, table, node.startPosition.row + 1);
+      const line = node.startPosition.row + 1;
+      for (const [kind, table] of sqlRefs(text)) out.edge(scope, kind, table, line);
+      for (const key of configKeyReads(boundSqlText(node, consts), callParams(node, consts))) out.edge(scope, 'reads_config', key, line);
       if (/CREATE\s+(VIRTUAL\s+)?TABLE/i.test(text)) extractSqlDdl(text, out, null, node.startPosition.row);
     }
     for (const c of named(node)) visit(c, inner, innerCls);
@@ -592,7 +674,9 @@ function extractBash(root: Node, out: Collector, moduleSymbol: number): void {
         out.edge(scope, 'runs', basename(args[0]), line);
       } else if (name && /^[A-Za-z_][\w-]*$/.test(name) && !SH_BUILTINS.has(name)) out.edge(scope, 'calls', name, line);
     } else if (t === 'string' || t === 'raw_string' || t === 'heredoc_body') {
-      for (const [kind, table] of sqlRefs(node.text)) out.edge(scope, kind, table, node.startPosition.row + 1);
+      const line = node.startPosition.row + 1;
+      for (const [kind, table] of sqlRefs(node.text)) out.edge(scope, kind, table, line);
+      for (const key of configKeyReads(node.text)) out.edge(scope, 'reads_config', key, line);
     }
     for (const c of named(node)) visit(c, inner);
   };
