@@ -3,7 +3,7 @@
  * pairs `git ls-tree -r --full-tree` lists at a commit, kept to the paths a
  * repo's close-lints.json fingerprint_inputs globs match plus the config itself,
  * then the built-in checks' version. It reads git objects only, never the
- * worktree, so the gate that records a lint run and the reviewer that checks it
+ * worktree, so the gate that records a lint run and the reviewer preflight that checks it
  * compute the same value for the same commit.
  */
 import { createHash } from 'node:crypto';

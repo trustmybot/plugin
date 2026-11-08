@@ -8,22 +8,26 @@
  *   sha_mismatch       refs/heads/<branch_id> in the task repo is tasks.commit_sha
  *   no_passing_run     a verification_runs row for (task, commit) with exit 0, not timed out
  *   base_conflict      `git merge-tree --write-tree <pr_target tip> <commit>` exits 0
- *   stale_doc_ref      no path the diff (merge-base..commit) deletes or renames, and no MCP
- *                      tool name it drops from mcp/<server>/src/tools/, appears in the
- *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit;
- *                      a removed path the commit's own .gitignore files ignore is untracked
- *                      build output, not removed (GH 2054)
- *   missing_changelog  with a changelog.d/, the diff adds a file under it
+ *   no_lint_record     the task's newest finished lint_runs row for the commit exists
+ *                      and exited 0
+ *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
+ *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its
+ *                      results hold a passing row for each config lint and for the
+ *                      built-in missing_changelog and stale_doc_ref
  *
- * The last two are the built-in close lints of lib/builtin-lints.ts (GH 2570).
+ * The last two are an allowlist over swe's close-lint record (GH 2570): a record
+ * the preflight cannot prove current and clean denies, a malformed
+ * close-lints.json included. The lints themselves run at swe's close, not here.
  * Only code-reviewer spawns naming task_id=<N> are judged; a missing task_id is
  * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
  * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
-import { git, missingChangelog, missingChangelogExpected, nulFields, staleDocRefExpected, staleDocRefs } from './lib/builtin-lints.js';
+import { git, MISSING_CHANGELOG, nulFields, STALE_DOC_REF } from './lib/builtin-lints.js';
+import { closeLintsPlan } from './lib/close-lints.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { latestLintRun } from './lib/lint-runs.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from './lib/git-refs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
@@ -32,7 +36,7 @@ import { normalizeRole } from './lib/role.js';
 export const GATE_NAME = 'code-reviewer-preflight';
 export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 
-export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'base_conflict' | 'stale_doc_ref' | 'missing_changelog';
+export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'base_conflict' | 'no_lint_record' | 'stale_lint_record';
 
 export interface PreflightFailure {
   check: PreflightCheck;
@@ -54,6 +58,11 @@ function listed(items: readonly string[]): string {
 }
 
 export function preflightFix(check: PreflightCheck, taskId: string): DenyFix {
+  if (check === 'no_lint_record' || check === 'stale_lint_record') {
+    return {
+      allowed: `task_reopen(agent='bro', task_id=${taskId}, reason='${check}: <what failed>'), then swe reruns the close so the verification gate records a fresh lint run for the commit, then the same code-reviewer spawn`,
+    };
+  }
   return { allowed: `task_reopen(agent='bro', task_id=${taskId}, reason='${check}: <what failed>'), then the same code-reviewer spawn once swe closes it again` };
 }
 
@@ -170,18 +179,45 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       actual: 'no merge-base',
     }, taskId);
   }
-  const stale = await staleDocRefs(repo, mergeBase, commit, env);
-  if (typeof stale === 'string' || stale.length > 0) {
+  const lintRun = latestLintRun(db, taskId, commit, env) ?? (recorded !== commit ? latestLintRun(db, taskId, recorded, env) : null);
+  if (lintRun === null || lintRun.exit_code !== 0) {
+    const failing = lintRun?.results.filter((r) => r.exit_code !== 0).map((r) => `${r.name} exit_code=${r.exit_code ?? 'null'}`) ?? [];
     return deny({
-      check: 'stale_doc_ref',
-      expected: staleDocRefExpected(mergeBase, commit),
-      actual: typeof stale === 'string' ? stale : listed(stale),
+      check: 'no_lint_record',
+      expected: `a finished lint_runs row for task ${taskId} at ${commit} with exit_code=0`,
+      actual: lintRun === null
+        ? `no lint_runs row for task ${taskId} at ${commit}`
+        : `run ${lintRun.run_id}: exit_code=${lintRun.exit_code ?? 'null'}${failing.length > 0 ? `; failing: ${listed(failing)}` : ''}`,
     }, taskId);
   }
 
-  const changelog = await missingChangelog(repo, mergeBase, commit, env);
-  if (changelog !== null) {
-    return deny({ check: 'missing_changelog', expected: missingChangelogExpected(mergeBase, commit), actual: changelog }, taskId);
+  const run = `run ${lintRun.run_id}`;
+  const plan = await closeLintsPlan(repo, commit, env);
+  if (typeof plan === 'string') {
+    return deny({ check: 'stale_lint_record', expected: `the close-lints plan of ${commit} computes`, actual: `${run}: ${plan}` }, taskId);
+  }
+  if (lintRun.fingerprint !== plan.fingerprint) {
+    return deny({
+      check: 'stale_lint_record',
+      expected: `the lint run's fingerprint is the close-lints fingerprint of ${commit}`,
+      actual: `${run}: fingerprint recorded ${lintRun.fingerprint}, recomputed ${plan.fingerprint}`,
+    }, taskId);
+  }
+  if (lintRun.base_sha !== mergeBase) {
+    return deny({
+      check: 'stale_lint_record',
+      expected: `the lint run's base_sha is merge-base(${targetRef}, ${commit})`,
+      actual: `${run}: base_sha recorded ${lintRun.base_sha || '(empty)'}, merge-base ${mergeBase}`,
+    }, taskId);
+  }
+  const required = [...(plan.config?.lints ?? []).map((l) => l.name), MISSING_CHANGELOG, STALE_DOC_REF];
+  const unproven = required.filter((name) => !lintRun.results.some((r) => r.name === name && r.exit_code === 0));
+  if (unproven.length > 0) {
+    return deny({
+      check: 'stale_lint_record',
+      expected: `the lint run holds a passing result for each of ${required.join(', ')}`,
+      actual: `${run}: no passing result for ${listed(unproven)}`,
+    }, taskId);
   }
   return ALLOW;
 }

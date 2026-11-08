@@ -1,7 +1,7 @@
 /**
  * The two built-in diff checks (GH 1740, moved here by GH 2570) that the close
- * lints run after a repo's own lints and code-reviewer-preflight runs before a
- * review, both over git objects only:
+ * lints run after a repo's own lints, both over git objects only;
+ * code-reviewer-preflight checks their recorded results, not the diff:
  *
  *   stale_doc_ref      no path the diff (base..commit) deletes or renames, and no MCP
  *                      tool name it drops from mcp/<server>/src/tools/, appears in the

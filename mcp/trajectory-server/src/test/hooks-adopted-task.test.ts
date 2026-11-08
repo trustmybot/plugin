@@ -18,6 +18,7 @@ import { ALLOW, type GateResult } from '../hooks/gate.js';
 import { cleanupWorktree } from '../hooks/cleanup-worktree-on-task-close.js';
 import { codeReviewerPreflight, preflightFix } from '../hooks/code-reviewer-preflight.js';
 import { containmentGuard } from '../hooks/containment-guard.js';
+import { lintBaseSha, runCloseLints } from '../hooks/lib/close-lints.js';
 import { ensureSweWorktree } from '../hooks/ensure-swe-worktree.js';
 import { postTaskCreateSpawnHint } from '../hooks/post-task-create-spawn-hint.js';
 import { recordSweSpawn } from '../hooks/record-swe-spawn.js';
@@ -258,6 +259,8 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
           T0,
           T0,
         );
+        const lints = await runCloseLints(c.worktree, sha, await lintBaseSha(c.worktree, c.db, String(TASK), sha, c.env), 60, c.env, { db: c.db, taskId: String(TASK), source: 'gate' });
+        assert.ok(typeof lints !== 'string' && lints.exitCode === 0, JSON.stringify(lints));
         assert.deepEqual(await codeReviewerPreflight(review, c.env), ALLOW);
         const next = commit(c.worktree, 'more.txt');
         const { fix, ...failure } = JSON.parse(denyReason(await codeReviewerPreflight(review, c.env))) as { check: 'sha_mismatch'; expected: string; actual: string; fix: unknown };

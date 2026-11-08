@@ -20,6 +20,7 @@ Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <s
 
 Trust the swe's checklist of what changed, and take the facts from the records:
 
+- **Lints** are not yours to run: the preflight proved swe's lint record current and clean before you spawned, so run no lints or repo checks, and a lint failure is never a finding.
 - **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per open blocking finding (nit and pre_existing findings are not probed) — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
 - **Scope** comes from `task_brief.scope`: `files`, the `extras_accepted` bro accepted at close, and `base_moved`. Read it as given.
 - **Criteria claims** come from `task_brief.completion_report`: one `met` / `not_met` / `not_applicable` entry per `SC<n>` id, with its `evidence_cmd` or `note`. Treat them as claims to check against the diff; a `not_met`, or a `not_applicable` the spec does not support, is a FAIL.
