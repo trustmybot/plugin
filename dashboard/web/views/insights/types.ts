@@ -119,9 +119,19 @@ export interface EfficiencyGroup {
 export interface Efficiency {
   range: { key: string; since: string | null; until: string };
   filters: { repo: string | null; effort: string | null };
+  overall: EfficiencyGroup;
   by_type: Array<EfficiencyGroup & { type: string }>;
   by_week: Array<EfficiencyGroup & { week: string }>;
   skipped: number;
+}
+
+export type EfficiencyPeriod = Pick<Efficiency, 'overall' | 'by_type' | 'by_week' | 'skipped'> & { slice: PeriodInsights['slice'] };
+
+export interface EfficiencyComparison {
+  p1: EfficiencyPeriod;
+  p2: EfficiencyPeriod;
+  filters: Efficiency['filters'];
+  shared_tasks: number;
 }
 
 export interface ExploreGroup {

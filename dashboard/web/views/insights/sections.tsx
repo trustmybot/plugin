@@ -61,6 +61,14 @@ import {
   BY_WEEK,
   EFFICIENCY_COLUMNS,
   EFFICIENCY_EMPTY,
+  EFFICIENCY_PERIOD_EMPTY,
+  EFFICIENCY_TILES,
+  PERIOD_HEADER,
+  TOKENS_PER_LINE_UNIT,
+  TOK_LINE_BY_TYPE,
+  efficiencySubject,
+  periodValue,
+  typeSubject,
   EFFICIENCY_FOOTNOTE,
   EFFICIENCY_SUBTITLE,
   EFFICIENCY_TITLE,
@@ -112,7 +120,7 @@ import {
   type InsightParams,
   type MetricKey,
 } from './params.ts';
-import type { AgentKey, AgentStats, Comparison, Efficiency, Insights, Metric, Outlier, PeriodInsights } from './types.ts';
+import type { AgentKey, AgentStats, Comparison, Efficiency, EfficiencyComparison, EfficiencyGroup, EfficiencyPeriod, Insights, Metric, Outlier, PeriodInsights } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
@@ -648,6 +656,138 @@ export function EfficiencySection({ efficiency }: { efficiency?: { data?: Effici
       <SectionHeading>{EFFICIENCY_TITLE}</SectionHeading>
       <p className="text-sm text-fg-muted">{EFFICIENCY_SUBTITLE}</p>
       <Loading q={efficiency ?? { error: null }}>{(e) => <EfficiencyTables e={e} />}</Loading>
+    </div>
+  );
+}
+
+type EfficiencyTypeGroup = Efficiency['by_type'][number];
+
+type PairedKey = 'first_pass_rate' | 'fp_tok_line' | 'rework_share';
+
+// Sort keys hold the Period 2 values; the cells read both groups.
+type TypePair = { type: string; g1: EfficiencyTypeGroup | undefined; g2: EfficiencyTypeGroup | undefined; few: boolean; n: number } & Record<PairedKey, number | null>;
+
+const noGroups = (p: EfficiencyPeriod) => p.by_type.every((g) => g.n === 0);
+
+const shown = (g: EfficiencyGroup | undefined, key: PairedKey | 'cache_hit') => (g && !g.few ? g[key] : null);
+
+function typePairs(e: EfficiencyComparison): TypePair[] {
+  const types = [...new Set([...e.p1.by_type, ...e.p2.by_type].map((g) => g.type))];
+  const pairs = types.map((type): TypePair => {
+    const g1 = e.p1.by_type.find((g) => g.type === type);
+    const g2 = e.p2.by_type.find((g) => g.type === type);
+    return { type, g1, g2, few: !g2 || g2.few, n: g2?.n ?? 0, first_pass_rate: shown(g2, 'first_pass_rate'), fp_tok_line: shown(g2, 'fp_tok_line'), rework_share: shown(g2, 'rework_share') };
+  });
+  const n1 = (p: TypePair) => p.g1?.n ?? 0;
+  return pairs.sort((a, b) => Number(a.type === 'docs') - Number(b.type === 'docs') || b.n - a.n || n1(b) - n1(a) || a.type.localeCompare(b.type));
+}
+
+function pairedMetric(key: PairedKey, measure: DeltaMeasure, what: string, fmt: (v: number | null) => string): TableColumn {
+  return {
+    key,
+    header: EFFICIENCY_COLUMNS[key].header,
+    title: EFFICIENCY_COLUMNS[key].title,
+    cell: (r) => {
+      const { type, g1, g2 } = r as unknown as TypePair;
+      const v2 = shown(g2, key);
+      return (
+        <span className="flex flex-col items-start gap-0.5">
+          {v2 === null ? muted('—') : numeric(fmt(v2))}
+          <DeltaLabel measure={measure} subject={typeSubject(type, what)} p1={shown(g1, key)} p2={v2} />
+        </span>
+      );
+    },
+  };
+}
+
+const COMPARE_TYPE_COLUMNS: TableColumn[] = [
+  { key: 'type', header: TYPE_HEADER, cell: groupName((r) => String(r['type'])) },
+  {
+    key: 'n',
+    header: EFFICIENCY_COLUMNS.n.header,
+    title: EFFICIENCY_COLUMNS.n.title,
+    cell: (r) => {
+      const { g1, g2 } = r as unknown as TypePair;
+      return (
+        <span className="flex flex-col items-start gap-0.5">
+          {numeric(plain(g2?.n ?? 0))}
+          {muted(period1Value(plain(g1?.n ?? 0)))}
+        </span>
+      );
+    },
+  },
+  pairedMetric('first_pass_rate', 'first_pass', efficiencySubject.first_pass, pct),
+  pairedMetric('fp_tok_line', 'tok_line', efficiencySubject.tok_line, compact),
+  pairedMetric('rework_share', 'rework_share', efficiencySubject.rework_share, pct),
+];
+
+const COMPARE_WEEK_COLUMNS: TableColumn[] = [
+  { key: 'period', header: PERIOD_HEADER, cell: (r) => numeric(periodName(r['period'] as 1 | 2)) },
+  ...WEEK_COLUMNS,
+];
+
+function EfficiencyTiles({ e, empty }: { e: EfficiencyComparison; empty: readonly [boolean, boolean] }) {
+  const side = (n: 1 | 2) => (empty[n - 1] ? undefined : (n === 1 ? e.p1 : e.p2).overall);
+  const [o1, o2] = [side(1), side(2)];
+  const tiles = [
+    { measure: 'tok_line' as const, key: 'fp_tok_line' as const, format: compact },
+    { measure: 'first_pass' as const, key: 'first_pass_rate' as const, format: pct },
+    { measure: 'rework_share' as const, key: 'rework_share' as const, format: pct },
+    { measure: 'cache_hit' as const, key: 'cache_hit' as const, format: pct },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-efficiency-tiles="">
+      {tiles.map((t) => (
+        <CompareTile key={t.measure} title={EFFICIENCY_TILES[t.measure]} measure={t.measure} subject={efficiencySubject[t.measure]} p1={shown(o1, t.key)} p2={shown(o2, t.key)} format={t.format} />
+      ))}
+    </div>
+  );
+}
+
+function CompareEfficiencyBody({ e, compare }: { e: EfficiencyComparison; compare: Compare }) {
+  const empty = [noGroups(e.p1), noGroups(e.p2)] as const;
+  if (empty[0] && empty[1]) return <p className="text-sm text-fg-muted">{EFFICIENCY_EMPTY}</p>;
+  const pairs = typePairs(e);
+  const bars = pairs.map((p) => pairedRow(p.type, SERIES_COLOR, 'tok_line', typeSubject(p.type, efficiencySubject.tok_line), shown(p.g1, 'fp_tok_line'), shown(p.g2, 'fp_tok_line'), compact));
+  const weeks = [
+    ...e.p1.by_week.map((w) => ({ ...w, period: 1 })),
+    ...e.p2.by_week.map((w, i) => ({ ...w, period: 2, first: i === 0 && e.p1.by_week.length > 0 })),
+  ];
+  return (
+    <>
+      {PERIODS.filter((n) => empty[n - 1]).map((n) => (
+        <p key={n} className="text-sm text-fg-muted" data-period-empty={n}>
+          {EFFICIENCY_PERIOD_EMPTY(n)}
+        </p>
+      ))}
+      <EfficiencyTiles e={e} empty={empty} />
+      <ChartCard
+        title={TOK_LINE_BY_TYPE}
+        subtitle={`${COMPARE_SUBTITLE} · ${TOKENS_PER_LINE_UNIT}`}
+        section="efficiency"
+        range={compareSlug(compare)}
+        table={{
+          columns: [TYPE_HEADER, periodValue(1, TOKENS_PER_LINE_UNIT), periodValue(2, TOKENS_PER_LINE_UNIT), periodTasks(1), periodTasks(2)],
+          rows: pairs.map((p) => [p.type, shown(p.g1, 'fp_tok_line') ?? '—', shown(p.g2, 'fp_tok_line') ?? '—', p.g1?.n ?? 0, p.g2?.n ?? 0]),
+        }}
+        legend={periodLegend(compare, SERIES_COLOR)}
+        caption={LOWER_BETTER}
+      >
+        <PairedBarList label={`${TOK_LINE_BY_TYPE}: ${bars.map((r) => r.aria).join('; ')}`} rows={bars} format={(v) => compact(v)} axis={niceAxis((v) => compact(v))} />
+      </ChartCard>
+      <EfficiencyTable title={BY_TYPE} rows={pairs} columns={COMPARE_TYPE_COLUMNS} divider={(r) => r['type'] === 'docs'} />
+      <EfficiencyTable title={BY_WEEK} rows={weeks} columns={COMPARE_WEEK_COLUMNS} divider={(r) => r['first'] === true} />
+      <p className="text-xs text-fg-muted">{EFFICIENCY_FOOTNOTE}</p>
+    </>
+  );
+}
+
+export function CompareEfficiencySection({ compare, efficiency }: { compare: Compare; efficiency?: { data?: EfficiencyComparison | undefined; error: Error | null } | undefined }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading>{EFFICIENCY_TITLE}</SectionHeading>
+      <p className="text-sm text-fg-muted">{EFFICIENCY_SUBTITLE}</p>
+      <Loading q={efficiency ?? { error: null }}>{(e) => <CompareEfficiencyBody e={e} compare={compare} />}</Loading>
     </div>
   );
 }

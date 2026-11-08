@@ -102,7 +102,7 @@ export interface InsightParams {
   compare?: Compare | null;
 }
 
-export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost', 'time', 'quality', 'throughput', 'explore']);
+export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost', 'time', 'quality', 'efficiency', 'throughput', 'explore']);
 export const comparing = (p: InsightParams) => !!p.compare && COMPARE_SECTIONS.has(p.section);
 
 // pm decision 816: every Compare Periods string.
@@ -115,7 +115,6 @@ export const COMPARE_TOGGLE = 'Compare Periods';
 export const COMPARE_TOGGLE_TITLE = 'Compare two periods side by side to see what changed.';
 export const COMPARE_ON = 'Compare on. Showing Period 1 and Period 2.';
 export const COMPARE_OFF = 'Compare off.';
-export const COMPARE_SCOPE_NOTE = 'Compare covers every section except Efficiency for now.';
 export const SWAP_PERIODS = 'Swap periods';
 export const periodName = (n: 1 | 2) => `Period ${n}`;
 export const periodType = (n: 1 | 2) => `Period ${n} type`;
@@ -265,7 +264,19 @@ export const FEW_TASKS = 'Few tasks';
 export const FEW_TASKS_TITLE = 'Fewer than 3 tasks, so treat these numbers as rough.';
 export const FEW_CAPTION = 'Groups with fewer than 3 tasks are shown as —.';
 export const EFFICIENCY_EMPTY = 'No finished tasks with code changes in this period yet. Pick a longer range, or finish a task to see its cost per line.';
-export const EFFICIENCY_FOOTNOTE = 'A line is any added or removed line. Code tasks skip docs, generated files and lockfiles; docs tasks count every line.';
+export const EFFICIENCY_PERIOD_EMPTY = (n: 1 | 2) => `Period ${n} has no finished tasks with code changes.`;
+export const EFFICIENCY_TILES = {
+  tok_line: 'First-Pass Tokens/Line',
+  first_pass: 'First-Pass Rate',
+  rework_share: 'Rework Share',
+  cache_hit: 'Cache-Hit %',
+} as const;
+export const efficiencySubject = { tok_line: 'first-pass tokens per line', first_pass: 'first-pass rate', rework_share: 'rework share', cache_hit: 'cache-hit %' } as const;
+export const typeSubject = (type: string, what: string) => `${type} ${what}`;
+export const TOK_LINE_BY_TYPE = 'First-Pass Tokens/Line by Type';
+export const TOKENS_PER_LINE_UNIT = 'Tokens per Line';
+export const PERIOD_HEADER = 'Period';
+export const EFFICIENCY_FOOTNOTE ='A line is any added or removed line. Code tasks skip docs, generated files and lockfiles; docs tasks count every line.';
 
 
 const DEFAULT_AGG: AggKey = 'p50';
@@ -343,7 +354,9 @@ export function compareApiPath(p: InsightParams): string {
 export function efficiencyApiPath(p: InsightParams): string {
   const query = filterQuery(p);
   for (const k of AGENT_LEVEL_FILTERS) query.delete(k);
-  return `insights/efficiency?${query.toString()}`;
+  if (!comparing(p)) return `insights/efficiency?${query.toString()}`;
+  query.delete('range');
+  return `insights/efficiency/compare?${query.toString()}${compareQuery(p.compare)}`.replace('?&', '?');
 }
 
 export function exploreApiPath(p: InsightParams): string {
