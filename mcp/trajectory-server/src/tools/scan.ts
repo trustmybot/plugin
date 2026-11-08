@@ -9,13 +9,23 @@ import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
 import type { DirectoryNode, FileNode, GraphHolder } from '../graph.js';
 import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
-import { purposeHeadPaths, refreshSymbolPurposes } from '../symbol-purpose.js';
+import { purposeHeadPaths, purposeHeadPathsOf, refreshSymbolPurposes } from '../symbol-purpose.js';
 import { readmeDrift, readRepoHistory, type ReadmeDrift, type RepoHistory } from '../readme-drift.js';
 import { cleanReadme } from '../readme-summary.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
-import { builtBundleMaps, bundleMaps, diskReader, EXTRACTOR_VERSION, indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
+import {
+  applyRepoSymbols,
+  builtBundleMaps,
+  bundleMaps,
+  diskReader,
+  EXTRACTOR_VERSION,
+  planRepoSymbols,
+  type IndexedFile,
+  type SymbolIndexStats,
+  type SymbolPlan,
+} from '../symbol-index.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
 import { catchUpRepos, indexStamp, recordReindex, triggerOfSource } from '../world-model/freshness.js';
@@ -810,14 +820,35 @@ async function persistGraph(
   out: ScanOutput,
   now: string,
   retired: ReadonlyArray<{ name: string }> = [],
-  scope?: ReindexScope,
 ): Promise<GraphStats> {
-  const stats = emptyGraphStats();
-  const plan = await planFiles(graph, out, now, scope);
-  stats.files_extracted = plan.extracted;
+  return applyGraph(graph, out, now, await planGraph(graph, out, now), retired);
+}
+
+// What persistGraph writes, read from git first so applyGraph runs no await.
+interface GraphPlan {
+  files: FilePlan;
+  dirMap: Map<string, DirEntry>;
+  readmes: Map<string, Readme>;
+  drift: Map<string, ReadmeDrift>;
+  scope?: ReindexScope;
+}
+
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<GraphPlan> {
+  const files = await planFiles(graph, out, now, scope);
   const dirMap = deriveDirectoryEntries(out);
   const readmes = await readReadmes(out, dirMap, scope);
-  const drift = planReadmeDrift(out, dirMap, readmes);
+  return { files, dirMap, readmes, drift: planReadmeDrift(out, dirMap, readmes), scope };
+}
+
+function applyGraph(
+  graph: WorldModelGraph,
+  out: ScanOutput,
+  now: string,
+  { files: plan, dirMap, readmes, drift, scope }: GraphPlan,
+  retired: ReadonlyArray<{ name: string }> = [],
+): GraphStats {
+  const stats = emptyGraphStats();
+  stats.files_extracted = plan.extracted;
   graph.transaction(() => {
     for (const r of retired) {
       stats.dirs_retired += graph.pruneDirectories(r.name, new Set());
@@ -856,13 +887,89 @@ async function indexRepoAtCommit(
   content: CommitContent | undefined,
   symbols: SymbolIndexStats & { error?: string },
   errors: ScanError[],
-  scope?: ReindexScope,
 ): Promise<number> {
+  return applyRepoIndex(db, r, await planRepoIndex(db, r, files, content), symbols, errors);
+}
+
+// A repo's wm_files rows as they stand once applyGraph has run `plan`: its
+// planned nodes, each keeping the stored symbols_md5 (upsertFile leaves it),
+// NULL for a new row.
+function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<IndexedFile & { purpose_source: string }> {
+  const stored = new Map(
+    db
+      .all<{ path: string; symbols_md5: string | null }>(`SELECT path, symbols_md5 FROM wm_files WHERE repo = ?`, [repo])
+      .map((f) => [f.path, f.symbols_md5]),
+  );
+  return plan.nodes
+    .filter((n) => n.repo === repo)
+    .map((n) => {
+      const path = WorldModelGraph.relativeFilePath(n);
+      return {
+        path,
+        content_md5: n.content_md5,
+        size_bytes: n.size_bytes,
+        symbols_md5: stored.get(path) ?? null,
+        purpose_source: n.purpose_source,
+      };
+    });
+}
+
+// What applyRepoIndex writes: the parsed symbols and the purpose heads, read
+// from git with no write. A read that failed is kept and recorded as its
+// stage's error when applied. `planned` are the repo's wm_files rows as they
+// will be once a pending graph plan is applied; without it they are read from
+// wm_files.
+interface RepoIndexPlan {
+  symbols?: SymbolPlan;
+  symbolsError?: unknown;
+  heads?: Map<string, string>;
+  headsError?: unknown;
+  scope?: ReindexScope;
+}
+
+async function planRepoIndex(
+  db: TrajectoryDB,
+  r: ScanRepo,
+  files: ScanFile[],
+  content: CommitContent | undefined,
+  planned?: Array<IndexedFile & { purpose_source: string }>,
+  scope?: ReindexScope,
+): Promise<RepoIndexPlan> {
   const read = content ? (rel: string) => content.text(rel) : diskReader(r.path);
-  let parsed = 0;
+  const plan: RepoIndexPlan = { scope };
   try {
     const maps = [...bundleMaps(files), ...(await builtBundleMaps(r.path))];
-    const repoStats = await indexRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps, read);
+    plan.symbols = await planRepoSymbols(db, r.name, r.path, EXTRACTOR_VERSION, maps, read, planned);
+  } catch (e) {
+    plan.symbolsError = e;
+  }
+  if (content) {
+    try {
+      const heads = new Map<string, string>();
+      const paths = planned ? purposeHeadPathsOf(planned, scope?.changed) : purposeHeadPaths(db, r.name, scope?.changed);
+      for (const path of paths) heads.set(path, await content.head(path, PURPOSE_HEAD_BYTES));
+      plan.heads = heads;
+    } catch (e) {
+      plan.headsError = e;
+    }
+  }
+  return plan;
+}
+
+// Synchronous: every git read is in `plan`, so a caller can run this inside
+// one db.transaction with no await in it.
+function applyRepoIndex(
+  db: TrajectoryDB,
+  r: ScanRepo,
+  plan: RepoIndexPlan,
+  symbols: SymbolIndexStats & { error?: string },
+  errors: ScanError[],
+): number {
+  const paths = plan.scope?.changed;
+  let parsed = 0;
+  try {
+    if (!plan.symbols) throw plan.symbolsError;
+    const repoStats = applyRepoSymbols(db, plan.symbols);
     for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
     parsed = repoStats.files_parsed + repoStats.files_failed;
   } catch (e) {
@@ -870,11 +977,8 @@ async function indexRepoAtCommit(
     recordScanError(errors, 'symbol_index', r.name, e);
   }
   try {
-    const heads = new Map<string, string>();
-    for (const path of purposeHeadPaths(db, r.name, scope?.changed)) {
-      heads.set(path, content ? await content.head(path, PURPOSE_HEAD_BYTES) : '');
-    }
-    refreshSymbolPurposes(db, r.name, content ? { heads, paths: scope?.changed } : { paths: scope?.changed });
+    if (plan.headsError !== undefined) throw plan.headsError;
+    refreshSymbolPurposes(db, r.name, plan.heads ? { heads: plan.heads, paths } : { paths });
   } catch (e) {
     recordScanError(errors, 'symbol_purpose', r.name, e);
   }
@@ -902,41 +1006,60 @@ export interface RepoReindexStats {
 
 // Test seams inside the incremental reindex's transaction: afterGraph once the
 // wm_files and wm_directories rows are written, afterIndex once the symbols,
-// concepts and indexed_commit stamp are.
-export const reindexHooks: { afterGraph?: () => void | Promise<void>; afterIndex?: () => void | Promise<void> } = {};
+// concepts and indexed_commit stamp are. Both run synchronously in it.
+export const reindexHooks: { afterGraph?: () => void; afterIndex?: () => void } = {};
 
 // One repo's world model brought to out's commit (GH 2584): a full rebuild
 // without a `scope`, the incremental reindex with one. out holds that one
-// repo, already registered in repos. The incremental reindex (files, dirs,
-// symbols with the relink and orphan marking, purposes, concepts and the
-// indexed_commit stamp) commits in one transaction or not at all; a stage
-// that fails rolls it back.
+// repo, already registered in repos. The incremental reindex reads and parses
+// every blob first, then writes files, dirs, symbols with the relink and
+// orphan marking, purposes, concepts and the indexed_commit stamp in one
+// synchronous transaction, or nothing: a stage that fails rolls it back. No
+// await runs inside it, so no other write on this connection joins it.
 export async function persistRepoReindex(
   db: TrajectoryDB,
   graph: WorldModelGraph,
   out: ScanOutput,
   scope?: ReindexScope,
 ): Promise<RepoReindexStats> {
-  const run = async (): Promise<RepoReindexStats> => {
-    const now = nowISO();
+  const now = nowISO();
+  const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
+  const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
+  const stampCounts = () => {
     for (const r of out.repos) {
       db.run(`UPDATE repos SET file_count = ?, last_scanned_at = ? WHERE name = ?`, [r.file_count, now, r.name]);
     }
-    const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
-    const graphStats = await persistGraph(graph, persisted, now, [], scope);
-    if (scope) await reindexHooks.afterGraph?.();
-    const symbols = emptySymbolStats();
-    const errors: ScanError[] = [];
-    for (const r of out.repos) {
-      await indexRepoAtCommit(db, r, out.files.filter((f) => f.repo === r.name), out.contents?.get(r.name), symbols, errors, scope);
-    }
-    if (scope) await reindexHooks.afterIndex?.();
-    if (scope && errors.length > 0) {
+  };
+  const symbols = emptySymbolStats();
+  const errors: ScanError[] = [];
+  const stats = (graphStats: GraphStats): RepoReindexStats => ({
+    files_parsed: symbols.files_parsed + symbols.files_failed,
+    dirs_touched: graphStats.dirs_upserted,
+    errors,
+  });
+  if (!scope) {
+    stampCounts();
+    const graphStats = await persistGraph(graph, persisted, now);
+    for (const r of out.repos) await indexRepoAtCommit(db, r, repoFiles(r), out.contents?.get(r.name), symbols, errors);
+    return stats(graphStats);
+  }
+  const graphPlan = await planGraph(graph, persisted, now, scope);
+  const repoPlans = new Map<string, RepoIndexPlan>();
+  for (const r of out.repos) {
+    const planned = plannedFiles(db, r.name, graphPlan.files);
+    repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned, scope));
+  }
+  return db.transaction(() => {
+    stampCounts();
+    const graphStats = applyGraph(graph, persisted, now, graphPlan);
+    reindexHooks.afterGraph?.();
+    for (const r of out.repos) applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors);
+    reindexHooks.afterIndex?.();
+    if (errors.length > 0) {
       throw new Error(`incremental reindex failed: ${errors.map((e) => `${e.stage}: ${e.error}`).join('; ')}`);
     }
-    return { files_parsed: symbols.files_parsed + symbols.files_failed, dirs_touched: graphStats.dirs_upserted, errors };
-  };
-  return scope ? db.transactionAsync(run) : run();
+    return stats(graphStats);
+  });
 }
 
 const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout

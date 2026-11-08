@@ -14,7 +14,7 @@ import { worldModelTools } from '../tools/world_model.js';
 import { compositeTools } from '../tools/composites.js';
 import { ensureFresh, reindexIdle, type Freshness } from '../world-model/freshness.js';
 import { scanLockPath } from '../utils/scan-lock.js';
-import { resolveRefCommit } from '../utils/git-objects.js';
+import { CommitContent, resolveRefCommit } from '../utils/git-objects.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -515,28 +515,106 @@ describe('one transaction (SC7)', () => {
     try {
       const before = snapshot(reader);
       const head = fx.commit(change);
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let reached!: () => void;
-      const atSeam = new Promise<void>((resolve) => {
-        reached = resolve;
-      });
-      reindexHooks.afterIndex = async () => {
-        reached();
-        await held;
+      let seen: { writer: string | null; reader: ReturnType<typeof snapshot> } | null = null;
+      reindexHooks.afterIndex = () => {
+        seen = { writer: stamp(fx.db), reader: snapshot(reader) };
       };
-      const run = fx.fresh();
-      await atSeam;
-      assert.equal(stamp(fx.db), head, 'the writer sees its own stamp');
-      assert.deepEqual(snapshot(reader), before, 'the reader sees the old snapshot');
-      release();
-      await run;
+      await fx.fresh();
+      assert.ok(seen, 'the seam ran inside the reindex');
+      const held = seen as { writer: string | null; reader: ReturnType<typeof snapshot> };
+      assert.equal(held.writer, head, 'the writer sees its own stamp');
+      assert.deepEqual(held.reader, before, 'the reader sees the old snapshot');
       assert.equal(stamp(reader), head);
       assert.ok(symbol(reader, 'delta'));
     } finally {
       reader.close();
+      fx.cleanup();
+    }
+  });
+
+  // F642-1: the reindex's transaction must not span its git reads, or a write
+  // another tool call makes on the same connection meanwhile joins it and is
+  // lost when it rolls back.
+  it('a write another caller makes during the git reads of a failed reindex persists', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 60; i++) files[`src/f${i}.ts`] = `export function f${i}(): number {\n  return ${i};\n}\n`;
+    const fx = await fixture(files);
+    const read = CommitContent.prototype.read;
+    try {
+      fx.db.run('CREATE TABLE concurrent_marks (v INTEGER)');
+      const changed: Record<string, string> = {};
+      for (let i = 0; i < 60; i++) changed[`src/f${i}.ts`] = `export function f${i}(): number {\n  return ${i + 100};\n}\n`;
+      fx.commit(changed);
+      const before = snapshot(fx.db);
+      let acknowledged = 0;
+      let duringReads = 0;
+      const write = () => fx.db.transaction(() => fx.db.run('INSERT INTO concurrent_marks VALUES (?)', [acknowledged++]));
+      CommitContent.prototype.read = function (this: CommitContent, rel: string) {
+        duringReads++;
+        write();
+        return read.call(this, rel);
+      };
+      const tick = setInterval(write, 0);
+      reindexHooks.afterIndex = () => {
+        throw new Error('injected');
+      };
+      try {
+        await assert.rejects(fx.fresh(), /injected/);
+      } finally {
+        clearInterval(tick);
+        CommitContent.prototype.read = read;
+      }
+      assert.ok(duringReads > 0, 'writes ran during the git reads');
+      const kept = fx.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM concurrent_marks')!.c;
+      assert.equal(kept, acknowledged, 'every acknowledged write persisted');
+      assert.deepEqual(snapshot(fx.db), before, 'the reindex itself rolled back');
+    } finally {
+      CommitContent.prototype.read = read;
+      fx.cleanup();
+    }
+  });
+
+  it('two concurrent reindexes of two repos commit and roll back independently', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    const libRoot = join(fx.ws, 'lib');
+    const libGit = (...a: string[]) => execFileSync('git', ['-C', libRoot, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    const libCommit = (rel: string, body: string) => {
+      mkdirSync(dirname(join(libRoot, rel)), { recursive: true });
+      writeFileSync(join(libRoot, rel), body);
+      libGit('add', '-A');
+      libGit('commit', '-qm', 'c');
+      return libGit('rev-parse', 'HEAD');
+    };
+    try {
+      mkdirSync(libRoot);
+      libGit('init', '-q', '-b', 'main');
+      libGit('config', 'user.email', 't@t.io');
+      libGit('config', 'user.name', 't');
+      libCommit('src/l.ts', 'export function lambda(): number {\n  return 1;\n}\n');
+      await fx.scan('user_manual');
+      fx.db.run(`UPDATE repos SET target_branch = 'main' WHERE name = 'lib'`);
+      const libStamp = () => fx.db.get<{ c: string | null }>(`SELECT indexed_commit AS c FROM repos WHERE name = 'lib'`)!.c;
+      const libSymbols = () => fx.db.all(`SELECT path, qualified_name, body_hash FROM wm_symbols WHERE repo = 'lib' ORDER BY id`);
+      const libBefore = { stamp: libStamp(), symbols: libSymbols() };
+      const appTip = fx.commit(change);
+      const libTip = libCommit('src/m.ts', 'export function mu(): number {\n  return 2;\n}\n');
+      reindexHooks.afterIndex = () => {
+        if (libStamp() === libTip) throw new Error('injected');
+      };
+      const [app, lib] = await Promise.allSettled([
+        fx.fresh(),
+        ensureFresh(fx.db, fx.graph, 'lib', { dbPath: fx.dbPath, trigger: 'read' }),
+      ]);
+      assert.equal(app.status, 'fulfilled', String((app as PromiseRejectedResult).reason));
+      assert.equal(lib.status, 'rejected');
+      assert.equal(stamp(fx.db), appTip, 'the app reindex committed');
+      assert.ok(symbol(fx.db, 'delta'), 'with its symbols');
+      assert.deepEqual({ stamp: libStamp(), symbols: libSymbols() }, libBefore, 'the lib reindex rolled back alone');
+      delete reindexHooks.afterIndex;
+      await ensureFresh(fx.db, fx.graph, 'lib', { dbPath: fx.dbPath, trigger: 'read' });
+      assert.equal(libStamp(), libTip);
+      assert.equal(stamp(fx.db), appTip, 'the lib reindex left the app stamp alone');
+    } finally {
       fx.cleanup();
     }
   });

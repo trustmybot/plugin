@@ -423,28 +423,6 @@ export class TrajectoryDB {
     return withImmediateTransaction(this.db, fn);
   }
 
-  /**
-   * transaction() for an async `fn`: one BEGIN IMMEDIATE held across its
-   * awaits, committed when it resolves and rolled back when it rejects. A
-   * write this connection makes from elsewhere while `fn` awaits joins it, so
-   * `fn` should await only in-memory work.
-   */
-  async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
-    beginImmediate(this.db);
-    try {
-      const result = await fn();
-      commitTransaction(this.db);
-      return result;
-    } catch (err) {
-      try {
-        rollbackTransaction(this.db);
-      } catch {
-        // as in withImmediateTransaction: surface the original error
-      }
-      throw err;
-    }
-  }
-
   get isOpen(): boolean {
     return this.db.isOpen;
   }

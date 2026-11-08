@@ -53,6 +53,19 @@ export function purposeHeadPaths(db: TrajectoryDB, repo: string, paths?: Readonl
     .filter(needsHeadForSymbols);
 }
 
+// purposeHeadPaths over the given wm_files rows instead of the stored ones,
+// for a caller whose file writes have not run yet.
+export function purposeHeadPathsOf(
+  files: ReadonlyArray<{ path: string; purpose_source: string }>,
+  paths?: ReadonlySet<string>,
+): string[] {
+  return files
+    .filter((f) => (f.purpose_source === 'none' || f.purpose_source === 'symbols') && (!paths || paths.has(f.path)))
+    .map((f) => f.path)
+    .sort()
+    .filter(needsHeadForSymbols);
+}
+
 export function refreshSymbolPurposes(db: TrajectoryDB, repo: string, opts: PurposeRefreshOptions = {}): { updated: number } {
   const files = candidates(db, repo, opts.paths);
   if (files.length === 0) return { updated: 0 };

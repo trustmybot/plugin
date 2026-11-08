@@ -180,11 +180,15 @@ function shortName(kind: SymbolKind, qualifiedName: string): string {
   return kind === 'method' ? qualifiedName.slice(qualifiedName.lastIndexOf('.') + 1) : qualifiedName;
 }
 
-interface StaleFile {
-  id: number;
+// One wm_files row as the symbol pass sees it.
+export interface IndexedFile {
   path: string;
   content_md5: string;
+  size_bytes: number;
+  symbols_md5: string | null;
 }
+
+type StaleFile = Omit<IndexedFile, 'symbols_md5'>;
 
 interface Parsed {
   file: StaleFile;
@@ -438,8 +442,10 @@ export function deleteFileSymbols(db: TrajectoryDB, repo: string, path: string):
   db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path]);
 }
 
-async function routerTable(read: SourceReader): Promise<string> {
-  return (await read(ROUTER_TABLE_PATH)) ?? '';
+// The router table is a build artifact git does not track, so a commit read
+// falls back to the built copy on disk, as the bundle maps do.
+async function routerTable(read: SourceReader, repoPath: string): Promise<string> {
+  return (await read(ROUTER_TABLE_PATH)) ?? (await diskReader(repoPath)(ROUTER_TABLE_PATH)) ?? '';
 }
 
 interface StoredEdge {
@@ -605,7 +611,8 @@ interface BundlePass {
 // The bundle rows to rewrite: a bundle whose module row is stamped with
 // another map md5 or extractor version is re-read, one with no in-repo
 // source (or an unreadable map) loses its row, and a bundle row whose map is
-// no longer listed is gone.
+// no longer listed is gone. A path in `dropped` loses its rows before the
+// pass is applied, so its stamp does not count.
 async function readBundles(
   db: TrajectoryDB,
   repo: string,
@@ -613,12 +620,13 @@ async function readBundles(
   maps: BundleMap[],
   version: string,
   read: SourceReader,
+  dropped: ReadonlySet<string>,
 ): Promise<BundlePass> {
   const fromDisk = diskReader(repoPath);
   const stamps = new Map(
     db
       .all<{ path: string; body_hash: string }>(`SELECT path, body_hash FROM wm_symbols WHERE repo = ? AND kind = 'module'`, [repo])
-      .filter((r) => isGeneratedPath(r.path))
+      .filter((r) => isGeneratedPath(r.path) && !dropped.has(r.path))
       .map((r) => [r.path, r.body_hash]),
   );
   const pass: BundlePass = { write: [], gone: [], failed: [] };
@@ -656,30 +664,56 @@ export async function indexRepoSymbols(
   maps?: BundleMap[],
   read: SourceReader = diskReader(repoPath),
 ): Promise<SymbolIndexStats & { failed_paths: FailedPath[] }> {
+  return applyRepoSymbols(db, await planRepoSymbols(db, repo, repoPath, extractorVersion, maps, read));
+}
+
+// What indexRepoSymbols writes, read and parsed with no write: applyRepoSymbols
+// writes it synchronously, so a caller can read every blob first and then
+// commit in one transaction with no await inside (GH 2584). `files` are the
+// repo's wm_files rows as they will be when the plan is applied, for a caller
+// whose file writes have not run yet; without it they are read from wm_files.
+export interface SymbolPlan {
+  repo: string;
+  version: string;
+  parsed: Parsed[];
+  failed: Array<{ file: StaleFile; error: string }>;
+  bundles: BundlePass;
+}
+
+function byPath(a: { path: string }, b: { path: string }): number {
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+}
+
+export async function planRepoSymbols(
+  db: TrajectoryDB,
+  repo: string,
+  repoPath: string,
+  extractorVersion: number = EXTRACTOR_VERSION,
+  maps?: BundleMap[],
+  read: SourceReader = diskReader(repoPath),
+  files?: ReadonlyArray<IndexedFile>,
+): Promise<SymbolPlan> {
   const version = String(extractorVersion);
-  const stale = db
-    .all<StaleFile & { size_bytes: number }>(
-      `SELECT id, path, content_md5, size_bytes FROM wm_files
-        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
-          AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
-      [repo, version, version, FAILED_SUFFIX],
-    )
-    .filter((f) => inSymbolScope(f.path));
+  const stored = db.all<IndexedFile>(`SELECT path, content_md5, size_bytes, symbols_md5 FROM wm_files WHERE repo = ? ORDER BY path`, [repo]);
+  const rows = files ? [...files].sort(byPath) : stored;
+  const kept = new Set(rows.map((f) => f.path));
+  const dropped = new Set(stored.map((f) => f.path).filter((p) => !kept.has(p)));
+  const isStale = (f: IndexedFile): boolean =>
+    f.symbols_md5 !== `${f.content_md5}:${version}` && f.symbols_md5 !== `${f.content_md5}:${version}${FAILED_SUFFIX}`;
+  const stale: StaleFile[] = rows
+    .filter((f) => isStale(f) && inSymbolScope(f.path))
+    .map(({ path, content_md5, size_bytes }) => ({ path, content_md5, size_bytes }));
   if (stale.some((f) => f.path === ROUTER_TABLE_SOURCE) && !stale.some((f) => f.path === HOOKS_PATH)) {
-    const hooksFile = db.get<StaleFile & { size_bytes: number }>(
-      `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
-      [repo, HOOKS_PATH],
-    );
-    if (hooksFile) stale.push(hooksFile);
+    const hooksFile = rows.find((f) => f.path === HOOKS_PATH);
+    if (hooksFile) stale.push({ path: hooksFile.path, content_md5: hooksFile.content_md5, size_bytes: hooksFile.size_bytes });
   }
-  const jobs: Array<{ file: StaleFile & { size_bytes: number }; lang: SourceLanguage | null; src?: string | null }> = [];
+  const jobs: Array<{ file: StaleFile; lang: SourceLanguage | null; src?: string | null }> = [];
   for (const f of stale) jobs.push({ file: f, ...(await sourceLanguage(read, f.path, Number(f.size_bytes))) });
   const parsers: Parsers | null = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
   let router: string | null = null;
 
   let known: RepoPaths | null = null;
-  const knownPaths = (): RepoPaths =>
-    (known ??= repoPaths(db.all<{ path: string }>(`SELECT path FROM wm_files WHERE repo = ?`, [repo]).map((r) => r.path)));
+  const knownPaths = (): RepoPaths => (known ??= repoPaths([...kept]));
 
   const failed: Array<{ file: StaleFile; error: string }> = [];
   const parsed: Parsed[] = [];
@@ -693,7 +727,7 @@ export async function indexRepoSymbols(
     try {
       const src = head ?? (await read(file.path));
       if (src === null) throw new Error(`cannot read ${file.path}`);
-      if (isHooks) router ??= await routerTable(read);
+      if (isHooks) router ??= await routerTable(read, repoPath);
       const extraction = isHooks
         ? extractHooks(src, router ?? '')
         : env
@@ -704,8 +738,14 @@ export async function indexRepoSymbols(
       failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
     }
   }
-  const bundles: BundlePass = maps ? await readBundles(db, repo, repoPath, maps, version, read) : { write: [], gone: [], failed: [] };
+  const bundles: BundlePass = maps
+    ? await readBundles(db, repo, repoPath, maps, version, read, dropped)
+    : { write: [], gone: [], failed: [] };
+  return { repo, version, parsed, failed, bundles };
+}
 
+export function applyRepoSymbols(db: TrajectoryDB, plan: SymbolPlan): SymbolIndexStats & { failed_paths: FailedPath[] } {
+  const { repo, version, parsed, failed, bundles } = plan;
   return db.transaction(() => {
     const writer = new SymbolWriter(db, repo);
     const pending: PendingEdge[] = [];
@@ -717,11 +757,16 @@ export async function indexRepoSymbols(
       } else {
         deleteFileSymbols(db, repo, file.path);
       }
-      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [version, file.id]);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE repo = ? AND path = ?`, [version, repo, file.path]);
     }
     for (const { file } of failed) {
       deleteFileSymbols(db, repo, file.path);
-      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version, FAILED_SUFFIX, file.id]);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE repo = ? AND path = ?`, [
+        version,
+        FAILED_SUFFIX,
+        repo,
+        file.path,
+      ]);
     }
     for (const { path, extraction } of bundles.write) {
       if (extraction) {
