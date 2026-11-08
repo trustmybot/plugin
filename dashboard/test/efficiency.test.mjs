@@ -5,10 +5,11 @@
 // `repos` row points at it, with first-pass, two-swe-run and reviewer-fail
 // tasks across three local ISO weeks, n<3 groups, and tasks the endpoint must
 // skip (unknown repo, missing or relative path, bad or unknown SHA, no repo).
-// Check GET /api/insights/efficiency against hand-computed values, its filters
-// and 400s, that the DB file and the repo are unchanged after the requests,
-// that another endpoint answers while git holds a cold request, and render the
-// Efficiency section to static HTML.
+// Check GET /api/insights/efficiency and GET /api/insights/efficiency/compare
+// (GH 2069) against hand-computed values, their filters, periods and 400s,
+// that the DB file and the repo are unchanged after the requests, that another
+// endpoint answers while git holds a cold request and that a cold compare runs
+// git at most twice per repo, and render the Efficiency section to static HTML.
 process.env.TZ = 'America/Los_Angeles';
 
 import { after, before, describe, test } from 'node:test';
@@ -181,7 +182,7 @@ before(async () => {
         };
         export const page = (hash, data, efficiency) => withHash(hash, () =>
           renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data, error: null }, efficiency: { data: efficiency, error: null } })));
-        export { commitType, numstatPath, isGenerated, isDoc, parseNumstat, linesOf, localMonday, commitsOf, parseLog, efficiency } from './server/efficiency.ts';
+        export { commitType, numstatPath, isGenerated, isDoc, parseNumstat, linesOf, localMonday, commitsOf, parseLog, efficiency, efficiencyCompare } from './server/efficiency.ts';
         export { insightFilter } from './server/queries.ts';
         export { paramsOf, copy };`,
       resolveDir: DASH,
@@ -200,10 +201,11 @@ before(async () => {
 });
 after(() => server?.stop());
 
-const get = async (query) => {
-  const res = await fetch(`${server.url}api/insights/efficiency?${query}`);
+const get = async (query, path = 'efficiency') => {
+  const res = await fetch(`${server.url}api/insights/${path}?${query}`);
   return { status: res.status, body: await res.json() };
 };
+const getCompare = (query) => get(query, 'efficiency/compare');
 const row = (list, key, value) => list.find((r) => r[key] === value);
 const NULL_METRICS = {
   first_pass_rate: null,
@@ -304,6 +306,80 @@ const WEEKS = [
   },
   { week: WEEK_C, n: 1, zero_line: 0, few: true, ...NULL_METRICS },
 ];
+// Overall is the code types pooled: T1–T8, T12 (O1 800 / 8, cost 3600,
+// context 100, 16 s) and T13 (T1 200 / 12, cost 600, context 100, 1 s).
+const OVERALL = {
+  n: 9,
+  zero_line: 1,
+  few: false,
+  first_pass_rate: 6 / 9,
+  fp_tok_line: 8600 / 66,
+  fp_tok_line_median: 100,
+  rw_tok_line: 16000 / 70,
+  rw_tok_line_median: 200,
+  rework_share: 43285 / 64750,
+  cache_hit: 9650 / 12460,
+  fp_sec_line: 209 / 66,
+  rw_sec_line: 260 / 70,
+};
+// tasks:1-12 is OVERALL without T13.
+const OVERALL_1_12 = {
+  ...OVERALL,
+  n: 8,
+  first_pass_rate: 5 / 8,
+  fp_tok_line: 8400 / 54,
+  rework_share: 43285 / 64150,
+  cache_hit: 9650 / 12360,
+  fp_sec_line: 208 / 54,
+};
+const FEW_NULL = (n, zero_line = 0) => ({ n, zero_line, few: true, ...NULL_METRICS });
+// dates:2025-03-10..2025-03-13 holds T3, T4, T7 (Sunday night PDT is
+// 2025-03-10 UTC), T8 and the docs tasks.
+const OVERALL_MAR_10_13 = {
+  n: 4,
+  zero_line: 0,
+  few: false,
+  first_pass_rate: 0.5,
+  fp_tok_line: 4600 / 31,
+  fp_tok_line_median: 100,
+  rw_tok_line: 10000 / 50,
+  rw_tok_line_median: 200,
+  rework_share: 27600 / 36990,
+  cache_hit: 5800 / 7760,
+  fp_sec_line: 92 / 31,
+  rw_sec_line: 160 / 50,
+};
+// dates:2025-02-01..2025-03-09 holds T1, T2, T5, T6, T12, T13 and T14–T19.
+const OVERALL_FEB_1_MAR_9 = {
+  n: 5,
+  zero_line: 1,
+  few: false,
+  first_pass_rate: 4 / 5,
+  fp_tok_line: 4000 / 35,
+  fp_tok_line_median: 100,
+  rw_tok_line: 300,
+  rw_tok_line_median: 300,
+  rework_share: 15685 / 27760,
+  cache_hit: 3850 / 4700,
+  fp_sec_line: 117 / 35,
+  rw_sec_line: 100 / 20,
+};
+const WEEK_A_FEB_1_MAR_9 = {
+  week: WEEK_A,
+  n: 4,
+  zero_line: 1,
+  few: false,
+  first_pass_rate: 3 / 4,
+  fp_tok_line: 3800 / 23,
+  fp_tok_line_median: 100,
+  rw_tok_line: 300,
+  rw_tok_line_median: 300,
+  rework_share: 15685 / 27160,
+  cache_hit: 3850 / 4600,
+  fp_sec_line: 116 / 23,
+  rw_sec_line: 100 / 20,
+};
+const groupPart = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'type' && k !== 'week'));
 
 function assertGroup(actual, expected) {
   assert.ok(actual, JSON.stringify(expected));
@@ -378,6 +454,16 @@ describe('GET /api/insights/efficiency', () => {
     assert.equal(body.range.since, null);
   });
 
+  test('GH 2069: overall pools the code types, beside the unchanged fields', async () => {
+    const { body } = await get('range=all');
+    assert.deepEqual(Object.keys(body), ['range', 'filters', 'overall', 'by_type', 'by_week', 'skipped']);
+    assertGroup(body.overall, OVERALL);
+    const codeN = body.by_type.filter((r) => r.type !== 'docs').reduce((s, r) => s + r.n, 0);
+    assert.equal(body.overall.n, codeN);
+    const high = (await get('range=all&effort=high')).body;
+    assertGroup(high.overall, groupPart(FEAT));
+  });
+
   test('Repo and Effort filter; Agent and Model do not apply', async () => {
     const proj = (await get('range=all&repo=proj')).body;
     assert.equal(proj.skipped, SKIPPED_PROJ);
@@ -415,6 +501,118 @@ describe('GET /api/insights/efficiency', () => {
 
   test('SC5: the DB file, the repo status and HEAD are unchanged after the requests', async () => {
     await get('range=all');
+    assert.deepEqual(fingerprint(), before_);
+  });
+});
+
+describe('GET /api/insights/efficiency/compare (GH 2069)', () => {
+  const types = (side) => side.by_type.map((r) => r.type);
+  const weeks = (side) => side.by_week.map((r) => r.week);
+
+  test('task periods select by t.id; disjoint ranges share no task', async () => {
+    const { status, body } = await getCompare('p1=tasks:1-12&p2=tasks:13-19');
+    assert.equal(status, 200);
+    assert.deepEqual(Object.keys(body), ['p1', 'p2', 'filters', 'shared_tasks']);
+    assert.deepEqual(Object.keys(body.p1), ['slice', 'overall', 'by_type', 'by_week', 'skipped']);
+    assert.deepEqual(body.filters, { repo: null, effort: null });
+    assert.equal(body.shared_tasks, 0);
+    const { p1, p2 } = body;
+    assert.deepEqual([p1.slice.kind, p1.slice.from_task, p1.slice.to_task], ['tasks', 1, 12]);
+    assert.ok(p1.overall.n > 0 && p2.overall.n > 0);
+    assertGroup(p1.overall, OVERALL_1_12);
+    assert.deepEqual(types(p1), ['feat', 'fix', 'other', 'docs']);
+    assertGroup(row(p1.by_type, 'type', 'feat'), FEAT);
+    assertGroup(row(p1.by_type, 'type', 'fix'), FIX);
+    assertGroup(row(p1.by_type, 'type', 'other'), OTHER);
+    assertGroup(row(p1.by_type, 'type', 'docs'), DOCS);
+    assert.deepEqual(weeks(p1), [WEEK_A, WEEK_B]);
+    WEEKS.slice(0, 2).forEach((w, i) => assertGroup(p1.by_week[i], w));
+    assert.equal(p1.skipped, 0);
+    assertGroup(p2.overall, FEW_NULL(1));
+    assert.deepEqual(types(p2), ['test']);
+    assertGroup(p2.by_type[0], TEST);
+    assert.deepEqual(weeks(p2), [WEEK_C]);
+    assertGroup(p2.by_week[0], WEEKS[2]);
+    assert.equal(p2.skipped, SKIPPED);
+  });
+
+  test('overlapping task ranges count their shared tasks, each side binning its own weeks', async () => {
+    const { body } = await getCompare('p1=tasks:1-12&p2=tasks:5-8');
+    assert.equal(body.shared_tasks, 4);
+    assertGroup(body.p1.overall, OVERALL_1_12);
+    const { p2 } = body;
+    assertGroup(p2.overall, { ...groupPart(FIX), zero_line: 1 });
+    assert.deepEqual(types(p2), ['fix', 'feat']);
+    assertGroup(p2.by_type[0], FIX);
+    assertGroup(p2.by_type[1], FEW_NULL(0, 1));
+    assert.deepEqual(weeks(p2), [WEEK_A, WEEK_B]);
+    assertGroup(p2.by_week[0], FEW_NULL(2, 1));
+    assertGroup(p2.by_week[1], FEW_NULL(1));
+  });
+
+  test('date periods select by t.completed_at in [since, until)', async () => {
+    const { status, body } = await getCompare('p1=dates:2025-03-10..2025-03-13&p2=dates:2025-02-01..2025-03-09');
+    assert.equal(status, 200);
+    assert.equal(body.shared_tasks, 0);
+    const { p1, p2 } = body;
+    assert.deepEqual([p1.slice.since, p1.slice.until], ['2025-03-10T00:00:00.000Z', '2025-03-14T00:00:00.000Z']);
+    assertGroup(p1.overall, OVERALL_MAR_10_13);
+    assert.deepEqual(types(p1), ['feat', 'fix', 'docs']);
+    assertGroup(p1.by_type[0], FEW_NULL(2));
+    assertGroup(p1.by_type[1], FEW_NULL(2));
+    assertGroup(p1.by_type[2], DOCS);
+    assert.deepEqual(weeks(p1), [WEEK_B, WEEK_A]);
+    assertGroup(p1.by_week[0], WEEKS[1]);
+    assertGroup(p1.by_week[1], FEW_NULL(1));
+    assert.equal(p1.skipped, 0);
+    assertGroup(p2.overall, OVERALL_FEB_1_MAR_9);
+    assert.deepEqual(types(p2), ['feat', 'fix', 'other', 'test']);
+    assertGroup(p2.by_type[0], FEW_NULL(2, 1));
+    assert.deepEqual(weeks(p2), [WEEK_A, WEEK_C]);
+    assertGroup(p2.by_week[0], WEEK_A_FEB_1_MAR_9);
+    assertGroup(p2.by_week[1], FEW_NULL(1));
+    assert.equal(p2.skipped, SKIPPED);
+  });
+
+  test('a date period includes its since and excludes its until', async () => {
+    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    try {
+      const dates = { key: 'd', kind: 'dates', since: '2025-03-12T18:00:00.000Z', until: '2025-03-13T18:00:00.000Z', from_task: null, to_task: null };
+      const tasks = { key: 't', kind: 'tasks', since: null, until: null, from_task: 4, to_task: 8 };
+      const body = await mod.efficiencyCompare(db, mod.insightFilter(new URLSearchParams()), dates, tasks);
+      assert.deepEqual(body.p1.by_type.map((r) => [r.type, r.n]), [['feat', 1]]);
+      assert.equal(body.shared_tasks, 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test('Repo and Effort filter, range is ignored, Agent and Model do not apply', async () => {
+    const { status, body } = await getCompare('p1=tasks:1-12&p2=tasks:-&repo=proj&effort=high&range=bogus&agent=bro&model=m');
+    assert.equal(status, 200);
+    assert.deepEqual(body.filters, { repo: 'proj', effort: 'high' });
+    assert.equal(body.shared_tasks, 5);
+    assertGroup(body.p1.overall, groupPart(FEAT));
+    assert.deepEqual(types(body.p2), ['feat']);
+    assert.equal(body.p2.skipped, SKIPPED_PROJ);
+  });
+
+  test('a missing or bad period, or a bad agent, is a 400', async () => {
+    for (const [q, error] of [
+      ['p2=7d', /^p1 must be a period/],
+      ['p1=tasks:1-12', /^p2 must be a period/],
+      ['p1=bogus&p2=7d', /^p1 must be a period/],
+      ['p1=7d&p2=tasks:9-3', /^p2 must be a period/],
+      ['p1=7d&p2=30d&agent=bogus', /must be one of/],
+    ]) {
+      const { status, body } = await getCompare(q);
+      assert.equal(status, 400, q);
+      assert.match(body.error, error, q);
+    }
+  });
+
+  test('the DB file, the repo status and HEAD are unchanged after compare requests', async () => {
+    await getCompare('p1=tasks:1-12&p2=tasks:5-19');
     assert.deepEqual(fingerprint(), before_);
   });
 });
@@ -487,6 +685,23 @@ wait();
     const warm = await (await fetch(`${slow.url}api/insights/efficiency?range=all`)).json();
     assertGroup(row(warm.by_type, 'type', 'feat'), FEAT);
     assert.ok(!calls().slice(cold).some(([, sub]) => sub === 'log'));
+  });
+
+  test('a cold compare loads both periods with git at most twice per repo', async () => {
+    const fresh = await startServer(DB_PATH, { PATH: `${SHIM_DIR}:${process.env.PATH}` });
+    try {
+      writeFileSync(RELEASE, '');
+      const start = existsSync(CALLS) ? calls().length : 0;
+      const res = await fetch(`${fresh.url}api/insights/efficiency/compare?p1=tasks:1-12&p2=tasks:5-19`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.shared_tasks, 8);
+      assertGroup(body.p1.overall, OVERALL_1_12);
+      assert.equal(body.p2.skipped, SKIPPED);
+      assert.deepEqual(byRepo(calls().slice(start)), { [REPO]: ['cat-file', 'log'], [join(tmp, 'missing')]: ['cat-file'] });
+    } finally {
+      await fresh.stop();
+    }
   });
 });
 

@@ -664,21 +664,21 @@ export function parseSlice(s: string, now: Date): Slice | { error: string } {
 // The SQL bounds of a period: time >= since and < before, task_id BETWEEN
 // from_task and to_task, each end unbounded when null. A preset range keeps
 // /api/insights' open upper end, so a run stamped at or after `now` still counts.
-interface Period {
+export interface Period {
   since: string | null;
   before: string | null;
   fromTask: number | null;
   toTask: number | null;
 }
 
-const periodOf = (s: Slice): Period => ({
+export const periodOf = (s: Slice): Period => ({
   since: s.since,
   before: s.kind === 'range' ? null : s.until,
   fromTask: s.from_task,
   toTask: s.to_task,
 });
 
-function periodWhere(p: Period, time: string, task: string): { sql: string; args: Array<string | number | null> } {
+export function periodWhere(p: Period, time: string, task: string): { sql: string; args: Array<string | number | null> } {
   return {
     sql: `(? IS NULL OR ${time} >= ?) AND (? IS NULL OR ${time} < ?) AND (? IS NULL OR ${task} >= ?) AND (? IS NULL OR ${task} <= ?)`,
     args: [p.since, p.since, p.before, p.before, p.fromTask, p.fromTask, p.toTask, p.toTask],
