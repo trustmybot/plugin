@@ -97,9 +97,14 @@ export interface RefList {
   truncated: boolean;
 }
 
+export interface ImpactRef extends SymbolRef {
+  via: 'call' | `table:${string}`;
+}
+
 export interface ImpactLevel {
   depth: number;
-  refs: SymbolRef[];
+  refs: ImpactRef[];
+  total: number;
 }
 
 export interface SymbolImpact {
@@ -786,29 +791,53 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   return card;
 }
 
-// Transitive inbound callers over CALL_EDGES, breadth-first and grouped by
-// hop. A test-path caller lands in tests and is not walked past; the visited
-// set ends cycles; past IMPACT_REF_CAP refs the walk stops with truncated.
+interface ImpactRow extends EdgeEnd {
+  table_name: string | null;
+}
+
+// Transitive inbound impact, breadth-first and grouped by hop: callers over
+// CALL_EDGES (via 'call'), then readers of every table a walked symbol writes
+// (via 'table:<name>'). A test-path source of any non-bundles edge into a
+// walked symbol lands in tests and is not walked past; a test module that
+// only imports is skipped when its file is already in tests. The visited set
+// ends cycles; past IMPACT_REF_CAP refs the walk stops with truncated.
 export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number): SymbolImpact {
   const visited = new Set<number>([symbol.id]);
+  const testPaths = new Set<string>();
   const levels: ImpactLevel[] = [];
   const tests: SymbolRef[] = [];
   let total = 0;
   let truncated = false;
   let frontier = [symbol.id];
   for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
-    const rows = db.all<EdgeEnd>(
-      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+    const ids = JSON.stringify(frontier);
+    const callRows = db.all<ImpactRow>(
+      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line, NULL AS table_name
          FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
-        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
-        ORDER BY o.path, o.start_line, o.id`,
-      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)],
+        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind != 'bundles'
+        ORDER BY e.kind NOT IN (SELECT value FROM json_each(?)), o.path, o.start_line, o.id`,
+      [ids, JSON.stringify(CALL_EDGES)],
     );
-    const refs: SymbolRef[] = [];
+    const tableRows = db.all<ImpactRow>(
+      `SELECT DISTINCT r.kind AS edge_kind, r.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line, t.qualified_name AS table_name
+         FROM wm_edges w
+         JOIN wm_symbols t ON t.id = w.dst_id AND t.kind = 'sql_table'
+         JOIN wm_edges r ON r.dst_id = t.id AND r.kind = 'reads_table'
+         JOIN wm_symbols o ON o.id = r.src_id
+        WHERE w.src_id IN (SELECT value FROM json_each(?)) AND w.kind = 'writes_table'
+        ORDER BY t.qualified_name, o.path, o.start_line, o.id`,
+      [ids],
+    );
+    const refs: ImpactRef[] = [];
     const next: number[] = [];
-    for (const r of rows) {
+    for (const r of [...callRows, ...tableRows]) {
       const id = Number(r.id);
       if (visited.has(id)) continue;
+      const isCall = CALL_EDGES.includes(r.edge_kind);
+      const test = r.path !== null && isTestPath(r.path);
+      const tableName = r.table_name;
+      if (!test && !isCall && tableName === null) continue;
+      if (test && !isCall && testPaths.has(r.path!)) continue;
       if (total >= IMPACT_REF_CAP) {
         truncated = true;
         break;
@@ -823,14 +852,15 @@ export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number)
         path: r.path!,
         line_start: Number(r.start_line),
       };
-      if (isTestPath(ref.path)) {
+      if (test) {
         tests.push(ref);
+        testPaths.add(ref.path);
       } else {
-        refs.push(ref);
+        refs.push({ ...ref, via: tableName === null ? 'call' : `table:${tableName}` });
         next.push(id);
       }
     }
-    if (refs.length > 0) levels.push({ depth: d, refs });
+    if (refs.length > 0) levels.push({ depth: d, refs, total: refs.length });
     frontier = next;
   }
   return { depth, levels, tests, truncated };
