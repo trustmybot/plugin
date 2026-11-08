@@ -270,6 +270,8 @@ describe('compare mode render', () => {
     const html = mod.page(`#/insights/cost?range=30d${DATES}`, mod.comparison(priced, 'prev90d', '7d'));
     assert.ok(html.includes(mod.copy.BRO_COST_PER_SESSION));
     assert.match(html, /data-compare-tile="cost"/);
+    assert.ok(html.includes('bro cost per session'));
+    assert.ok(!html.includes('bro cost per run'));
     const off = mod.page(`#/insights/cost?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-'));
     assert.ok(off.includes(mod.NO_PRICES));
     assert.ok(!off.includes('data-pair='));
