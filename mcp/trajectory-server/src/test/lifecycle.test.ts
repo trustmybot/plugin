@@ -346,8 +346,8 @@ describe('issue_close: review evidence for closed tasks', () => {
 
   it('cli.js integrate queries the shared pass rule', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'integrate.ts'), 'utf8');
-    assert.match(src, /^import \{ HAS_PASS_SQL \} from '\.\.\/review-sql\.js';$/m);
-    assert.match(src, /\|\| \$\{HAS_PASS_SQL\}\n  FROM tasks t WHERE t\.id = /);
+    assert.match(src, /^import \{ HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL \} from '\.\.\/review-sql\.js';$/m);
+    assert.match(src, /\|\| COALESCE\(\$\{REVIEW_ANCHOR_AT_SQL\}, ''\) \|\| char\(10\) \|\| \$\{HAS_PASS_SQL\}\n  FROM tasks t WHERE t\.id = /);
   });
 
   it('waive_review + reason closes and writes review_gate_waived per task', async () => {
