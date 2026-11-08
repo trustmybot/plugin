@@ -233,10 +233,15 @@ const V33_RUN_WRITERS_SINCE = {
   min_schema: 33,
 } as const;
 
-/** Columns added in v29–v33 that stay NULL by design; they get no contract. */
+/** Columns (v29–v33, and repo_env's from v58) that stay NULL by design; they get no contract. */
 export const NULLABLE_COLUMNS: readonly NullableColumn[] = [
   { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
   { table: 'agent_runs', column: 'spawn_id', reason: 'set only on swe rows (one per Agent-tool spawn); bro rows have no spawn' },
+  { table: 'repo_env', column: 'confirmed_by', reason: 'stays NULL until the Human confirms the profile' },
+  { table: 'repo_env', column: 'runner_prefix', reason: "NULL when the ecosystem's commands run with no prefix" },
+  { table: 'repo_env', column: 'overrides_json', reason: 'NULL until an env_record call passes overrides' },
+  { table: 'repo_env', column: 'waivers_json', reason: 'NULL until an env_record call passes waivers' },
+  { table: 'repo_env', column: 'declined_json', reason: 'NULL until an env_record call passes declined items' },
 ];
 
 // bro is metered per session (one bro row per session, task_id NULL); the
