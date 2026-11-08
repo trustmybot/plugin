@@ -196,6 +196,7 @@ export const COST_PER_RUN_UNIT = 'USD per Run';
 export const BRO_COST_PER_SESSION = 'bro Cost per Session';
 export const COST_PER_SESSION_UNIT = 'USD per Session';
 export const costPerRunSubject = (name: string) => `${name} cost per run`;
+export const costPerSessionSubject = (name: string) => `${name} cost per session`;
 export const periodCost = (n: 1 | 2) => `${periodName(n)} USD per Run`;
 export const periodUnpriced = (n: 1 | 2, count: number) =>
   `${periodName(n)}: ${count} measured ${count === 1 ? 'run has' : 'runs have'} no price for their model and ${count === 1 ? 'is' : 'are'} left out.`;

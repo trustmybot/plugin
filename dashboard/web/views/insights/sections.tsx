@@ -45,6 +45,7 @@ import {
   NO_RUNS_EITHER,
   OUTLIERS_P2,
   costPerRunSubject,
+  costPerSessionSubject,
   compareMeasured,
   noRunsEither,
   noRunsIn,
@@ -951,7 +952,7 @@ export function CompareCostSection(props: CompareProps) {
             table={{ columns: [NAME_HEADER, periodName(1), periodName(2), periodRuns(1, 'session'), periodRuns(2, 'session')], rows: [['bro', usdCell(broCost.p1), usdCell(broCost.p2), broCost.runs1, broCost.runs2]] }}
             caption={`${LOWER_BETTER} ${BRO_CAPTION}`}
           >
-            <CompareTile title="bro" measure="cost" subject={costPerRunSubject('bro')} p1={broCost.p1} p2={broCost.p2} format={money} />
+            <CompareTile title="bro" measure="cost" subject={costPerSessionSubject('bro')} p1={broCost.p1} p2={broCost.p2} format={money} />
           </ChartCard>
         )}
         <CompareCostCard title={COST_PER_RUN_MODEL} rows={modelRows} compare={compare} />
