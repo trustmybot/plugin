@@ -4,7 +4,7 @@
 // --check exits 1 (writing nothing) when the committed file is stale.
 // Run after `npm run build` in mcp/trajectory-server.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dataContractsJson } from '../../mcp/trajectory-server/dist/data-contracts.js';
@@ -27,5 +27,8 @@ if (process.argv.includes('--check')) {
   process.exit(0);
 }
 
-if (have !== want) writeFileSync(out, want);
+if (have !== want) {
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, want);
+}
 console.log(`wrote ${out}`);
