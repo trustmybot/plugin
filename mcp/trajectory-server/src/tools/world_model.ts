@@ -909,8 +909,8 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
-        "note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by, up to 50 refs each, with full-count totals. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
+        "note flags by-name resolution, so lists may be incomplete. symbol.stale: file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
       inputSchema: {
         type: 'object',
         properties: {
