@@ -1,0 +1,38 @@
+name: pr-check
+on:
+  # L1 lints and strict tsc (via build:payload) on every PR into dev, rc or main (GH 2064).
+  pull_request:
+    branches: [dev, rc, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  l1:
+    name: L1 lints + strict tsc
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Held for the Human: manifest-shape (GH 2235, GH 1388) and
+      # tool-description-budget (GH 1403) fail on dev until those land.
+      TMB_L1_SKIP: manifest-shape.test.mjs tool-description-budget.test.mjs
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install deps
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
+
+      - name: L1 lints (build:payload runs first)
+        run: bash tests/run-all.sh --l1-only

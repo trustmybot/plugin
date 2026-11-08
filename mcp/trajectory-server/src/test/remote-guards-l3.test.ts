@@ -157,7 +157,7 @@ describe('remote-id-guard l3', () => {
     let overrun: HookRun;
     let elapsed: number;
 
-    it("GH 1821: heredoc + compound gh api && python3 - <<'EOF' repro: allowed well under 6 s", () => {
+    it("GH 1821: heredoc + compound gh api && python3 - <<'EOF' repro: the command is allowed", () => {
       const c = materialize(join(CORPUS, 'bash-gh-api-heredoc-compound.json'), sb.dir, { noJq: '', noSqlite: '' });
       const r = run(c.input);
       assert.equal(r.status, 0, 'repro exit code');
