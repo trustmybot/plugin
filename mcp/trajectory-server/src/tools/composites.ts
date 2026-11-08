@@ -35,7 +35,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh } from '../world-model/freshness.js';
+import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -1509,7 +1509,7 @@ export function compositeTools(
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
         "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
-        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
         'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
@@ -1541,7 +1541,7 @@ export function compositeTools(
     const target = baseRef ? revParseCommit(repoPath, baseRef) : null;
     if (!graph || !repo || !target) return;
     try {
-      await ensureFresh(db, graph, repo, { dbPath, trigger: 'spawn', target, wait: true });
+      await ensureFresh(db, graph, repo, { dbPath, trigger: 'spawn', target, targetRef: baseRef, wait: true });
     } catch (e) {
       serverLog({ event: 'wm_spawn_reindex_error', repo, error: (e as Error).message });
     }
@@ -2514,6 +2514,7 @@ export function compositeTools(
             : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
+          ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),
         };
         return ok(trimmed ? { ...brief, response_format_hint: BRIEF_RESPONSE_FORMAT_HINT } : brief);
       }),

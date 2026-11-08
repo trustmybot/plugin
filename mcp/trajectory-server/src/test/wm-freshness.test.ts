@@ -13,7 +13,8 @@ import { reindexHooks, scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
 import { compositeTools } from '../tools/composites.js';
 import { ensureFresh, reindexIdle, type Freshness } from '../world-model/freshness.js';
-import { scanLockPath } from '../utils/scan-lock.js';
+import { sweepStaleAtStartup } from '../startup-catchup.js';
+import { releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 import { CommitContent, resolveRefCommit } from '../utils/git-objects.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -615,6 +616,213 @@ describe('one transaction (SC7)', () => {
       assert.equal(libStamp(), libTip);
       assert.equal(stamp(fx.db), appTip, 'the lib reindex left the app stamp alone');
     } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+interface FreshnessDbRow {
+  repo: string;
+  target_ref: string | null;
+  target_commit: string | null;
+  target_fetched_at: string | null;
+  reindex_state: string;
+  reindex_mode: string | null;
+  reindex_trigger: string | null;
+  reindex_started_at: string | null;
+  reindex_finished_at: string | null;
+  reindex_elapsed_ms: number | null;
+  reindex_outcome: string | null;
+  updated_at: string;
+}
+
+const freshnessRow = (db: TrajectoryDB, repo = 'app'): FreshnessDbRow | undefined =>
+  db.get<FreshnessDbRow>(`SELECT * FROM wm_freshness WHERE repo = ?`, [repo]);
+
+const fileCount = (db: TrajectoryDB) => db.get<{ n: number }>(`SELECT file_count AS n FROM repos WHERE name = 'app'`)!.n;
+
+describe('a full scan applies in one transaction (GH 2584 task D, SC1)', () => {
+  const change = { 'src/a.ts': 'export function alpha(): number {\n  return 11;\n}\n', 'lib/d.ts': 'export function delta(): number {\n  return 11;\n}\n' };
+  const scanRaw = async (fx: Fx): Promise<{ error: string | null }> => {
+    const handlers = scanTools(fx.db, fx.holder, fx.dbPath).handlers as Handlers;
+    try {
+      const r = (await handlers['scan_run']!({ agent: 'bro', session_dir: fx.ws, source: 'user_manual' })) as Raw;
+      return { error: r.isError ? r.content[0]!.text : null };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  };
+
+  for (const seam of ['afterGraph', 'afterIndex'] as const) {
+    it(`a second connection reading at ${seam} sees the pre-scan snapshot, then the new one after commit`, async () => {
+      const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+      const reader = new TrajectoryDB(fx.dbPath);
+      try {
+        const before = { ...snapshot(reader), file_count: fileCount(reader) };
+        assert.ok(before.files.length > 0 && before.symbols.length > 0, 'the fixture scan indexed rows');
+        const head = fx.commit(change);
+        let seen: (ReturnType<typeof snapshot> & { file_count: number }) | null = null;
+        reindexHooks[seam] = () => {
+          seen = { ...snapshot(reader), file_count: fileCount(reader) };
+        };
+        assert.equal((await scanRaw(fx)).error, null);
+        assert.ok(seen, 'the seam ran inside the scan');
+        assert.deepEqual(seen, before, 'the reader saw only the old snapshot, never zero rows');
+        assert.equal(stamp(reader), head);
+        assert.equal(fileCount(reader), 3);
+        assert.ok(symbol(reader, 'delta'), 'the new symbols');
+        assert.ok(reader.get(`SELECT 1 AS ok FROM wm_files WHERE repo = 'app' AND path = 'lib/d.ts'`), 'the new files');
+      } finally {
+        reader.close();
+        fx.cleanup();
+      }
+    });
+
+    it(`a throw at ${seam} rolls back repos, the graph, symbols and the stamp, and marks the reindex failed`, async () => {
+      const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+      try {
+        const before = { ...snapshot(fx.db), file_count: fileCount(fx.db) };
+        fx.commit(change);
+        reindexHooks[seam] = () => {
+          throw new Error('injected');
+        };
+        assert.match((await scanRaw(fx)).error ?? '', /injected/);
+        assert.deepEqual({ ...snapshot(fx.db), file_count: fileCount(fx.db) }, before);
+        const row = freshnessRow(fx.db)!;
+        assert.equal(row.reindex_state, 'failed');
+        assert.equal(row.reindex_outcome, 'error');
+        assert.equal(row.reindex_trigger, 'scan');
+        assert.equal(row.reindex_mode, 'full');
+        assert.ok(row.reindex_finished_at);
+        assert.equal(typeof row.reindex_elapsed_ms, 'number');
+      } finally {
+        fx.cleanup();
+      }
+    });
+  }
+});
+
+describe('wm_freshness (GH 2584 task D, SC3)', () => {
+  const tip = { 'src/a.ts': 'export function alpha(): number {\n  return 12;\n}\n' };
+
+  it('a reindex writes running with mode, trigger and started_at before its work, then idle/ok with the target', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B }, { remote: true });
+    const reader = new TrajectoryDB(fx.dbPath);
+    try {
+      const head = fx.commit(tip);
+      let during: FreshnessDbRow | undefined;
+      reindexHooks.afterGraph = () => {
+        during = freshnessRow(reader);
+      };
+      await fx.fresh();
+      assert.equal(during?.reindex_state, 'running', 'a reader sees running while the reindex works');
+      assert.equal(during?.reindex_mode, 'incremental');
+      assert.equal(during?.reindex_trigger, 'read');
+      assert.ok(during?.reindex_started_at);
+      assert.equal(during?.reindex_finished_at, null);
+      const row = freshnessRow(fx.db)!;
+      for (const key of [
+        'target_commit', 'reindex_state', 'reindex_mode', 'reindex_trigger', 'reindex_started_at',
+        'reindex_finished_at', 'reindex_elapsed_ms', 'reindex_outcome', 'updated_at',
+      ] as const) {
+        assert.notEqual(row[key], null, key);
+      }
+      assert.equal(row.target_fetched_at, null, 'target_fetched_at waits for the fetch task');
+      assert.deepEqual(
+        [row.target_ref, row.target_commit, row.reindex_state, row.reindex_mode, row.reindex_trigger, row.reindex_outcome],
+        ['origin/main', head, 'idle', 'incremental', 'read', 'ok'],
+      );
+      assert.equal(typeof row.reindex_elapsed_ms, 'number');
+      assert.ok(row.reindex_finished_at! >= row.reindex_started_at!);
+    } finally {
+      reader.close();
+      fx.cleanup();
+    }
+  });
+
+  it('a failed reindex ends failed/error with finished_at and elapsed_ms', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      fx.commit(tip);
+      reindexHooks.afterIndex = () => {
+        throw new Error('injected');
+      };
+      await assert.rejects(fx.fresh(), /injected/);
+      const row = freshnessRow(fx.db)!;
+      assert.deepEqual([row.reindex_state, row.reindex_outcome, row.reindex_mode], ['failed', 'error', 'incremental']);
+      assert.ok(row.reindex_finished_at);
+      assert.equal(typeof row.reindex_elapsed_ms, 'number');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a full scan records mode full, trigger scan and the target in its transaction', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      const head = fx.commit(tip);
+      await fx.scan('user_manual');
+      const row = freshnessRow(fx.db)!;
+      assert.deepEqual(
+        [row.reindex_state, row.reindex_mode, row.reindex_trigger, row.reindex_outcome, row.target_ref, row.target_commit],
+        ['idle', 'full', 'scan', 'ok', 'HEAD', head],
+      );
+      assert.equal(stamp(fx.db), head);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('startup_catchup is stored as startup; the audit row keeps startup_catchup', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      fx.commit(tip);
+      await ensureFresh(fx.db, fx.graph, 'app', { dbPath: fx.dbPath, trigger: 'startup_catchup' });
+      assert.equal(freshnessRow(fx.db)!.reindex_trigger, 'startup');
+      assert.equal(rows(fx.db).at(-1)!.trigger, 'startup_catchup');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('the target is written only when it changes', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      await fx.fresh();
+      fx.db.run(`UPDATE wm_freshness SET updated_at = 'sentinel' WHERE repo = 'app'`);
+      await fx.fresh();
+      assert.equal(freshnessRow(fx.db)!.updated_at, 'sentinel', 'an unchanged target writes nothing');
+      const head = fx.commit(tip);
+      await fx.fresh();
+      const row = freshnessRow(fx.db)!;
+      assert.equal(row.target_commit, head);
+      assert.notEqual(row.updated_at, 'sentinel');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('the startup sweep fails a running row no live lock holds and keeps one a live lock holds', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    const running = `UPDATE wm_freshness SET reindex_state = 'running', reindex_outcome = NULL, reindex_finished_at = NULL, reindex_elapsed_ms = NULL WHERE repo = 'app'`;
+    const repoLock = scanLockPath(fx.dbPath, 'app');
+    const workspaceLock = scanLockPath(fx.dbPath);
+    try {
+      fx.db.run(running);
+      assert.ok(tryLock(repoLock));
+      assert.deepEqual(sweepStaleAtStartup(fx.db, fx.dbPath), [], 'a live repo lock keeps the row');
+      releaseLock(repoLock);
+      assert.ok(tryLock(workspaceLock));
+      assert.deepEqual(sweepStaleAtStartup(fx.db, fx.dbPath), [], 'a live workspace lock keeps the row');
+      releaseLock(workspaceLock);
+      assert.equal(freshnessRow(fx.db)!.reindex_state, 'running');
+      assert.deepEqual(sweepStaleAtStartup(fx.db, fx.dbPath), ['app']);
+      const row = freshnessRow(fx.db)!;
+      assert.deepEqual([row.reindex_state, row.reindex_outcome], ['failed', 'error']);
+      assert.ok(row.reindex_finished_at);
+    } finally {
+      releaseLock(repoLock);
+      releaseLock(workspaceLock);
       fx.cleanup();
     }
   });

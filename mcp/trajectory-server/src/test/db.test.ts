@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=62 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=63 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -67,6 +67,8 @@ describe('TrajectoryDB', () => {
       'wm_concept_steps',
       'wm_concept_claims',
       'wm_concepts_fts',
+      // GH 2584 world-model freshness
+      'wm_freshness',
       // #659 cheatcode install stage
       'cheatcodes',
       'cheatcode_attachments',
@@ -84,7 +86,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 62);
+    assert.equal(meta.schema_version, 63);
 
     db.close();
   });

@@ -60,6 +60,8 @@ describe('schema — current table set, default values, constraints', () => {
       'wm_files_fts',
       'wm_directories_embeddings',
       'wm_files_embeddings',
+      // GH 2584 world-model freshness
+      'wm_freshness',
       // GH 1680 L1 symbol index
       'wm_symbols',
       'wm_edges',
@@ -292,14 +294,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 62 in plugin_meta', () => {
+  it('fresh DB has schema_version = 63 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 62);
+    assert.equal(meta.schema_version, 63);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

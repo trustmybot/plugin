@@ -33,7 +33,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
 import { CommitContent, lastCommitByPath, lsTree } from '../utils/git-objects.js';
-import { resolveIndexTarget } from '../utils/index-target.js';
+import { resolveIndexTargetRef } from '../utils/index-target.js';
 import { insertAudit } from './audit.js';
 import { selectProjectInstalls } from './cheatcode-runtime.js';
 
@@ -50,6 +50,8 @@ export interface ScanRepo {
   path: string;
   file_count: number;
   commit?: string | null;
+  // The ref `commit` was resolved from (origin/<branch>, HEAD or the pinned ref).
+  target_ref?: string | null;
 }
 
 export interface Inventory {
@@ -408,10 +410,11 @@ async function walkRepo(
   deadline: Deadline,
 ): Promise<{ repo: ScanRepo; files: ScanFile[]; content: CommitContent | null }> {
   const name = basename(repoRoot);
-  const commit = resolveIndexTarget(db, name, repoRoot);
-  if (!commit) return { repo: { name, path: repoRoot, file_count: 0, commit: null }, files: [], content: null };
+  const target = resolveIndexTargetRef(db, name, repoRoot);
+  if (!target) return { repo: { name, path: repoRoot, file_count: 0, commit: null }, files: [], content: null };
   deadline.check();
-  return walkRepoAtCommit(repoRoot, commit, deadline.left(), name);
+  const walked = await walkRepoAtCommit(repoRoot, target.commit, deadline.left(), name);
+  return { ...walked, repo: { ...walked.repo, target_ref: target.ref } };
 }
 
 /** A JSON scalar as jq's `join` renders it; null, false and anything else as "". */

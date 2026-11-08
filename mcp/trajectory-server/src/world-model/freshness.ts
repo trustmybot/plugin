@@ -16,24 +16,31 @@
 // workspace scan.lock) guards it. A reader that finds another process holding
 // either answers from the current index at once, with the diff's paths (every
 // path when a full rebuild is pending) marked stale; a spawn waits instead.
-// Each reindex writes one wm_reindex audit row.
+// Each reindex writes one wm_reindex audit row, and its state to wm_freshness:
+// 'running' before its work, then 'idle'/'ok' in the transaction that stamps
+// the commit, or 'failed'/'error'. freshnessBlock reads that row back.
 import type { TrajectoryDB } from '../db.js';
-import { TARGET_SCHEMA_VERSION } from '../db.js';
+import { nowISO, TARGET_SCHEMA_VERSION } from '../db.js';
 import type { WorldModelGraph } from '../graph.js';
 import { WorldModelGraph as Graph } from '../graph.js';
+import { serverLog } from '../logger.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { EXTRACTOR_VERSION } from '../symbol-index.js';
 import { insertAudit } from '../tools/audit.js';
 import { blobMd5, scannedAtNow, walkRepoAtCommit, type ScanFile, type ScanOutput } from '../tools/scan-walk.js';
-import { persistRepoReindex, type ReindexScope } from '../tools/scan.js';
+import { persistRepoReindex, type ReindexScope, type ScanError } from '../tools/scan.js';
 import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, lsTree } from '../utils/git-objects.js';
-import { resolveIndexTarget } from '../utils/index-target.js';
+import { resolveIndexTargetRef } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 
 export type ReindexMode = 'incremental' | 'full';
 export type FullReason = 'null_stamp' | 'unreachable' | 'stamp_changed' | 'mismatch' | 'scan' | 'range_failed';
 export type ReindexReason = 'ref_moved' | FullReason;
 export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn';
+// The trigger as wm_freshness and the freshness block name it (decision 2487).
+export type BlockTrigger = 'read' | 'spawn' | 'startup' | 'scan' | 'hook' | 'fetch';
+export type ReindexState = 'idle' | 'running' | 'failed';
+export type ReindexOutcome = 'ok' | 'error';
 
 const REPO_REBUILD_TIMEOUT_MS = 10 * 60 * 1000;
 const LOCK_WAIT_MS = 10 * 60 * 1000;
@@ -53,8 +60,46 @@ export interface FreshnessOptions {
   dbPath: string;
   trigger?: ReindexTrigger;
   target?: string | null;
+  // The ref `target` was resolved from, recorded as wm_freshness.target_ref.
+  targetRef?: string | null;
   // Wait for another holder of the lock rather than answer stale.
   wait?: boolean;
+}
+
+export interface FreshnessBlock {
+  indexed_commit: string | null;
+  target_ref: string | null;
+  target_commit: string | null;
+  stale: boolean;
+  reindex: {
+    state: ReindexState;
+    mode: ReindexMode | null;
+    trigger: BlockTrigger | null;
+    started_at: string | null;
+    finished_at: string | null;
+    elapsed_ms: number | null;
+    outcome: ReindexOutcome | null;
+  };
+  needs_review_count: number;
+}
+
+interface FreshnessRow {
+  target_ref: string | null;
+  target_commit: string | null;
+  reindex_state: ReindexState;
+  reindex_mode: ReindexMode | null;
+  reindex_trigger: BlockTrigger | null;
+  reindex_started_at: string | null;
+  reindex_finished_at: string | null;
+  reindex_elapsed_ms: number | null;
+  reindex_outcome: ReindexOutcome | null;
+}
+
+// One reindex as wm_freshness records it.
+export interface ReindexRun {
+  mode: ReindexMode;
+  trigger: ReindexTrigger;
+  startedMs: number;
 }
 
 export interface ReindexRow {
@@ -105,6 +150,139 @@ export function recordReindex(db: TrajectoryDB, row: ReindexRow): void {
     content_json: JSON.stringify(row),
     repo: row.repo,
   });
+}
+
+export function blockTrigger(trigger: ReindexTrigger): BlockTrigger {
+  return trigger === 'startup_catchup' ? 'startup' : trigger;
+}
+
+// How fresh `repo`'s index is (decision 2487), read from the DB alone with the
+// dashboard reader's semantics (dashboard/server/freshness.ts): no wm_freshness
+// row reads as state 'idle' with every other field null.
+export function freshnessBlock(db: TrajectoryDB, repo: string | null): FreshnessBlock | null {
+  if (!repo) return null;
+  const indexed = db.get<{ indexed_commit: string | null }>(`SELECT indexed_commit FROM repos WHERE name = ?`, [repo])?.indexed_commit ?? null;
+  const f = db.get<FreshnessRow>(
+    `SELECT target_ref, target_commit, reindex_state, reindex_mode, reindex_trigger, reindex_started_at,
+            reindex_finished_at, reindex_elapsed_ms, reindex_outcome
+       FROM wm_freshness WHERE repo = ?`,
+    [repo],
+  );
+  const review = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`, [repo]);
+  const targetCommit = f?.target_commit ?? null;
+  const state = f?.reindex_state ?? 'idle';
+  const elapsed = f?.reindex_elapsed_ms;
+  return {
+    indexed_commit: indexed,
+    target_ref: f?.target_ref ?? null,
+    target_commit: targetCommit,
+    stale: indexed === null || indexed !== targetCommit || state === 'running',
+    reindex: {
+      state,
+      mode: f?.reindex_mode ?? null,
+      trigger: f?.reindex_trigger ?? null,
+      started_at: f?.reindex_started_at ?? null,
+      finished_at: f?.reindex_finished_at ?? null,
+      elapsed_ms: elapsed === null || elapsed === undefined ? null : Number(elapsed),
+      outcome: f?.reindex_outcome ?? null,
+    },
+    needs_review_count: Number(review?.n ?? 0),
+  };
+}
+
+// The repo's resolved target, written only when the ref or commit changed.
+export function recordTarget(db: TrajectoryDB, repo: string, ref: string | null, commit: string): void {
+  try {
+    const row = db.get<{ target_ref: string | null; target_commit: string | null }>(
+      `SELECT target_ref, target_commit FROM wm_freshness WHERE repo = ?`,
+      [repo],
+    );
+    if (row && row.target_ref === ref && row.target_commit === commit) return;
+    db.run(
+      `INSERT INTO wm_freshness (repo, target_ref, target_commit, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(repo) DO UPDATE SET
+         target_ref = excluded.target_ref, target_commit = excluded.target_commit, updated_at = excluded.updated_at`,
+      [repo, ref, commit, nowISO()],
+    );
+  } catch (e) {
+    serverLog({ event: 'wm_freshness_target_error', repo, error: (e as Error).message });
+  }
+}
+
+// A reindex of `repo` begins: state 'running', the finish fields cleared.
+export function markReindexStart(db: TrajectoryDB, repo: string, run: ReindexRun): void {
+  db.run(
+    `INSERT INTO wm_freshness (repo, reindex_state, reindex_mode, reindex_trigger, reindex_started_at, updated_at)
+     VALUES (?, 'running', ?, ?, ?, ?)
+     ON CONFLICT(repo) DO UPDATE SET
+       reindex_state = 'running', reindex_mode = excluded.reindex_mode, reindex_trigger = excluded.reindex_trigger,
+       reindex_started_at = excluded.reindex_started_at, reindex_finished_at = NULL, reindex_elapsed_ms = NULL,
+       reindex_outcome = NULL, updated_at = excluded.updated_at`,
+    [repo, run.mode, blockTrigger(run.trigger), new Date(run.startedMs).toISOString(), nowISO()],
+  );
+}
+
+// A reindex of `repo` ends: 'idle'/'ok' when it committed with no stage error,
+// else 'failed'/'error'. A target given is written with it.
+export function markReindexFinish(db: TrajectoryDB, repo: string, run: ReindexRun, ok: boolean, target?: { ref: string | null; commit: string }): void {
+  const finished = Date.now();
+  db.run(
+    `INSERT INTO wm_freshness (repo, target_ref, target_commit, reindex_state, reindex_mode, reindex_trigger,
+                               reindex_started_at, reindex_finished_at, reindex_elapsed_ms, reindex_outcome, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(repo) DO UPDATE SET
+       target_ref = CASE WHEN ? THEN excluded.target_ref ELSE target_ref END,
+       target_commit = CASE WHEN ? THEN excluded.target_commit ELSE target_commit END,
+       reindex_state = excluded.reindex_state, reindex_mode = excluded.reindex_mode,
+       reindex_trigger = excluded.reindex_trigger, reindex_started_at = excluded.reindex_started_at,
+       reindex_finished_at = excluded.reindex_finished_at, reindex_elapsed_ms = excluded.reindex_elapsed_ms,
+       reindex_outcome = excluded.reindex_outcome, updated_at = excluded.updated_at`,
+    [
+      repo,
+      target?.ref ?? null,
+      target?.commit ?? null,
+      ok ? 'idle' : 'failed',
+      run.mode,
+      blockTrigger(run.trigger),
+      new Date(run.startedMs).toISOString(),
+      new Date(finished).toISOString(),
+      Math.max(0, finished - run.startedMs),
+      ok ? 'ok' : 'error',
+      nowISO(),
+      target ? 1 : 0,
+      target ? 1 : 0,
+    ],
+  );
+}
+
+// markReindexFinish(…, false) that never throws, for a reindex already failing.
+export function markReindexFailed(db: TrajectoryDB, repo: string, run: ReindexRun): void {
+  try {
+    markReindexFinish(db, repo, run, false);
+  } catch (e) {
+    serverLog({ event: 'wm_freshness_finish_error', repo, error: (e as Error).message });
+  }
+}
+
+// At server start: a 'running' row no live process is reindexing (neither the
+// workspace scan lock nor the repo's lock is held) was left by a process that
+// died mid-reindex; it becomes 'failed'/'error', finished_at the time it was
+// found and elapsed_ms unknown. Returns the repos it marked.
+export function sweepStaleReindexes(db: TrajectoryDB, dbPath: string): string[] {
+  if (liveLock(scanLockPath(dbPath))) return [];
+  const swept: string[] = [];
+  for (const { repo } of db.all<{ repo: string }>(`SELECT repo FROM wm_freshness WHERE reindex_state = 'running' ORDER BY repo`)) {
+    if (liveLock(scanLockPath(dbPath, repo))) continue;
+    const now = nowISO();
+    db.run(
+      `UPDATE wm_freshness SET reindex_state = 'failed', reindex_outcome = 'error', reindex_finished_at = ?,
+              reindex_elapsed_ms = NULL, updated_at = ?
+        WHERE repo = ? AND reindex_state = 'running'`,
+      [now, now, repo],
+    );
+    swept.push(repo);
+  }
+  return swept;
 }
 
 function repoState(db: TrajectoryDB, repo: string): RepoState | null {
@@ -178,8 +356,15 @@ export async function ensureFresh(
 ): Promise<Freshness> {
   let state = repoState(db, repo);
   if (!state) return fresh(repo, null, null);
-  const target = opts.target === undefined ? resolveIndexTarget(db, repo, state.path) : opts.target;
-  if (!target) return fresh(repo, state.indexed_commit, null);
+  const resolved: { ref: string | null; commit: string } | null =
+    opts.target === undefined
+      ? resolveIndexTargetRef(db, repo, state.path)
+      : opts.target
+        ? { ref: opts.targetRef ?? null, commit: opts.target }
+        : null;
+  if (!resolved) return fresh(repo, state.indexed_commit, null);
+  const target = resolved.commit;
+  recordTarget(db, repo, resolved.ref, target);
   if (current(db, repo, state, target)) return fresh(repo, target, target);
 
   for (;;) {
@@ -227,38 +412,48 @@ async function reindexLocked(
   if (!state || current(db, repo, state, target)) return undefined;
   const started = Date.now();
   let reason: FullReason | null = fullRebuildReason(db, repo, state);
-  if (!reason) {
-    const range = await reindexRange(db, graph, repo, state.path, state.indexed_commit!, target);
-    if (range) {
-      recordReindex(db, { repo, mode: 'incremental', reason: 'ref_moved', trigger, from_commit: state.indexed_commit, to_commit: target, ...range, ms: Date.now() - started });
-      return 'incremental';
-    }
-    reason = 'range_failed';
-  }
-  const out = await walkRepoAtCommit(state.path, target, REPO_REBUILD_TIMEOUT_MS, repo);
+  const run: ReindexRun = { mode: reason ? 'full' : 'incremental', trigger, startedMs: started };
+  const finish = (errors: ScanError[]) => markReindexFinish(db, repo, run, errors.length === 0);
+  markReindexStart(db, repo, run);
   try {
-    const output: ScanOutput = {
-      session_dir: state.path,
-      scanned_at: scannedAtNow(),
-      repos: [out.repo],
-      files: out.files,
-      contents: out.content ? new Map([[repo, out.content]]) : new Map(),
-    };
-    const stats = await persistRepoReindex(db, graph, output);
-    recordReindex(db, {
-      repo,
-      mode: 'full',
-      reason,
-      trigger,
-      from_commit: state.indexed_commit ?? '',
-      to_commit: target,
-      files_diffed: out.files.length,
-      files_parsed: stats.files_parsed,
-      dirs_touched: stats.dirs_touched,
-      ms: Date.now() - started,
-    });
-  } finally {
-    out.content?.close();
+    if (!reason) {
+      const range = await reindexRange(db, graph, repo, state.path, state.indexed_commit!, target, finish);
+      if (range) {
+        recordReindex(db, { repo, mode: 'incremental', reason: 'ref_moved', trigger, from_commit: state.indexed_commit, to_commit: target, ...range, ms: Date.now() - started });
+        return 'incremental';
+      }
+      reason = 'range_failed';
+      run.mode = 'full';
+      markReindexStart(db, repo, run);
+    }
+    const out = await walkRepoAtCommit(state.path, target, REPO_REBUILD_TIMEOUT_MS, repo);
+    try {
+      const output: ScanOutput = {
+        session_dir: state.path,
+        scanned_at: scannedAtNow(),
+        repos: [out.repo],
+        files: out.files,
+        contents: out.content ? new Map([[repo, out.content]]) : new Map(),
+      };
+      const stats = await persistRepoReindex(db, graph, output, undefined, finish);
+      recordReindex(db, {
+        repo,
+        mode: 'full',
+        reason,
+        trigger,
+        from_commit: state.indexed_commit ?? '',
+        to_commit: target,
+        files_diffed: out.files.length,
+        files_parsed: stats.files_parsed,
+        dirs_touched: stats.dirs_touched,
+        ms: Date.now() - started,
+      });
+    } finally {
+      out.content?.close();
+    }
+  } catch (e) {
+    markReindexFailed(db, repo, run);
+    throw e;
   }
   return 'full';
 }
@@ -279,6 +474,7 @@ async function reindexRange(
   repoPath: string,
   from: string,
   to: string,
+  onApply: (errors: ScanError[]) => void,
 ): Promise<{ files_diffed: number; files_parsed: number; dirs_touched: number } | null> {
   const tree = lsTree(repoPath, to);
   const diff = tree ? diffNameStatus(repoPath, from, to) : null;
@@ -330,7 +526,7 @@ async function reindexRange(
       files,
       contents: new Map([[repo, content]]),
     };
-    const stats = await persistRepoReindex(db, graph, out, scope);
+    const stats = await persistRepoReindex(db, graph, out, scope, onApply);
     return { files_diffed: diff.length, files_parsed: stats.files_parsed, dirs_touched: stats.dirs_touched };
   } finally {
     content.close();

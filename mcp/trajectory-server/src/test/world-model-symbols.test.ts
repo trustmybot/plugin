@@ -206,7 +206,7 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.equal(card.symbol['qualified_name'], 'persistScan');
     assert.ok(card.callers.refs.length >= 1, 'persistScan has a caller');
     assert.ok(card.callees.refs.length >= 1, 'persistScan has a callee');
-    assert.ok(card.callees.refs.some((r) => r['qualified_name'] === 'persistGraph'));
+    assert.ok(card.callees.refs.some((r) => r['qualified_name'] === 'planGraph'));
     for (const key of ['id', 'qualified_name', 'kind', 'repo', 'path', 'line_start']) assert.ok(key in card.callers.refs[0]!, key);
   });
 

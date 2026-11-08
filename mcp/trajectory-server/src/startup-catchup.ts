@@ -8,7 +8,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { TrajectoryDB } from './db.js';
 import { serverLog } from './logger.js';
+import { sweepStaleReindexes } from './world-model/freshness.js';
 
 export const RUN_SCAN_SCRIPT = fileURLToPath(new URL('../../../scripts/maintenance/run-scan.mjs', import.meta.url));
 export const STARTUP_CATCHUP_SOURCE = 'startup_catchup';
@@ -36,6 +38,19 @@ export function decideStartupCatchup(opts: {
   if (!projectRoot) return { spawn: false, reason: 'no-project-root' };
   if (!exists(script)) return { spawn: false, reason: 'script-missing' };
   return { spawn: true, script, projectRoot, reason: 'spawned' };
+}
+
+// Before the catch-up starts: wm_freshness rows a dead process left 'running'
+// become 'failed' (GH 2584). Never throws.
+export function sweepStaleAtStartup(db: TrajectoryDB, dbPath: string): string[] {
+  try {
+    const swept = sweepStaleReindexes(db, dbPath);
+    if (swept.length > 0) serverLog({ kind: 'wm_freshness_sweep', repos: swept });
+    return swept;
+  } catch (e) {
+    serverLog({ kind: 'wm_freshness_sweep_error', error_message: (e as Error).message });
+    return [];
+  }
 }
 
 export function startStartupCatchup(dbPath: string): CatchupDecision {

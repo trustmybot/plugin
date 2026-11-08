@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 62`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 63`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -17,7 +17,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written.
 
-The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (since GH 1833, the commits since then that change a file the README references other than by adding it) and `dead_refs` (a JSON array of paths the README names that are missing on disk); all three are `NULL` for structural rows and non-git roots. Since v44 (GH 1680) the L1 symbol layer adds `wm_symbols` (one row per top-level definition or file module, unique by `(repo, path, kind, qualified_name)`), `wm_edges` (calls, imports, table reads and writes between symbols; `dst_id` goes `NULL` when the target symbol is deleted), the `wm_symbols_fts` index, and `wm_files.symbols_md5` (the stamp `content_md5 || ':' || EXTRACTOR_VERSION` the file's symbols were last parsed at, `NULL` until then). See `docs/architecture/WORLD_MODEL.md`.
+The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (since GH 1833, the commits since then that change a file the README references other than by adding it) and `dead_refs` (a JSON array of paths the README names that are missing on disk); all three are `NULL` for structural rows and non-git roots. Since v44 (GH 1680) the L1 symbol layer adds `wm_symbols` (one row per top-level definition or file module, unique by `(repo, path, kind, qualified_name)`), `wm_edges` (calls, imports, table reads and writes between symbols; `dst_id` goes `NULL` when the target symbol is deleted), the `wm_symbols_fts` index, and `wm_files.symbols_md5` (the stamp `content_md5 || ':' || EXTRACTOR_VERSION` the file's symbols were last parsed at, `NULL` until then). Since v63 (GH 2584) `wm_freshness` keeps one row per repo (FK to `repos(name)`, cascading on delete and rename): the resolved target ref and commit and the state of the newest reindex, which the `freshness` block of the world-model tools and the dashboard read. See `docs/architecture/WORLD_MODEL.md`.
 
 The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the cheatcodes acquired via the install pipeline (`origin='marketplace'` from a registered marketplace ref, `origin='external'` from a raw repo URL). Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 62`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 63`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -36,6 +36,7 @@ _Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/g
 erDiagram
     repos ||--o{ repo_remotes : "repo (CASCADE)"
     repos ||--o{ repo_env : "repo (CASCADE)"
+    repos |o--o| wm_freshness : "repo (CASCADE)"
     repos ||--o{ milestones : "repo (RESTRICT)"
     repos |o--o{ issues : "repo (RESTRICT)"
     milestones |o--o{ issues : "milestone, repo (RESTRICT)"
@@ -111,6 +112,21 @@ erDiagram
         TEXT overrides_json
         TEXT waivers_json
         TEXT declined_json
+        TEXT updated_at "NOT NULL"
+    }
+
+    wm_freshness {
+        TEXT repo PK,FK "→ repos.name CASCADE"
+        TEXT target_ref
+        TEXT target_commit
+        TEXT target_fetched_at
+        TEXT reindex_state "NOT NULL; CHECK idle|running|failed"
+        TEXT reindex_mode "CHECK incremental|full"
+        TEXT reindex_trigger "CHECK read|spawn|startup|scan|hook|fetch"
+        TEXT reindex_started_at
+        TEXT reindex_finished_at
+        INTEGER reindex_elapsed_ms
+        TEXT reindex_outcome "CHECK ok|error"
         TEXT updated_at "NOT NULL"
     }
 
@@ -554,6 +570,23 @@ Table constraints:
 Table constraints:
 
 - UNIQUE `(repo, package_path, ecosystem)`
+
+### `wm_freshness`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `repo` | TEXT | nullable |  | PK; FK → `repos.name` ON DELETE CASCADE |
+| `target_ref` | TEXT | nullable |  |  |
+| `target_commit` | TEXT | nullable |  |  |
+| `target_fetched_at` | TEXT | nullable |  |  |
+| `reindex_state` | TEXT | NOT NULL | `'idle'` | CHECK `reindex_state IN ('idle','running','failed')` |
+| `reindex_mode` | TEXT | nullable |  | CHECK `reindex_mode IN ('incremental','full')` |
+| `reindex_trigger` | TEXT | nullable |  | CHECK `reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')` |
+| `reindex_started_at` | TEXT | nullable |  |  |
+| `reindex_finished_at` | TEXT | nullable |  |  |
+| `reindex_elapsed_ms` | INTEGER | nullable |  |  |
+| `reindex_outcome` | TEXT | nullable |  | CHECK `reindex_outcome IN ('ok','error')` |
+| `updated_at` | TEXT | NOT NULL |  |  |
 
 ### `milestones`
 
@@ -1070,6 +1103,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 |---|---|---|---|
 | `repo_remotes` | `repo` | `repos(name)` | CASCADE |
 | `repo_env` | `repo` | `repos(name)` | CASCADE |
+| `wm_freshness` | `repo` | `repos(name)` | CASCADE |
 | `milestones` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
