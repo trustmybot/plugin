@@ -114,6 +114,13 @@ describe('git-guards: the TypeScript gate', () => {
     assert.match(reason(r.stdout), /^BLOCKED: main is a shared workflow base/);
   });
 
+  for (const command of ["git -C '' commit -m x", 'git -C "" commit -m x'])
+    it(`${command} on a protected branch gets the deny git commit -m x gets (GH 2549)`, async () => {
+      const bare = await gitGuards(payload('git commit -m x', main), env);
+      assert.match(reason(bare.stdout), /^BLOCKED: main is a shared workflow base/);
+      assert.deepEqual(await gitGuards(payload(command, main), env), bare);
+    });
+
   it('analyses a git word after a non-ASCII letter, as the .sh does only in the C locale', () => {
     assert.equal(needsGitGuard('égit commit'), true);
     assert.equal(needsGitGuard('é git commit'), true);
