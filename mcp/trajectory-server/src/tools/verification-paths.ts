@@ -1,3 +1,4 @@
+// Guard G15: refuses a verification[] naming a test file absent at the ref and from files[], and suggests importing tests from the world model (GH 2581).
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { posix } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
