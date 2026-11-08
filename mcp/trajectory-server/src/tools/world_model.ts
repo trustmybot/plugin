@@ -57,6 +57,7 @@ const PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
 const SYMBOL_POOL = 40;
 const FILE_RANK_POOL = 20;
 const PATH_RANK_K = 10;
+const SEARCH_K_MAX = 100;
 const DEFAULT_IMPACT_DEPTH = 2;
 const SOURCE_MAX_LINES = 200;
 
@@ -593,6 +594,7 @@ function fuse(lists: Array<SearchHit[]>): Array<{ hit: SearchHit; score: number 
 export interface WorldModelRanking {
   ranked: Array<{ hit: SearchHit; score: number }>;
   match: KeywordMatch;
+  poolFull: boolean;
   warning?: 'semantic_unavailable';
 }
 
@@ -609,22 +611,27 @@ export async function rankWorldModel(
   k: number,
 ): Promise<WorldModelRanking> {
   const pool = mode === 'keyword' ? k : k * 4;
+  const filePool = Math.max(pool, FILE_RANK_POOL);
+  const symbolPool = Math.max(pool, SYMBOL_POOL);
   const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
-  const symbolSearch = keywordSearchSymbols(db, repo, query, SYMBOL_POOL);
+  const fileSearch = graph.keywordSearchFiles(repo, query, filePool);
+  const symbolSearch = keywordSearchSymbols(db, repo, query, symbolPool);
   const match: KeywordMatch = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === 'any_term')
     ? 'any_term'
     : 'all_terms';
+  const poolFull = dirSearch.hits.length >= pool
+    || fileSearch.hits.length >= filePool
+    || symbolSearch.hits.length >= symbolPool;
   const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
   const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
   const hitsOf = (ranked: Array<{ hit: SearchHit }>): SearchHit[] => ranked.map(({ hit }) => hit);
 
-  if (mode === 'keyword') return { ranked: keywordRanked, match };
+  if (mode === 'keyword') return { ranked: keywordRanked, match, poolFull };
 
   await backfillWorldModel(db);
   const semantic = await cosineHits(db, graph, repo, query, pool);
-  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: 'semantic_unavailable' };
-  if (mode === 'semantic') return { ranked: semantic, match };
+  if (semantic.length === 0) return { ranked: keywordRanked, match, poolFull, warning: 'semantic_unavailable' };
+  if (mode === 'semantic') return { ranked: semantic, match, poolFull: false };
 
   return {
     ranked: fuse([
@@ -634,6 +641,7 @@ export async function rankWorldModel(
       hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
     ]),
     match,
+    poolFull,
   };
 }
 
@@ -1140,7 +1148,7 @@ export function worldModelTools(
           },
           k: {
             type: 'number',
-            description: 'Top-K rows to return. Default 5. Max 20.',
+            description: 'Top-K rows to return. Default 5. Max 100.',
           },
         },
         required: ['agent', 'query'],
@@ -1347,7 +1355,7 @@ export function worldModelTools(
         const query = args['query'] as string;
         if (!query || typeof query !== 'string') return err('query is required');
         const mode = (args['mode'] as string | undefined) ?? 'hybrid';
-        const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
+        const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), SEARCH_K_MAX);
 
         const resultsOf = (top: WorldModelRanking['ranked']): Array<Record<string, unknown>> => {
           const stale = staleFiles(
@@ -1371,7 +1379,17 @@ export function worldModelTools(
           const results = resultsOf(top);
           const warning = rankings.find((r) => r.warning)?.warning;
           const match: KeywordMatch = rankings.some((r) => r.match === 'any_term') ? 'any_term' : 'all_terms';
-          return ok({ ...scope, results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match });
+          const total_matched = rankings.reduce((n, r) => n + r.ranked.length, 0);
+          const truncated = rankings.some((r) => r.poolFull) || results.length < total_matched;
+          return ok({
+            ...scope,
+            results,
+            total_matched,
+            ...(truncated ? { truncated } : {}),
+            ...(warning ? { warning } : {}),
+            mode,
+            match,
+          });
         }
         const repo = resolved.name;
         const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
@@ -1382,9 +1400,20 @@ export function worldModelTools(
           return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
         }
 
-        const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
+        const { ranked, match, poolFull, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
         const results = resultsOf(ranked.slice(0, k));
-        return ok({ ...scope, results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match, ...lag });
+        const total_matched = ranked.length;
+        const truncated = poolFull || results.length < total_matched;
+        return ok({
+          ...scope,
+          results,
+          total_matched,
+          ...(truncated ? { truncated } : {}),
+          ...(warning ? { warning } : {}),
+          mode,
+          match,
+          ...lag,
+        });
       })),
     ),
 
