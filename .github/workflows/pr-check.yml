@@ -16,9 +16,6 @@ jobs:
     name: L1 lints + strict tsc
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # Held for the Human: tool-description-budget (GH 1403) fails on dev until it lands.
-      TMB_L1_SKIP: tool-description-budget.test.mjs
     steps:
       - uses: actions/checkout@v5
 

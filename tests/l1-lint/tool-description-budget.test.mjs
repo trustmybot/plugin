@@ -1,7 +1,8 @@
 // L1 lint: the MCP server's tool descriptions, loaded from the built dist/ through registerTools, total at most TMB_TOOL_DESC_BUDGET bytes (default 21000: the post-diet total plus headroom); raise it only with a justification.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
 const SERVER_DIST = join(SERVER, 'dist', 'index.js');
+const SERVER_SRC = join(SERVER, 'src');
 const BUDGET_BYTES = Number(process.env.TMB_TOOL_DESC_BUDGET || 21000); // trimmed for v1.2.0, GH 1403
 
 const LOADER = `
@@ -22,8 +24,22 @@ registerTools(server, db, ':memory:');
 console.log(JSON.stringify(toolDefinitions.map((t) => ({ name: t.name, bytes: Buffer.byteLength(t.description || '', 'utf8') }))));
 `;
 
+function newestMtimeMs(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    newest = Math.max(newest, statSync(join(entry.parentPath, entry.name)).mtimeMs);
+  }
+  return newest;
+}
+
+export function distIsStale(distFile, srcDir) {
+  if (!existsSync(distFile)) return true;
+  return newestMtimeMs(srcDir) > statSync(distFile).mtimeMs;
+}
+
 function loadTools() {
-  if (!existsSync(SERVER_DIST)) {
+  if (distIsStale(SERVER_DIST, SERVER_SRC)) {
     console.log('Building MCP server...');
     execFileSync('bun', ['run', 'build'], { cwd: SERVER, stdio: 'inherit' });
   }
@@ -76,6 +92,23 @@ test('a total over the budget fails with the overage', () => {
   assert.match(report.text, /Per-tool \(sorted by size\):\n {4}70 {2}big\n {4}40 {2}small/);
   assert.match(report.text, /❌ FAIL: total 110 bytes exceeds budget 100 by 10 bytes\./);
   assert.equal(budgetReport([{ name: 'small', bytes: 40 }], 100).ok, true);
+});
+
+test('the dist is stale when missing or older than any nested src file', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'budget-lint-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const src = join(dir, 'src');
+  mkdirSync(join(src, 'tools'), { recursive: true });
+  const dist = join(dir, 'index.js');
+  const nested = join(src, 'tools', 'a.ts');
+  writeFileSync(nested, '');
+  assert.equal(distIsStale(dist, src), true);
+  writeFileSync(dist, '');
+  utimesSync(nested, 1000, 1000);
+  utimesSync(dist, 2000, 2000);
+  assert.equal(distIsStale(dist, src), false);
+  utimesSync(nested, 3000, 3000);
+  assert.equal(distIsStale(dist, src), true);
 });
 
 test('tool descriptions stay within the byte budget', (t) => {
