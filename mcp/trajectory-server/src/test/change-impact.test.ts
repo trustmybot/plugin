@@ -14,8 +14,10 @@ import {
   defaultGit,
   gitSourceFor,
   METRICS,
+  PROVIDERS,
   providerContext,
   sampleCounts,
+  type SplitSample,
   type ChangeImpact,
   type ChangeImpactList,
   type GitCommit,
@@ -283,6 +285,63 @@ describe('change impact — plugin_version with the dev-build resolver', () => {
     assert.equal(capped.metrics[0]!.after.n, 10);
     assert.equal(computeChangeImpact(db, undefined, { change, metric: 'swe_rework_ratio', window_days: 3 }).metrics[0]!.before.n, 26);
     assert.equal(computeChangeImpact(db, undefined, { change, metric: 'swe_rework_ratio', window_days: 40 }).metrics[0]!.before.n, 27);
+  });
+
+  it('series: true adds daily before/after points from the kept samples; absent otherwise', () => {
+    const db = devFixture(25);
+    for (const [at, pr] of [[T0 + 0.5 * DAY, 100], [T0 + 1.5 * DAY, 101], [T0 + 2.5 * DAY, 101], [T0 + 2.2 * DAY, 104], [T0 + 5.5 * DAY, 104], [T0 + 6.5 * DAY, 105]] as const) {
+      const t = seedTask(db);
+      seedRun(db, t, at, devVersion(pr), 100);
+      seedRun(db, t, at + 1000, devVersion(pr), 300);
+    }
+    const change = { source: 'plugin_version' as const, id: '102' };
+    const opts = { change, window_days: 5, max_samples: 24 };
+    const ctx = providerContext(db);
+    const r = computeChangeImpact(db, ctx, { ...opts, series: true });
+    const at = Date.parse(r.at);
+    const provider = PROVIDERS.find((p) => p.source === 'plugin_version')!;
+    const keptDays = (samples: SplitSample[]) => {
+      const byDay = new Map<string, number[]>();
+      for (const s of samples.filter((s) => Math.abs(s.t - at) <= 5 * DAY).sort((a, b) => Math.abs(a.t - at) - Math.abs(b.t - at)).slice(0, 24)) {
+        const day = iso(s.t).slice(0, 10);
+        byDay.set(day, [...(byDay.get(day) ?? []), s.value]);
+      }
+      return byDay;
+    };
+    let multiDay = false;
+    for (const m of r.metrics) {
+      assert.ok(m.series, m.id);
+      const metric = METRICS.find((x) => x.id === m.id)!;
+      const split = provider.split(r, ctx, metric);
+      for (const [name, points, samples] of [['before', m.series.before, split.before], ['after', m.series.after, split.after]] as const) {
+        assert.equal(points.reduce((sum, p) => sum + p.n, 0), m[name].n, `${m.id} ${name} n`);
+        const days = points.map((p) => p.day);
+        for (const d of days) assert.match(d, /^\d{4}-\d{2}-\d{2}$/);
+        assert.deepEqual(days, [...days].sort(), `${m.id} ${name} ascending`);
+        assert.equal(new Set(days).size, days.length);
+        const expected = keptDays(samples);
+        assert.deepEqual(days, [...expected.keys()].sort());
+        for (const p of points) {
+          assert.ok(p.n > 0);
+          assert.equal(p.median, median(expected.get(p.day)!), `${m.id} ${name} ${p.day}`);
+        }
+        if (points.length > 1) multiDay = true;
+      }
+    }
+    assert.ok(multiDay, 'some side spans several days');
+    const rework = r.metrics.find((m) => m.id === 'swe_rework_ratio')!;
+    assert.equal(rework.before.n, 24);
+    assert.ok(rework.series!.before.length > 1);
+    assert.ok(rework.series!.after.length > 1);
+
+    const plain = computeChangeImpact(db, ctx, opts);
+    for (const m of plain.metrics) assert.ok(!('series' in m), m.id);
+    const off = computeChangeImpact(db, ctx, { ...opts, series: false });
+    for (const m of off.metrics) assert.ok(!('series' in m), m.id);
+    const list = computeChangeImpact(db, ctx, { limit: 3 }) as ChangeImpactList;
+    for (const c of list.changes) for (const m of c.metrics) assert.ok(!('series' in m));
+    const { series: _s, ...stats } = rework;
+    assert.deepEqual(stats, plain.metrics.find((m) => m.id === 'swe_rework_ratio'));
   });
 
   it('the list form gives the last limit changes, newest first, and replaces version events with builds', () => {

@@ -371,6 +371,15 @@ export function changeImpactApiPath(source: string, id?: string): string {
   return qs ? `insights/change-impact?${qs}` : 'insights/change-impact';
 }
 
+export type ChangeSide = 'before' | 'after';
+export const CHANGE_SIDES: Record<ChangeSide, string> = { before: 'Before', after: 'After' };
+export const CHANGE_METRIC = 'Metric';
+export const CHANGE_MARKER = 'change';
+export const CHANGE_SERIES_SUBTITLE = 'Median per UTC day, before and after the change';
+export const CHANGE_SERIES_EMPTY = 'No samples in this window.';
+export const CHANGE_SERIES_COLUMNS = ['Day', 'Side', 'Samples', 'Median'];
+export const changePointText = (day: string, side: ChangeSide, median: string, n: number) => `${day} ${side}: median ${median} (n ${n})`;
+
 export function exploreApiPath(p: InsightParams): string {
   const query = filterQuery(p);
   query.set('m', p.measure);

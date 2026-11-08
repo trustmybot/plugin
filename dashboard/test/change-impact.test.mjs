@@ -160,6 +160,7 @@ describe('GET /api/insights/change-impact', () => {
     assert.deepEqual(body.changes.map((c) => `${c.source}:${c.id}`), ['plugin_version:1.2.0', `agent_surface:${shas.C2}`, `agent_surface:${shas.C1}`, 'plugin_version:1.1.0']);
     const v11 = body.changes.find((c) => c.id === '1.1.0').metrics.find((m) => m.id === 'bro_tokens_per_session');
     assert.equal(v11.verdict, 'improved');
+    for (const c of body.changes) for (const m of c.metrics) assert.ok(!('series' in m), `${c.id} ${m.id} has no series`);
   });
 
   test('source and limit filter the list as the module does; limit caps at 100', async () => {
@@ -179,7 +180,8 @@ describe('GET /api/insights/change-impact', () => {
     for (const [source, id] of [['plugin_version', '1.1.0'], ['agent_surface', shas.C1]]) {
       const { status, body } = await get(`source=${source}&id=${id}`);
       assert.equal(status, 200);
-      assert.deepEqual(body, mod.compute(DB_PATH, { change: { source, id } }));
+      assert.deepEqual(body, mod.compute(DB_PATH, { change: { source, id }, series: true }));
+      assert.ok(body.metrics.some((m) => m.series.before.length + m.series.after.length > 0), `${source}:${id} has series points`);
     }
     const c1 = await get(`source=agent_surface&id=${shas.C1}`);
     assert.deepEqual(c1.body.measured_with, [{ source: 'agent_surface', id: shas.C2 }]);
@@ -233,6 +235,44 @@ describe('Change impact section', () => {
     const sweRow = html.match(/<tr[^>]*>(?:(?!<\/tr>).)*swe rework ratio(?:(?!<\/tr>).)*<\/tr>/s)[0];
     assert.match(sweRow, />not enough data</);
     assert.match(html, /Measured with: no other change/);
+  });
+
+  test('the detail charts the first shifted metric per day, before and after, with one change marker', async () => {
+    const { body: list } = await get('');
+    const { body: detail } = await get('source=plugin_version&id=1.1.0');
+    const panel = (d) => mod.section(list, d, { source: 'plugin_version', id: '1.1.0' }).match(/<section[^>]*aria-label="Change 1\.1\.0".*<\/section>/s)[0];
+    const html = panel(detail);
+    const shifted = detail.metrics.find((m) => m.verdict === 'improved' || m.verdict === 'regressed');
+    assert.ok(shifted);
+    assert.match(html, new RegExp(`<option value="${shifted.id}" selected="">`));
+    assert.equal((html.match(/selected=""/g) ?? []).length, 1);
+
+    const points = [...shifted.series.before.map((p) => ({ ...p, side: 'before' })), ...shifted.series.after.map((p) => ({ ...p, side: 'after' }))].sort((a, b) =>
+      a.day === b.day ? (a.side === 'before' ? -1 : 1) : a.day < b.day ? -1 : 1,
+    );
+    assert.ok(shifted.series.before.length > 0 && shifted.series.after.length > 0);
+    const hits = [...html.matchAll(/<rect x="([\d.]+)" y="0" width="([\d.]+)"[^>]*data-hit=""[^>]*aria-label="([^"]*)"/g)];
+    assert.equal(hits.length, points.length, 'one column per series point');
+    const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const fmt = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 3 });
+    assert.deepEqual(hits.map((h) => h[3]), points.map((p) => `${day(p.day)} ${p.side}: median ${fmt.format(p.median)} (n ${p.n})`));
+
+    const markers = [...html.matchAll(/<g data-marker="[^"]*">(.*?)<\/g>/g)];
+    assert.equal(markers.length, 1);
+    assert.match(markers[0][1], /data-marker-label="">change<\/text>/);
+    const ax = Number(/d="M[\d.-]+,[\d.-]+H[\d.-]+L([\d.-]+),/.exec(markers[0][1])[1]);
+    const first = hits[points.findIndex((p) => p.side === 'after')];
+    assert.ok(Math.abs(ax - (Number(first[1]) + Number(first[2]) / 2)) < 0.01, 'marker at the first after column');
+
+    assert.match(html, /aria-label="Legend"><li[^>]*><svg[^>]*>.*?<\/svg>Before<\/li><li[^>]*><svg[^>]*>.*?<\/svg>After<\/li><\/ul>/);
+    assert.ok(!html.includes('No samples in this window.'));
+
+    const none = panel({ ...detail, metrics: detail.metrics.map((m) => ({ ...m, verdict: 'no_change' })) });
+    assert.match(none, new RegExp(`<option value="${detail.metrics[0].id}" selected="">`));
+
+    const empty = panel({ ...detail, metrics: detail.metrics.map((m) => (m.id === shifted.id ? { ...m, series: { before: [], after: [] } } : m)) });
+    assert.ok(empty.includes('No samples in this window.'));
+    assert.doesNotMatch(empty, /data-hit=""|data-marker=/);
   });
 
   test('the detail lists measured_with', async () => {

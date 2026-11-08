@@ -1,10 +1,24 @@
 import { useState } from 'react';
-import type { ChangeImpact, ChangeImpactList, ChangeRef, MetricImpact, Verdict } from '../../../../mcp/trajectory-server/src/change-impact/index.ts';
+import type { ChangeImpact, ChangeImpactList, ChangeRef, DayPoint, MetricImpact, Verdict } from '../../../../mcp/trajectory-server/src/change-impact/index.ts';
 import { useApi, type Row } from '../../api.ts';
 import { DataTable, type Column } from '../../DataTable.tsx';
 import { FIELD } from '../../shared/classes.ts';
 import { Loading } from '../../shared/Loading.tsx';
-import { changeImpactApiPath } from './params.ts';
+import { ChartCard } from './ChartCard.tsx';
+import { ColumnChart, type Column as ChartColumn } from './charts.tsx';
+import { OTHER_COLOR } from './explore.tsx';
+import { SERIES_COLOR, compact, shortDay } from './format.ts';
+import {
+  CHANGE_MARKER,
+  CHANGE_METRIC,
+  CHANGE_SERIES_COLUMNS,
+  CHANGE_SERIES_EMPTY,
+  CHANGE_SERIES_SUBTITLE,
+  CHANGE_SIDES,
+  changeImpactApiPath,
+  changePointText,
+  type ChangeSide,
+} from './params.ts';
 
 type Query<T> = { data?: T; error: Error | null };
 
@@ -94,7 +108,55 @@ function SourceSelect({ sources, value, onChange }: { sources: string[]; value: 
   );
 }
 
+const SIDE_COLOR: Record<ChangeSide, string> = { before: OTHER_COLOR, after: SERIES_COLOR };
+const SIDE_ORDER: Record<ChangeSide, number> = { before: 0, after: 1 };
+
+type SidePoint = DayPoint & { side: ChangeSide };
+
+export const seriesPoints = (m: MetricImpact): SidePoint[] =>
+  (['before', 'after'] as const)
+    .flatMap((side) => (m.series?.[side] ?? []).map((p) => ({ ...p, side })))
+    .sort((a, b) => (a.day === b.day ? SIDE_ORDER[a.side] - SIDE_ORDER[b.side] : a.day < b.day ? -1 : 1));
+
+export const defaultMetric = (metrics: MetricImpact[]) => (metrics.find(isShift) ?? metrics[0])?.id ?? '';
+
+function MetricSeries({ change, metric }: { change: ChangeImpact; metric: MetricImpact }) {
+  const points = seriesPoints(metric);
+  if (points.length === 0) return <p className="text-sm text-fg-muted">{CHANGE_SERIES_EMPTY}</p>;
+  const columns: ChartColumn[] = points.map((p, i) => {
+    const text = changePointText(shortDay(p.day), p.side, num(p.median), p.n);
+    return {
+      key: `${p.day}-${p.side}`,
+      label: i > 0 && points[i - 1]!.day === p.day ? '' : shortDay(p.day),
+      value: p.median,
+      color: SIDE_COLOR[p.side],
+      aria: text,
+      tip: text,
+    };
+  });
+  const firstAfter = points.findIndex((p) => p.side === 'after');
+  return (
+    <ChartCard
+      title={metric.label}
+      subtitle={`${CHANGE_SERIES_SUBTITLE} · ${metric.unit}`}
+      section="change-impact"
+      range={`${change.source}-${change.id}-${metric.id}`}
+      table={{ columns: CHANGE_SERIES_COLUMNS, rows: points.map((p) => [p.day, CHANGE_SIDES[p.side], p.n, p.median]) }}
+      legend={(['before', 'after'] as const).map((side) => ({ label: CHANGE_SIDES[side], color: SIDE_COLOR[side], kind: 'fill' as const }))}
+    >
+      <ColumnChart
+        label={`${metric.label} median per day, before and after ${change.label}`}
+        columns={columns}
+        format={compact}
+        markers={firstAfter < 0 ? [] : [{ at: firstAfter + 0.5, label: CHANGE_MARKER }]}
+      />
+    </ChartCard>
+  );
+}
+
 function ChangeDetail({ change }: { change: ChangeImpact }) {
+  const [metricId, setMetricId] = useState(() => defaultMetric(change.metrics));
+  const metric = change.metrics.find((m) => m.id === metricId);
   return (
     <section className="space-y-2" aria-label={`Change ${change.label}`}>
       <h3 className="text-sm font-semibold text-fg">{change.label}</h3>
@@ -102,6 +164,19 @@ function ChangeDetail({ change }: { change: ChangeImpact }) {
         {change.source} · {change.kind} · {localDateTime(change.at)}
       </p>
       <DataTable rows={metricRows(change.metrics)} columns={METRIC_COLUMNS} filter={false} />
+      {metric && (
+        <>
+          <label className="flex min-w-0 items-center gap-2 text-sm text-fg-muted">
+            {CHANGE_METRIC}
+            <select className={`${FIELD} w-auto py-1.5`} value={metricId} onChange={(e) => setMetricId(e.target.value)}>
+              {change.metrics.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <MetricSeries change={change} metric={metric} />
+        </>
+      )}
       <MeasuredWith refs={change.measured_with} />
     </section>
   );
@@ -147,7 +222,7 @@ export function ChangeImpactSection({ list, detail, source, selected, onSource, 
           </>
         )}
       </Loading>
-      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail change={c} />}</Loading>}
+      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail key={changeKey(c)} change={c} />}</Loading>}
     </div>
   );
 }
