@@ -1370,3 +1370,75 @@ describe("'bundles' edges from a bundle's source map (GH 2284)", () => {
     assert.deepEqual(bundleEdges(), []);
   });
 });
+
+describe('an l3 hook test links to the TS gate it runs (GH 1839)', () => {
+  const TEST = 'mcp/trajectory-server/src/test/x-l3.test.ts';
+  const gate = (n: string) => `mcp/trajectory-server/src/hooks/${n}.ts`;
+  const runs = async (path: string, src: string) =>
+    extractFile(await loadParsers(), path, 'typescript', src)
+      .edges.filter((e) => e.kind === 'runs')
+      .map((e) => ({ dst: e.dst_name, line: e.line }));
+
+  const LITERAL = "import { runGate } from './hook-sandbox.js';\nrunGate('containment-guard', opts);\nrunGate(\"containment-guard\", opts);\n";
+  const CONST = "const GATE = 'a-gate';\nrunGate(GATE, opts);\nrunGate(GATE, opts);\n";
+  const COMMENT = '// Runs the gate as `node dist/hooks.js git-push-guard` (see dist/hooks.js git-push-guard).\nexport const x = 1;\n';
+
+  it('a runGate literal, a const GATE and a dist/hooks.js mention each give one runs edge on the first mention', async () => {
+    assert.deepEqual(await runs(TEST, LITERAL), [{ dst: gate('containment-guard'), line: 2 }]);
+    assert.deepEqual(await runs(TEST, CONST), [{ dst: gate('a-gate'), line: 1 }]);
+    assert.deepEqual(await runs(TEST, COMMENT), [{ dst: gate('git-push-guard'), line: 1 }]);
+  });
+
+  it('every const GATE in a file gets its edge, and names that are not gate names are skipped', async () => {
+    const src = [
+      "describe('a', () => { const GATE = 'gate-one'; });",
+      "describe('b', () => { const GATE = 'gate-two'; });",
+      '// `dist/hooks.js <gate>` and `dist/hooks.js PreToolUse`',
+      "runGate('PreToolUse', opts);",
+      'runGate(name, opts);',
+      "runGate('gate-two', opts);",
+    ].join('\n');
+    assert.deepEqual(await runs(TEST, src), [
+      { dst: gate('gate-one'), line: 1 },
+      { dst: gate('gate-two'), line: 2 },
+    ]);
+  });
+
+  it('the same sources at a non-test path give no runs edge', async () => {
+    for (const src of [LITERAL, CONST, COMMENT]) assert.deepEqual(await runs('mcp/trajectory-server/src/foo.ts', src), []);
+  });
+
+  it('world_model_symbol lists a test that only runs a gate under the gate module\'s tests', async (t) => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-test-gate-'));
+    const root = join(ws, 'app');
+    const db = tempDB();
+    t.after(() => {
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    });
+    const holder = GraphHolder.fixed(new WorldModelGraph(db));
+    const files: Record<string, string> = {
+      'mcp/trajectory-server/src/hooks/g1.ts': 'export function g1(): number {\n  return 1;\n}\n',
+      'mcp/trajectory-server/src/test/g1-l3.test.ts': "import { runGate } from './hook-sandbox.js';\nrunGate('g1', { cwd: '.', env: {} });\n",
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+    const card = parse<{ tests: { refs: Payload[] } }>(
+      (await worldModelTools(db, holder).handlers['world_model_symbol']!({
+        agent: 'bro',
+        repo: 'app',
+        qualified_name: 'mcp/trajectory-server/src/hooks/g1.ts',
+        path: 'mcp/trajectory-server/src/hooks/g1.ts',
+      })) as CallToolResult,
+    );
+    assert.deepEqual(card.tests.refs.map((r) => r['path']), ['mcp/trajectory-server/src/test/g1-l3.test.ts']);
+  });
+});

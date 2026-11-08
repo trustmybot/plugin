@@ -117,6 +117,12 @@ export function splitWords(s: string): string {
 export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 export const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
+export const GATE_MODULE_DIR = 'mcp/trajectory-server/src/hooks';
+
+export function isTestPath(path: string): boolean {
+  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path);
+}
+
 // Build output, installed or vendored dependencies, source maps and minified
 // bundles: the world model indexes none of them (GH 1835).
 export function isGeneratedPath(relPath: string): boolean {
@@ -383,7 +389,34 @@ function named(node: Node): Node[] {
 
 const FUNCTION_VALUES = new Set(['arrow_function', 'function_expression', 'function']);
 
-function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number): void {
+const GATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const GATE_MENTIONS = [
+  /dist\/hooks\.js[ \t]+([\w<>-]+)/g,
+  /\brunGate\((['"])([^'"\n]*)\1/g,
+  /\bconst\s+GATE\s*=\s*(['"])([^'"\n]*)\1/g,
+];
+
+// An l3 hook test runs its gate as a child process and never imports it
+// (GH 1839): one 'runs' edge from the test module to each gate module it
+// names, on the line of that gate's first mention.
+function testGateRuns(src: string, out: Collector, moduleSymbol: number): void {
+  const first = new Map<string, number>();
+  for (const re of GATE_MENTIONS) {
+    for (const m of src.matchAll(re)) {
+      const name = m[m.length - 1]!;
+      if (!GATE_NAME.test(name)) continue;
+      const at = first.get(name);
+      if (at === undefined || m.index < at) first.set(name, m.index);
+    }
+  }
+  const lineAt = lineCounter(src, 0);
+  for (const [name, index] of [...first].sort((a, b) => a[1] - b[1])) {
+    out.edge(moduleSymbol, 'runs', `${GATE_MODULE_DIR}/${name}.ts`, lineAt(index));
+  }
+}
+
+function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number, relPath: string): void {
+  if (isTestPath(relPath)) testGateRuns(src, out, moduleSymbol);
   const definition = (node: Node, kind: SymbolKind, qualifiedName: string): number =>
     out.symbol({
       kind,
@@ -751,7 +784,7 @@ export function extractFile(parsers: Parsers | null, relPath: string, lang: Sour
   if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
   try {
     if (lang === 'bash') extractBash(tree.rootNode, out, moduleSymbol);
-    else extractTs(tree.rootNode, src, out, moduleSymbol);
+    else extractTs(tree.rootNode, src, out, moduleSymbol, relPath);
   } finally {
     tree.delete();
   }

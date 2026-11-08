@@ -25,6 +25,7 @@ import {
   extractFile,
   inSymbolScope,
   isGeneratedPath,
+  isTestPath,
   languageOf,
   needsParser,
   splitWords,
@@ -41,7 +42,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 8;
+export const EXTRACTOR_VERSION = 9;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -132,9 +133,7 @@ const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_functio
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
 const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
 
-export function isTestPath(path: string): boolean {
-  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path);
-}
+export { isTestPath };
 
 // The concept lane (ADR 0002): test and fixture paths never anchor a concept
 // step or join a derived chain.

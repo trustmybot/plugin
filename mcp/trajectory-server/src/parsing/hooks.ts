@@ -9,12 +9,11 @@
 // Ported from the GH 1680 MVP
 // enrich.mjs.
 import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
-import { clip, md5, oneLine, type Extraction } from './extract.js';
+import { clip, GATE_MODULE_DIR, md5, oneLine, type Extraction } from './extract.js';
 
 export const HOOKS_PATH = 'hooks/hooks.json';
 export const ROUTER_TABLE_PATH = 'mcp/trajectory-server/dist/hooks-router.txt';
 export const ROUTER_TABLE_SOURCE = 'mcp/trajectory-server/src/hooks/registry.ts';
-export const GATE_MODULE_DIR = 'mcp/trajectory-server/src/hooks';
 
 const EVENT_ORDER = [
   'SessionStart',
