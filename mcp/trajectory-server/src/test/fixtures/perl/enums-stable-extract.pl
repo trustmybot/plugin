@@ -1,5 +1,7 @@
 #!/usr/bin/env perl
-# Helper for enums-stable.test.mjs.
+# Perl indexing fixture for world-model-symbols.test.ts: the retired literal
+# extractor of the enums-stable lint, frozen; tests/l1-lint/enums-stable-extract.mjs
+# is its live port.
 # Usage: enums-stable-extract.pl <enum> <schema.sql> <file>...
 # Prints "<value>\t<file>" for every literal of <enum> the schema CHECK lists
 # and the code files hold, first occurrence per (value, file). Comments in
