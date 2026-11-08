@@ -150,8 +150,9 @@ describe('without world-model tables (v41)', () => {
   after(() => server?.stop());
   const get = () => server;
 
-  check(get, 'api/world-model', '{"available":false,"repos":[],"nodes":[]}');
-  check(get, 'api/world-model/search?q=smokemap', '{"available":false,"hits":[]}');
-  check(get, 'api/world-model/graph', '{"available":false,"repo":null,"repos":[],"files":[],"edges":[]}');
+  check(get, 'api/world-model', '{"available":false,"repos":[],"nodes":[],"freshness":null}');
+  check(get, 'api/world-model/search?q=smokemap', '{"available":false,"hits":[],"freshness":null}');
+  check(get, 'api/world-model/graph', '{"available":false,"repo":null,"repos":[],"files":[],"edges":[],"freshness":null}');
+  check(get, 'api/world-model/status', '{"repos":[],"history":[]}');
   check(get, 'api/summary', '"open_runs"');
 });

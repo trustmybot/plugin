@@ -6,6 +6,7 @@ import { Loading } from '../shared/Loading.tsx';
 import { currentHash, mapHash, parseMapQuery, subscribeHash, type MapScope } from '../shared/route.ts';
 import { Blankslate } from '../ui/Blankslate.tsx';
 import { Box } from '../ui/Box.tsx';
+import { RepoFreshness } from '../ui/FreshnessBadge.tsx';
 import { SegmentedControl, type Segment } from '../ui/SegmentedControl.tsx';
 import { DirectoryListing } from './map/DirectoryListing.tsx';
 import { DirectoryTree } from './map/DirectoryTree.tsx';
@@ -71,15 +72,18 @@ export function ProjectMapView() {
         return (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <RepoPicker
-                repos={wm.repos}
-                value={repo}
-                onChange={(r) => {
-                  setPicked(r);
-                  setSelected('');
-                  setExpanded(new Set(['']));
-                }}
-              />
+              <div className="flex min-w-0 items-center gap-2">
+                <RepoPicker
+                  repos={wm.repos}
+                  value={repo}
+                  onChange={(r) => {
+                    setPicked(r);
+                    setSelected('');
+                    setExpanded(new Set(['']));
+                  }}
+                />
+                <RepoFreshness repo={repo} />
+              </div>
               <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
                 <SegmentedControl label="Search scope" segments={SCOPES} value={route.scope} onChange={(scope) => navigate(scope, search.input.trim())} />
                 <SearchField scope={route.scope} value={search.input} onChange={search.setInput} />

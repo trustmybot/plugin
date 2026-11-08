@@ -68,10 +68,33 @@ export interface WmNode {
   file_count: number;
 }
 
+export interface Freshness {
+  indexed_commit: string | null;
+  target_ref: string | null;
+  target_commit: string | null;
+  stale: boolean;
+  reindex: {
+    state: string;
+    mode: string | null;
+    trigger: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+    elapsed_ms: number | null;
+    outcome: string | null;
+  };
+  needs_review_count: number;
+}
+
+export interface WmStatus {
+  repos: Array<{ repo: string; freshness: Freshness | null }>;
+  history: Row[];
+}
+
 export interface WorldModel {
   available: boolean;
   repos: string[];
   nodes: WmNode[];
+  freshness?: Freshness | null;
 }
 
 export type FileEdgeKind = 'calls' | 'imports' | 'runs' | 'sources' | 'instantiates';
@@ -82,11 +105,13 @@ export interface FileGraph {
   repos: string[];
   files: Array<{ path: string; purpose: string }>;
   edges: Array<{ src: number; dst: number; kind: FileEdgeKind; weight: number }>;
+  freshness?: Freshness | null;
 }
 
 export interface WorldModelSearch {
   available: boolean;
   hits: Row[];
+  freshness?: Freshness | null;
 }
 
 export type Trust = 'verified' | 'suspect' | 'broken';
@@ -184,21 +209,51 @@ export function useApis<T>(paths: string[]) {
   return useQueries({ queries: paths.map((path) => ({ queryKey: [path], queryFn: () => getJson<T>(path) })) });
 }
 
+const WM_STATUS = 'world-model/status';
+const WM_STATUS_POLL_MS = 5000;
+
+const isWorldModelKey = (key: readonly unknown[]) => typeof key[0] === 'string' && key[0].startsWith('world-model');
+
+// The queries a data_version change refetches: everything but the version poll
+// itself and the world-model queries, which refetch when an index lands.
+export const liveRefreshes = (key: readonly unknown[]) => key[0] !== '__version' && !isWorldModelKey(key);
+
+const reindexed = (key: readonly unknown[]) => isWorldModelKey(key) && key[0] !== WM_STATUS;
+
+export function useWmStatus() {
+  return useQuery({
+    queryKey: [WM_STATUS],
+    queryFn: () => getJson<WmStatus>(WM_STATUS),
+    refetchInterval: WM_STATUS_POLL_MS,
+  });
+}
+
 export function useLiveRefresh(): void {
   const client = useQueryClient();
   const seen = useRef<number | null>(null);
+  const indexed = useRef<Map<string, string | null> | null>(null);
   const { data } = useQuery({
     queryKey: ['__version'],
     queryFn: () => getJson<{ data_version: number }>('version'),
     refetchInterval: POLL_MS,
   });
+  const status = useWmStatus().data;
   useEffect(() => {
     if (!data) return;
     if (seen.current !== null && seen.current !== data.data_version) {
-      void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' });
+      void client.invalidateQueries({ predicate: (q) => liveRefreshes(q.queryKey) });
     }
     seen.current = data.data_version;
   }, [data, client]);
+  useEffect(() => {
+    if (!status) return;
+    const next = new Map(status.repos.map((r) => [r.repo, r.freshness?.indexed_commit ?? null]));
+    const prev = indexed.current;
+    if (prev !== null && [...next].some(([repo, sha]) => prev.get(repo) !== sha)) {
+      void client.invalidateQueries({ predicate: (q) => reindexed(q.queryKey) });
+    }
+    indexed.current = next;
+  }, [status, client]);
 }
 
 export class ApiError extends Error {
