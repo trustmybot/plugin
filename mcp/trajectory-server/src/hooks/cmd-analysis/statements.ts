@@ -32,6 +32,8 @@ const MAX_DIRS = 8;
 const VSEP = '\x1c';
 const VEQ = '\x1d';
 const BAD = '\x01';
+const EMPTY_WORD = "''";
+const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 
 const VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
 const VBAD = '*?[](){<>`';
@@ -105,6 +107,26 @@ function srcmark(body: string, dir: string): string {
   if (body.endsWith(SEP)) body = body.slice(0, -1);
   if (body === '') return '';
   return SEP + dir + SEP + body;
+}
+
+/**
+ * The indices of the quoted empty words (`''`, `""`) that are the value of
+ * one of git's global options from w[first]. Without `assign` the statement
+ * keeps each as EMPTY_WORD, so a reader of git's words still finds the
+ * subcommand after `git -C ''` (GH 2549).
+ */
+function gitEmptyWords(w: readonly string[], wq: readonly boolean[], first: number): Set<number> {
+  const kept = new Set<number>();
+  for (let k = first + 1; k < w.length; k++) {
+    if (w[k] === '') continue;
+    if (GIT_VALUE_OPTION.has(w[k])) {
+      if (w[k + 1] === '' && wq[k + 1]) kept.add(k + 1);
+      k++;
+      continue;
+    }
+    if (!w[k].startsWith('-')) break;
+  }
+  return kept;
 }
 
 /** Per loop frame, by its order of opening: the dirs its back-edge adds, the runs that added some, the frames that grew this run, and those that hit MAX_GROWTH. */
@@ -612,8 +634,12 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     } else if (ok) {
       ok = VPLAIN.test(a0);
     }
+    const kept = !assign && a0 === 'git' ? gitEmptyWords(w, wq, first) : new Set<number>();
     let out = a0;
-    for (let k = first + 1; k < n; k++) if (w[k] !== '') out += ' ' + w[k];
+    for (let k = first + 1; k < n; k++) {
+      if (w[k] !== '') out += ' ' + w[k];
+      else if (kept.has(k)) out += ' ' + EMPTY_WORD;
+    }
     if (cdw !== '') {
       out = cdw + ' ' + out;
       a0 = '';
@@ -668,6 +694,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (w[k] === '-C') {
+          if (kept.has(k + 1)) {
+            k++;
+            continue;
+          }
           const t = resolve(d, w[k + 1] ?? '');
           dw = t === '-' ? whyof(d, dw, w[k + 1] ?? '') : '';
           d = t;
