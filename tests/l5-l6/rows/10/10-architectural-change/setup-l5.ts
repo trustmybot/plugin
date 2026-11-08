@@ -1,16 +1,13 @@
-#!/usr/bin/env bash
-# Pre-seed a minimal src/cli.py that L6 would inherit from prior chain steps
-# (rows 4–7 built + committed the TODO CLI). Bro is asked to extract the
-# storage layer — so the file must exist as prior context.
-set -uo pipefail
+// Pre-seed a minimal src/cli.py that L6 would inherit from prior chain steps
+// (rows 4–7 built + committed the TODO CLI). Bro is asked to extract the
+// storage layer — so the file must exist as prior context.
+import { gitCommit, setupArgs, writeFile } from '../../../lib/setup-helpers.ts';
 
-PROJECT="$1"
-# shellcheck disable=SC2034
-SCENARIO_DIR="$2"
-
-mkdir -p "$PROJECT/src"
-cat > "$PROJECT/src/cli.py" <<'PY'
-"""TODO CLI — stores tasks in a JSON file."""
+const { project } = setupArgs(import.meta.dirname);
+writeFile(
+  project,
+  'src/cli.py',
+  `"""TODO CLI — stores tasks in a JSON file."""
 import json, os, sys
 
 DATA_FILE = "tasks.json"
@@ -41,10 +38,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-PY
-
-(
-  cd "$PROJECT" || exit 1
-  git add src/cli.py
-  git commit -qm 'feat: initial todo CLI with JSON storage'
-) >/dev/null
+`,
+);
+gitCommit(project, ['src/cli.py'], 'feat: initial todo CLI with JSON storage');

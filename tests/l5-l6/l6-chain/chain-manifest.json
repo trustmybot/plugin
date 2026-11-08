@@ -40,8 +40,8 @@
       "row_dir": "rows/04/04-cheatcode-install-plugins",
       "partial_test": false,
       "seed_before": null,
-      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/04/04-cheatcode-install-plugins/setup-l5.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
-      "chain_setup_note": "Stage the cheatcode-install fixture exactly as the row's setup-l5.sh does (deterministic marketplace stub, no network): writes $PROJECT/.tmb-cheatcode-install-fixture.json with per-candidate attachment targets (feature-dev\u2192swe, code-review\u2192code-reviewer). L5 standalone sources the same setup directly.",
+      "chain_setup_command": "node --experimental-strip-types --experimental-sqlite \"$PLUGIN_ROOT/tests/l5-l6/rows/04/04-cheatcode-install-plugins/setup-l5.ts\" \"$PWD\"",
+      "chain_setup_note": "Stage the cheatcode fixtures by running the row's setup-l5.ts (deterministic search, vet and marketplace stubs, no network): writes $PROJECT/.tmb-cheatcode-fixture.json, .tmb-cheatcode-vet-fixture.json and .tmb-cheatcode-install-fixture.json, the last with per-candidate attachment targets (feature-dev\u2192swe, code-review\u2192code-reviewer). L5 standalone runs the same script.",
       "seed_after": null,
       "halt_on_fail": true
     },
@@ -95,8 +95,8 @@
       "row_dir": "rows/09/09-cheatcode-uninstall-plugins",
       "partial_test": false,
       "seed_before": null,
-      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/09/09-cheatcode-uninstall-plugins/setup-l5.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
-      "chain_setup_note": "Stage the cheatcode-uninstall fixture exactly as the row's setup-l5.sh does (deterministic teardown stub, no network): seeds the INSTALLED state (cheatcodes + attachments + install audit rows for feature-dev\u2192swe, code-review\u2192code-reviewer) and writes $PROJECT/.tmb-cheatcode-uninstall-fixture.json so the uninstall has concrete state to reverse. L5 standalone sources the same setup directly.",
+      "chain_setup_command": "node --experimental-strip-types --experimental-sqlite \"$PLUGIN_ROOT/tests/l5-l6/rows/09/09-cheatcode-uninstall-plugins/setup-l5.ts\" \"$PWD\"",
+      "chain_setup_note": "Stage the cheatcode-uninstall fixture by running the row's setup-l5.ts (deterministic teardown stub, no network): seeds the INSTALLED state (cheatcodes + attachments + install audit rows for feature-dev\u2192swe, code-review\u2192code-reviewer) unless step 04 already installed them, and writes $PROJECT/.tmb-cheatcode-uninstall-fixture.json so the uninstall has concrete state to reverse. L5 standalone runs the same script.",
       "seed_after": null,
       "halt_on_fail": true
     },
@@ -139,7 +139,7 @@
       "row_dir": "rows/13/13-roundtable",
       "partial_test": true,
       "seed_before": null,
-      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/13/13-roundtable/seed-agents.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
+      "chain_setup_command": "node --experimental-strip-types --experimental-sqlite \"$PLUGIN_ROOT/tests/l5-l6/rows/13/13-roundtable/seed-agents.ts\" \"$PWD\" \"$PLUGIN_ROOT\"",
       "seed_after": "seeds/after-13-roundtable.sql",
       "halt_on_fail": true
     },

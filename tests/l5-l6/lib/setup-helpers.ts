@@ -3,9 +3,9 @@
 // the script pre-seeds the scratch project's files, git history and trajectory DB.
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite';
 
 export const PLUGIN_ROOT = dirname(dirname(dirname(import.meta.dirname)));
 
@@ -48,13 +48,38 @@ export function gitCommit(project: string, paths: readonly string[], message: st
   return ok;
 }
 
-/** Runs <statements> on <project>/.claude/tmb/trajectory.db with FK constraints off; with params, one bound statement. */
-export function sql(project: string, statements: string, params?: readonly SQLInputValue[]): void {
-  const db = new DatabaseSync(join(project, '.claude', 'tmb', 'trajectory.db'), { enableForeignKeyConstraints: false });
+export function trajectoryDbPath(project: string): string {
+  return join(project, '.claude', 'tmb', 'trajectory.db');
+}
+
+/** Opens <project>/.claude/tmb/trajectory.db with FK constraints off, runs <fn> on that one connection, closes it. */
+export function withDb<T>(project: string, fn: (db: DatabaseSync) => T): T {
+  const db = new DatabaseSync(trajectoryDbPath(project), { enableForeignKeyConstraints: false });
   try {
-    if (params === undefined) db.exec(statements);
-    else db.prepare(statements).run(...params);
+    return fn(db);
   } finally {
     db.close();
   }
+}
+
+/** Runs <statements> on the trajectory DB with FK constraints off; with params, one bound statement. */
+export function sql(project: string, statements: string, params?: readonly SQLInputValue[]): void {
+  withDb(project, (db) => {
+    if (params === undefined) db.exec(statements);
+    else db.prepare(statements).run(...params);
+  });
+}
+
+/** The rows one bound SELECT returns from the trajectory DB. */
+export function query(project: string, statement: string, params: readonly SQLInputValue[] = []): Record<string, SQLOutputValue>[] {
+  return withDb(project, (db) => db.prepare(statement).all(...params));
+}
+
+/** Creates the trajectory DB from PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql unless it exists; true when it created it. */
+export function ensureSchema(project: string): boolean {
+  const path = trajectoryDbPath(project);
+  if (existsSync(path)) return false;
+  mkdirSync(dirname(path), { recursive: true });
+  sql(project, readFileSync(join(PLUGIN_ROOT, 'mcp', 'trajectory-server', 'src', 'schema.sql'), 'utf8'));
+  return true;
 }

@@ -7,7 +7,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture (clean schema v27 — `plugin_config` already holds none of the four repo-scoped keys). `setup-l5.sh` then:
+`onboarding-named` fixture (clean schema v27 — `plugin_config` already holds none of the four repo-scoped keys). `setup-l5.ts` then:
 
 - `git init`s `repo-a` and `repo-b` under the session dir, each with one commit and a distinct origin remote (`git@github.com:acme/repo-a.git` / `git@gitlab.com:acme/repo-b.git`). `git remote add` / `get-url` are pure local config, so the stubbed `git-remote-http(s)` transport helpers never fire and no network is touched.
 - Seeds the two `repos` rows with workspace-wide policy (`target_branch` + `branching_model` + `protected_branches`) and no `repo_remotes` rows. The policy seed stands in for the post-AUQ `onboard_apply`, which the harness suppresses (no AskUserQuestion in test mode). `scan_run` upserts these rows by `name` and fills `repo_remotes` **without** touching the policy columns, so the distinct per-repo remotes land while the seeded policy survives.

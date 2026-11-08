@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` scaffolds and commits `src/cli.py` (the todo CLI with an `add` command) so there is something to benchmark.
+`onboarding-named` fixture. `setup-l5.ts` scaffolds and commits `src/cli.py` (the todo CLI with an `add` command) so there is something to benchmark.
 
 ## Turns
 
