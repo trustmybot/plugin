@@ -2173,3 +2173,77 @@ describe('coveredDirs reads the directories a runner command names (GH 2326)', (
     });
   }
 });
+
+describe('coveredDirs skips script names, echo text and make targets (GH 2521)', () => {
+  const known = repoPaths(['src/a.ts', 'src/schema.json', 'docs/guide.md', 'tests/a.test.mjs']);
+  const cases: Array<[string, string[]]> = [
+    ['npm run docs', []],
+    ['pnpm run docs', []],
+    ['yarn run-script docs', []],
+    ['bun run docs', []],
+    ['./node_modules/.bin/npm run --silent docs', []],
+    ['echo src', []],
+    ['printf src', []],
+    ['make docs', []],
+    ['just docs', []],
+    ['task docs', []],
+    ['make -C docs/ docs', ['docs']],
+    ['npm run lint -- src', ['src']],
+    ['node --test tests', ['tests']],
+    ['npm test src', ['src']],
+    ['make schema > src/schema.json', []],
+    ['just gen > src/schema.json', []],
+    ['task gen >> src/schema.json', []],
+    ['make docs < src/a.ts', []],
+    ['make gen 2> src/schema.json', []],
+    ['echo x > src/a.txt', []],
+    ['npm run docs > src/a.txt', []],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
+describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  before(async () => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'tests'), { recursive: true });
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'app', scripts: { 'build:docs': 'npm run docs', show: 'echo src', test: 'node --test tests' } }, null, 2) + '\n',
+    );
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'docs/guide.txt'), 'guide\n');
+    writeFileSync(join(root, 'tests/a.test.mjs'), 'export const t = 1;\n');
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('only test covers tests', () => {
+    const edges = db
+      .all<{ runner: string; dst_name: string }>(
+        `SELECT s.qualified_name AS runner, e.dst_name
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'covers'`,
+      )
+      .map((r) => ({ ...r }));
+    assert.deepEqual(edges, [{ runner: 'test', dst_name: 'tests' }]);
+  });
+});

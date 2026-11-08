@@ -129,6 +129,37 @@ function dirOfWord(word: string, base: string, known: RepoPaths): string | null 
   return null;
 }
 
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+const RUN_SCRIPT = new Set(['run', 'run-script']);
+const PRINTERS = new Set(['echo', 'printf']);
+const TARGET_RUNNERS = new Set(['make', 'just', 'task']);
+
+// The argument indexes of one simple command that are names, not paths: a
+// package manager's `run <script>`, every echo/printf argument, and each bare
+// make/just/task target.
+function nameArgs(words: Word[]): Set<number> {
+  const out = new Set<number>();
+  const tool = posix.basename(words[0]!.text);
+  const nextBare = (from: number): number => {
+    let i = from;
+    while (i < words.length && words[i]!.text.startsWith('-')) i++;
+    return i;
+  };
+  if (PRINTERS.has(tool)) {
+    for (let i = 1; i < words.length; i++) out.add(i);
+  } else if (TARGET_RUNNERS.has(tool)) {
+    for (let i = 1; i < words.length; i++) if (!words[i]!.text.includes('/')) out.add(i);
+  } else if (PACKAGE_MANAGERS.has(tool)) {
+    const run = nextBare(1);
+    if (run < words.length && RUN_SCRIPT.has(words[run]!.text)) {
+      out.add(run);
+      const script = nextBare(run + 1);
+      if (script < words.length) out.add(script);
+    }
+  }
+  return out;
+}
+
 // The repo directories a runner's command checks, run from base, in first
 // mention order.
 export function coveredDirs(command: string, base: string, known: RepoPaths): string[] {
@@ -157,12 +188,14 @@ export function coveredDirs(command: string, base: string, known: RepoPaths): st
     }
     if (cwd === null) continue;
     ranSinceCd = true;
+    const names = nameArgs(words);
     for (let i = 1; i < words.length; i++) {
       const w = words[i]!;
       if (REDIRECT_ALONE.test(w.text)) {
         i++;
         continue;
       }
+      if (names.has(i)) continue;
       if (w.dynamic || w.text === '' || w.text.startsWith('-') || REDIRECT.test(w.text) || ASSIGNMENT.test(w.text)) continue;
       const dir = dirOfWord(w.text, cwd, known);
       if (dir === null) continue;
