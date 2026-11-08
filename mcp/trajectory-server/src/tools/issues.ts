@@ -783,7 +783,7 @@ export function issueTools(
     },
     {
       name: 'issue_reconcile_remote',
-      description: 'Bro only. Close open local issues whose linked GitHub/GitLab issue is closed, and sync GitHub PR rows (prs); reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun later); read failures land in errors.',
+      description: 'Bro only. Close open local issues whose GitHub/GitLab issue is closed and sync GitHub PR rows; read-only on the remote; skipped when remote sync is off. Live-task issues stay open in deferred (rerun later); read failures land in errors.',
       inputSchema: {
         type: 'object',
         properties: {
