@@ -417,12 +417,17 @@ async function run(l1Only: boolean, runTmp: string): Promise<number> {
     return missing.length === 0;
   });
   await runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
+  const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
+  const equivalenceTest = join('dist', 'test', 'wm-equivalence.test.js');
+  await runStep('L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)', ['wm_equivalence'], l1Env, async () => {
+    if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
+    return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
+  });
   liveCliCheck('L1');
   if (l1Only) return fail ? 1 : 0;
 
   const afterL1 = postL1Env(base);
   const l2Env = { ...afterL1, ...forbidLive };
-  const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
   await runStep('L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs)', ['l2_unit'], l2Env, async () => {
     if (!(await runArgv(['bun', 'run', 'build'], l2Env, serverDir))) return false;
     const testDir = join(serverDir, 'dist', 'test');
