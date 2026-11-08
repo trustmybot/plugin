@@ -113,7 +113,8 @@ describe('world_model_search ranks source above tests, fixtures, changelog and p
     assert.ok(at('skills/review') < at('tests/fixtures'), show(hits));
     const rowid = db.get<{ rowid: number }>(`SELECT id AS rowid FROM wm_directories WHERE repo = 'app' AND path = 'tests/fixtures'`)!.rowid;
     const cosine = (await topKByCosine(db, 'wm_directories', 'review findings wontfix', 100, ['app'])).find((r) => r.rowid === rowid)!;
-    assert.ok(Math.abs(Number(hits[at('tests/fixtures')]!['score']) - cosine.score * 0.5) < 1e-9, show(hits));    const scores = hits.map((h) => Number(h['score']));
+    assert.ok(Math.abs(Number(hits[at('tests/fixtures')]!['score']) - cosine.score * 0.5) < 1e-9, show(hits));
+    const scores = hits.map((h) => Number(h['score']));
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a), `semantic hits stay sorted by weighted score: ${show(hits)}`);
   });
 });
