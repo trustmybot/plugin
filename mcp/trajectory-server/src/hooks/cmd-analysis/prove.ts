@@ -103,6 +103,7 @@ const PY_METHODS = new Set([
   'strip', 'split', 'rsplit', 'join', 'get', 'items', 'keys', 'values', 'lower', 'upper', 'startswith', 'endswith', 'read',
   'readlines', 'format', 'count', 'find', 'append', 'extend', 'write', 'writelines', 'close', 'flush',
 ]);
+const PY_STR_METHODS = new Set(['read', 'read_text', 'decode', 'strip', 'lstrip', 'rstrip', 'lower', 'upper', 'replace', 'format', 'join']);
 const PY_DUNDERS = new Set(['__name__', '__file__', '__doc__']);
 const PY_UNPROVEN = new Set([
   'class_definition', 'decorated_definition', 'decorator', 'exec_statement', 'print_statement', 'match_statement',
@@ -186,6 +187,22 @@ class Bindings {
 
 const kids = (node: Node): Node[] => node.namedChildren.filter((c): c is Node => c !== null);
 const field = (node: Node, name: string): Node | null => node.childForFieldName(name);
+const splat = (node: Node): boolean => node.type === 'list_splat' || node.type === 'dictionary_splat';
+
+/**
+ * A `.replace(a, b, …)` whose receiver is a call of a method that returns str
+ * or bytes, never a Path (GH 1723): `Path.replace` and `os.replace` take one
+ * target, and a name, subscript or other call receiver stays unproven.
+ */
+function strReplace(root: Node, parts: readonly string[], args: Node | null): boolean {
+  if (root.type !== 'call' || parts.length !== 1 || !args) return false;
+  const fn = field(root, 'function');
+  const method = fn?.type === 'attribute' ? field(fn, 'attribute')?.text : undefined;
+  if (method === undefined || !PY_STR_METHODS.has(method)) return false;
+  const list = kids(args).filter((a) => a.type !== 'comment');
+  if (list.some(splat)) return false;
+  return list.filter((a) => a.type !== 'keyword_argument').length >= 2;
+}
 
 /** An attribute / member chain: its innermost object and the names after it. */
 function chain(node: Node, type: string, object: string, property: string): { root: Node; parts: string[] } {
@@ -205,9 +222,16 @@ class Proof {
   readonly binds = new Bindings();
   ok = true;
   judged = false;
+  /** A judged write call with a `*` / `**` argument, whose target the scanner cannot see (GH 1723). */
+  blind = false;
 
   fail(): void {
     this.ok = false;
+  }
+
+  protected judge(args: Node | null): void {
+    this.judged = true;
+    if (args && kids(args).some(splat)) this.blind = true;
   }
 }
 
@@ -357,9 +381,9 @@ class PyProof extends Proof {
     this.visit(root);
   }
 
-  /** Whether a node in a position the call calls back is a function the proof follows. */
+  /** Whether a node in a position the call calls back is a function the proof follows, or a string (re.sub's `repl`; elsewhere a TypeError, not a write). */
   private callback(node: Node): boolean {
-    if (node.type === 'lambda') return true;
+    if (node.type === 'lambda' || node.type === 'string' || node.type === 'concatenated_string') return true;
     if (node.type === 'identifier') {
       const b = this.binds.resolve(node.text);
       if (b?.kind === 'def') return true;
@@ -380,7 +404,7 @@ class PyProof extends Proof {
     const list = args ? kids(args) : [];
     const kw = list.find((a) => a.type === 'keyword_argument' && field(a, 'name')?.text === 'mode');
     const positional = list.filter((a) => a.type !== 'keyword_argument');
-    if (list.some((a) => a.type === 'list_splat' || a.type === 'dictionary_splat')) this.judged = true;
+    if (list.some(splat)) this.judge(args);
     const mode = kw ? field(kw, 'value') : (positional[1] ?? null);
     if (mode && !PY_READ_MODES.has(pyLiteral(mode) ?? '')) this.judged = true;
   }
@@ -397,7 +421,7 @@ class PyProof extends Proof {
       if (b?.kind === 'import') {
         callee = b.q;
         if (!this.safeCall(b.q) && !PY_PATH.has(b.q)) {
-          if (judgedCall('py', b.q)) this.judged = true;
+          if (judgedCall('py', b.q)) this.judge(args);
           else return this.fail();
         }
       } else if (b?.kind === 'local') return this.fail();
@@ -414,15 +438,15 @@ class PyProof extends Proof {
       if (q !== undefined) {
         callee = q;
         if (!this.safeCall(q) && !PY_PATH.has(q)) {
-          if (judgedCall('py', q)) this.judged = true;
+          if (judgedCall('py', q)) this.judge(args);
           else return this.fail();
         }
       } else {
         this.visit(root);
         const literal = root.type === 'string' && parts.length === 1;
         const pre = root.type === 'identifier' ? [root.text, ...parts.slice(0, -1)].join('.') : '?';
-        if (last === 'replace' ? !literal : !PY_METHODS.has(last)) {
-          if (judgedCall('py', `${pre}.${last}`)) this.judged = true;
+        if (last === 'replace' ? !literal && !strReplace(root, parts, args) : !PY_METHODS.has(last)) {
+          if (judgedCall('py', `${pre}.${last}`)) this.judge(args);
           else return this.fail();
         }
       }
@@ -478,6 +502,9 @@ class PyProof extends Proof {
         return this.attribute(node);
       case 'call':
         return this.call(node);
+      case 'interpolation':
+        if (node.descendantsOfType('call').length > 0) return this.fail();
+        break;
       case 'keyword_argument': {
         const value = field(node, 'value');
         if (value) this.visit(value);
@@ -1122,24 +1149,31 @@ function proveScript(lang: Lang, src: string): { ok: boolean; judged: boolean } 
   return { ok: true, judged };
 }
 
+export interface ProgramProof {
+  /** Every call of the program is judged or safe. */
+  proven: boolean;
+  /** It makes a judged write call the scanner names no target for (`open(*a)`, `open(**k)`), so the scan's targets are not complete. */
+  blind: boolean;
+}
+
 /** Whether every call of `program` is judged or safe; `scanned` holds the scanner's lines for the W guard. */
-export function proveProgram(lang: Lang, program: string, scanned: readonly string[]): boolean {
+export function proveProgram(lang: Lang, program: string, scanned: readonly string[]): ProgramProof {
+  const no: ProgramProof = { proven: false, blind: false };
   if (lang === 'perl' || lang === 'ruby') {
     const proof = proveScript(lang, program);
-    return proof.ok && (!proof.judged || scanned.includes('W'));
+    return { proven: proof.ok && (!proof.judged || scanned.includes('W')), blind: false };
   }
   const parser = programParser(lang === 'py' ? 'python' : 'javascript');
-  if (!parser) return false;
+  if (!parser) return no;
   const tree = parser.parse(program);
-  if (!tree) return false;
+  if (!tree) return no;
   try {
     const root = tree.rootNode;
-    if (root.hasError) return false;
+    if (root.hasError) return no;
     const proof = lang === 'py' ? new PyProof() : new JsProof();
     proof.collect(root);
     if (proof.ok) proof.visit(root);
-    if (proof.judged && !scanned.includes('W')) return false;
-    return proof.ok;
+    return { proven: proof.ok && (!proof.judged || scanned.includes('W')), blind: proof.blind };
   } finally {
     tree.delete();
   }

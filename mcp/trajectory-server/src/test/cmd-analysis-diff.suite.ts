@@ -297,7 +297,7 @@ export function cmdAnalysisDiffShard(k: number, n: number): void {
           "python3 - <<'EOF'\np = 'src/a.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\np = 'src/b.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\nEOF",
           ['/w/src/a.ts', '/w/src/b.ts', `${UNPROVEN}python3 p = 'src/a.ts' s = open(p).read() open(p, 'w').write(s.replace('x', 'y')`],
         ],
-        ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`, ['/etc/x', '/w/a']],
+        ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`, ['/w/a', '/etc/x']],
       ] as const) {
         it(`resolves ${group} to every literal it is bound to`, async () => {
           assert.deepEqual(await run(cmd), [...want]);
