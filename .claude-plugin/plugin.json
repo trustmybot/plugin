@@ -9,6 +9,7 @@
   "license": "MIT",
   "repository": "https://github.com/trustmybot/plugin",
   "homepage": "https://github.com/trustmybot/plugin",
+  "icon": ".claude-plugin/icon.png",
   "keywords": [
     "agents",
     "workflow",

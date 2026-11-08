@@ -87,13 +87,13 @@ L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call;
 Two switches narrow a run:
 
 - `--l1-only` (first argument) builds the payload, runs the L1 block, and exits with its result before L2.
-- `TMB_L1_SKIP` holds space-separated lint basenames (`manifest-shape.test.mjs tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
+- `TMB_L1_SKIP` holds space-separated lint basenames (`tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
 
 ```bash
-TMB_L1_SKIP="manifest-shape.test.mjs tool-description-budget.test.mjs" bash tests/run-all.sh --l1-only
+TMB_L1_SKIP="tool-description-budget.test.mjs" bash tests/run-all.sh --l1-only
 ```
 
-`.github/workflows/pr-check.yml` runs exactly that on every pull request into `dev`, `rc` or `main` (GH 2064): `bun install --frozen-lockfile`, then `bash tests/run-all.sh --l1-only`, so L1 lints and the strict tsc in `build:payload` gate each PR. Its `TMB_L1_SKIP` holds back manifest-shape (GH 2235, GH 1388) and tool-description-budget (GH 1403) until the Human decides them.
+`.github/workflows/pr-check.yml` runs exactly that on every pull request into `dev`, `rc` or `main` (GH 2064): `bun install --frozen-lockfile`, then `bash tests/run-all.sh --l1-only`, so L1 lints and the strict tsc in `build:payload` gate each PR. Its `TMB_L1_SKIP` holds back tool-description-budget (GH 1403) until the Human decides it.
 
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or

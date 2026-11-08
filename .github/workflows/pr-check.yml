@@ -17,9 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # Held for the Human: manifest-shape (GH 2235, GH 1388) and
-      # tool-description-budget (GH 1403) fail on dev until those land.
-      TMB_L1_SKIP: manifest-shape.test.mjs tool-description-budget.test.mjs
+      # Held for the Human: tool-description-budget (GH 1403) fails on dev until it lands.
+      TMB_L1_SKIP: tool-description-budget.test.mjs
     steps:
       - uses: actions/checkout@v5
 
