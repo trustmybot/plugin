@@ -102,7 +102,7 @@ export interface InsightParams {
   compare?: Compare | null;
 }
 
-export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost', 'time', 'quality', 'throughput']);
+export const COMPARE_SECTIONS: ReadonlySet<Section> = new Set(['tokens', 'cost', 'time', 'quality', 'throughput', 'explore']);
 export const comparing = (p: InsightParams) => !!p.compare && COMPARE_SECTIONS.has(p.section);
 
 // pm decision 816: every Compare Periods string.
@@ -115,7 +115,7 @@ export const COMPARE_TOGGLE = 'Compare Periods';
 export const COMPARE_TOGGLE_TITLE = 'Compare two periods side by side to see what changed.';
 export const COMPARE_ON = 'Compare on. Showing Period 1 and Period 2.';
 export const COMPARE_OFF = 'Compare off.';
-export const COMPARE_SCOPE_NOTE = 'Compare covers every section except Explore and Efficiency for now.';
+export const COMPARE_SCOPE_NOTE = 'Compare covers every section except Efficiency for now.';
 export const SWAP_PERIODS = 'Swap periods';
 export const periodName = (n: 1 | 2) => `Period ${n}`;
 export const periodType = (n: 1 | 2) => `Period ${n} type`;
@@ -181,6 +181,7 @@ export const compareMeasured = (p: Array<{ n: number; total: number }>, per: 'ru
 export const periodEarly = (n: 1 | 2, early: string) => `${periodName(n)} · ${early}`;
 export const periodRuns = (n: 1 | 2, per: 'run' | 'session') => `${periodName(n)} ${per === 'session' ? 'Sessions' : 'Runs'}`;
 export const periodShare = (n: 1 | 2) => `${periodName(n)} Share`;
+export const periodValue = (n: 1 | 2, what: string) => `${periodName(n)} ${what}`;
 export const overlayTip = (range: string, p: Array<{ share: string; count: number }>, per: 'run' | 'session') =>
   `${range}: ${p.map((x, i) => `${periodName((i + 1) as 1 | 2)} ${x.share} (${x.count} ${runsNoun(x.count, per)})`).join(', ')}`;
 export const overlayAria = (head: string, p: Array<{ n: number; p50: string | null; p95: string | null }>) =>
@@ -349,7 +350,9 @@ export function exploreApiPath(p: InsightParams): string {
   const query = filterQuery(p);
   query.set('m', p.measure);
   pivotQuery(p, query, true);
-  return `insights/explore?${withCommas(query)}`;
+  if (!comparing(p)) return `insights/explore?${withCommas(query)}`;
+  query.delete('range');
+  return `insights/explore/compare?${withCommas(query)}${compareQuery(p.compare)}`;
 }
 
 export function writeInsightParams(next: InsightParams): void {

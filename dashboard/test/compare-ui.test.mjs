@@ -6,7 +6,9 @@
 // Throughput in compare mode to static HTML and check the Per Task strip, the
 // agent table, the dashed Period 1 outline, the legend kinds, the paired cost
 // and time rows, the rate tiles in points, the per-period throughput charts,
-// the bro captions and tile, the empty states and the note on Explore.
+// the bro captions and tile, the empty states and the note on Efficiency.
+// Explore is built with exploreCompare() and checked for the Pivot, the paired
+// table with its Change column, the paired bars and the compare API path.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -97,7 +99,7 @@ before(async () => {
     stdin: {
       contents: `import { renderToStaticMarkup } from 'react-dom/server';
         import { createElement } from 'react';
-        import { compare, compareQuery } from './server/queries.ts';
+        import { compare, compareQuery, exploreCompare } from './server/queries.ts';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
         import { DeltaLabel } from './web/views/insights/compare.tsx';
         export * from './web/views/insights/compare.ts';
@@ -119,6 +121,14 @@ before(async () => {
         };
         export const page = (hash, cmp) => withHash(hash, () =>
           renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data: cmp.p2, error: null }, cmp: { data: cmp, error: null } })));
+        export const exploreComparison = (db, p1, p2, query) => {
+          const search = new URLSearchParams(\`p1=\${encodeURIComponent(p1)}&p2=\${encodeURIComponent(p2)}&\${query}\`);
+          const q = compareQuery(search);
+          if ('error' in q) throw new Error(q.error);
+          return exploreCompare(db, q.filter, q.p1, q.p2, search);
+        };
+        export const explorePage = (hash, cmp, ex) => withHash(hash, () =>
+          renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data: cmp.p2, error: null }, cmp: { data: cmp, error: null }, exploreCmp: { data: ex, error: null } })));
         export const plainPage = (hash, data) => withHash(hash, () =>
           renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data, error: null } })));
         export const deltaLabel = (props) => renderToStaticMarkup(createElement(DeltaLabel, props));`,
@@ -325,16 +335,58 @@ describe('compare mode render', () => {
     assert.ok(!off.includes('data-pair='));
   });
 
-  test('SC4: Explore keeps its view and says compare covers every section except Explore and Efficiency', () => {
+  test('SC4: Efficiency keeps its view and says compare covers every section except Efficiency', () => {
     const cmp = mod.comparison(db, 'tasks:1-2', 'tasks:3-');
-    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, 'Compare covers every section except Explore and Efficiency for now.');
-    const html = mod.plainPage(`#/insights/explore?range=30d${TASKS}`, cmp.p2);
+    assert.equal(mod.copy.COMPARE_SCOPE_NOTE, 'Compare covers every section except Efficiency for now.');
+    const html = mod.plainPage(`#/insights/efficiency?range=30d${TASKS}`, cmp.p2);
     assert.ok(html.includes(mod.copy.COMPARE_SCOPE_NOTE));
-    assert.ok(!html.includes('data-compare-bar'));
     assert.match(html, /aria-pressed="true"/);
-    const off = mod.plainPage('#/insights/explore?range=30d', cmp.p2);
+    const off = mod.plainPage('#/insights/efficiency?range=30d', cmp.p2);
     assert.ok(!off.includes(mod.copy.COMPARE_SCOPE_NOTE));
     assert.match(off, /aria-pressed="false"/);
+  });
+});
+
+describe('compare mode render: Explore (GH 2069 B2)', () => {
+  const db = seed(join(tmp, 'explore.db'));
+  after(() => db.close());
+  const PIVOT = 'x=tokens_out&a=avg&g=agent';
+  const view = (p1, p2) =>
+    mod.explorePage(`#/insights/explore?range=30d&${PIVOT}&p1=${p1}&p2=${p2}`, mod.comparison(db, p1, p2), mod.exploreComparison(db, p1, p2, 'm=tokens_out&a=avg&g=agent'));
+
+  test('SC3: the Pivot stays, the table pairs runs and value per period with a Change column, and bars pair each group', () => {
+    const html = view('tasks:1-2', 'tasks:3-');
+    assert.match(html, /aria-label="Pivot"/);
+    const table = /<table[^>]*data-explore-compare=""[^>]*>.*?<\/table>/s.exec(html)?.[0] ?? '';
+    const headers = [...table.matchAll(/<th scope="col"[^>]*>(.*?)<\/th>/g)].map((m) => m[1]);
+    assert.deepEqual(headers.slice(1), ['Period 1 Runs', 'Period 1 Average Output Tokens', 'Period 2 Runs', 'Period 2 Average Output Tokens', 'Change']);
+    assert.match(table, /data-delta="/);
+    assert.match(table, /swe/);
+    assert.match(table, /code-reviewer/);
+    assert.ok(!table.includes('bro'));
+    assert.equal((html.match(/<g data-pair=""/g) ?? []).length, 2);
+    assert.ok(html.includes(mod.copy.BRO_TASKS_CAPTION.replaceAll("'", '&#x27;')));
+    assert.ok(!html.includes(mod.copy.COMPARE_SCOPE_NOTE));
+  });
+
+  test('SC3: date periods keep bro and show no bro caption', () => {
+    const html = view('prev90d', '7d');
+    const table = /<table[^>]*data-explore-compare=""[^>]*>.*?<\/table>/s.exec(html)?.[0] ?? '';
+    assert.match(table, />bro</);
+    assert.ok(!html.includes(mod.copy.BRO_TASKS_CAPTION.replaceAll("'", '&#x27;')));
+  });
+
+  test('SC3: Explore reuses the both-empty and one-empty states', () => {
+    assert.ok(view('tasks:900-950', 'tasks:960-').includes(mod.copy.NO_RUNS_EITHER));
+    assert.match(view('tasks:1-2', 'tasks:900-'), /data-period-empty="2"/);
+  });
+
+  test('SC4: Explore is a compare section and fetches the compare path only while comparing', () => {
+    assert.ok(mod.copy.COMPARE_SECTIONS.has('explore'));
+    const on = mod.paramsOf(`#/insights/explore?range=30d&${PIVOT}&p1=tasks:1-2&p2=tasks:3-`);
+    assert.equal(mod.copy.exploreApiPath(on), 'insights/explore/compare?m=tokens_out&a=avg&g=agent&p1=tasks:1-2&p2=tasks:3-');
+    const off = mod.paramsOf(`#/insights/explore?range=30d&${PIVOT}`);
+    assert.equal(mod.copy.exploreApiPath(off), 'insights/explore?range=30d&m=tokens_out&a=avg&g=agent');
   });
 });
 

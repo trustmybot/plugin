@@ -702,7 +702,7 @@ interface CompareProps {
   compare: Compare;
 }
 
-const polarityCaption = (measure: DeltaMeasure) => (POLARITY[measure] === 'lower' ? LOWER_BETTER : POLARITY[measure] === 'higher' ? HIGHER_BETTER : undefined);
+export const polarityCaption = (measure: DeltaMeasure) => (POLARITY[measure] === 'lower' ? LOWER_BETTER : POLARITY[measure] === 'higher' ? HIGHER_BETTER : undefined);
 
 const withBro = (caption: string | undefined, s: AgentStats) => (s.per === 'session' ? [caption, BRO_CAPTION].filter(Boolean).join(' ') : caption);
 
@@ -721,10 +721,10 @@ function agentPairs({ cmp, params }: CompareProps): AgentPair[] {
   return activeFilterCount(params) > 0 ? kept.filter((p) => p.a1.total + p.a2.total > 0) : kept;
 }
 
-const broNote = ({ cmp, compare }: CompareProps) =>
+export const broNote = ({ cmp, compare }: { cmp: { bro_excluded: boolean }; compare: Compare }) =>
   !cmp.bro_excluded ? null : compare.p1.kind === 'tasks' && compare.p2.kind === 'tasks' ? BRO_TASKS_CAPTION : BRO_EXCLUDED_CAPTION;
 
-function BothEmpty({ params, compare }: { params: InsightParams; compare: Compare }) {
+export function BothEmpty({ params, compare }: { params: InsightParams; compare: Compare }) {
   return (
     <Box>
       <Blankslate
@@ -737,8 +737,8 @@ function BothEmpty({ params, compare }: { params: InsightParams; compare: Compar
   );
 }
 
-function OneEmpty({ cmp, compare }: { cmp: Comparison; compare: Compare }) {
-  const empty = ([1, 2] as const).filter((n) => totalRuns(n === 1 ? cmp.p1 : cmp.p2) === 0);
+export function OneEmpty({ runs, compare }: { runs: readonly [number, number]; compare: Compare }) {
+  const empty = ([1, 2] as const).filter((n) => runs[n - 1] === 0);
   return (
     <>
       {empty.map((n) => (
@@ -749,6 +749,8 @@ function OneEmpty({ cmp, compare }: { cmp: Comparison; compare: Compare }) {
     </>
   );
 }
+
+const runTotals = (cmp: Comparison) => [totalRuns(cmp.p1), totalRuns(cmp.p2)] as const;
 
 const bothEmpty = (cmp: Comparison) => totalRuns(cmp.p1) === 0 && totalRuns(cmp.p2) === 0;
 
@@ -858,7 +860,7 @@ function CompareAgentCard({ pair, params, compare, yMax }: { pair: AgentPair; pa
   );
 }
 
-function CompareCaption({ text }: { text: string | null }) {
+export function CompareCaption({ text }: { text: string | null }) {
   return text ? (
     <p className="text-xs text-fg-muted" data-bro-caption="">
       {text}
@@ -879,7 +881,7 @@ export function CompareTokensSection(props: CompareProps) {
         <BothEmpty params={params} compare={compare} />
       ) : (
         <>
-          <OneEmpty cmp={cmp} compare={compare} />
+          <OneEmpty runs={runTotals(cmp)} compare={compare} />
           <PerTaskStrip cmp={cmp} />
           <Grid>
             {runs.map((p) => (
@@ -938,7 +940,7 @@ function CompareCostCard({ title, rows, compare }: { title: string; rows: PairCo
   );
 }
 
-const LEGEND_COLOR = 'var(--fgColor-muted)';
+export const LEGEND_COLOR = 'var(--fgColor-muted)';
 
 export function CompareCostSection(props: CompareProps) {
   const { cmp, params, compare } = props;
@@ -984,7 +986,7 @@ export function CompareCostSection(props: CompareProps) {
           </Flash>
         ) : null;
       })}
-      <OneEmpty cmp={cmp} compare={compare} />
+      <OneEmpty runs={runTotals(cmp)} compare={compare} />
       <Grid>
         {runAgents.length > 0 && <CompareCostCard title={COST_PER_RUN_AGENT} rows={runAgents.map(agentCost)} compare={compare} />}
         {broCost && (
@@ -1008,7 +1010,7 @@ export function CompareCostSection(props: CompareProps) {
 
 const sectionTitle = (s: Section) => SECTIONS.find(([k]) => k === s)![1];
 
-const periodLegend = (compare: Compare, color: string) => [
+export const periodLegend = (compare: Compare, color: string) => [
   { label: periodLabel(1, sliceLabel(compare.p1)), color, kind: 'outline' as const },
   { label: periodLabel(2, sliceLabel(compare.p2)), color, kind: 'fill' as const },
 ];
@@ -1021,7 +1023,7 @@ function CompareShell({ section, props, children }: { section: Section; props: C
         <BothEmpty params={props.params} compare={props.compare} />
       ) : (
         <>
-          <OneEmpty cmp={props.cmp} compare={props.compare} />
+          <OneEmpty runs={runTotals(props.cmp)} compare={props.compare} />
           {children}
         </>
       )}

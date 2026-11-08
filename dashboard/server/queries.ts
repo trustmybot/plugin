@@ -1124,10 +1124,11 @@ interface ExploreRow extends RunRow {
 
 const columnsOf = (db: DatabaseSync, table: string) => new Set(all(db, `PRAGMA table_info(${table})`).map((c) => String(c['name'])));
 
-function exploreRows(db: DatabaseSync, f: InsightFilter, since: string | null): ExploreRow[] {
+function exploreRows(db: DatabaseSync, f: InsightFilter, p: Period): ExploreRow[] {
   const cols = columnsOf(db, 'agent_runs');
   const version = cols.has('plugin_version') ? 'r.plugin_version' : 'NULL';
   const resumed = cols.has('resumed_from') ? 'r.resumed_from IS NOT NULL' : '0';
+  const runIn = periodWhere(p, 'COALESCE(r.started_at, r.completed_at)', 'r.task_id');
   return all(
     db,
     `WITH rounds AS (
@@ -1143,12 +1144,11 @@ function exploreRows(db: DatabaseSync, f: InsightFilter, since: string | null): 
               COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
               r.duration_ms, r.tool_uses
          FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id LEFT JOIN rounds w ON w.id = r.id
-        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+        WHERE ${runIn.sql}
           AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
      ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
      ORDER BY id`,
-    since,
-    since,
+    ...runIn.args,
     f.repo,
     f.repo,
     f.model,
@@ -1250,26 +1250,58 @@ function reviewRoundMismatch(db: DatabaseSync, taskIds: ReadonlySet<number>): nu
   ).filter((t) => taskIds.has(Number(t['task_id'])) && Number(t['runs']) !== Number(t['attempts'] ?? 0)).length;
 }
 
-// GET /api/insights/explore: one measure aggregated over the runs in the
-// filter, grouped by one or two dimensions. Token measures count measured runs
-// only; cost counts priced runs only.
-export function explore(db: DatabaseSync, f: InsightFilter, p: URLSearchParams, releases: readonly Release[] = [], now: Date = new Date()): Row | { error: string } {
+interface ExplorePivot {
+  q: ExploreQuery;
+  priced: boolean;
+  counted: (r: ExploreRow) => boolean;
+  total: (runs: ExploreRow[]) => number | null;
+}
+
+// The parsed m, a and g plus the run filter and aggregate they imply. Token
+// measures count measured runs only; cost counts priced runs only.
+function explorePivot(db: DatabaseSync, p: URLSearchParams): ExplorePivot | { error: string } {
   const q = exploreQuery(p);
   if ('error' in q) return q;
   const prices = modelPrices(db);
   if (q.measure === 'cost' && prices.size === 0) return { error: 'cost needs model prices; none are set' };
-  const since = sinceOf(f.range, now);
-  const rows = exploreRows(db, f, since);
   const value = measureOf(q.measure, prices);
-  const runs = rows.filter((r) => (!TOKEN_MEASURES.has(q.measure) || r.measured === 1) && value(r) !== null);
-  const total = (list: ExploreRow[]) => aggregate(list, q, value);
+  return {
+    q,
+    priced: prices.size > 0,
+    counted: (r) => (!TOKEN_MEASURES.has(q.measure) || r.measured === 1) && value(r) !== null,
+    total: (runs) => aggregate(runs, q, value),
+  };
+}
+
+interface ExploreGroup {
+  key: string[];
+  runs: ExploreRow[];
+  n: number;
+  value: number | null;
+}
+
+// One dimension gives up to ONE_DIM_MAX bins; two give PANELS_NAMED panels plus
+// Other, each with PANEL_BARS_NAMED bars plus Other.
+function exploreGroups(runs: ExploreRow[], pivot: ExplorePivot, releases: readonly Release[]): ExploreGroup[] {
   const label = (dim: ExploreDim) => (r: ExploreRow) => labelOf(dim, r, releases);
-  const [first, second] = q.dims as [ExploreDim, ExploreDim | undefined];
-  const groups = second === undefined
-    ? binsOf(runs, label(first), ONE_DIM_MAX, ONE_DIM_MAX - 1, total).map((b) => ({ key: [b.key], n: b.n, value: b.value }))
-    : binsOf(runs, label(first), PANELS_NAMED, PANELS_NAMED, total).flatMap((panel) =>
-        binsOf(panel.runs, label(second), PANEL_BARS_NAMED, PANEL_BARS_NAMED, total).map((b) => ({ key: [panel.key, b.key], n: b.n, value: b.value })),
+  const [first, second] = pivot.q.dims as [ExploreDim, ExploreDim | undefined];
+  return second === undefined
+    ? binsOf(runs, label(first), ONE_DIM_MAX, ONE_DIM_MAX - 1, pivot.total).map((b) => ({ ...b, key: [b.key] }))
+    : binsOf(runs, label(first), PANELS_NAMED, PANELS_NAMED, pivot.total).flatMap((panel) =>
+        binsOf(panel.runs, label(second), PANEL_BARS_NAMED, PANEL_BARS_NAMED, pivot.total).map((b) => ({ ...b, key: [panel.key, b.key] })),
       );
+}
+
+const exploreOptions = (priced: boolean) => ({ measures: EXPLORE_MEASURES, aggs: EXPLORE_AGGS, dims: EXPLORE_DIMS, priced });
+
+// GET /api/insights/explore: one measure aggregated over the runs in the
+// filter, grouped by one or two dimensions.
+export function explore(db: DatabaseSync, f: InsightFilter, p: URLSearchParams, releases: readonly Release[] = [], now: Date = new Date()): Row | { error: string } {
+  const pivot = explorePivot(db, p);
+  if ('error' in pivot) return pivot;
+  const { q } = pivot;
+  const rows = exploreRows(db, f, { since: sinceOf(f.range, now), before: null, fromTask: null, toTask: null });
+  const groups = exploreGroups(rows.filter(pivot.counted), pivot, releases).map((g) => ({ key: g.key, n: g.n, value: g.value }));
   const reviewed = new Set(rows.filter((r) => r.agent === 'code-reviewer' && r.task_id !== null).map((r) => r.task_id!));
   const earliest = rows.reduce<string | null>((min, r) => (r.at !== null && (min === null || r.at < min) ? r.at : min), null);
   const rangeDays = INSIGHT_RANGES[f.range];
@@ -1280,6 +1312,29 @@ export function explore(db: DatabaseSync, f: InsightFilter, p: URLSearchParams, 
     groups,
     review_round_mismatch: reviewRoundMismatch(db, reviewed),
     days: rangeDays ?? (earliest === null ? 0 : Math.max(1, Math.ceil((now.getTime() - Date.parse(earliest)) / 86_400_000))),
-    options: { measures: EXPLORE_MEASURES, aggs: EXPLORE_AGGS, dims: EXPLORE_DIMS, priced: prices.size > 0 },
+    options: exploreOptions(pivot.priced),
   };
+}
+
+// GET /api/insights/explore/compare: explore's groups picked once over both
+// periods' runs, then each group aggregated over each period's own runs in it,
+// so Other folds the same keys on both sides. A task period on either side
+// drops bro from both, as compare() does.
+export function exploreCompare(db: DatabaseSync, f: InsightFilter, s1: Slice, s2: Slice, p: URLSearchParams, releases: readonly Release[] = []): Row | { error: string } {
+  const pivot = explorePivot(db, p);
+  if ('error' in pivot) return pivot;
+  const broExcluded = s1.kind === 'tasks' || s2.kind === 'tasks';
+  const runsOf = (s: Slice) => exploreRows(db, f, periodOf(s)).filter((r) => (!broExcluded || r.agent !== 'bro') && pivot.counted(r));
+  const r1 = runsOf(s1);
+  const r2 = runsOf(s2);
+  const union = new Map<number, ExploreRow>();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  const ids1 = new Set(r1.map((r) => r.id));
+  const ids2 = new Set(r2.map((r) => r.id));
+  const side = (runs: ExploreRow[], ids: ReadonlySet<number>) => {
+    const mine = runs.filter((r) => ids.has(r.id));
+    return { n: mine.length, value: mine.length === 0 ? null : pivot.total(mine) };
+  };
+  const groups = exploreGroups([...union.values()], pivot, releases).map((g) => ({ key: g.key, p1: side(g.runs, ids1), p2: side(g.runs, ids2) }));
+  return { measure: pivot.q.measure, agg: pivot.q.agg, dims: pivot.q.dims, groups, bro_excluded: broExcluded, options: exploreOptions(pivot.priced) };
 }

@@ -139,3 +139,23 @@ export interface Explore {
   days: number;
   options: { measures: string[]; aggs: string[]; dims: string[]; priced: boolean };
 }
+
+export interface ExploreSide {
+  n: number;
+  value: number | null;
+}
+
+export interface ExploreCompareGroup {
+  key: string[];
+  p1: ExploreSide;
+  p2: ExploreSide;
+}
+
+export interface ExploreComparison {
+  measure: string;
+  agg: string;
+  dims: string[];
+  groups: ExploreCompareGroup[];
+  bro_excluded: boolean;
+  options: Explore['options'];
+}
