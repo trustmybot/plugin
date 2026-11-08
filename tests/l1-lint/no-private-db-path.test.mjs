@@ -57,8 +57,8 @@ test('self-test: a planted trajectory.db literal outside OWNER and the allowlist
     writeFileSync(join(tmp, 'scripts/README.md'), 'trajectory.db\n');
     writeFileSync(join(tmp, ALLOWLIST), '# named only\nscripts/named.sh\n');
     assert.deepEqual(scan(tmp), []);
-    writeFileSync(join(tmp, 'scripts/hooks/private.sh'), 'x=1\nDB="$ROOT/.claude/tmb/trajectory.db"\n');
-    assert.deepEqual(scan(tmp), ['scripts/hooks/private.sh:2:DB="$ROOT/.claude/tmb/trajectory.db"']);
+    writeFileSync(join(tmp, 'scripts/hooks/lib/private.sh'), 'x=1\nDB="$ROOT/.claude/tmb/trajectory.db"\n');
+    assert.deepEqual(scan(tmp), ['scripts/hooks/lib/private.sh:2:DB="$ROOT/.claude/tmb/trajectory.db"']);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
