@@ -1,9 +1,17 @@
-#!/usr/bin/env bash
-# tmb sandbox: glab stub. Fails loudly so bro recognizes the signal.
-set -u
-[ -t 0 ] || cat >/dev/null 2>&1
-echo "tmb sandbox: glab CLI disabled in test mode." >&2
-echo "Reason: prevents accidental real-API calls + abuse-detection triggers." >&2
-echo "For git remote tests, use: \$TMB_TEST_REMOTE = ${TMB_TEST_REMOTE:-<not set>}" >&2
-echo "Attempted: glab $*" >&2
-exit 1
+#!/usr/bin/env node
+// tmb sandbox: glab stub. Fails loudly so bro recognizes the signal.
+const { readFileSync } = require('node:fs');
+if (!process.stdin.isTTY) {
+  try {
+    readFileSync(0);
+  } catch {}
+}
+process.stderr.write(
+  [
+    'tmb sandbox: glab CLI disabled in test mode.',
+    'Reason: prevents accidental real-API calls + abuse-detection triggers.',
+    `For git remote tests, use: $TMB_TEST_REMOTE = ${process.env.TMB_TEST_REMOTE || '<not set>'}`,
+    `Attempted: glab ${process.argv.slice(2).join(' ')}`,
+  ].join('\n') + '\n',
+);
+process.exitCode = 1;
