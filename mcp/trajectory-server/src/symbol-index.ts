@@ -47,7 +47,7 @@ import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js'
 import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 14;
+export const EXTRACTOR_VERSION = 15;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -992,6 +992,121 @@ export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number)
     frontier = next;
   }
   return { depth, levels, tests, truncated };
+}
+
+export interface ChangedFile {
+  path: string;
+  content: string | null;
+}
+
+export interface ChangedSymbol extends SymbolRef {
+  change: 'modified' | 'removed';
+}
+
+export interface DownstreamRef extends ImpactRef {
+  from: number[];
+}
+
+export interface DiffDownstream {
+  changed: ChangedSymbol[];
+  added: Array<{ path: string; kind: SymbolKind; qualified_name: string }>;
+  downstream: DownstreamRef[];
+  tests: SymbolRef[];
+  unparsed: string[];
+  truncated: boolean;
+}
+
+function byPathLine<T extends { path: string; line_start: number; id: number }>(a: T, b: T): number {
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : a.line_start - b.line_start || a.id - b.id;
+}
+
+function toRef(r: SymbolRow): SymbolRef {
+  return { id: r.id, qualified_name: r.qualified_name, kind: r.kind, repo: r.repo, path: r.path, line_start: r.start_line };
+}
+
+function groupByKey<T extends { kind: SymbolKind; qualified_name: string; start_line: number }>(items: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of [...items].sort((a, b) => a.start_line - b.start_line)) push(groups, `${item.kind}\0${item.qualified_name}`, item);
+  return groups;
+}
+
+// What a change set can break: each file re-extracted from the supplied
+// content and matched to its indexed rows by (kind, qualified_name), then the
+// depth-1 impact of every modified or removed symbol merged by id. A path given
+// more than once counts once, with its last entry.
+export async function diffDownstream(db: TrajectoryDB, repo: string, files: ChangedFile[]): Promise<DiffDownstream> {
+  const lastByPath = new Map(files.map((f) => [f.path, f]));
+  const jobs = [...lastByPath.values()].map((f) => {
+    const rows = db
+      .all<SymbolRow>(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.repo = ? AND s.path = ?`, [repo, f.path])
+      .map(normalizeRow);
+    const lang =
+      inSymbolScope(f.path) && (f.content === null || f.content.length <= MAX_PARSE_BYTES)
+        ? languageOf(f.path, () => f.content ?? '')
+        : null;
+    return { file: f, rows, lang };
+  });
+  const parsers: Parsers | null = jobs.some((j) => j.file.content !== null && j.lang !== null && needsParser(j.lang))
+    ? await loadParsers()
+    : null;
+
+  const changed: ChangedSymbol[] = [];
+  const added: DiffDownstream['added'] = [];
+  const unparsed: string[] = [];
+  for (const { file, rows, lang } of jobs) {
+    if (file.content === null) {
+      if (rows.length === 0 && lang === null) unparsed.push(file.path);
+      for (const r of rows) changed.push({ ...toRef(r), change: 'removed' });
+      continue;
+    }
+    if (lang === null) {
+      unparsed.push(file.path);
+      continue;
+    }
+    let extraction: Extraction;
+    try {
+      extraction = extractFile(parsers, file.path, lang, file.content);
+    } catch {
+      unparsed.push(file.path);
+      continue;
+    }
+    const fresh = groupByKey(extraction.symbols);
+    for (const [key, indexed] of groupByKey(rows)) {
+      const next = fresh.get(key) ?? [];
+      indexed.forEach((r, i) => {
+        const s = next[i];
+        if (!s) changed.push({ ...toRef(r), change: 'removed' });
+        else if (s.body_hash !== r.body_hash) changed.push({ ...toRef(r), change: 'modified' });
+      });
+      fresh.set(key, next.slice(indexed.length));
+    }
+    for (const rest of fresh.values()) for (const s of rest) added.push({ path: file.path, kind: s.kind, qualified_name: s.qualified_name });
+  }
+
+  const changedIds = new Set(changed.map((c) => c.id));
+  const downstream = new Map<number, DownstreamRef>();
+  const tests = new Map<number, SymbolRef>();
+  let truncated = false;
+  for (const c of changed) {
+    const impact = symbolImpact(db, symbolById(db, c.id)!, 1);
+    truncated ||= impact.truncated;
+    for (const ref of impact.levels[0]?.refs ?? []) {
+      if (changedIds.has(ref.id)) continue;
+      const seen = downstream.get(ref.id);
+      if (seen) {
+        if (!seen.from.includes(c.id)) seen.from.push(c.id);
+      } else downstream.set(ref.id, { ...ref, from: [c.id] });
+    }
+    for (const t of impact.tests) if (!tests.has(t.id)) tests.set(t.id, t);
+  }
+  return {
+    changed: changed.sort(byPathLine),
+    added,
+    downstream: [...downstream.values()].sort(byPathLine),
+    tests: [...tests.values()].sort(byPathLine),
+    unparsed,
+    truncated,
+  };
 }
 
 export function symbolsStamp(contentMd5: string, extractorVersion: number = EXTRACTOR_VERSION): string {

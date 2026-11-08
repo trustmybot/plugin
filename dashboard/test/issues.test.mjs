@@ -6,6 +6,7 @@
 // a comment card per discussion and the sidebar Tasks progress. Labelled open
 // and closed issues (closed_at set) back the label= filter and its Label stats
 // panel: the open/closed donut, the co-label BarList and the close-time tiles.
+// Seeded prs / pr_closes rows back each issue's prs column and the PR merge tiles.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -31,6 +32,16 @@ const LABELLED = [
   ['Closed dashboard improvement', [AREA, 'Improvement'], 60],
   ['Closed workflow issue', ['Area: Workflow'], 5],
 ];
+const GH_IIDS = { 'Closed dashboard bug': 10, 'Closed dashboard feature': 11, 'Closed dashboard improvement': 12 };
+// [number, state, hours from open to merge or null, closing issue gh_iids]; #100
+// closes two Area: Dashboard issues and counts once: merged hours 2, 4, 12.
+const PRS = [
+  [100, 'merged', 2, [10, 11]],
+  [101, 'open', null, [10]],
+  [102, 'merged', 4, [11]],
+  [103, 'merged', 12, [12]],
+  [104, 'closed', null, [12]],
+];
 const DISCUSSIONS = [
   ['bro', 'decision', 'We go with **Primer** tokens.\n\nSecond paragraph.'],
   ['human', 'note', 'A longer note that is long enough to be shown as a full comment card instead of a compact timeline event.'],
@@ -51,6 +62,15 @@ function seed(path) {
   const at = (hours) => new Date(opened + hours * 3_600_000).toISOString();
   for (const [objective, labels, closeAfter] of LABELLED) {
     labelled.run(objective, JSON.stringify(labels), closeAfter === null ? 'open' : 'closed', at(0), at(closeAfter ?? 0), closeAfter === null ? null : at(closeAfter));
+  }
+  db.prepare("INSERT INTO repos (name, path) VALUES ('app', '/work/app')").run();
+  const link = db.prepare("UPDATE issues SET repo = 'app', gh_iid = ? WHERE objective = ?");
+  for (const [objective, ghIid] of Object.entries(GH_IIDS)) link.run(ghIid, objective);
+  const pr = db.prepare("INSERT INTO prs (repo, number, state, created_at, merged_at, updated_at, synced_at) VALUES ('app', ?, ?, ?, ?, ?, ?)");
+  const closes = db.prepare('INSERT INTO pr_closes (pr_id, issue_number) VALUES (?, ?)');
+  for (const [number, state, mergeAfter, closesIids] of PRS) {
+    const prId = Number(pr.run(number, state, at(0), mergeAfter === null ? null : at(mergeAfter), at(mergeAfter ?? 1), now).lastInsertRowid);
+    for (const iid of closesIids) closes.run(prId, iid);
   }
   const task = db.prepare(
     "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, 'd', ?, ?, ?)",
@@ -93,6 +113,7 @@ async function loadViews() {
         import { IssuePage } from './web/views/issues/IssuePage.tsx';
         import { statusTable } from './web/views/issues/LabelStats.tsx';
         import { DataTableView } from './web/views/insights/ChartCard.tsx';
+        export { issues as issuesQuery } from './server/queries.ts';
         const provide = (el) => createElement(QueryClientProvider, { client: new QueryClient() }, el);
         const wrap = (el) => renderToStaticMarkup(provide(el));
         export const list = (rows, state) => wrap(createElement(IssueList, { rows, state }));
@@ -143,6 +164,27 @@ describe('dashboard issues', () => {
     const bare = rows.find((r) => r.objective === 'Unlabelled issue');
     assert.ok(bare.labels === null || JSON.parse(bare.labels).length === 0);
     assert.equal(bare.discussion_count, 0);
+  });
+
+  test('/api/issues lists each issue\'s closing PRs, [] when none link and on a DB without the prs table', async () => {
+    const rows = await get('issues');
+    const feature = rows.find((r) => r.objective === 'Closed dashboard feature');
+    assert.deepEqual(JSON.parse(feature.prs), [
+      { number: 100, created_at: '2026-01-01T00:00:00.000Z', merged_at: '2026-01-01T02:00:00.000Z' },
+      { number: 102, created_at: '2026-01-01T00:00:00.000Z', merged_at: '2026-01-01T04:00:00.000Z' },
+    ]);
+    const improvement = JSON.parse(rows.find((r) => r.objective === 'Closed dashboard improvement').prs);
+    assert.deepEqual(improvement.map((p) => [p.number, p.merged_at]), [[103, '2026-01-01T12:00:00.000Z'], [104, null]]);
+    assert.deepEqual(JSON.parse(rows.find((r) => r.objective === 'Unlabelled issue').prs), []);
+
+    const oldPath = join(tmp, 'pre-v61.db');
+    seed(oldPath);
+    const old = new DatabaseSync(oldPath);
+    old.exec('DROP TABLE pr_closes; DROP TABLE prs;');
+    const oldRows = views.issuesQuery(old);
+    old.close();
+    assert.ok(oldRows.length > 0);
+    assert.ok(oldRows.every((r) => r.prs === '[]'));
   });
 
   test('an open issue row shows the IssueOpened octicon, its title link and its labels', async () => {
@@ -204,6 +246,19 @@ describe('dashboard issues', () => {
     const few = await views.labelList(rows, 'open', 'Bug');
     assert.deepEqual(tiles(few), [['Median', '—'], ['Mean', '—'], ['Closed', '1']]);
     assert.match(few, /fewer than 3 closed/);
+  });
+
+  test('the PR merge tiles show median and mean over the label\'s merged PRs, a shared PR counted once, and — under 3', async () => {
+    const rows = await get('issues');
+    const tiles = (html) => [...html.matchAll(/<dt[^>]*>(PR merge median|PR merge mean)<\/dt><dd[^>]*>([^<]*)<\/dd><dd[^>]*>([^<]*)<\/dd>/g)].map((m) => [m[1], m[2], m[3]]);
+    assert.deepEqual(tiles(await views.labelList(rows, 'open', AREA)), [
+      ['PR merge median', '4.0 h', '3 merged PRs'],
+      ['PR merge mean', '6.0 h', '3 merged PRs'],
+    ]);
+    assert.deepEqual(tiles(await views.labelList(rows, 'open', 'Bug')), [
+      ['PR merge median', '—', '1 merged PR, fewer than 3'],
+      ['PR merge mean', '—', '1 merged PR, fewer than 3'],
+    ]);
   });
 
   test('the co-label BarList lists the top 8 other labels plus Other, each with an open/closed note', async () => {

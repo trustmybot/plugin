@@ -35,6 +35,8 @@ describe('schema — current table set, default values, constraints', () => {
       'agent_run_tool_output',
       'session_handoffs',
       'pr_review_runs',
+      'prs',
+      'pr_closes',
       'repos',
       'repo_remotes',
       'repo_env',
@@ -290,14 +292,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 60 in plugin_meta', () => {
+  it('fresh DB has schema_version = 61 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 60);
+    assert.equal(meta.schema_version, 61);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

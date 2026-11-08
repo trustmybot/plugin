@@ -1,23 +1,31 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
+import { gitUnanswered, runGit } from './git-run.js';
+
+type RefAnswer = 'yes' | 'no' | 'unanswered';
+
+function probeRef(repoPath: string, ref: string): RefAnswer {
+  const res = runGit(repoPath, ['rev-parse', '--verify', '--quiet', ref], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (gitUnanswered(res)) return 'unanswered';
+  return res.status === 0 ? 'yes' : 'no';
+}
 
 function refResolves(repoPath: string, ref: string): boolean {
-  try {
-    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', ref], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return probeRef(repoPath, ref) === 'yes';
 }
 
 // A base passed as 'origin/<branch>' names <branch>, unless a local branch is
 // literally called 'origin/<branch>' (GH 1855).
 export function normalizeBase(repoPath: string, base: string): string {
-  if (!base.startsWith('origin/') || refResolves(repoPath, `refs/heads/${base}`)) return base;
-  return base.slice('origin/'.length);
+  const probed = probeNormalizedBase(repoPath, base);
+  return probed === 'unanswered' ? base.slice('origin/'.length) : probed;
+}
+
+function probeNormalizedBase(repoPath: string, base: string): string | 'unanswered' {
+  if (!base.startsWith('origin/')) return base;
+  const literal = probeRef(repoPath, `refs/heads/${base}`);
+  if (literal === 'unanswered') return 'unanswered';
+  return literal === 'yes' ? base : base.slice('origin/'.length);
 }
 
 // Resolve a base branch name to a concrete git ref, preferring the freshest
@@ -29,6 +37,18 @@ export function resolveBaseRef(repoPath: string, rawBase: string): string | null
   const base = normalizeBase(repoPath, rawBase);
   if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
   if (refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return null;
+}
+
+// resolveBaseRef that returns 'unanswered' when a git probe it rests on gave no
+// answer (timeout, signal, spawn error) instead of guessing past it.
+export function probeBaseRef(repoPath: string, rawBase: string): string | null | 'unanswered' {
+  const base = probeNormalizedBase(repoPath, rawBase);
+  if (base === 'unanswered') return base;
+  const remote = probeRef(repoPath, `origin/${base}`);
+  if (remote !== 'no') return remote === 'yes' ? `origin/${base}` : remote;
+  const local = probeRef(repoPath, `refs/heads/${base}`);
+  if (local !== 'no') return local === 'yes' ? base : local;
   return null;
 }
 

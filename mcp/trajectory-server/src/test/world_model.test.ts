@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { bagOfWordsLoader, pinScanEnv, tempDB } from './helpers.js';
 import { scanTools } from '../tools/scan.js';
+import { __setGitRunnerForTests, type GitRunner } from '../utils/git-run.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -721,6 +722,53 @@ describe('world_model_get — unmerged_work (#1059)', () => {
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+
+  // GH 2004: a git probe that times out or is killed gave no answer; it must
+  // not read as "ref absent" and silently drop the branch.
+  const timedOut = { status: null, signal: 'SIGTERM' as const, error: Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' }) };
+  const killed = { status: null, signal: 'SIGKILL' as const, error: undefined };
+  function gitFailingOn(match: (args: string[]) => boolean, failure: typeof timedOut | typeof killed): GitRunner {
+    return (args, options) =>
+      match(args) ? { pid: 0, output: [], stdout: '', stderr: '', ...failure } : spawnSync('git', args, options);
+  }
+
+  async function unmergedWith(runner: GitRunner): Promise<Record<string, unknown>> {
+    const repo = gitRepo();
+    const db = tempDB();
+    try {
+      seed(db, repo.repoRoot);
+      addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+      __setGitRunnerForTests(runner);
+      const r = (await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult;
+      assert.notEqual(r.isError, true, 'never an is_error');
+      return wmParse(r);
+    } finally {
+      __setGitRunnerForTests();
+      db.close();
+      repo.cleanup();
+    }
+  }
+
+  for (const [label, failure] of [['times out', timedOut], ['is killed by a signal', killed]] as const) {
+    it(`warns instead of dropping the branch when its ref check ${label} (GH 2004)`, async () => {
+      const out = await unmergedWith(gitFailingOn((a) => a.includes('refs/heads/fix/unmerged'), failure));
+      assert.deepEqual(out['unmerged_work'], []);
+      assert.equal(out['warning'], 'unmerged-work-unavailable');
+    });
+  }
+
+  it('warns when resolving the target base times out (GH 2004)', async () => {
+    const out = await unmergedWith(gitFailingOn((a) => a.includes('origin/dev'), timedOut));
+    assert.deepEqual(out['unmerged_work'], []);
+    assert.equal(out['warning'], 'unmerged-work-unavailable');
+  });
+
+  it('warns when an integration probe past the ancestor check times out (GH 2004)', async () => {
+    const out = await unmergedWith(gitFailingOn((a) => a.includes('merge-tree'), timedOut));
+    assert.deepEqual(out['unmerged_work'], []);
+    assert.equal(out['warning'], 'unmerged-work-unavailable');
   });
 });
 

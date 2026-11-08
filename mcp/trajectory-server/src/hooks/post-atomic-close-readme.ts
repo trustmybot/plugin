@@ -10,11 +10,17 @@
  * The verdict comes from git alone, read in the closed commit's tree
  * (GH 2044, GH 1792), where the .sh read the main checkout's files and their
  * mtimes: a README.md absent from the commit's tree is missing; one the
- * commit itself changes is fresh; any other is older than the commit. A
- * directory with a `dist` path segment is skipped. So a README the commit
- * adds or edits, on a branch the main checkout has not checked out, is no
- * longer flagged. Unlike the .sh, it needs neither jq nor the sqlite3 CLI
- * (decision 703).
+ * commit itself changes is fresh; any other is older than the commit. So a
+ * README the commit adds or edits, on a branch the main checkout has not
+ * checked out, is no longer flagged. Unlike the .sh, it needs neither jq nor
+ * the sqlite3 CLI (decision 703).
+ *
+ * Scope (GH 1965): a directory with a path segment in plugin_config
+ * `readme_nudge_skip_dirs` (a JSON array of segments; unset or not an array
+ * of strings reads as DEFAULT_SKIP_DIRS) is skipped; a missing README is
+ * reported only where the commit adds a file (renames count as adds); the
+ * nudge lists at most NUDGE_DIR_CAP dirs, then `and N more`, while the audit
+ * row keeps the full list.
  */
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { auditAppend } from './lib/audit.js';
@@ -31,6 +37,10 @@ export const GATE_NAME = 'post-atomic-close-readme';
 export const BYPASS_ENV = 'TMB_DISABLE_README_STALENESS_HOOK';
 const ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 const ROOT_DIR = '.';
+export const SKIP_DIRS_KEY = 'readme_nudge_skip_dirs';
+const SKIP_DIRS_SQL = `SELECT value_json FROM plugin_config WHERE key = '${SKIP_DIRS_KEY}';`;
+export const DEFAULT_SKIP_DIRS: readonly string[] = ['dist', 'build', 'changelog.d', 'fixtures', 'test', 'tests', '__tests__', 'node_modules'];
+export const NUDGE_DIR_CAP = 10;
 
 export interface ClosedTask {
   commitSha: string;
@@ -71,23 +81,56 @@ export function touchedDirs(paths: readonly string[], env: NodeJS.ProcessEnv): s
   );
 }
 
-export function isDistDir(dir: string): boolean {
-  return dir.split('/').includes('dist');
+export function isSkippedDir(dir: string, skipDirs: readonly string[]): boolean {
+  return dir.split('/').some((segment) => skipDirs.includes(segment));
+}
+
+/** The skip segments from a plugin_config value_json; DEFAULT_SKIP_DIRS when empty, not JSON or not an array of strings. */
+export function parseSkipDirs(valueJson: string): readonly string[] {
+  try {
+    const value: unknown = JSON.parse(valueJson);
+    if (Array.isArray(value) && value.every((v) => typeof v === 'string')) return value as string[];
+  } catch {
+    /* unset or malformed: the default */
+  }
+  return DEFAULT_SKIP_DIRS;
+}
+
+function readSkipDirs(db: string, env: NodeJS.ProcessEnv): readonly string[] {
+  return parseSkipDirs(sqliteRo(db, SKIP_DIRS_SQL, env));
+}
+
+/** The dirs <stale> names, at most NUDGE_DIR_CAP of them, then `and N more`. */
+export function cappedList(stale: readonly string[]): string {
+  const shown = stale.slice(0, NUDGE_DIR_CAP);
+  if (stale.length > NUDGE_DIR_CAP) shown.push(`and ${stale.length - NUDGE_DIR_CAP} more`);
+  return shown.join('\n');
 }
 
 /**
- * One line per touched dir whose README.md is missing from <sha>'s tree or
- * present there but not among the commit's own changed paths; dist dirs skipped.
+ * One line per touched dir outside <skipDirs> whose README.md is missing from
+ * <sha>'s tree while the commit adds a file there, or present there but not
+ * among the commit's own changed paths.
  */
-export async function staleDirs(repoPath: string, sha: string, repo: string, paths: readonly string[], env: NodeJS.ProcessEnv): Promise<string[]> {
+export async function staleDirs(
+  repoPath: string,
+  sha: string,
+  repo: string,
+  paths: readonly string[],
+  added: readonly string[],
+  skipDirs: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
   const changed = new Set(paths);
+  const addedDirs = new Set(touchedDirs(added, env));
   const out: string[] = [];
   for (const dir of touchedDirs(paths, env)) {
-    if (isDistDir(dir)) continue;
+    if (isSkippedDir(dir, skipDirs)) continue;
     const readme = dir === ROOT_DIR ? 'README.md' : `${dir}/README.md`;
     const label = dir === ROOT_DIR ? (repo === '' ? '<repo root>' : `${repo}/`) : dir;
-    if (!await gitOk(repoPath, ['cat-file', '-e', `${sha}:${readme}`], env)) out.push(`${label} (no README.md)`);
-    else if (!changed.has(readme)) out.push(`${label} (README.md older than the commit)`);
+    if (!await gitOk(repoPath, ['cat-file', '-e', `${sha}:${readme}`], env)) {
+      if (addedDirs.has(dir)) out.push(`${label} (no README.md)`);
+    } else if (!changed.has(readme)) out.push(`${label} (README.md older than the commit)`);
   }
   return out;
 }
@@ -134,11 +177,13 @@ async function surface(payload: string, env: NodeJS.ProcessEnv): Promise<GateRes
     .split('\n')
     .filter((line) => line !== '');
   if (paths.length === 0) return ALLOW;
+  const added = (await gitOut(repoPath, ['show', '--name-only', '--no-renames', '--diff-filter=A', '--pretty=format:', task.commitSha], env))
+    .split('\n')
+    .filter((line) => line !== '');
 
-  const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+  const stale = await staleDirs(repoPath, task.commitSha, task.repo, paths, added, readSkipDirs(db, env), env);
   if (stale.length === 0) return ALLOW;
-  const staleText = stale.join('\n');
-  const staleLines = staleText.split('\n');
+  const staleLines = stale.join('\n').split('\n');
 
   const w = auditAppend(
     db,
@@ -153,7 +198,7 @@ async function surface(payload: string, env: NodeJS.ProcessEnv): Promise<GateRes
     { env, caller: GATE_NAME },
   );
   if (!w.ok) process.stderr.write(`${w.error}\n`);
-  const out = jqCompact({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: nudgeReason(taskId, task.commitSha, staleText) } });
+  const out = jqCompact({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: nudgeReason(taskId, task.commitSha, cappedList(stale)) } });
   return { stdout: `${w.stdout}${out}\n`, code: 0 };
 }
 

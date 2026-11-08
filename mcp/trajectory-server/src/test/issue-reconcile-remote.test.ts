@@ -40,6 +40,7 @@ function stub(remote: Remote): { spawned: Spawned[]; spawnFn: SpawnFn } {
         stderr: missing ? 'gh: Could not resolve to an Issue' : '',
       };
     }
+    if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
     if (cmd === 'glab' && args[0] === 'issue' && args[1] === 'view') {
       const iid = Number(args[2]);
       if (remote.glFails?.has(iid)) return { status: 1, stdout: '', stderr: '404 Not Found' };
@@ -54,7 +55,7 @@ function stub(remote: Remote): { spawned: Spawned[]; spawnFn: SpawnFn } {
 
 function remoteWrites(spawned: Spawned[]): Spawned[] {
   return spawned.filter(
-    (s) => !(s.args[0] === 'auth' || (s.args[0] === 'api' && s.args[1] === 'graphql') || (s.args[0] === 'issue' && s.args[1] === 'view')),
+    (s) => !(s.args[0] === 'auth' || (s.args[0] === 'api' && s.args[1] === 'graphql') || (s.args[0] === 'issue' && s.args[1] === 'view') || (s.args[0] === 'pr' && s.args[1] === 'list')),
   );
 }
 
@@ -380,6 +381,7 @@ describe('issue_reconcile_remote tool (GH 2228)', () => {
       deferred: [{ issue_id: blocked, blocking_task_ids: [live] }],
       errors: [],
       dry_run: true,
+      prs: { repos: 1, upserted: 0, errors: [], dry_run: true },
     });
     assert.equal(snapshot(db), before, 'dry_run writes nothing');
     assert.deepEqual(remoteWrites(spawned), []);
@@ -395,7 +397,13 @@ describe('issue_reconcile_remote tool (GH 2228)', () => {
     const r = await call(db, { agent: 'bro', _spawnFn: spawnFn });
 
     const body = JSON.parse(r.content[0]!.text) as Record<string, unknown>;
-    assert.deepEqual(body, { checked: 1, closed: [{ issue_id: closable, remote_kind: 'github', remote_iid: 50 }], deferred: [], errors: [] });
+    assert.deepEqual(body, {
+      checked: 1,
+      closed: [{ issue_id: closable, remote_kind: 'github', remote_iid: 50 }],
+      deferred: [],
+      errors: [],
+      prs: { repos: 1, upserted: 0, errors: [] },
+    });
     assert.equal(issueRow(db, closable).status, 'closed');
   });
 
@@ -404,7 +412,9 @@ describe('issue_reconcile_remote tool (GH 2228)', () => {
     registerRepo(db);
     seedIssue(db, { gh: 60 });
     const r = await call(db, { agent: 'bro' });
-    assert.equal((JSON.parse(r.content[0]!.text) as { skipped?: string }).skipped, 'issue_sync_off');
+    const body = JSON.parse(r.content[0]!.text) as { skipped?: string; prs?: { skipped?: string } };
+    assert.equal(body.skipped, 'issue_sync_off');
+    assert.equal(body.prs?.skipped, 'issue_sync_off');
   });
 
   it('rejects a non-boolean dry_run', async () => {
