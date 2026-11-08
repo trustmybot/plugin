@@ -4,7 +4,9 @@
 // 'runs' edge to the gate's TypeScript module, src/hooks/<gate>.ts (GH 1692:
 // never to the bash script it was ported from). A router entry
 // (`dist/hooks.js <Event>`) gets one 'runs' edge per gate dist/hooks-router.txt
-// lists for it, named by its first gate (GH 2185). Ported from the GH 1680 MVP
+// lists for it, named by its first gate (GH 2185); a single-gate entry
+// (`dist/hooks.js <gate>`) is named by that gate with one 'runs' edge to it.
+// Ported from the GH 1680 MVP
 // enrich.mjs.
 import { matcherOfColumn, rowHoldsPart } from '../hooks/router/table.js';
 import { clip, md5, oneLine, type Extraction } from './extract.js';
@@ -85,10 +87,17 @@ export function extractHooks(src: string, routerTable = ''): Extraction {
         const routerCommand = cmd.match(/dist\/hooks\.js"?\s+(\S+)(?:\s+(\S+))?\s*$/);
         const routed = routerCommand?.[1] === event ? routerGatesOf(routerTable, event, matcher, routerCommand[2]) : [];
         const isRouted = routed.length > 0;
-        const name = gate ?? direct?.split('/').pop() ?? routed[0] ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? (isRouted ? 'dist/hooks.js' : cmd), cursor);
+        const tsGate = gate || direct || !routerCommand || routerCommand[1] === event ? null : routerCommand[1]!;
+        const name = gate ?? direct?.split('/').pop() ?? routed[0] ?? tsGate ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? (isRouted || tsGate ? 'dist/hooks.js' : cmd), cursor);
         cursor = line || cursor;
-        const target = isRouted ? `router gates ${routed.join(', ')}` : gate ? gateModule(gate) : (direct ?? cmd);
+        const target = isRouted
+          ? `router gates ${routed.join(', ')}`
+          : tsGate
+            ? `gate ${tsGate}`
+            : gate
+              ? gateModule(gate)
+              : (direct ?? cmd);
         const qualifiedName = `${event}#${pos}:${name}`;
         out.symbols.push({
           kind: 'hook',
@@ -104,6 +113,8 @@ export function extractHooks(src: string, routerTable = ''): Extraction {
         const at = out.symbols.length - 1;
         if (isRouted) {
           routed.forEach((m, i) => out.edges.push({ src: at, kind: 'runs', dst_name: gateModule(m), line: i + 1, hint: null }));
+        } else if (tsGate) {
+          out.edges.push({ src: at, kind: 'runs', dst_name: gateModule(tsGate), line, hint: null });
         } else if (gate || direct) {
           out.edges.push({ src: at, kind: 'runs', dst_name: gate ? gateModule(gate) : direct!, line, hint: null });
         }

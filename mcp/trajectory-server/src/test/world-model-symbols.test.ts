@@ -895,7 +895,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 7);
+      assert.equal(EXTRACTOR_VERSION, 8);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1039,6 +1039,32 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     const at = x.symbols.findIndex((s) => s.qualified_name.startsWith('PreToolUse#'));
     assert.equal(x.symbols[at]!.qualified_name, 'PreToolUse#1:hook1');
     assert.equal(x.edges.filter((e) => e.src === at).length, 0);
+  });
+
+  it('the shipped single-gate Stop entry is named by its gate, on its command line, with one runs edge', () => {
+    const src = read('hooks/hooks.json');
+    const x = extractHooks(src, read('mcp/trajectory-server/dist/hooks-router.txt'));
+    const at = x.symbols.findIndex((s) => s.qualified_name === 'Stop#2:liveness-sentinel');
+    assert.ok(at >= 0, x.symbols.map((s) => s.qualified_name).join(' '));
+    const line = src.split('\n').findIndex((l) => l.includes('dist/hooks.js\\" liveness-sentinel')) + 1;
+    assert.ok(line > 0);
+    assert.equal(x.symbols[at]!.start_line, line);
+    assert.match(x.symbols[at]!.doc, /runs gate liveness-sentinel$/);
+    assert.deepEqual(x.edges.filter((e) => e.src === at && e.kind === 'runs').map((e) => e.dst_name), ['mcp/trajectory-server/src/hooks/liveness-sentinel.ts']);
+  });
+
+  it('a dist/hooks.js entry whose argument is not its event runs that gate, table or not', () => {
+    const hooks = JSON.stringify(
+      { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" some-gate' }] }] } },
+      null,
+      2,
+    );
+    for (const table of ['', 'a 1 enforcement PreToolUse Bash *\n']) {
+      const x = extractHooks(hooks, table);
+      assert.deepEqual(x.symbols.map((s) => s.qualified_name), ['PreToolUse#1:some-gate']);
+      assert.ok(x.symbols[0]!.start_line > 0);
+      assert.deepEqual(x.edges.filter((e) => e.kind === 'runs').map((e) => e.dst_name), ['mcp/trajectory-server/src/hooks/some-gate.ts']);
+    }
   });
 
   it('a scan indexes the table, and a registry.ts change refreshes hooks.json with no change of its own', async () => {
