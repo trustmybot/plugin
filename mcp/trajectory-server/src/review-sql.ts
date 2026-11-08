@@ -23,31 +23,37 @@
 // its created_at. NULL when the commit has no anchor row.
 const LEGACY_CHAIN_HOPS = 10;
 
+// The planner may evaluate a join term before the json_valid term beside it
+// (an automatic index keys on it, or it is hoisted to the outer loop), so
+// every JSON read inside the chain walk guards itself with a CASE.
+const jsonSql = (fn: 'json_extract' | 'json_type', alias: string, path: string): string =>
+  `CASE WHEN json_valid(${alias}.content_json) THEN ${fn}(${alias}.content_json, '${path}') END`;
+
 const integrateRowSql = (alias: string): string =>
   `${alias}.event_type = 'task_integrated' AND ${alias}.from_node = 'hook:integrate'`;
 
 const carriesAnchorSql = (alias: string): string =>
-  `${integrateRowSql(alias)} AND json_type(${alias}.content_json, '$.review_anchor_at') = 'text'`;
+  `${integrateRowSql(alias)} AND ${jsonSql('json_type', alias, '$.review_anchor_at')} = 'text'`;
 
 const legacyIntegrateSql = (alias: string): string =>
-  `${integrateRowSql(alias)} AND json_type(${alias}.content_json, '$.review_anchor_at') IS NOT 'text'
-          AND json_type(${alias}.content_json, '$.reviewed_sha') = 'text'`;
+  `${integrateRowSql(alias)} AND ${jsonSql('json_type', alias, '$.review_anchor_at')} IS NOT 'text'
+          AND ${jsonSql('json_type', alias, '$.reviewed_sha')} = 'text'`;
 
 const LEGACY_CHAIN_ANCHOR_SQL = `(WITH RECURSIVE chain(sha, hops) AS (
-          SELECT json_extract(a.content_json, '$.reviewed_sha'), 1
+          SELECT ${jsonSql('json_extract', 'a', '$.reviewed_sha')}, 1
           UNION
-          SELECT json_extract(c.content_json, '$.reviewed_sha'), chain.hops + 1 FROM chain JOIN audit c
-            ON ${legacyIntegrateSql('c')} AND json_valid(c.content_json)
-              AND json_extract(c.content_json, '$.task_id') = t.id
-              AND json_extract(c.content_json, '$.commit_sha') = chain.sha
+          SELECT ${jsonSql('json_extract', 'c', '$.reviewed_sha')}, chain.hops + 1 FROM chain JOIN audit c
+            ON json_valid(c.content_json) AND ${legacyIntegrateSql('c')}
+              AND ${jsonSql('json_extract', 'c', '$.task_id')} = t.id
+              AND ${jsonSql('json_extract', 'c', '$.commit_sha')} = chain.sha
           WHERE chain.hops < ${LEGACY_CHAIN_HOPS})
         SELECT MIN(CASE WHEN p.event_type = 'bro_verification_pass' THEN p.created_at
-          ELSE json_extract(p.content_json, '$.review_anchor_at') END)
+          ELSE ${jsonSql('json_extract', 'p', '$.review_anchor_at')} END)
         FROM chain JOIN audit p
-          ON (p.event_type = 'bro_verification_pass' OR (${carriesAnchorSql('p')}))
-            AND json_valid(p.content_json)
-            AND json_extract(p.content_json, '$.task_id') = t.id
-            AND json_extract(p.content_json, '$.commit_sha') = chain.sha)`;
+          ON json_valid(p.content_json)
+            AND (p.event_type = 'bro_verification_pass' OR (${carriesAnchorSql('p')}))
+            AND ${jsonSql('json_extract', 'p', '$.task_id')} = t.id
+            AND ${jsonSql('json_extract', 'p', '$.commit_sha')} = chain.sha)`;
 
 export const REVIEW_ANCHOR_AT_SQL = `(SELECT MIN(CASE
       WHEN ${carriesAnchorSql('a')}

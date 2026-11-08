@@ -444,6 +444,18 @@ describe('cli.js integrate', () => {
     assert.equal(hasPass(), '0', 'a cycle with no anchor terminates and fails closed');
   });
 
+  it('a malformed task_integrated row from hook:integrate is skipped by the legacy walk (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec(`UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'hook:integrate', 'task_integrated', 'bad', '{bad', '${new Date().toISOString()}');
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'bro', 'bro_verification_pass', 'bad', '{bad', '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '1', 'the legacy row still carries the pass past malformed rows');
+  });
+
   it('a carried review_anchor_at counts only on a task_integrated row from hook:integrate (GH 2082)', () => {
     setup('clean');
     const first = integrate('main');
