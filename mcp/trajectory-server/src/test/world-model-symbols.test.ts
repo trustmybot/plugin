@@ -2175,7 +2175,7 @@ describe('coveredDirs reads the directories a runner command names (GH 2326)', (
 });
 
 describe('coveredDirs skips script names, echo text and make targets (GH 2521)', () => {
-  const known = repoPaths(['src/a.ts', 'docs/guide.md', 'tests/a.test.mjs']);
+  const known = repoPaths(['src/a.ts', 'src/schema.json', 'docs/guide.md', 'tests/a.test.mjs']);
   const cases: Array<[string, string[]]> = [
     ['npm run docs', []],
     ['pnpm run docs', []],
@@ -2191,6 +2191,13 @@ describe('coveredDirs skips script names, echo text and make targets (GH 2521)',
     ['npm run lint -- src', ['src']],
     ['node --test tests', ['tests']],
     ['npm test src', ['src']],
+    ['make schema > src/schema.json', []],
+    ['just gen > src/schema.json', []],
+    ['task gen >> src/schema.json', []],
+    ['make docs < src/a.ts', []],
+    ['make gen 2> src/schema.json', []],
+    ['echo x > src/a.txt', []],
+    ['npm run docs > src/a.txt', []],
   ];
   for (const [command, dirs] of cases) {
     it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {

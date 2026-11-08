@@ -191,11 +191,11 @@ export function coveredDirs(command: string, base: string, known: RepoPaths): st
     const names = nameArgs(words);
     for (let i = 1; i < words.length; i++) {
       const w = words[i]!;
-      if (names.has(i)) continue;
       if (REDIRECT_ALONE.test(w.text)) {
         i++;
         continue;
       }
+      if (names.has(i)) continue;
       if (w.dynamic || w.text === '' || w.text.startsWith('-') || REDIRECT.test(w.text) || ASSIGNMENT.test(w.text)) continue;
       const dir = dirOfWord(w.text, cwd, known);
       if (dir === null) continue;
