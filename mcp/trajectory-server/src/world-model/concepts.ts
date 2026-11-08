@@ -278,11 +278,14 @@ export function upsertConcept(
 
   const steps = input.steps.map((s, i) => {
     const ordinal = i + 1;
+    // concept_get prints whole-file steps with kind 'file'; accept that shape
+    // and normalize to the internal '' convention so a read concept upserts.
+    const stepKind = s?.kind === 'file' ? '' : (s?.kind ?? '');
     const anchor: Anchor = {
       repo: input.repo,
       path: typeof s?.path === 'string' ? s.path : '',
-      kind: s?.kind ?? '',
-      qualified_name: s?.kind ? (s.qualified_name ?? '') : '',
+      kind: stepKind,
+      qualified_name: stepKind ? (s.qualified_name ?? '') : '',
     };
     const description = typeof s?.description === 'string' ? s.description.trim() : '';
     if (!anchor.path) throw new Error(`step ${ordinal}: path is required`);

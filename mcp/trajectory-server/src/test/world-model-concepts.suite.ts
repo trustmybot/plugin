@@ -236,6 +236,33 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
       });
     }
   });
+
+  it('a file step written with kind: file round-trips through upsert (GH 2428)', async () => {
+    const path = 'docs/architecture/adr/0002-world-model-concept-layer.md';
+    // The exact step shape world_model_concept_get prints for a whole file.
+    const out = parse<{ id: number }>(
+      (await wm()['world_model_concept_upsert']!({
+        agent: 'bro',
+        repo,
+        name: 'file kind round-trip',
+        steps: [{ path, kind: 'file', qualified_name: path, description: 'The design record.' }],
+      })) as CallToolResult,
+    );
+    const got = parse<ConceptOut>((await wm()['world_model_concept_get']!({ agent: 'bro', id: out.id })) as CallToolResult);
+    assert.equal(got.status, 'verified');
+    assert.deepEqual(got.steps.map((s) => s.trust), ['verified']);
+    assert.deepEqual(got.steps[0]!.symbol, {
+      id: null,
+      repo,
+      path,
+      kind: 'file',
+      qualified_name: path,
+      signature: null,
+      doc: null,
+      line_start: null,
+      line_end: null,
+    });
+  });
 }));
 
 SUITES.push(() => describe('L2 concept drift and re-resolution on a temp copy of the repo (GH 1680)', () => {

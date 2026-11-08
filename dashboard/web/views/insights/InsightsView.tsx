@@ -17,6 +17,7 @@ import {
   apiPath,
   compareApiPath,
   comparing,
+  efficiencyApiPath,
   exploreApiPath,
   insightHash,
   isLegacyExploreHash,
@@ -27,9 +28,20 @@ import {
   type Section,
 } from './params.ts';
 import { ExploreSection } from './explore.tsx';
-import { CompareCostSection, CompareTokensSection, CostSection, EFFORT_CAPTION, QualitySection, TASK_LEVEL_CAPTION, ThroughputSection, TimeSection, TokensSection } from './sections.tsx';
+import {
+  CompareCostSection,
+  CompareTokensSection,
+  CostSection,
+  EFFORT_CAPTION,
+  EfficiencySection,
+  QualitySection,
+  TASK_LEVEL_CAPTION,
+  ThroughputSection,
+  TimeSection,
+  TokensSection,
+} from './sections.tsx';
 import { CompareSummary, CompareToggle, PeriodPickers } from './compare.tsx';
-import type { Comparison, Explore, Insights } from './types.ts';
+import type { Comparison, Efficiency, Explore, Insights } from './types.ts';
 
 type Query<T> = { data?: T; error: Error | null };
 
@@ -102,18 +114,24 @@ function FilterBar({ params, data, cmp }: { params: InsightParams; data: Insight
   );
 }
 
-function SectionView({ data, params, explore }: { data: Insights; params: InsightParams; explore?: Query<Explore> }) {
+interface SectionQueries {
+  explore?: Query<Explore> | undefined;
+  efficiency?: Query<Efficiency> | undefined;
+}
+
+function SectionView({ data, params, explore, efficiency }: { data: Insights; params: InsightParams } & SectionQueries) {
   switch (params.section) {
     case 'explore': return <ExploreSection data={data} params={params} explore={explore} />;
     case 'cost': return <CostSection data={data} params={params} />;
     case 'time': return <TimeSection data={data} params={params} />;
     case 'quality': return <QualitySection data={data} params={params} />;
+    case 'efficiency': return <EfficiencySection efficiency={efficiency} />;
     case 'throughput': return <ThroughputSection data={data} params={params} />;
     default: return <TokensSection data={data} params={params} />;
   }
 }
 
-export function InsightsLayout({ params, q, explore, cmp }: { params: InsightParams; q: Query<Insights>; explore?: Query<Explore>; cmp?: Query<Comparison> }) {
+export function InsightsLayout({ params, q, explore, efficiency, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   const compare = comparing(params) && cmp ? params.compare : null;
   return (
@@ -131,7 +149,7 @@ export function InsightsLayout({ params, q, explore, cmp }: { params: InsightPar
             }
           </Loading>
         ) : (
-          <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} />}</Loading>
+          <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} efficiency={efficiency} />}</Loading>
         )}
       </div>
     </div>
@@ -143,10 +161,17 @@ function ExploreView({ params, q }: { params: InsightParams; q: Query<Insights> 
   return <InsightsLayout params={params} q={q} explore={explore} />;
 }
 
+function EfficiencyView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
+  const efficiency = useApi<Efficiency>(efficiencyApiPath(params), { keepPrevious: true });
+  return <InsightsLayout params={params} q={q} efficiency={efficiency} />;
+}
+
 export function InsightsView() {
   const params = useInsightParams();
   const on = comparing(params);
   const q = useApi<Insights>(apiPath(params), { keepPrevious: true, enabled: !on });
   const cmp = useApi<Comparison>(compareApiPath(params), { keepPrevious: true, enabled: on });
-  return params.section === 'explore' ? <ExploreView params={params} q={q} /> : <InsightsLayout params={params} q={q} cmp={on ? cmp : undefined} />;
+  if (params.section === 'explore') return <ExploreView params={params} q={q} />;
+  if (params.section === 'efficiency') return <EfficiencyView params={params} q={q} />;
+  return <InsightsLayout params={params} q={q} cmp={on ? cmp : undefined} />;
 }

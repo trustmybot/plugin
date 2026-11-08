@@ -41,6 +41,40 @@ CREATE TABLE IF NOT EXISTS repo_remotes (
 );
 CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
 
+-- repo_env (schema v58, GH 2066): a repo's toolchain profile, one row per
+-- (repo, package_path, ecosystem). bro writes it through env_record from the
+-- env_detect evidence it resolved; env_get reads it with overrides applied.
+-- commands_json is {install, test, lint, format_check, typecheck}, each a list
+-- of {command, source, confidence, probe, provenance}; provenance.kind is
+-- existing_repo | existing_machine | workspace | web | model_knowledge, with
+-- urls / fetched_at for web. evidence_hash is the env_detect hash the profile
+-- was resolved from; env_detect reports a row drifted when it differs.
+-- runner_prefix is NULL when commands run bare; confirmed_by stays NULL until
+-- the Human confirms. overrides_json ({category: [candidate]}), waivers_json
+-- ([{category, reason, by, at}]) and declined_json ([{item, kind, reason,
+-- evidence_hash, at}]) stay NULL until passed, are merged per key, and a
+-- re-record without them leaves them as they are. Rows follow their repo on
+-- delete and on a name change.
+CREATE TABLE IF NOT EXISTS repo_env (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo             TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    package_path     TEXT    NOT NULL,
+    ecosystem        TEXT    NOT NULL,
+    package_manager  TEXT    NOT NULL,
+    runner_prefix    TEXT,
+    commands_json    TEXT    NOT NULL,
+    globs_json       TEXT    NOT NULL,
+    status           TEXT    NOT NULL CHECK (status IN ('ready','detected','missing_tool','stale')),
+    confirmed_by     TEXT,
+    detected_at      TEXT    NOT NULL,
+    evidence_hash    TEXT    NOT NULL,
+    overrides_json   TEXT,
+    waivers_json     TEXT,
+    declined_json    TEXT,
+    updated_at       TEXT    NOT NULL,
+    UNIQUE (repo, package_path, ecosystem)
+);
+
 -- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
 -- is an FK into this table. PK is (name, repo) so the same milestone name can
 -- exist independently per repo.
@@ -340,7 +374,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 58, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 59, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -446,7 +480,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- stop_detail (GH 1905; schema v52): the deny text of a hook_block stop
     -- capped at 500 characters. NULL on every other stop. Keep this comment comma-free.
     stop_detail          TEXT,
-    -- hook_block_tokens (GH 1915; schema v58): the swe run's block-turn cost. For each
+    -- hook_block_tokens (GH 1915; schema v59): the swe run's block-turn cost. For each
     -- PreToolUse hook block in the run the context size of the first assistant entry
     -- after it. The swe-stop-cause gate writes it at SubagentStop with stop_cause
     -- (0 for a run with no blocks). NULL on unmeasured runs. Keep this comment comma-free.

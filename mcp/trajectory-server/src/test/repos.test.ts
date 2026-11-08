@@ -56,6 +56,11 @@ function seed(db: TrajectoryDB, opts: { taskStatus?: string; repoPath?: string }
   db.run(`INSERT INTO discussions (issue_id, author, body, repo, created_at) VALUES (?, 'bro', 'b', 'old', ?)`, [issueId, NOW]);
   db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, repo) VALUES (?, ?, 'swe', 'old')`, [taskId, issueId]);
   db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at) VALUES (5, 'github.com/acme/old', ?)`, [NOW]);
+  db.run(
+    `INSERT INTO repo_env (repo, package_path, ecosystem, package_manager, commands_json, globs_json, status, detected_at, evidence_hash, updated_at)
+     VALUES ('old', '.', 'node', 'npm', '{}', '[]', 'detected', ?, 'h', ?)`,
+    [NOW, NOW],
+  );
 }
 
 function countOn(db: TrajectoryDB, table: string, repo: string): number {
@@ -68,11 +73,12 @@ function countOn(db: TrajectoryDB, table: string, repo: string): number {
     discussions: 'SELECT COUNT(*) AS n FROM discussions WHERE repo = ?',
     agent_runs: 'SELECT COUNT(*) AS n FROM agent_runs WHERE repo = ?',
     repo_remotes: 'SELECT COUNT(*) AS n FROM repo_remotes WHERE repo = ?',
+    repo_env: 'SELECT COUNT(*) AS n FROM repo_env WHERE repo = ?',
   };
   return Number(db.get<{ n: number }>(sql[table]!, [repo])!.n);
 }
 
-const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs'];
+const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs', 'repo_env'];
 
 describe('repo_rename — transactional move', () => {
   it('moves every FK child + the pr_review_runs slug, drops the old row, audits per-table counts', async () => {
@@ -118,6 +124,7 @@ describe('repo_rename — transactional move', () => {
       validation_attempts: 1,
       discussions: 1,
       agent_runs: 1,
+      repo_env: 1,
       pr_review_runs: 1,
     });
     db.close();

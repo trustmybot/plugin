@@ -18,6 +18,7 @@ import { Box } from './ui/Box.tsx';
 export interface Column {
   key: string;
   header: string;
+  title?: string;
   cell?: (row: Row) => ReactNode;
   truncate?: boolean | 'fill';
   hideBelow?: 'sm' | 'md';
@@ -41,11 +42,13 @@ export function DataTable({
   columns,
   onRowClick,
   filter = true,
+  divider,
 }: {
   rows: Row[];
   columns: Column[];
   onRowClick?: (row: Row) => void;
   filter?: boolean;
+  divider?: (row: Row) => boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
@@ -112,6 +115,7 @@ export function DataTable({
                       <button
                         type="button"
                         className={`group -mx-1 inline-flex items-center gap-1 rounded-md px-1 font-semibold hover:text-fg ${FOCUS_RING}`}
+                        title={byKey.get(h.column.id)?.title}
                         onClick={h.column.getToggleSortingHandler()}
                       >
                         {flexRender(h.column.columnDef.header, h.getContext())}
@@ -142,6 +146,7 @@ export function DataTable({
                         'whitespace-nowrap border-t border-(--borderColor-muted) px-4 py-2 align-top group-first/row:border-t-0 group-hover/row:bg-canvas-muted max-sm:px-2',
                         col?.truncate === 'fill' ? 'w-full min-w-32 max-w-0 truncate' : col?.truncate && 'max-w-[32rem] truncate',
                         hideClass(col),
+                        divider?.(r.original) && 'border-t-(--borderColor-default)',
                       )}
                       title={col?.truncate && value !== '' && value !== null && value !== undefined ? String(value) : undefined}
                     >

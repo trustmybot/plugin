@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
+import { efficiency } from './efficiency.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { loadReleases } from './releases.ts';
@@ -66,7 +67,7 @@ function clampLimit(raw: string | null): number {
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), 1000) : 100;
 }
 
-function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
+async function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): Promise<void> {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const [resource, id] = parts;
   const concepts = conceptsApi(db, url);
@@ -94,6 +95,10 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
     const filter = q.insightFilter(url.searchParams);
     const body = 'error' in filter ? filter : q.explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, 'error' in body ? 400 : 200, body);
+  }
+  if (parts.length === 2 && resource === 'insights' && id === 'efficiency') {
+    const filter = q.insightFilter(url.searchParams);
+    return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, await efficiency(db, filter));
   }
   if (parts.length === 2 && resource === 'insights' && id === 'compare') {
     const query = q.compareQuery(url.searchParams);
@@ -214,7 +219,7 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
       res.writeHead(405, { allow: 'GET, HEAD, POST' }).end();
       return;
     }
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) handleApi(ctx.db, url, res);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err) {
     console.error('dashboard request failed:', err);

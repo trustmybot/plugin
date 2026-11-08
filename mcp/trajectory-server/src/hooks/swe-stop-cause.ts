@@ -14,12 +14,12 @@
  *     an error (a 'failed' call is no report);
  *   - else both NULL.
  *
- * The same UPDATE sets hook_block_tokens (GH 1915; schema v58), the run's
+ * The same UPDATE sets hook_block_tokens (GH 1915; schema v59), the run's
  * block-turn cost: for each tool_result in the window that is an error whose
  * text starts `PreToolUse:<tool> hook error:` (denials and timed-out gates
  * alike), the context size of the first assistant entry after it (input,
  * cache-read and cache-creation input tokens; a block with no later assistant
- * entry adds 0), so a run with no blocks gets 0. A DB below v58 gets the
+ * entry adds 0), so a run with no blocks gets 0. A DB below v59 gets the
  * other two columns only.
  *
  * The row is the newest swe row of task TMB_STOP_TASK_ID keyed by spawn_id
