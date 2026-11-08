@@ -99,7 +99,7 @@ run_step "Build: generated payload (bun run build:payload)" bun run --cwd "$PLUG
 _l1_saved_path="$PATH"
 export PATH="$_stub_dir:$PATH" TMB_L1_OFFLINE=1
 
-run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
+run_step "L1 lint: agent template line budget"        node --test "$HERE/l1-lint/agent-line-budget.test.mjs"
 run_step "L1 lint: agent frontmatter declares experimental.cacheTtl"  node --test "$HERE/l1-lint/agent-cache-ttl.test.mjs"
 run_step "L1 lint: agent template byte-identity (swe + code-reviewer)"  node --test "$HERE/l1-lint/agent-template-byte-identity.test.mjs"
 run_step "L1 lint: local agent overrides retain workflow primitives"   node --test "$HERE/l1-lint/local-agent-primitives.test.mjs"
@@ -115,8 +115,7 @@ run_step "L1 lint: link-check (relative md links)"    node --test "$HERE/l1-lint
 run_step "L1 lint: shellcheck on shell scripts"       node --test "$HERE/l1-lint/shellcheck-hooks.test.mjs"
 run_step "L1 lint: no bare mktemp (explicit path template)"  node --test "$HERE/l1-lint/no-bare-mktemp.test.mjs"
 run_step "L1 lint: no grep -q in pipelines under pipefail" node --test "$HERE/l1-lint/no-grep-q-in-pipelines.test.mjs"
-run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-clock-asserts.sh"
-run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
+run_step "L1 lint: no wall-clock asserts in tests" node --test "$HERE/l1-lint/no-wall-clock-asserts.test.mjs"
 run_step "L1 lint: no destructive SQL in migrations"  node --test "$HERE/l1-lint/no-destructive-sql.test.mjs"
 run_step "L1 lint: tsc --noEmit on MCP server"        node --test "$HERE/l1-lint/tsc-noemit.test.mjs"
 run_step "L1 lint: dist entrypoints are esbuild bundles" node --test "$HERE/l1-lint/dist-bundles.test.mjs"

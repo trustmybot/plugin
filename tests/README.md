@@ -109,8 +109,8 @@ Codex home.
 
 ```bash
 # L1 — lint
-bash tests/l1-lint/agent-line-budget.sh
-# (and any other tests/l1-lint/*.sh)
+node --test tests/l1-lint/agent-line-budget.test.mjs
+# (and any other tests/l1-lint/*.test.mjs or *.sh)
 
 # L2 — MCP unit (handlers direct, synthetic args)
 (cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/*.test.js)
