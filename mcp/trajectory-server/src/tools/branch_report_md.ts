@@ -56,7 +56,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
     {
       name: 'branch_report_md',
       description:
-        'Assemble a markdown report scoped to a single (issue_id, branch_id) pair. mode="summary" (default) returns task status + counts + last 5 audit events (~500 tokens). mode="detail" returns full tasks, all audit events, and all validation attempts.',
+        'Markdown report of one (issue_id, branch_id): summary is task status, counts and the last 5 audit events; detail adds full tasks, every audit event and validation attempt.',
       inputSchema: {
         type: 'object',
         properties: {

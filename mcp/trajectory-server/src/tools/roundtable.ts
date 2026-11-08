@@ -62,7 +62,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_create',
       description:
-        'Create a new roundtable. Bro-only. Returns roundtable_id. Server-gated: requires an unconsumed audit row with event_type=\'roundtable_slash_invoked\' (written when the user types /roundtable). Human-triggered only.',
+        "Bro only, Human-triggered. Create a roundtable and return roundtable_id; needs an unconsumed roundtable_slash_invoked audit row (written when the Human types /roundtable).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -90,7 +90,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_vote',
       description:
-        'Record a participant vote/position for a roundtable. Bro-only. One row per participant per call; participant is an agent name or "human" for ratification rows. vote is capped at 60 chars; rationale at 120 chars — over-cap values return named validation errors.',
+        "Bro only. Record one participant's vote or position for a roundtable, one row per call; over-cap vote or rationale values return named errors.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -109,7 +109,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_close',
       description:
-        'Close a roundtable and record the final outcome. Bro-only. Requires state=awaiting_human with ≥1 human vote, or skip=true to bypass.',
+        'Bro only. Close a roundtable with its outcome; needs state=awaiting_human with ≥1 human vote, unless skip.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -127,7 +127,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_finalize_decisions',
       description:
-        'Atomically write all post-AUQ ratification rows (discussions + votes). Bro-only. Requires state=awaiting_human.',
+        'Bro only. Atomically write the post-AUQ ratification rows (discussions + votes); needs state=awaiting_human.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -164,7 +164,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_summarize',
       description:
-        'Assemble the canonical summary of a roundtable from existing DB rows. Bro-only. Pure SELECT.',
+        "Bro only. Read a roundtable's summary from its DB rows.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -177,7 +177,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_close_with_decisions',
       description:
-        'Composite: collapses roundtable_finalize_decisions + roundtable_close + roundtable_summarize into one transactional call. Bro-only. Requires state=awaiting_human. Writes decision rows, closes the roundtable, returns the canonical summary.',
+        'Bro only. roundtable_finalize_decisions + roundtable_close + roundtable_summarize in one transaction: writes the decision rows, closes the roundtable, returns its summary. Needs state=awaiting_human.',
       inputSchema: {
         type: 'object',
         properties: {

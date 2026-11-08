@@ -222,7 +222,7 @@ export function bugReportTools(db: TrajectoryDB, opts: BugReportToolOptions = {}
     {
       name: 'bug_report_draft',
       description:
-        "Draft a redacted TMB bug report for github.com/trustmybot/plugin; files nothing. Refused unless bug_report_consent is 'yes' or user_asked. already_filed: {url, mode, created_at} of the newest bug_report_filed audit row with this signature, else null.",
+        "Draft a redacted TMB bug report for github.com/trustmybot/plugin; files nothing. Refused unless bug_report_consent is 'yes' or user_asked. already_filed is the newest bug_report_filed row with this signature {url, mode, created_at}, else null.",
       inputSchema: {
         type: 'object',
         properties: {

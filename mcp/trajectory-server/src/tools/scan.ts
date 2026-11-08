@@ -812,7 +812,8 @@ export function scanTools(
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array, empty when none) lists repos whose remotes have no sync row while issue_sync is on (reason no_sync_remote). Hard timeout: 10 minutes.",
+        "Deterministic project scan: discovers git repos under session_dir, enumerates tracked files (.gitignore-aware) and writes directory + file rows to the world model, dir summaries from README.md (summary_source='readme') or structural. Emits a deep_scan_completed audit row. " +
+        'A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array) lists repos whose remotes have no sync row while issue_sync is on (no_sync_remote). Hard timeout 10 minutes.',
       inputSchema: {
         type: 'object',
         properties: {

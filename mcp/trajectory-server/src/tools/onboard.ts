@@ -729,13 +729,13 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     {
       name: 'onboard_state_get',
       description:
-        'Read onboard state: first-run flag, current plugin_config, git/CLI probe (origin URL → provider, gh/glab auth), and nesting {session_dir, project_root, nested, other_dbs:[{path, issues, tasks, empty}]} for Round 0. Call once before AskUserQuestion.',
+        'Read onboard state once before AskUserQuestion: first-run flag, plugin_config, git/CLI probe (origin URL → provider, gh/glab auth) and the Round 0 nesting {session_dir, project_root, nested, other_dbs}.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'onboard_get_questions',
       description:
-        'Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire — pass option.wire (or label) to onboard_apply. Each question carries evidence[] and recommended_reason to show above it.',
+        'AskUserQuestion-ready questions for one /onboard round, with Keep options, disabled CLI options and probe defaults applied. Pass option.wire (or label) to onboard_apply; show each question\'s evidence[] and recommended_reason above it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -762,7 +762,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     {
       name: 'onboard_apply',
       description:
-        'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement and/or bug_report_consent alone (after onboarding) change those answers on request.',
+        'Persist /onboard answers in one transaction: derives pr_target + protected_branches from branching_model and writes the onboarded marker. Takes wire values or labels (case-insensitive); a Keep option omits its key.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -819,7 +819,9 @@ export function worldModelTools(
     {
       name: 'world_model_get',
       description:
-        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. checkout_behind_upstream (with upstream 'origin/<target>') counts the commits the indexed checkout trails its upstream as of the last fetch, so missing files or shifted line ranges may be checkout lag, not world-model bugs; absent when current. Primary navigation surface for code-touching cold starts.",
+        "The world model as a directory tree, the primary map for code-touching cold starts. Each node has a README summary (summary_source='readme', with trust 'current' | 'drifting(n)' | 'dead_refs(k)', summary_sha, commits_behind, dead_refs) or a structural one, first line only below the root. " +
+        'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work lists closed-task branch tips not merged into the target branch. ' +
+        'checkout_behind_upstream counts the commits the indexed checkout trails origin/<target> as of the last fetch, so missing files or shifted lines may be checkout lag; absent when current.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -846,7 +848,7 @@ export function worldModelTools(
     {
       name: 'world_model_search',
       description:
-        "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' — cheaper than world_model_get.",
+        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a symbol hit has stale: true when its file changed since the last scan. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -877,7 +879,8 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name (alias name) plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers and readers of the tables they write, by depth (levels[].refs, each with via 'call' or 'table:<name>', and levels[].total), plus tests: the test callers and test modules importing any walked symbol, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by (generated bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, or qualified_name plus optional path. " +
+        "note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -906,7 +909,7 @@ export function worldModelTools(
     {
       name: 'world_model_concepts',
       description:
-        "Search verified concepts (named, ordered flows over symbols) by bm25. Each hit has step_count and per-step trust counts. With no match, derived is a chain walked from the top symbol hit over exact calls/sources/runs edges, labelled 'derived, unverified'.",
+        "Search verified concepts (named, ordered flows over symbols) by bm25; each hit has step_count and per-step trust counts. With no match, derived is a chain walked from the top symbol hit over exact calls/sources/runs edges, labelled 'derived, unverified'.",
       inputSchema: {
         type: 'object',
         properties: {

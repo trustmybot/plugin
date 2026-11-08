@@ -53,7 +53,7 @@ export function reportTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_report_md',
-      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
+      description: 'Markdown report of an issue: summary is metadata, counts and the last 5 audit events; detail adds every task, validation attempt and audit event.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -70,7 +70,7 @@ export function reportTools(db: TrajectoryDB): {
     },
         {
       name: 'issue_snapshot_md',
-      description: 'Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by code reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.',
+      description: 'Write a read-only markdown snapshot of an issue (header, discussions, tasks) for review handoff.',
       inputSchema: {
         type: 'object',
         properties: {

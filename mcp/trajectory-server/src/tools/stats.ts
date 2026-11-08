@@ -421,7 +421,11 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
     {
       name: 'task_stats',
       description:
-        'Token/duration aggregate + per-spawn breakdown of one task\'s swe and code-reviewer runs. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are unpriced_tokens; cost_groups splits both by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task\'s runs: { denials, gate_failures (timed-out or crashed gates), by_reason (per reason, highest first) }, and each spawn its own hook_blocks count. tool_output: per agent_type, { total_est_tokens, tools: top 10 by est_tokens (result chars / 4) with calls and share }. Two modes: pass task_id for one task, or pass since (ISO date) without task_id: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } (swe runs started since then), tool_output (all runs) }.',
+        "Tokens, cost and duration of one task's swe and code-reviewer runs, with a per-spawn breakdown (usage_source, host, model, root_dir, exit_reason, hook_blocks). tokens_total sums tokens_in, tokens_out and both cache counts. " +
+        'cost_estimate (USD) prices rows by plugin_config.model_prices[model]; rows with no priced model count as unpriced_tokens; cost_groups splits both by (host, model). ' +
+        'Also wall_clock_ms, review_fail_count, swe_spawn_count, rework_count (spawns - 1), reworks {fresh, resumed (through SendMessage)} each with count, wall_clock_ms, tool_uses, cache_read_tokens, ' +
+        'hook_blocks {denials, gate_failures (timed-out or crashed gates), by_reason} from hook_denied audit rows, and tool_output per agent_type: the top 10 tools by est_tokens (result chars / 4). ' +
+        'Pass task_id for one task, or since without task_id for {since, window {runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason}, tool_output}.',
       inputSchema: {
         type: 'object',
         properties: {

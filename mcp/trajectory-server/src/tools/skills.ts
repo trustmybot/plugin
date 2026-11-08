@@ -76,7 +76,7 @@ export function skillTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'skill_register',
-      description: 'Register a new skill. Status defaults to draft. Scope defaults to project-local (the common case for tmb_skill-creator output); plugin-shipped skills are schema-seeded with scope=global.',
+      description: 'Register a new skill, status draft. Plugin-shipped skills are seeded with scope=global.',
       inputSchema: {
         type: 'object',
         properties: {

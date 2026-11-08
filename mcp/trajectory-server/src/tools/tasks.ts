@@ -315,7 +315,7 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_create_batch',
       description:
-        'Insert multiple tasks for an issue in a single transaction. branch_id MUST be a git-convention name (feat/foo, fix/bar, refactor/baz, etc.); it doubles as the working git branch.',
+        'Insert tasks for an issue in one transaction. branch_id MUST be a git-convention name (feat/foo, fix/bar); it is also the working git branch.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -459,7 +459,11 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_update_status',
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. `report.wm_feedback` {answered?, missed?, wrong?} (optional) says what the world model answered, missed or got wrong, and also writes one wm_feedback audit row, none when every field is blank; only swe may pass it, any other agent is refused with wm_feedback_invalid. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
+      description:
+        "Update a task's status. A move to completed on a spec whose Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id and no unknown id; the report is stored and task_brief returns it. " +
+        "report.concepts (at most 5, world_model_concept_upsert's shape) are only shape-checked here; scan_run applies them once the task closes with a passing code-reviewer verdict. " +
+        'Only swe may pass report.wm_feedback; any other agent is refused with wm_feedback_invalid. ' +
+        'A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -583,7 +587,7 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_first_actionable',
       description:
-        'Returns the lex-lowest pending/failed task for an issue (groups by type prefix: chore<ci<docs<feat<...). branch_id ordering is lexicographic over git-convention names.',
+        'Returns the pending/failed task of an issue with the lexicographically lowest branch_id (so chore<ci<docs<feat<...).',
       inputSchema: {
         type: 'object',
         properties: {
