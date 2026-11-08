@@ -17,14 +17,14 @@ The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration �
 
 | Mode | Input state source |
 |---|---|
-| **L5** | `setup-l5.sh` constructs the state from scratch (file scaffolds, git commits, SQL INSERTs). This **simulates** the cumulative state that would have existed after all prior chain steps. |
+| **L5** | `setup-l5.ts` constructs the state from scratch (file scaffolds, git commits, SQL INSERTs). This **simulates** the cumulative state that would have existed after all prior chain steps. |
 | **L6** | Prior chain steps **organically produced** the state. Row N's expected input IS row N-1's actual output, carried across via the cumulative trajectory DB + filesystem + git. |
 
 Diagnostic doctrine when L6 fails:
 ```
 L6 step N fails
         ↓
-Run L5 step N standalone (uses its own setup-l5.sh seed)
+Run L5 step N standalone (uses its own setup-l5.ts seed)
         ↓
    pass        fail
     │           │
@@ -113,17 +113,17 @@ Reading the dotted edges:
 
 **Note on retired hook-attribution row:** the `skill_invocations` hook-attribution assertion that the retired standalone row used to own is now folded into step 05's outcome.sql — `skill_invocations` rows accumulate naturally on any chain step that invokes tmb skills, and step 05 is the first such step. The standalone row was redundant.
 
-**Note on the cheatcode steps (chain steps 4 and 9):** the chain runs the cheatcode pipeline end-to-end via two rows wired into `chain-manifest.json` (dir names `rows/04/04-cheatcode-install-plugins` and `rows/09/09-cheatcode-uninstall-plugins`). **Chain step 4** (`04-cheatcode-install-plugins`) installs two marketplace plugins via cheatcode — `feature-dev` attaches to `swe`, `code-review` attaches to `code-reviewer` — so the install state is cumulative for the rest of the journey. **Chain step 9** (`09-cheatcode-uninstall-plugins`) reverses it, tearing the installed cheatcodes + attachments back down. Both steps stage their deterministic, no-network fixture via a `chain_setup_command` that reuses the row's own `setup-l5.sh` (the same script L5 isolation sources directly). The first-task row (`05-first-task-hits-gate`) runs at chain step 5, `11-concerns-protocol` at step 11, `15-search-grounding` at step 15.
+**Note on the cheatcode steps (chain steps 4 and 9):** the chain runs the cheatcode pipeline end-to-end via two rows wired into `chain-manifest.json` (dir names `rows/04/04-cheatcode-install-plugins` and `rows/09/09-cheatcode-uninstall-plugins`). **Chain step 4** (`04-cheatcode-install-plugins`) installs two marketplace plugins via cheatcode — `feature-dev` attaches to `swe`, `code-review` attaches to `code-reviewer` — so the install state is cumulative for the rest of the journey. **Chain step 9** (`09-cheatcode-uninstall-plugins`) reverses it, tearing the installed cheatcodes + attachments back down. Both steps stage their deterministic, no-network fixture via a `chain_setup_command` that reuses the row's own `setup-l5.ts` (the same script L5 isolation runs directly). The first-task row (`05-first-task-hits-gate`) runs at chain step 5, `11-concerns-protocol` at step 11, `15-search-grounding` at step 15.
 
-**Reading the S13 dotted edge:** S8 → S13: step 10 records the `kind='decision'` discussion that step 15 searches for. In L6, the organic DB carry means the row is already present when step 13 fires. In L5 isolation, `setup-l5.sh` seeds the same decision body so the same prompt + assertion work unchanged.
+**Reading the S13 dotted edge:** S8 → S13: step 10 records the `kind='decision'` discussion that step 15 searches for. In L6, the organic DB carry means the row is already present when step 13 fires. In L5 isolation, `setup-l5.ts` seeds the same decision body so the same prompt + assertion work unchanged.
 
 ---
 
 ## Per-step I/O table
 
-Each step lists what state it consumes (Input) and produces (Output). **In L5**, "Input" is what `setup-l5.sh` builds; **in L6**, "Input" is the previous step's "Output" (or the bare project start for step 1). The expected output is the same in both modes — the assertions key off it.
+Each step lists what state it consumes (Input) and produces (Output). **In L5**, "Input" is what `setup-l5.ts` builds; **in L6**, "Input" is the previous step's "Output" (or the bare project start for step 1). The expected output is the same in both modes — the assertions key off it.
 
-The "Carried from" column is the chain provenance: which prior step's Output produces this step's Input in L6. In L5 isolation, the same content comes from `setup-l5.sh` instead.
+The "Carried from" column is the chain provenance: which prior step's Output produces this step's Input in L6. In L5 isolation, the same content comes from `setup-l5.ts` instead.
 
 | # | Row | Input (= prior chain output OR L5 seed) | Carried from | What bro does | Output (asserted) |
 |---|---|---|---|---|---|
@@ -139,7 +139,7 @@ The "Carried from" column is the chain provenance: which prior step's Output pro
 | **12** | `12-consultant` | `src/cli.py` from step 5/6 + an open "Evaluate TODO CLI storage scale-out" issue. `cto` is registered with a `plugin:` file_path (the shipped template) but NOT instantiated locally. | step 5 (cli) + earlier-step issue | `@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?` → `consultant-spawn-required.sh` hook injects "invoke /tmb:agent-create cto" routing → bro invokes the command → Branch B template-copy → `agent_register` + `audit_append(event_type='tmb_agent_created')` → spawn cto via `Agent`. | `audit WHERE event_type='tmb_agent_created'` ≥1. `agents WHERE name='cto' AND file_path LIKE 'project:%'` ≥1. |
 | **13** | `13-roundtable` | `src/cli.py` + `cto` + `data-engineer` both registered project-local. L5: setup-l5 seeds both consultants. L6: `cto` from step 12; `data-engineer` from a prior chain step's from-scratch creation. | step 12 (cto) + earlier from-scratch | `/roundtable should the todo CLI's storage be JSON, SQLite, or a small backend service?` → bro calls `roundtable_create(participants=['cto','data-engineer'])` → spawns each via `Agent` → each writes `discussion_append(kind='analysis')` + `roundtable_vote`. | `roundtables` ≥1. `discussions WHERE kind='analysis'` ≥2. `roundtable_votes` from BOTH `cto` AND `data-engineer`. |
 | **14** | `14-issue-resume` | An in-progress issue with a `planning_complete` audit and a task in `pending`. L5: pre-seeded by setup-l5. L6: organic from earlier in-progress work. | step 5 + step 6 (existing planned task) | `@bro let's keep going on the CLI entry-point work.` → bro picks up the existing task (no `issue_create`, no `task_create_batch`), dispatches SWE via `Agent`. | The pre-existing issue still exists exactly once (no duplicate). `Agent` was spawned. `issue_create` + `task_create_batch` were NOT called this turn. |
-| **15** | `15-search-grounding` | A `kind='decision'` discussion from step 10 (the storage-backend ADR) + a `discussions_embeddings` row (stub vector). L5: seeded by setup-l5.sh. L6: inherits step 10's organic decision row + server backfill. | step 10 (kind='decision' discussion) | `@bro why did we choose to extract storage into a backend interface in src/cli.py?` → bro calls `discussion_search` to ground the answer in the recorded decision; cites the ADR body. No code work. | `discussions_embeddings` ≥ 1 row; `discussions WHERE kind='decision'` ≥ 1. `discussion_search` called. `task_create_batch` NOT called. |
+| **15** | `15-search-grounding` | A `kind='decision'` discussion from step 10 (the storage-backend ADR) + a `discussions_embeddings` row (stub vector). L5: seeded by setup-l5.ts. L6: inherits step 10's organic decision row + server backfill. | step 10 (kind='decision' discussion) | `@bro why did we choose to extract storage into a backend interface in src/cli.py?` → bro calls `discussion_search` to ground the answer in the recorded decision; cites the ADR body. No code work. | `discussions_embeddings` ≥ 1 row; `discussions WHERE kind='decision'` ≥ 1. `discussion_search` called. `task_create_batch` NOT called. |
 
 ### Seed bridges (between-row `seed_after` SQL files)
 
@@ -163,8 +163,8 @@ All rows live in **`tests/l5-l6/rows/`**, organized into **family folders** `row
 | Aspect | L5 mode | L6 chain mode |
 |---|---|---|
 | Runner | `tests/l5-l6/run-l5.ts` | `tests/l5-l6/run-l6-chain.ts` |
-| Pre-seed | `fixture.txt` seeds DB; `setup-l5.sh` (if present) adds env state | `fixture.txt` applied ONLY at chain step 1; subsequent steps inherit cumulative DB |
-| `setup-l5.sh` | Runs (simulates prior-step state for isolation) | NOT run (chain state carries from prior step) |
+| Pre-seed | `fixture.txt` seeds DB; `setup-l5.ts` (if present) adds env state | `fixture.txt` applied ONLY at chain step 1; subsequent steps inherit cumulative DB |
+| `setup-l5.ts` | Runs (simulates prior-step state for isolation) | NOT run (chain state carries from prior step) |
 | Per-turn session | Fresh `claude -p` per turn (no `--resume`). Continuity within a row is DB-driven. | Same. |
 | State threading | None — each row starts fresh | DB + filesystem + git carry across steps |
 
@@ -176,7 +176,7 @@ tests/l5-l6/rows/<NN>/<row-name>/        # family folder <NN>/ groups a primary 
   README.md               # scenario description for both L5 and L6 modes
   script.json             # max_turns, user_after_bro[], terminal_pattern
   fixture.txt             # named SQL fixture (e.g. onboarding-named) — applied in L5 always; L6 only at step 1
-  setup-l5.sh             # L5-ONLY: pre-seeds env state that L6 inherits from prior chain step
+  setup-l5.ts             # L5-ONLY (optional): pre-seeds env state that L6 inherits from prior chain step
   outcome.sql             # SQL assertions against trajectory.db (shared L5/L6)
   outcome-coherence.json  # cross-table row-count shape (shared)
   outcome-git.json        # git-state assertions (shared)
@@ -186,17 +186,17 @@ tests/l5-l6/rows/<NN>/<row-name>/        # family folder <NN>/ groups a primary 
   cost-budget.json        # max tokens / max duration_ms (shared)
 ```
 
-### `setup-l5.sh` convention
+### `setup-l5.ts` convention
 
-`setup-l5.sh` simulates the **state** that a prior chain step would have left behind. It receives two arguments:
+`setup-l5.ts` simulates the **state** that a prior chain step would have left behind. It receives two arguments:
 
 ```bash
-bash setup-l5.sh <PROJECT_DIR> <SCENARIO_DIR>
+node --experimental-strip-types --experimental-sqlite setup-l5.ts <PROJECT_DIR> <SCENARIO_DIR>
 ```
 
 It may create files in `$PROJECT`, run git commits in `$PROJECT`, or execute SQL against `$PROJECT/.claude/tmb/trajectory.db`. It MUST NOT modify `$SCENARIO_DIR` (read-only row dir).
 
-Rows that need no extra state still ship a `setup-l5.sh` containing only `:` — this makes the runner's `[ -f setup-l5.sh ]` check universally safe.
+A row that needs no extra state ships no setup script, and the runner skips the step.
 
 ---
 
@@ -247,7 +247,7 @@ When to use L5: debugging one row, regression-tracing after a fix, pre-flight be
 
 1. Set up a fresh scratch project (`mktemp -d`, `git init -b main`, identity config, `.gitignore`, `.claude/tmb/` dir).
 2. Seed the DB: apply `schema.sql` then the row's `fixture.txt` SQL fixture.
-3. Run `setup-l5.sh "$PROJECT" "$ROW_DIR"` for extra pre-state (seed tasks, scatter files, copy templates).
+3. Run the row's `setup-l5.ts "$PROJECT" "$ROW_DIR"` under node, if present, for extra pre-state (seed tasks, scatter files, copy templates).
 4. Run claude per the row's `script.json`: turn 1 with `prompt.txt`, then turn N from `user_after_bro[N-1]`. **Each turn is a fresh `claude -p`** with a new session-id (no `--resume`); continuity within the row is DB-driven, matching real cross-session behaviour. Capture `trajectory.jsonl` per turn, concat into `trajectory.jsonl`.
 5. Run every present scorer against the captured artifacts. The row passes only when every required scorer passes.
 
@@ -279,9 +279,9 @@ When to use L6: integration smoke before any release; verifying cross-row contin
 
 ### chain_setup_command — per-step pre-bro shell hook
 
-Some chain steps need an L6-only state-shape adjustment that doesn't fit the L5 `setup-l5.sh` model (because it depends on chain progression, not initial state). The manifest supports a per-step `chain_setup_command` field — a shell command run in `$PROJECT` before bro's turn. L5 skips it (the row's `setup-l5.sh` constructs the same state shape from scratch).
+Some chain steps need an L6-only state-shape adjustment that doesn't fit the L5 `setup-l5.ts` model (because it depends on chain progression, not initial state). The manifest supports a per-step `chain_setup_command` field — a shell command run in `$PROJECT` before bro's turn. L5 skips it (the row's `setup-l5.ts` constructs the same state shape from scratch).
 
-Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a feature branch. In L5, `setup-l5.sh` puts the file in the working tree on whatever branch is HEAD. In L6, the chain has the file on `feat/todo-cli` only — so step 06's manifest entry sets `chain_setup_command: "git checkout feat/todo-cli 2>/dev/null || git checkout main"` to switch the working tree before bro's `Read`.
+Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a feature branch. In L5, `setup-l5.ts` puts the file in the working tree on whatever branch is HEAD. In L6, the chain has the file on `feat/todo-cli` only — so step 06's manifest entry sets `chain_setup_command: "git checkout feat/todo-cli 2>/dev/null || git checkout main"` to switch the working tree before bro's `Read`.
 
 ### Driver semantics
 
@@ -289,7 +289,7 @@ Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a
 2. `fixture.txt` from row 1 (`01-cold-start`) applied at chain start only.
 3. For each row in `l6-chain/chain-manifest.json`:
    - Apply `seed_before` SQL (if present) — between-row state bridge.
-   - **Do NOT run `setup-l5.sh`** — L5 isolation setups are not applied in chain mode.
+   - **Do NOT run `setup-l5.ts`** — L5 isolation setups are not applied in chain mode.
    - For each turn: send the turn's prompt via a **fresh `claude -p`** invocation (unique session-id per turn, no `--resume`).
    - Score the post-state against the row's outcome bundle.
    - For partial-test rows: apply `seed_after` SQL to bridge the post-AUQ state into the next row.
