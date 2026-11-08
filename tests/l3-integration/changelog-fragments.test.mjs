@@ -1,5 +1,5 @@
-// L3: changelog.d/ fragments (GH 1277, GH 1692): tests/l1-lint/changelog-current.sh
-// on a feature branch, scripts/maintenance/lib/changelog-fragments.ts on its own,
+// L3: changelog.d/ fragments (GH 1277, GH 1692): changelogCurrent from
+// tests/l1-lint/changelog-current.test.mjs on a feature branch, scripts/maintenance/lib/changelog-fragments.ts on its own,
 // and scripts/maintenance/bump-version.ts assembling the fragments into a
 // release section, byte-identically for the same inputs.
 
@@ -10,9 +10,9 @@ import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { changelogCurrent } from '../l1-lint/changelog-current.test.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const LINT = join(ROOT, 'tests/l1-lint/changelog-current.sh');
 const LIB = join(ROOT, 'scripts/maintenance/lib/changelog-fragments.ts');
 const BUMP = join(ROOT, 'scripts/maintenance/bump-version.ts');
 const FIXTURE = join(ROOT, 'tests/l3-integration/hooks/fixtures/changelog-fragments');
@@ -76,15 +76,14 @@ function touchSource(dir) {
 }
 
 function lint(dir, today) {
-  const r = spawnSync('bash', [LINT, '--root', dir], { env: { ...GIT_ENV, TMB_CHANGELOG_TODAY: today }, encoding: 'utf8' });
-  return { code: r.status, output: `${r.stdout}${r.stderr}` };
+  return changelogCurrent(dir, { today });
 }
 
 function fragments(cwd, ...args) {
   return spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', LIB, ...args], { cwd, encoding: 'utf8' });
 }
 
-// --- changelog-current.sh ----------------------------------------------------
+// --- changelog-current.test.mjs ----------------------------------------------
 
 test('a fragment for the cited issue passes, after the cut-over too', () => {
   const r = newRepo('frag-ok');
