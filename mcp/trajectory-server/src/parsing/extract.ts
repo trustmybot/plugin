@@ -49,7 +49,8 @@ export interface ExtractedSymbol {
 }
 
 // src indexes Extraction.symbols. hint is the import specifier of an
-// 'imports' edge, or the receiver of a member call (`obj` in obj.fn()).
+// 'imports' edge, or the receiver of a member call: its class when the file
+// types it (`C` for `obj: C` in obj.fn()), else its text (`obj`).
 export interface ExtractedEdge {
   src: number;
   kind: EdgeKind;
@@ -415,8 +416,53 @@ function testGateRuns(src: string, out: Collector, moduleSymbol: number): void {
   }
 }
 
+const annotatedType = (node: Node): string | undefined => {
+  const t = node.childForFieldName('type')?.namedChildren[0];
+  return t?.type === 'type_identifier' ? t.text : undefined;
+};
+
+// A long receiver expression is clipped with a trailing ellipsis so the edge
+// stays a member call yet can match no `${type}.${method}` name.
+const memberHint = (receiver: string): string =>
+  receiver.length < 40 || /^[\w$]+$/.test(receiver) ? receiver : `${receiver.slice(0, 39)}…`;
+
+// Receiver text to its declared or constructed class, per file, ignoring
+// scope; a receiver seen with two different types is dropped.
+function receiverTypes(root: Node): Map<string, string> {
+  const seen = new Map<string, string | null>();
+  const add = (key: string, type: string | undefined): void => {
+    if (!type) return;
+    const prev = seen.get(key);
+    seen.set(key, prev === undefined || prev === type ? type : null);
+  };
+  for (const d of root.descendantsOfType('variable_declarator')) {
+    const n = d?.childForFieldName('name');
+    if (n?.type !== 'identifier') continue;
+    const value = d!.childForFieldName('value');
+    const ctor = value?.type === 'new_expression' ? value.childForFieldName('constructor') : null;
+    add(n.text, annotatedType(d!) ?? (ctor?.type === 'identifier' ? ctor.text : undefined));
+  }
+  for (const p of root.descendantsOfType(['required_parameter', 'optional_parameter'])) {
+    const n = p?.childForFieldName('pattern');
+    if (n?.type !== 'identifier') continue;
+    const type = annotatedType(p!);
+    add(n.text, type);
+    if (named(p!).some((c) => c.type === 'accessibility_modifier' || c.type === 'override_modifier') || /^readonly\b/.test(p!.text)) {
+      add(`this.${n.text}`, type);
+    }
+  }
+  for (const f of root.descendantsOfType('public_field_definition')) {
+    const n = f?.childForFieldName('name');
+    if (n?.type === 'property_identifier' || n?.type === 'private_property_identifier') add(`this.${n.text}`, annotatedType(f!));
+  }
+  const types = new Map<string, string>();
+  for (const [k, v] of seen) if (v) types.set(k, v);
+  return types;
+}
+
 function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number, relPath: string): void {
   if (isTestPath(relPath)) testGateRuns(src, out, moduleSymbol);
+  const types = receiverTypes(root);
   const definition = (node: Node, kind: SymbolKind, qualifiedName: string): number =>
     out.symbol({
       kind,
@@ -478,7 +524,8 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
       if (fn?.type === 'identifier') callee = fn.text;
       else if (fn?.type === 'member_expression') {
         callee = fn.childForFieldName('property')?.text;
-        receiver = fn.childForFieldName('object')?.text;
+        const object = fn.childForFieldName('object')?.text;
+        receiver = object !== undefined ? (types.get(object) ?? object) : undefined;
       }
       if (callee) {
         out.edge(
@@ -486,7 +533,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
           t === 'call_expression' ? 'calls' : 'instantiates',
           callee,
           node.startPosition.row + 1,
-          receiver && receiver.length < 40 ? receiver : null,
+          receiver === undefined ? null : memberHint(receiver),
         );
       }
     } else if (t === 'import_statement') {
