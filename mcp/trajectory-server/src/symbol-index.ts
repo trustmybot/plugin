@@ -43,7 +43,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 10;
+export const EXTRACTOR_VERSION = 11;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -349,20 +349,20 @@ class Resolver {
     }
     const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
     const member = edge.hint !== null && edge.hint !== 'this';
-    const same = cands.find((c) => c.path === from);
-    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
-    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
-    if (same && !member) return { dst: same.id, how: 'exact' };
-    if (viaImport) {
-      const hit = cands.find((c) => c.path === viaImport);
-      if (hit) return { dst: hit.id, how: 'exact' };
-    } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
     if (member) {
       const typed = cands.filter(
         (c) => c.kind === 'method' && !isTestPath(c.path) && c.qualified_name === `${edge.hint}.${edge.dst_name}`,
       );
       return typed.length === 1 ? { dst: typed[0]!.id, how: 'name' } : null;
     }
+    const same = cands.find((c) => c.path === from);
+    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
+    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
+    if (same) return { dst: same.id, how: 'exact' };
+    if (viaImport) {
+      const hit = cands.find((c) => c.path === viaImport);
+      if (hit) return { dst: hit.id, how: 'exact' };
+    } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
     const unique = cands.filter((c) => !isTestPath(c.path));
     return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0]!.id, how: 'name' } : null;
   }
