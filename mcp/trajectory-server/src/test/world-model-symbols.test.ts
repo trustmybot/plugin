@@ -895,7 +895,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 9);
+      assert.equal(EXTRACTOR_VERSION, 10);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1526,5 +1526,120 @@ describe('world_model_symbol impact reaches import-linked tests and table reader
       assert.equal(level.total, level.refs.length);
       for (const ref of level.refs) assert.ok(typeof ref['via'] === 'string', JSON.stringify(ref));
     }
+  });
+});
+
+describe('member calls bind only by receiver type (GH 1838)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-member-1838-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  const callees = (src: string): Array<[string, string | null]> =>
+    db
+      .all<{ dst_name: string; dst: string | null }>(
+        `SELECT e.dst_name, d.qualified_name AS dst
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id LEFT JOIN wm_symbols d ON d.id = e.dst_id
+          WHERE s.repo = 'app' AND s.qualified_name = ? AND e.kind = 'calls'
+          ORDER BY e.rowid`,
+        [src],
+      )
+      .map((r) => [r.dst_name, r.dst]);
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/write-paths.ts': 'export class WritePaths {\n  join(): string {\n    return "";\n  }\n}\n',
+      'src/locale-grep.ts': 'export class LocaleGrep {\n  test(s: string): boolean {\n    return s.length > 0;\n  }\n}\n',
+      'src/caller.ts': [
+        "import { WritePaths } from './write-paths.js';",
+        'export function untyped(s: string): boolean {',
+        "  const segments = ['a', 'b'];",
+        "  segments.join('/');",
+        '  return /x/.test(s);',
+        '}',
+        'export function viaNew(): string {',
+        '  const w = new WritePaths();',
+        '  return w.join();',
+        '}',
+        'export function viaParam(wp: WritePaths): string {',
+        '  return wp.join();',
+        '}',
+        'export function viaStatic(): string {',
+        '  return WritePaths.join();',
+        '}',
+        'export class Holder {',
+        '  private held: WritePaths = new WritePaths();',
+        '  run(): string {',
+        '    return this.held.join();',
+        '  }',
+        '}',
+        'export class Owner {',
+        '  constructor(private readonly owned: WritePaths) {}',
+        '  run(): string {',
+        '    return this.owned.join();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/clash.ts': [
+        "import { WritePaths } from './write-paths.js';",
+        "import { LocaleGrep } from './locale-grep.js';",
+        'export function first(): string {',
+        '  const r = new WritePaths();',
+        '  return r.join();',
+        '}',
+        'export function second(): boolean {',
+        '  const r = new LocaleGrep();',
+        "  return r.test('s');",
+        '}',
+        'export class Self {',
+        '  helper(): number {',
+        '    return 1;',
+        '  }',
+        '  run(): number {',
+        '    return this.helper();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a call on an untyped local or a regex literal stays unresolved', () => {
+    assert.deepEqual(callees('untyped'), [
+      ['join', null],
+      ['test', null],
+    ]);
+  });
+
+  it('new, a parameter annotation, a class field, a parameter property and a static receiver each bind to WritePaths.join', () => {
+    for (const src of ['viaNew', 'viaParam', 'viaStatic', 'Holder.run', 'Owner.run']) {
+      assert.deepEqual(callees(src), [['join', 'WritePaths.join']], src);
+    }
+  });
+
+  it('a receiver typed two ways in one file binds neither; this.m() still binds to the same-file method', () => {
+    assert.deepEqual(callees('first'), [['join', null]]);
+    assert.deepEqual(callees('second'), [['test', null]]);
+    assert.deepEqual(callees('Self.run'), [['helper', 'Self.helper']]);
+  });
+
+  it('the extractor version is 10', () => {
+    assert.equal(EXTRACTOR_VERSION, 10);
   });
 });

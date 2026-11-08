@@ -5,7 +5,8 @@
 // whose read or extraction throws loses its symbols, is stamped with
 // FAILED_SUFFIX and is named in failed_paths; it is retried only when its
 // content or the version changes (GH 1858). Calls
-// resolve by import, same-file definition, sourced file or unique name;
+// resolve by import, same-file definition, sourced file or unique name, and a
+// member call only to the method named by its receiver's type (GH 1838);
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
 // rows (parsing/hooks.ts), and a pass re-resolves the non-exact edges of
@@ -42,7 +43,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 9;
+export const EXTRACTOR_VERSION = 10;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -277,6 +278,7 @@ interface Candidate {
   id: number;
   path: string;
   kind: SymbolKind;
+  qualified_name: string;
 }
 
 class Resolver {
@@ -292,7 +294,7 @@ class Resolver {
       `SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`,
       [repo],
     )) {
-      const c = { id: Number(s.id), path: s.path, kind: s.kind };
+      const c = { id: Number(s.id), path: s.path, kind: s.kind, qualified_name: s.qualified_name };
       if (s.kind === 'module') {
         this.modules.set(s.path, c.id);
         this.fileSet.add(s.path);
@@ -355,7 +357,13 @@ class Resolver {
       const hit = cands.find((c) => c.path === viaImport);
       if (hit) return { dst: hit.id, how: 'exact' };
     } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
-    const unique = cands.filter((c) => !isTestPath(c.path) && (!member || c.kind === 'method'));
+    if (member) {
+      const typed = cands.filter(
+        (c) => c.kind === 'method' && !isTestPath(c.path) && c.qualified_name === `${edge.hint}.${edge.dst_name}`,
+      );
+      return typed.length === 1 ? { dst: typed[0]!.id, how: 'name' } : null;
+    }
+    const unique = cands.filter((c) => !isTestPath(c.path));
     return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0]!.id, how: 'name' } : null;
   }
 }
