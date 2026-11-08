@@ -130,6 +130,13 @@ export const KEYS = [
     effect: 'A files[] entry that equals or sits under (or contains) a listed prefix, with directory semantics, raises the `tasks.effort` a task gets to `high` when `task_create_batch` / `task_provision` name none; the other triggers are a prompt-bearing task and rework by `task_reopen` / `task_retry`, and an explicit `effort` always wins.',
   },
   {
+    name: 'change_impact_agent_surface',
+    type: 'string[]: git globs, each bare or `<repo>:<glob>`',
+    defaultText: 'unset (`CLAUDE.md`, `.claude/agents/**`, `.claude/skills/**`, `.claude/settings*.json`)',
+    setBy: 'bro via `config_set`',
+    effect: '`change_impact` (GH 2600) lists as `agent_surface` changes the first-parent commits on each `repos` row\'s base branch that touch these globs, replacing the default; a `<repo>:<glob>` entry applies to that repo only. Unset or malformed reads as the default.',
+  },
+  {
     name: 'swe_effort_ab',
     type: 'object: `{label: string, target: positive integer}`',
     defaultText: 'unset (off)',

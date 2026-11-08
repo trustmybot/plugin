@@ -1,15 +1,42 @@
 /**
  * Change impact (GH 2600): before/after statistics on the agent metrics for a
- * merged change. Shared by the `change_impact` MCP tool, the CLI and the
- * dashboard, so every surface reports the same numbers.
+ * change from any provider (providers.ts). Shared by the `change_impact` MCP
+ * tool, the CLI and the dashboard, so every surface reports the same numbers.
  */
 import type { StatsReader } from '../tools/stats.js';
-import { BuildHistory, type GitSource } from './attribution.js';
-import { METRICS, type Metric } from './metrics.js';
+import { METRICS } from './metrics.js';
+import {
+  CHANGE_SOURCES,
+  PROVIDERS,
+  providerContext,
+  type ChangeEvent,
+  type ChangeProvider,
+  type ChangeRef,
+  type ChangeSource,
+  type ProviderContext,
+  type SplitSample,
+} from './providers.js';
 import { bootstrapRatioCi, hashSeed, holm, mannWhitneyU, mean, median, ratioOfMedians } from './stats.js';
 
 export { METRICS, type Metric, type Sample } from './metrics.js';
-export { BuildHistory, GitUnavailableError, defaultGitSource, gitSourceAt, type GitCommit, type GitSource } from './attribution.js';
+export { BuildHistory, baseRef, defaultGit, gitSourceFor, type GitCommit, type GitRunner, type GitSource } from './attribution.js';
+export {
+  AGENT_SURFACE_KEY,
+  CHANGE_SOURCES,
+  DEFAULT_AGENT_SURFACE,
+  PROVIDERS,
+  agentSurfaceGlobs,
+  changeIdOf,
+  providerContext,
+  type ChangeEvent,
+  type ChangeProvider,
+  type ChangeRef,
+  type ChangeSource,
+  type ProviderContext,
+  type RepoRow,
+  type Split,
+  type SplitSample,
+} from './providers.js';
 
 export const DEFAULT_WINDOW_DAYS = 14;
 export const DEFAULT_MAX_SAMPLES = 200;
@@ -20,7 +47,8 @@ export const ALPHA = 0.05;
 const DAY_MS = 86_400_000;
 
 export interface ChangeImpactOptions {
-  change?: number;
+  change?: ChangeRef;
+  source?: ChangeSource;
   metric?: string;
   window_days?: number;
   max_samples?: number;
@@ -51,37 +79,14 @@ export interface MetricImpact {
   verdict: Verdict;
 }
 
-export interface ChangeImpact {
-  change: number;
-  merged_at: string;
-  build_index: number;
-  measured_with: number[];
+export interface ChangeImpact extends ChangeEvent {
+  measured_with: ChangeRef[];
   metrics: MetricImpact[];
 }
 
-interface Attributed {
-  t: number;
-  value: number;
-  idx: number | null;
-  estimated: boolean;
-}
-
-interface MetricData {
-  metric: Metric;
-  samples: Attributed[];
-}
-
-function loadMetricData(reader: StatsReader, history: BuildHistory): MetricData[] {
-  return METRICS.map((metric) => ({
-    metric,
-    samples: metric
-      .samples(reader)
-      .map((s) => {
-        const a = history.attribute(s.version, s.at);
-        return { t: Date.parse(s.at), value: s.value, idx: a?.idx ?? null, estimated: a?.estimated ?? false };
-      })
-      .filter((s) => !Number.isNaN(s.t)),
-  }));
+export interface ChangeImpactList {
+  sources: ChangeSource[];
+  changes: ChangeImpact[];
 }
 
 function positiveInt(v: number | undefined, fallback: number, name: string): number {
@@ -90,7 +95,12 @@ function positiveInt(v: number | undefined, fallback: number, name: string): num
   return v;
 }
 
-function side(samples: Attributed[], unattributed: number): { values: number[]; stats: SideStats } {
+function checkSource(source: unknown): ChangeSource {
+  if (!CHANGE_SOURCES.includes(source as ChangeSource)) throw new Error(`source must be one of ${CHANGE_SOURCES.join(', ')}`);
+  return source as ChangeSource;
+}
+
+function side(samples: SplitSample[], unattributed: number): { values: number[]; stats: SideStats } {
   const values = samples.map((s) => s.value);
   return {
     values,
@@ -112,49 +122,31 @@ function verdictOf(direction: 'lower' | 'higher', before: SideStats, after: Side
   return (shift < 0) === (direction === 'lower') ? 'improved' : 'regressed';
 }
 
-function measuredWith(data: MetricData[], history: BuildHistory, change: number, idxC: number): number[] {
-  let lo = -1;
-  let hi = Number.POSITIVE_INFINITY;
-  for (const d of data) {
-    for (const s of d.samples) {
-      if (s.idx === null) continue;
-      if (s.idx < idxC) lo = Math.max(lo, s.idx);
-      else hi = Math.min(hi, s.idx);
-    }
-  }
-  return history
-    .prs()
-    .filter((p) => p.idx > lo && p.idx < hi && p.pr !== change)
-    .map((p) => p.pr);
-}
-
 function impactOf(
-  data: MetricData[],
-  history: BuildHistory,
-  change: number,
+  ctx: ProviderContext,
+  provider: ChangeProvider,
+  event: ChangeEvent,
   windowDays: number,
   maxSamples: number,
   metricFilter: string | undefined,
 ): ChangeImpact {
-  const idxC = history.indexOfPr(change);
-  if (idxC === undefined) throw new Error(`change ${change} is not a merged PR on ${history.target}`);
-  const mergedAt = Date.parse(history.commits[idxC]!.at);
+  const at = Date.parse(event.at);
   const windowMs = windowDays * DAY_MS;
-  const nearest = (a: Attributed, b: Attributed) => Math.abs(a.t - mergedAt) - Math.abs(b.t - mergedAt);
+  const inWindow = (s: SplitSample) => Math.abs(s.t - at) <= windowMs;
+  const nearest = (a: SplitSample, b: SplitSample) => Math.abs(a.t - at) - Math.abs(b.t - at);
 
-  const partial = data.map(({ metric, samples }) => {
-    const inWindow = samples.filter((s) => Math.abs(s.t - mergedAt) <= windowMs);
-    const unBefore = inWindow.filter((s) => s.idx === null && s.t < mergedAt).length;
-    const unAfter = inWindow.filter((s) => s.idx === null && s.t >= mergedAt).length;
-    const b = side(inWindow.filter((s) => s.idx !== null && s.idx < idxC).sort(nearest).slice(0, maxSamples), unBefore);
-    const a = side(inWindow.filter((s) => s.idx !== null && s.idx >= idxC).sort(nearest).slice(0, maxSamples), unAfter);
+  const partial = METRICS.map((metric) => {
+    const split = provider.split(event, ctx, metric);
+    const unattributed = split.unattributed.filter(inWindow);
+    const b = side(split.before.filter(inWindow).sort(nearest).slice(0, maxSamples), unattributed.filter((s) => s.t < at).length);
+    const a = side(split.after.filter(inWindow).sort(nearest).slice(0, maxSamples), unattributed.filter((s) => s.t >= at).length);
     const enough = b.stats.n >= MIN_SAMPLES && a.stats.n >= MIN_SAMPLES;
     return {
       metric,
       before: b.stats,
       after: a.stats,
       ratio_of_medians: ratioOfMedians(b.values, a.values),
-      ratio_ci: enough && b.stats.median !== 0 ? bootstrapRatioCi(b.values, a.values, hashSeed(`${change}:${metric.id}`)) : null,
+      ratio_ci: enough && b.stats.median !== 0 ? bootstrapRatioCi(b.values, a.values, hashSeed(`${event.id}:${metric.id}`)) : null,
       p: enough ? mannWhitneyU(a.values, b.values).p : null,
     };
   });
@@ -183,33 +175,56 @@ function impactOf(
     });
 
   return {
-    change,
-    merged_at: new Date(mergedAt).toISOString(),
-    build_index: idxC,
-    measured_with: measuredWith(data, history, change, idxC),
+    source: event.source,
+    id: event.id,
+    label: event.label,
+    at: event.at,
+    kind: event.kind,
+    repo: event.repo,
+    measured_with: provider.measuredWith(event, ctx, windowMs),
     metrics,
   };
 }
 
-export function computeChangeImpact(reader: StatsReader, git: GitSource, opts: ChangeImpactOptions & { change: number }): ChangeImpact;
-export function computeChangeImpact(reader: StatsReader, git: GitSource, opts?: ChangeImpactOptions): ChangeImpact | { changes: ChangeImpact[] };
 export function computeChangeImpact(
   reader: StatsReader,
-  git: GitSource,
+  ctx: ProviderContext | undefined,
+  opts: ChangeImpactOptions & { change: ChangeRef },
+): ChangeImpact;
+export function computeChangeImpact(
+  reader: StatsReader,
+  ctx?: ProviderContext,
+  opts?: ChangeImpactOptions,
+): ChangeImpact | ChangeImpactList;
+export function computeChangeImpact(
+  reader: StatsReader,
+  ctx: ProviderContext = providerContext(reader),
   opts: ChangeImpactOptions = {},
-): ChangeImpact | { changes: ChangeImpact[] } {
+): ChangeImpact | ChangeImpactList {
   const windowDays = positiveInt(opts.window_days, DEFAULT_WINDOW_DAYS, 'window_days');
   const maxSamples = positiveInt(opts.max_samples, DEFAULT_MAX_SAMPLES, 'max_samples');
   const limit = positiveInt(opts.limit, DEFAULT_LIMIT, 'limit');
-  if (opts.change !== undefined && !Number.isInteger(opts.change)) throw new Error('change must be an integer PR number');
   if (opts.metric !== undefined && !METRICS.some((m) => m.id === opts.metric)) {
     throw new Error(`unknown metric ${opts.metric}; one of ${METRICS.map((m) => m.id).join(', ')}`);
   }
-  const history = new BuildHistory(git);
-  const data = loadMetricData(reader, history);
-  if (opts.change !== undefined) return impactOf(data, history, opts.change, windowDays, maxSamples, opts.metric);
-  const recent = history.prs().slice(-limit).reverse();
-  return { changes: recent.map((p) => impactOf(data, history, p.pr, windowDays, maxSamples, opts.metric)) };
+  if (opts.change !== undefined) {
+    const source = checkSource(opts.change.source);
+    const id = opts.change.id;
+    if (typeof id !== 'string' || id.length === 0) throw new Error('change.id must be a non-empty string');
+    const provider = PROVIDERS.find((p) => p.source === source)!;
+    const event = provider.list(ctx).find((e) => e.id === id);
+    if (!event) throw new Error(`unknown change ${source}:${id}`);
+    return impactOf(ctx, provider, event, windowDays, maxSamples, opts.metric);
+  }
+  const filter = opts.source === undefined ? undefined : checkSource(opts.source);
+  const listed = PROVIDERS.map((provider) => ({ provider, events: provider.list(ctx) }));
+  const sources = listed.filter((l) => l.events.length > 0).map((l) => l.provider.source);
+  const recent = listed
+    .filter((l) => filter === undefined || l.provider.source === filter)
+    .flatMap((l) => l.events.map((event) => ({ provider: l.provider, event })))
+    .sort((a, b) => Date.parse(b.event.at) - Date.parse(a.event.at))
+    .slice(0, limit);
+  return { sources, changes: recent.map((r) => impactOf(ctx, r.provider, r.event, windowDays, maxSamples, opts.metric)) };
 }
 
 /** Samples per metric started within the last <days> days of <now>. */

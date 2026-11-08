@@ -1,7 +1,15 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-import { computeChangeImpact, defaultGitSource, METRICS, type GitSource } from '../change-impact/index.js';
+import {
+  CHANGE_SOURCES,
+  computeChangeImpact,
+  METRICS,
+  providerContext,
+  type ChangeRef,
+  type ChangeSource,
+  type ProviderContext,
+} from '../change-impact/index.js';
 import type { StatsReader } from './stats.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -36,28 +44,49 @@ function optionalNumber(args: Record<string, unknown>, key: string): number | un
   return v;
 }
 
+function optionalString(args: Record<string, unknown>, key: string): string | undefined {
+  const v = args[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'string') throw new Error(`${key} must be a string`);
+  return v;
+}
+
+function changeRef(v: unknown): ChangeRef | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'object' || Array.isArray(v)) throw new Error('change must be an object {source, id}');
+  const { source, id } = v as Record<string, unknown>;
+  if (typeof source !== 'string' || typeof id !== 'string') throw new Error('change must be an object {source, id} of strings');
+  return { source: source as ChangeSource, id };
+}
+
 export function changeImpactTools(
   db: StatsReader | TrajectoryDB,
-  gitSource: (reader: StatsReader) => GitSource = (reader) => defaultGitSource(reader),
+  contextFor: (reader: StatsReader) => ProviderContext = (reader) => providerContext(reader),
 ): { definitions: Tool[]; handlers: Record<string, Fn> } {
   const definitions: Tool[] = [
     {
       name: 'change_impact',
-      description: 'Before/after agent-metric stats and a verdict per metric for a merged PR (GH 2600).',
+      description: 'Before/after agent-metric stats and a verdict per metric for one change or the recent ones.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string', description: 'Calling agent identity' },
           change: {
-            type: 'integer',
+            type: 'object',
+            properties: {
+              source: { type: 'string', enum: [...CHANGE_SOURCES] },
+              id: { type: 'string' },
+            },
+            required: ['source', 'id'],
             description:
-              'PR number of a merged change on the plugin target; omit for {changes} over the last `limit` merged PRs. A sample is after the change when its build includes it (dev build gh<PR>, release tag merge-base, or a NULL version by time, counted in estimated_n). ' +
-              'Per metric: before/after {n, median, mean, estimated_n, unattributed_n}, ratio_of_medians, ratio_ci (seeded 95% bootstrap), p (Mann-Whitney U), p_holm (Holm across the metrics), verdict (improved, regressed, no_change, not_enough_data under 20 a side). measured_with: PRs no run separates from the change.',
+              'A change: plugin_version (an installed version; on dev builds a merged change by build), or agent_surface (a base-branch commit touching agent files; id is its merge number or 12-char SHA). Omit for {sources, changes} over the last `limit`. ' +
+              'Per metric: before/after {n, median, mean, estimated_n, unattributed_n}, ratio_of_medians, ratio_ci (seeded 95% bootstrap), p (Mann-Whitney U), p_holm (Holm), verdict (improved, regressed, no_change, not_enough_data under 20 a side). measured_with: changes no sample separates from it.',
           },
+          source: { type: 'string', enum: [...CHANGE_SOURCES], description: 'Without change: list only this source' },
           metric: { type: 'string', enum: METRICS.map((m) => m.id), description: 'Return only this metric (Holm still spans every metric)' },
-          window_days: { type: 'integer', description: 'Days either side of the merge a sample may fall in (default 14)' },
-          max_samples: { type: 'integer', description: 'Samples kept per side, nearest the merge first (default 200)' },
-          limit: { type: 'integer', description: 'Without change: how many recent merged PRs (default 20)' },
+          window_days: { type: 'integer', description: 'Days either side of the change a sample may fall in (default 14)' },
+          max_samples: { type: 'integer', description: 'Samples kept per side, nearest the change first (default 200)' },
+          limit: { type: 'integer', description: 'Without change: how many recent changes (default 20)' },
         },
         required: ['agent'],
       },
@@ -70,12 +99,11 @@ export function changeImpactTools(
       [...ALLOWED_ROLES],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
-        const metric = args['metric'];
-        if (metric !== undefined && metric !== null && typeof metric !== 'string') throw new Error('metric must be a string');
         return ok(
-          computeChangeImpact(db, gitSource(db), {
-            change: optionalNumber(args, 'change'),
-            metric: (metric as string | null | undefined) ?? undefined,
+          computeChangeImpact(db, contextFor(db), {
+            change: changeRef(args['change']),
+            source: optionalString(args, 'source') as ChangeSource | undefined,
+            metric: optionalString(args, 'metric'),
             window_days: optionalNumber(args, 'window_days'),
             max_samples: optionalNumber(args, 'max_samples'),
             limit: optionalNumber(args, 'limit'),
