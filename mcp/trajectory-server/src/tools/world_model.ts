@@ -877,7 +877,7 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name (alias name) plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by, the generated bundles inlining its file (up to 50 refs each; each list's total is its full count before that cap). Pass id from a world_model_search hit, or qualified_name (alias name) plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers and readers of the tables they write, by depth (levels[].refs, each with via 'call' or 'table:<name>', and levels[].total), plus tests: the test callers and test modules importing any walked symbol, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -892,7 +892,7 @@ export function worldModelTools(
           name: { type: 'string', description: 'Alias of qualified_name; qualified_name wins when both are given.' },
           impact: {
             type: ['boolean', 'integer'],
-            description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`,
+            description: `Transitive inbound callers and readers of tables a walked symbol writes. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers and test modules importing any walked symbol go to impact.tests and are not walked past.`,
           },
           source: {
             type: 'boolean',
