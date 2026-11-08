@@ -119,4 +119,19 @@ describe('diffDownstream maps a change set to its consumers (GH 1988)', () => {
     assert.ok(!withCaller.downstream.some((d) => d.qualified_name === 'callerFn'), JSON.stringify(withCaller.downstream));
     assert.ok(withCaller.downstream.some((d) => d.qualified_name === 'chainFn'));
   });
+
+  it('SC5: a path given twice reports each changed symbol once', async () => {
+    const change = edit('src/core.ts', 'return 1;', 'return 10;');
+    const out = await diffDownstream(db, 'app', [change, change]);
+    const once = await diffDownstream(db, 'app', [change]);
+    assert.deepEqual(out, once);
+    assert.equal(out.changed.filter((c) => c.qualified_name === 'coreFn').length, 1);
+  });
+
+  it('SC6: a repeated path takes its last entry', async () => {
+    const out = await diffDownstream(db, 'app', [edit('src/core.ts', 'return 1;', 'return 10;'), { path: 'src/core.ts', content: null }]);
+    const lastOnly = await diffDownstream(db, 'app', [{ path: 'src/core.ts', content: null }]);
+    assert.deepEqual(out, lastOnly);
+    assert.ok(out.changed.length > 0 && out.changed.every((c) => c.change === 'removed'));
+  });
 });

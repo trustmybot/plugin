@@ -1032,9 +1032,11 @@ function groupByKey<T extends { kind: SymbolKind; qualified_name: string; start_
 
 // What a change set can break: each file re-extracted from the supplied
 // content and matched to its indexed rows by (kind, qualified_name), then the
-// depth-1 impact of every modified or removed symbol merged by id.
+// depth-1 impact of every modified or removed symbol merged by id. A path given
+// more than once counts once, with its last entry.
 export async function diffDownstream(db: TrajectoryDB, repo: string, files: ChangedFile[]): Promise<DiffDownstream> {
-  const jobs = files.map((f) => {
+  const lastByPath = new Map(files.map((f) => [f.path, f]));
+  const jobs = [...lastByPath.values()].map((f) => {
     const rows = db
       .all<SymbolRow>(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.repo = ? AND s.path = ?`, [repo, f.path])
       .map(normalizeRow);
