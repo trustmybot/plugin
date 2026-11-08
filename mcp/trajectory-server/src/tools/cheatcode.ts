@@ -433,7 +433,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_search',
       description:
-        'Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Runs in-process (queries tiered registries, ranks by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
+        'Find cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks: queries tiered registries, ranks by tier + relevance with no LLM, records a cheatcode_search audit row, returns ranked candidates.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -454,7 +454,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_vet',
       description:
-        'Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Runs in-process, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).',
+        'Gather reputation + security signals for ONE cheatcode candidate and return a deterministic trust_tier (trusted|caution|untrusted|unknown), rationale and capabilities[]; records a cheatcode_vet audit row. The tier is NOT an install verdict: that stays with bro and the Human.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -477,7 +477,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_approve',
       description:
-        'Record the human approval for installing ONE cheatcode. Writes a cheatcode_approved audit row keyed by source_url; the PreToolUse install gate fails closed until it exists. Per-candidate, per-session — the human decision, not bro self-authorizing.',
+        "Record the Human's approval to install ONE cheatcode, per candidate and session: a cheatcode_approved audit row keyed by source_url, without which the PreToolUse install gate fails closed. bro never approves on its own.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -499,7 +499,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Runs in-process, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url); a target not yet attached to an already-registered skill/plugin is attached (approval-gated, materialized, attachment row added) and returns attached:true. Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+        'Install ONE approved cheatcode through the marketplace path: records the cheatcodes + attachment rows in one transaction and emits cheatcode_install + cheatcode_installed audit rows. A PreToolUse gate blocks it without a cheatcode_approve record. ' +
+        'Idempotent on (name, source_url); a new target for an already-registered skill/plugin is attached and returns attached:true. A skill install requires target and is refused without one; mcp/plugin installs need none. Writes the user project, never the plugin repo.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -537,7 +538,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_uninstall',
       description:
-        'Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: reverses each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent — an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.',
+        'Uninstall ONE cheatcode in one transaction: reverses each attachment through the marketplace/plugin uninstall path (no manual file deletion), deletes its cheatcodes + cheatcode_attachments rows, emits cheatcode_uninstalled. An absent or partial install is a no-op. ' +
+        'A Human request naming the cheatcode is the confirmation; when bro initiates it or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -553,7 +555,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_activate',
       description:
-        'Hot-load ONE installed cheatcode by cheatcode_id and return a deterministic activation verdict. Skill-kind attachments are usable in-session (activated); plugin/MCP kinds load on the next claude -p cold start, so they return restart_required + a reason (docs/architecture/CHEATCODES.md §Hot-load #660). Never throws on a known install; an unknown cheatcode_id is an error.',
+        'Hot-load ONE installed cheatcode and return its activation verdict: skill attachments are usable in-session (activated); plugin/MCP kinds load on the next claude -p cold start (restart_required + reason). An unknown cheatcode_id is an error.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -569,7 +571,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_reconcile',
       description:
-        'Set every active/broken cheatcodes row to active or broken from the live runtime (skill file, mcp/plugin listings), auditing each change. Rows whose listing is unavailable are untouched.',
+        'Set each active/broken cheatcodes row to active or broken from the live runtime (skill file, mcp/plugin listings), auditing each change; rows with no listing are untouched.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -581,7 +583,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_list',
       description:
-        'Read-only inspect of the installed cheatcode registry (the cheatcodes table) — every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search → vet → install). Optionally filter by kind or status.',
+        "Read-only list of the cheatcodes table, every builtin and installed cheatcode by id: id, name, kind, origin, source_url, version, trust_tier, scope, status, description. Answers 'which cheatcodes are installed'; discovery is cheatcode_search → vet → install.",
       inputSchema: {
         type: 'object',
         properties: {

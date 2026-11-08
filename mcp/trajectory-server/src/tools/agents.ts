@@ -136,7 +136,7 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
   const definitions: Tool[] = [
     {
       name: 'agent_list',
-      description: 'List registered agents, optionally filtered by the root their file_path ships from. Each row carries resolved_path.',
+      description: 'List registered agents, optionally by the root of their file_path. Each row carries resolved_path.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -148,7 +148,7 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
     },
     {
       name: 'agent_register',
-      description: "Register a new agent. file_path carries its root: 'plugin:<path>' or 'project:<path>'. A project: path promotes a plugin: consultant row; emits tmb_agent_created on a project: consultant insert or promotion. Re-registration is a no-op. Returns the row with resolved_path.",
+      description: "Register a new agent; re-registration is a no-op. A project: file_path promotes a plugin: consultant row; a project: consultant insert or promotion emits tmb_agent_created. Returns the row with resolved_path.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -163,12 +163,8 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'agent_resolve',
       description:
-        'Read-only: resolves creation mode for /tmb:agent-create. ' +
-        'Validates the name, then returns one of three modes: ' +
-        '"collision" (resolved_path exists — bro runs collision dialog); ' +
-        '"template-copy" (plugin template found — bro Writes the file then calls agent_register); ' +
-        '"from-scratch" (no template — bro scaffolds from templates/agents/template.md then calls agent_register). ' +
-        'Returns file_path (marked, pass it to agent_register) and its absolute resolved_path. bro owns the file Write and the agent_register call.',
+        'Read-only: validates the name and returns the /tmb:agent-create mode: "collision" (resolved_path exists: bro runs the collision dialog), "template-copy" (plugin template found) or "from-scratch" (bro scaffolds from templates/agents/template.md). ' +
+        'Returns file_path, to pass to agent_register, and the absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: 'object',
         properties: {

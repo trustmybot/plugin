@@ -267,7 +267,7 @@ export function trajectoryDoctorTools(db: TrajectoryDB): {
     {
       name: 'trajectory_doctor',
       description:
-        'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings, wm_feedback}, wm_feedback being {reports, missed, wrong}: the count of wm_feedback audit rows and of those with a non-empty missed / wrong; record:true logs one trajectory_doctor_run audit row.',
+        'Check the trajectory DB against its data contracts. Returns {healthy, violations, skipped, embeddings, wm_feedback {reports, missed, wrong}}: counts of wm_feedback audit rows and of those with a non-empty missed / wrong.',
       inputSchema: {
         type: 'object',
         properties: {

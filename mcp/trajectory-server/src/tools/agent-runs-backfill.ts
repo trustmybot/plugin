@@ -460,7 +460,7 @@ export function agentRunsBackfillTools(
     {
       name: 'agent_runs_backfill',
       description:
-        "Recover swe/code-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+        "Recover swe/code-reviewer agent_runs from Claude Code transcripts on disk as usage_source='backfill'; leaves bro rows and measured rows alone; idempotent.",
       inputSchema: {
         type: 'object',
         properties: {

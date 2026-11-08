@@ -1084,7 +1084,7 @@ export function compositeTools(
     {
       name: 'branch_id_propose',
       description:
-        'Heuristic-only branch_id derivation from free-text intent + objective, returning { branch_id, confidence }; pure, no DB writes.',
+        'Derives a branch_id from intent + objective by heuristic, returning { branch_id, confidence }; writes nothing.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1104,11 +1104,9 @@ export function compositeTools(
     {
       name: 'task_retry',
       description:
-        "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
-        "new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. " +
-        "Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. " +
-        "With adopt_worktree, checks the new branch out in that session worktree and records it instead of creating a slug worktree; an adoption refusal writes nothing. " +
-        "Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.",
+        "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
+        "then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1153,9 +1151,8 @@ export function compositeTools(
     {
       name: 'intent_start',
       description:
-        'Interactive planning composite — atomically runs issue_create + discussion_append(intent) + ' +
-        'discussion_append(note) + audit_append(branch_id_proposed). Git branch creation stays caller-side. ' +
-        'Returns {issue_id, branch_id}.',
+        'Atomically runs issue_create + discussion_append(intent) + discussion_append(note) + audit_append(branch_id_proposed). ' +
+        'Creates no git branch. Returns {issue_id, branch_id}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1172,7 +1169,7 @@ export function compositeTools(
     {
       name: 'bro_verification_fail_record',
       description:
-        'V3-fail composite — atomically writes the audit_append + discussion_append that bro emits when a verification check fails.',
+        'Atomically writes the audit_append + discussion_append bro records when a verification check fails.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1193,7 +1190,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout\'s node_modules and runs the repo\'s .config/tmb/worktree-setup.json commands (a setup failure returns an error naming the command, and the command is not run), runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
+        "Creates a worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout's node_modules, runs the repo's .config/tmb/worktree-setup.json commands (a failing one returns an error naming it, and command is not run), runs command there, then removes the worktree. A repo_path outside the project is refused with outside_project.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1214,7 +1211,7 @@ export function compositeTools(
     {
       name: 'worktree_commits_fetch',
       description:
-        'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for code-reviewer spawn.',
+        "Fetches each task's worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] for the code-reviewer spawn.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1235,14 +1232,13 @@ export function compositeTools(
     {
       name: 'bro_atomic_close',
       description:
-        'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
-        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (recorded in a reviewer_effort_assigned row). ' +
-        'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
-        'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
-        'Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
-        'Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. ' +
-        `spawn_note (≤${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. ` +
-        'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
+        "Bro's task close: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
+        'Runs before code-reviewer: the result carries review_pending=true (spawn code-reviewer next) and reviewer_effort, the effort that spawn must pass (reviewer_effort_assigned row). ' +
+        'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
+        'Gates that refuse the close: scope, changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base); ' +
+        'verification, a task with verification[] or a non-wontfix review finding needs a passing verification_runs row for the commit, run after any task_update_spec amend, whose commands match verification[] plus one `[probe <id>]` per such finding, or a verification_gate_waived row (else verification_run_missing); ' +
+        'report, SC<n>: ids in the spec need a stored completion report covering each (else completion_report_missing naming them). ' +
+        'PostToolUse hooks fire on bro_atomic_close, not task_update_status.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1286,9 +1282,9 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing code-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. ' +
-        'Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/code-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. ' +
-        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} (plus the recovery result when task_id is given).',
+        "Bro's recovery of a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (with no passing code-reviewer verdict it writes review_gate_bypassed), without one it returns a re-dispatch directive; any other status is a no-op. " +
+        'Every call runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept row, open runs closed swept_stale); pending tasks older than 7 days are only reported; runs open on terminal tasks are closed; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
+        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported}, plus the recovery result with task_id.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1315,7 +1311,10 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base — local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). With adopt_worktree, the session's linked worktree is checked before the branch is cut (a refusal writes nothing), recorded on the task and switched to the branch instead of creating <repo>/.claude/worktrees/<slug>. Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+        "Bro's planning composite: sets up one task for swe. The branch ref is set up before the DB commit, so a git failure writes no task row and the same branch_id retries cleanly. " +
+        "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
+        "Writes a kind='decision' discussion and the task in one transaction, then the worktree (fail-soft; worktree_reused when it exists). " +
+        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1399,7 +1398,8 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. With adopt_worktree, adopts that session worktree instead (checked before any write; a refusal leaves the task unchanged) and checks the branch out there. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.",
+        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, and recreates a missing branch and worktree. Refused when the task's issue is closed. " +
+        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1444,7 +1444,7 @@ export function compositeTools(
     {
       name: 'task_update_spec',
       description:
-        "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (each optional, at least one), writes a kind='decision' discussion + a task_spec_amended audit row with an old→new summary. The scope fence and verification gate read the amended values on their next run. Returns {task_id, changed, files, verification}.",
+        "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (at least one), writes a kind='decision' discussion + task_spec_amended audit row (old→new summary). The scope and verification gates read the new values on their next run. Returns {task_id, changed, files, verification}.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1464,13 +1464,12 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open blocking review findings {id, criterion_id, probe_cmd, expected, observed, severity, class}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?, case_sweep?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). " +
-        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, " +
-        "locations {files: [{path, purpose, symbols}], symbols: [{id, qualified_name, kind, path, start_line, end_line, caller_count, callers_truncated, callers_hint?, callers, callees}], truncated, unresolved_paths?}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index (caller_count is the full caller total; callers_hint, present only when callers_truncated, names the world_model_symbol call listing them all; a name outside the named paths and files[] resolves only to exported, non-test symbols; unresolved_paths, present only when non-empty, lists named paths the index lacks), at most 6000 chars, null when the repo has no world model; " +
-        "plus a `sections` map of what the others hold), " +
-        "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
-        "Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section. " +
-        "`response_format` defaults to 'concise', whatever the caller or section: scope_world_model keeps dir and child path without summaries, and task_discussions reduces the rows other than this task's decision/intent rows and the issue's newest decision and intent to {id, kind, author}; response_format_hint appears when that trimmed anything. 'detailed' returns every summary and row body.",
+        "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
+        "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
+        'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
+        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
+        'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
         type: 'object',
         properties: {

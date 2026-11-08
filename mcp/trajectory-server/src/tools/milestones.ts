@@ -333,7 +333,7 @@ export function milestoneTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'milestone_close',
-      description: 'Close a milestone locally and on the synced remote. Bro only. Refuses while the milestone has open issues unless force=true.',
+      description: 'Bro only. Close a milestone locally and on the synced remote; refused while it has open issues unless force.',
       inputSchema: {
         type: 'object',
         properties: {

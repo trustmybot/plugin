@@ -141,7 +141,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_search',
       description:
-        'Search discussions via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets. Use instead of issue_get_with_discussions when you want ranked snippets, not a full dump.',
+        'Search discussions, returning top-K ranked snippets rather than the full dump of issue_get_with_discussions.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -174,7 +174,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_append',
       description:
-        'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. issue_id is optional — defaults to the newest open issue (excluding -1), or -1 if no open issues exist. body is capped at 64 KB; larger payloads return a named validation error.',
+        'Append an intent, question, answer, decision or note to an issue. issue_id defaults to the newest open issue other than -1, else -1. body is capped at 64 KB (a named error past it).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -204,7 +204,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_list',
       description:
-        'Return discussion entries for an issue ordered by created_at ASC. Supports optional fields projection: pass fields=[\'id\',\'kind\',\'author\',\'body\'] to return only those columns (unknown fields return a named error). Used by bro at session resume and by snapshot generation.',
+        "An issue's discussion entries by created_at ASC.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -225,7 +225,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'issue_get_with_discussions',
       description:
-        'Convenience call: returns the issue row + its discussion list + its task list in one round-trip. Default compact mode returns counts + last 10 discussions (configurable via last_n). Pass include_full=true to return all discussions (current full behavior). Respects agent-scoped description redaction.',
+        "An issue row with its discussions and tasks in one call: by default counts + the last_n discussions, all with include_full. The description is redacted per the calling agent's scope.",
       inputSchema: {
         type: 'object',
         properties: {

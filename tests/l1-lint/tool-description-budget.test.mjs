@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
 const SERVER_DIST = join(SERVER, 'dist', 'index.js');
-const BUDGET_BYTES = Number(process.env.TMB_TOOL_DESC_BUDGET || 21000); // raised for v1.1.0: issue_update, cheatcode_reconcile — real trim tracked for v1.2.0
+const BUDGET_BYTES = Number(process.env.TMB_TOOL_DESC_BUDGET || 21000); // trimmed for v1.2.0, GH 1403
 
 const LOADER = `
 import { TrajectoryDB } from './mcp/trajectory-server/dist/db.js';

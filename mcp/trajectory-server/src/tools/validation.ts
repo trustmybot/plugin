@@ -238,7 +238,9 @@ export function validationTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'validation_record',
-      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail needs at least one blocking finding, escalate a non-empty findings[], and pass takes only nit and pre_existing findings; each becomes a review_findings row, and the close gate re-probes the blocking ones. Rows are append-only: an attempt_n that already has a row is stored as the task\'s highest attempt_n + 1, and the result reports the stored attempt. wm_feedback {answered?, missed?, wrong?} (optional) writes one wm_feedback audit row on the task\'s issue, none when every field is absent or blank.',
+      description:
+        'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. ' +
+        "Each finding becomes a review_findings row. Append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt. wm_feedback's audit row goes on the task's issue.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -287,7 +289,9 @@ export function validationTools(db: TrajectoryDB): {
     },
     {
       name: 'validation_history',
-      description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none), and findings, the review_findings rows of that attempt ({id, criterion_id, status, probe_cmd, expected, observed, severity, class}; withheld wherever feedback is). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
+      description:
+        'All validation attempts for a task by attempt_n ascending. Each row carries verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
+        'Without limit, a bare array; with limit, {rows, next_cursor}.',
       inputSchema: {
         type: 'object',
         properties: {

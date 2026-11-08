@@ -153,7 +153,7 @@ export function auditTools(db: TrajectoryDB): {
     {
       name: 'audit_search',
       description:
-        'Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.',
+        'Search audit records, returning top-K ranked snippets.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -185,7 +185,7 @@ export function auditTools(db: TrajectoryDB): {
     {
       name: 'audit_append',
       description:
-        'Insert an audit lifecycle event. event_type must be in its closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is set to the calling agent.',
+        'Insert an audit event. event_type must be in the closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is the calling agent.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -202,7 +202,7 @@ export function auditTools(db: TrajectoryDB): {
     },
     {
       name: 'audit_list',
-      description: 'Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'id\',\'event_type\',\'summary\'] to return only requested columns (unknown fields return a named error).',
+      description: "An issue's audit records: without limit a bare array of up to 500 rows; with limit {rows, next_cursor}.",
       inputSchema: {
         type: 'object',
         properties: {

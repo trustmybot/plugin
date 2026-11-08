@@ -369,7 +369,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
     {
       name: 'pr_monitor_comments_get',
       description:
-        'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state. Persists each comment as a discussion on the issue of the task that owns the PR, deduped by remote comment id; `persisted` and `duplicates` count the new and already-stored comments.',
+        'Fetch PR/MR comments from GitHub or GitLab with bot/human classification, file/line metadata and PR state. Each is stored as a discussion on the issue of the task owning the PR, deduped by remote comment id; `persisted` and `duplicates` count new and already-stored ones.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -392,7 +392,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
     {
       name: 'pr_monitor_runs_list',
       description:
-        'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_monitor_comments_get.',
+        "Read-only: pr_monitor_comments_get's polling cursors for /monitor, one row per (pr_number, repo) with last_fetched_at + last_comment_id.",
       inputSchema: {
         type: 'object',
         properties: {

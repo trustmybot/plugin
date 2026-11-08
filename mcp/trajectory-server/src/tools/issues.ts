@@ -659,7 +659,8 @@ export function issueTools(
     {
       name: 'issue_close',
       description:
-        'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing code-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.',
+        'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is live, unless cascade (open agent_runs closed issue_closed). ' +
+        'Refuses with tasks_without_review while a closed task has no passing code-reviewer verdict for its current commit, unless waive_review.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -687,7 +688,7 @@ export function issueTools(
     },
     {
       name: 'issue_get_phase',
-      description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
+      description: "An issue's workflow phase and task counts: tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks swe completed that bro has not closed. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -699,7 +700,7 @@ export function issueTools(
     },
         {
       name: 'issue_list',
-      description: 'List issues ordered by updated_at DESC. Returns a thin index (id, objective, status, created_at, updated_at). Optional fields projection via fields=[\'id\',\'status\',\'objective\']; unknown fields return a named error.',
+      description: 'List issues by updated_at DESC as a thin index (id, objective, status, created_at, updated_at).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -723,7 +724,7 @@ export function issueTools(
     },
     {
       name: 'issue_update_description',
-      description: "Update an issue's description. Used by bro to backfill issues whose descriptions were truncated on import (e.g., from Linear).",
+      description: "Replace an issue's description, e.g. to backfill one truncated on import.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -737,7 +738,7 @@ export function issueTools(
     },
     {
       name: 'issue_update',
-      description: "Change an issue's milestone, labels or objective after creation and mirror the change to the linked remote issue when issue sync is on. Bro only. At least one of milestone, labels, objective is required; labels are validated like issue_create (one classification + one priority) and replace the whole set; objective maps to the remote title.",
+      description: "Bro only. Change an issue's milestone, labels and/or objective (at least one) and mirror it to the linked remote when issue sync is on. labels are validated like issue_create and replace the whole set.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -753,7 +754,7 @@ export function issueTools(
     },
     {
       name: 'issue_sync_retry',
-      description: 'Manually retry remote sync for an issue where auto-sync failed. Bro only. Before it creates, it looks on the remote for the issue\'s body marker and adopts a match (adopted, duplicates); when that lookup fails it creates nothing (reason lookup_failed).',
+      description: "Bro only. Retry a failed remote sync for an issue. It first looks on the remote for the issue's body marker and adopts a match (adopted, duplicates); when that lookup fails it creates nothing (lookup_failed).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -765,7 +766,7 @@ export function issueTools(
     },
     {
       name: 'issue_adopt_remote',
-      description: 'Link an existing local issue to an existing remote issue after verifying it exists. Bro only. Errors if the row is already linked to a different iid; re-adopting the same iid is idempotent.',
+      description: 'Bro only. Link a local issue to a remote issue once verified to exist. Errors when already linked to a different iid; the same iid is a no-op.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -781,7 +782,7 @@ export function issueTools(
     },
     {
       name: 'issue_reconcile_remote',
-      description: 'Close open local issues whose linked GitHub/GitLab issue is closed. Bro only. Reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun after they close); read failures land in errors.',
+      description: 'Bro only. Close open local issues whose linked GitHub/GitLab issue is closed; reads the remote, never writes it; skipped when remote sync is off. Issues with live tasks stay open in deferred (rerun later); read failures land in errors.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -793,7 +794,7 @@ export function issueTools(
     },
     {
       name: 'issue_link',
-      description: 'Record a remote issue linkage (gh_iid/gl_iid) for a manually-mirrored issue. Bro only. Rejects if the backend iid is already set unless force=true.',
+      description: 'Bro only. Record the remote iid (gh_iid/gl_iid) of a manually mirrored issue; refused when it is already set unless force.',
       inputSchema: {
         type: 'object',
         properties: {
