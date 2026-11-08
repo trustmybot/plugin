@@ -82,6 +82,40 @@ describe('testPathTokens', () => {
     assert.deepEqual(testPathTokens('npm test && bash lint.sh'), []);
   });
 
+  it('takes only the files a test runner is handed (F637-1)', () => {
+    const tokens = (c: string) => testPathTokens(c).map((t) => [t.dir, t.token]);
+    assert.deepEqual(tokens('X=a.test.ts node --experimental-strip-types run.ts b.test.ts'), []);
+    assert.deepEqual(tokens('node dist/test/a.test.js b.test.js'), [['', 'dist/test/a.test.js']]);
+    assert.deepEqual(tokens('node -e "1" a.test.js'), []);
+    assert.deepEqual(tokens('node --test --test-reporter spec -r x.test.js a.test.js -- b.test.js'), [['', 'a.test.js'], ['', 'b.test.js']]);
+    assert.deepEqual(tokens('test ! -e a.test.ts && [ -f b.test.ts ] && [[ -f c.test.ts ]] && ls d.test.ts && cat e.test.ts'), []);
+    assert.deepEqual(tokens('grep -q a.test.ts f && rg b.test.ts && git grep x -- ":!c.suite.ts" ":(exclude)d.test.ts"'), []);
+    assert.deepEqual(tokens('bun run a.test.ts && bun test --timeout 5 b.test.ts'), [['', 'b.test.ts']]);
+    assert.deepEqual(
+      tokens('npx -y vitest run a.test.ts && bunx jest b.test.ts && pnpm exec mocha --ignore x.test.js c.test.js && npx tsx d.test.ts'),
+      [['', 'a.test.ts'], ['', 'b.test.ts'], ['', 'c.test.js']],
+    );
+    assert.deepEqual(tokens('pytest -k test_x.py tests/test_a.py::test_one && python3 -m pytest tests/test_b.py'), [
+      ['', 'tests/test_a.py'],
+      ['', 'tests/test_b.py'],
+    ]);
+    assert.deepEqual(tokens('python tests/test_c.py'), []);
+  });
+
+  it('tracks cd at every step, subshell scope and bash -c (F637-1)', () => {
+    const tokens = (c: string) => testPathTokens(c).map((t) => [t.dir, t.token]);
+    assert.deepEqual(tokens('bun run build && cd pkg && node --test dist/test/a.test.js'), [['pkg', 'dist/test/a.test.js']]);
+    assert.deepEqual(tokens('cd pkg && bun run build && cd .. && node --test tests/a.test.mjs'), [['', 'tests/a.test.mjs']]);
+    assert.deepEqual(tokens('(cd pkg && node --test a.test.js) && node --test b.test.js'), [['pkg', 'a.test.js'], ['', 'b.test.js']]);
+    assert.deepEqual(tokens('cd pkg | cat; node --test a.test.js'), [['', 'a.test.js']]);
+    assert.deepEqual(tokens('cd pkg && bash -c "cd sub && node --test a.test.js" && node --test b.test.js'), [
+      ['pkg/sub', 'a.test.js'],
+      ['pkg', 'b.test.js'],
+    ]);
+    assert.deepEqual(tokens("bash -euo pipefail -c 'node --test a.test.js'"), [['', 'a.test.js']]);
+    assert.deepEqual(tokens('node --test a.test.js 2>&1 | tail -5 && node --test b.test.js >/dev/null'), [['', 'a.test.js'], ['', 'b.test.js']]);
+  });
+
   it('maps dist js to its src ts and turns globs into anchored regexps', () => {
     assert.equal(srcSourceOf('pkg/dist/test/a.test.js'), 'pkg/src/test/a.test.ts');
     assert.equal(srcSourceOf('pkg/src/test/a.test.ts'), null);
@@ -125,6 +159,34 @@ describe('checkVerificationPaths', () => {
           ['tests/*.spec.ts', undefined],
         ],
       );
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('admits the F637-1 replay commands and still refuses a real missing test file', () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const valid = [
+        'TMB_L1_SKIP="absent-x.test.mjs" node --experimental-strip-types tests/run-all.ts --l1-only',
+        '! git grep -n foo -- . ":!pkg/src/test/*absent.suite.ts"',
+        'bun run build && cd pkg && node --experimental-sqlite --test dist/test/built.test.js',
+        'cd pkg && bun run build && cd .. && node --test tests/existing.test.mjs',
+        'test ! -e tests/absent-gone.test.mjs',
+        'grep -q "absent-y.test.ts" tests/run-all.ts',
+        'bash -c "node --test tests/existing.test.mjs"',
+      ];
+      for (const c of valid) {
+        assert.equal(checkVerificationPaths({ repoPath: repoRoot, ref: 'HEAD', verification: [c], files: [] }), null, c);
+      }
+      const refusal = checkVerificationPaths({
+        repoPath: repoRoot,
+        ref: 'HEAD',
+        verification: ['node --test tests/absent-typo.test.mjs', 'bash -c "cd pkg && node --test dist/test/absent.test.js"'],
+        files: [],
+      });
+      assert.equal(refusal?.error, 'verification_path_missing');
+      assert.deepEqual(refusal!.missing.map((m) => m.path), ['tests/absent-typo.test.mjs', 'pkg/dist/test/absent.test.js']);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
