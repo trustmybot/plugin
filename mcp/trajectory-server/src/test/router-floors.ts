@@ -44,7 +44,6 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'roundtable-auq-shape': 6,
   'cleanup-worktree-on-task-close': 11,
   'roundtable-cleanup-postcheck': 6,
-  'post-task-close-rescan': 6,
   'post-atomic-close-readme': 6,
   'post-task-create-spawn-hint': 4,
   'task-overrun-alert': 6,

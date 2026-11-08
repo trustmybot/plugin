@@ -68,7 +68,6 @@ import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
 import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
 import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
-import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
 import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
@@ -147,7 +146,6 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [CLEAN_MERGED_GATE, cleanMergedBranch],
   [CLOSE_ISSUE_GATE, closeIssueOnMerge],
   [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
-  [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
   [README_STALENESS_GATE, postAtomicCloseReadme],
   [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
   [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
@@ -286,7 +284,6 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'task_update_status'),
     routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'validation_record'),
     routerGate(RT_CLEANUP_GATE, 'advisory', 'roundtable_close'),
-    routerGate(TASK_CLOSE_RESCAN_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
     routerGate(OVERRUN_GATE, 'advisory'),

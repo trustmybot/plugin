@@ -40,8 +40,8 @@
     },
     "PostToolUse:mcp__.*trajectory-server__.*": {
       "max_budget_ms": 11840,
-      "p99_sum_ms": 10495.7,
-      "group_budget_ms": 15744
+      "p99_sum_ms": 10493,
+      "group_budget_ms": 15740
     },
     "PostToolUse:Bash": {
       "max_budget_ms": 23300,
@@ -566,22 +566,6 @@
       "bench_load_avg": 46.55,
       "transcript_p99": null,
       "reason": "no roundtable-cleanup-postcheck PostToolUse hook attachment in 995 transcript files of the last 14 days",
-      "transcript_samples": 0,
-      "transcript_timed_out": 0,
-      "window_days": 14,
-      "floor_ms": 6000,
-      "budget_ms": 6000,
-      "date": "2026-11-01"
-    },
-    "post-task-close-rescan": {
-      "kind": "advisory",
-      "bench_p50": 0.1,
-      "bench_p95": 1,
-      "bench_p99": 2.7,
-      "bench_runs": 720,
-      "bench_load_avg": 46.55,
-      "transcript_p99": null,
-      "reason": "no post-task-close-rescan PostToolUse hook attachment in 995 transcript files of the last 14 days",
       "transcript_samples": 0,
       "transcript_timed_out": 0,
       "window_days": 14,

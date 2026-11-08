@@ -147,8 +147,7 @@ plugin/
 ├── mcp/trajectory-server/src/cli/integrate.ts      # rebases a reviewed task onto <base>, re-verifies, moves the branch
 ├── mcp/trajectory-server/src/hooks/
 │   ├── git-push-guard.ts                          # blocks push without pass verdicts or a verified rebase
-│   ├── branch-up-to-date-with-remote.ts           # verifies local branch is current
-│   └── post-task-close-rescan.ts                  # PostToolUse: backgrounds /scan to refresh the world model
+│   └── branch-up-to-date-with-remote.ts           # verifies local branch is current
 └── mcp/trajectory-server/src/tools/
     ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
     ├── audit.ts                                      # audit_append(bro_verification_pass)
@@ -176,5 +175,5 @@ plugin/
 ├── mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts   # removes SWE worktree (already done at a passing review)
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_append(post-merge state)
-    └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook refreshes the world model + emits deep_scan_completed audit
+    └── scan.ts                                       # scan_run rerun by the server's startup catch-up refreshes the world model + emits deep_scan_completed audit
 ```

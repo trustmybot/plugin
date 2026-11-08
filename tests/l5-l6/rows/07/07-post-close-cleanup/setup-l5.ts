@@ -1,10 +1,9 @@
 // Pre-seed src/cli.py + a top-level README so the world model has something
-// to summarize. The scenario under test is: after a task close, the
-// post-task-close-rescan hook refreshes the world model (wm_ tables)
-// and the project map stays current.
+// to summarize. The scenario under test is: after a task close, the world
+// model (wm_ tables) stays warm and the project map stays current.
 //
 // In L6 chain mode rows 04+05 already pre-warmed the world model (row 04
-// ran /scan; row 05 closed a task → post-close-rescan refreshed). In L5
+// ran /scan; row 05 closed a task). In L5
 // standalone mode this setup seeds a deep_scan_completed audit row (the
 // SQLite-side proxy for "world model warm") so the row's bro turn starts
 // with a pre-warmed state.
