@@ -5,5 +5,5 @@
     "task_id": 42,
     "status": "completed"
   },
-  "corpus_expect": "BLOCKED: task_update_status called with agent='swe' but the caller is the main session (bro); pass agent='bro'."
+  "corpus_expect": "BLOCKED: task_update_status called with agent='swe' but the caller is the main session (bro). Allowed form: the same task_update_status call with agent='bro'"
 }

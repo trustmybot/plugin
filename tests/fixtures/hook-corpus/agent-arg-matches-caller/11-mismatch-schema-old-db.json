@@ -7,5 +7,5 @@
   "corpus_env": {
     "TRAJECTORY_DB_PATH": "@SANDBOX@/old/.claude/tmb/trajectory.db"
   },
-  "corpus_expect": "pass agent='bro'"
+  "corpus_expect": "call with agent='bro'"
 }

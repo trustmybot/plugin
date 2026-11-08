@@ -535,7 +535,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id). Allowed form: Agent(subagent_type='swe', prompt starting 'task_id=<N>')\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -801,7 +801,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=10 (tasks.effort) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"low\\\". Pass effort=\\\"high\\\" on the Agent call. To run it at another effort, change the task first: task_reopen(task_id=10, effort=...) for rework, task_retry(effort=...) for a retry.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=10 (tasks.effort) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"low\\\". To run it at another effort, change the task first: task_reopen(task_id=10, effort=...) for rework, task_retry(effort=...) for a retry. Allowed form: the same Agent call with effort=\\\"high\\\"\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -1067,7 +1067,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 15 needs branch feat/missing-branch to exist first — bro pre-creates it (\\\"git -C @SANDBOX@/project/plugin branch feat/missing-branch <base>\\\") and stays on <base>; SWE's worktree owns the branch.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE spawn for task 15 needs branch feat/missing-branch to exist first — bro pre-creates it and stays on <base>; SWE's worktree owns the branch. Allowed form: git -C @SANDBOX@/project/plugin branch feat/missing-branch <base>, then the same spawn\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -1333,7 +1333,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\\n\\nSpawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"code-reviewer must NOT run with isolation=\\\"worktree\\\". The push gate reviews the FEATURE branch as it would land in origin — from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\\n\\nFor exceptional override, set TMB_ALLOW_CODE_REVIEWER_WORKTREE=1. Allowed form: the same code-reviewer spawn without isolation (defaults to none) or with a non-worktree isolation\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -1599,7 +1599,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> commit_sha=<value> branch_id=<value> repo=<value> repo_path=<value> attempt_n=<value> subagent_session_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -1865,7 +1865,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 20 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\\n\\nFix: call bro_atomic_close(agent='bro', task_id=20, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn requires task 20 status=closed but actual status=running.\\n\\nPer tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:\\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\\n  3. ONLY THEN: spawn code-reviewer for the push gate.\\n\\nSWE returning completed does not close the trajectory task — that is bro_atomic_close. Allowed form: bro_atomic_close(agent='bro', task_id=20, commit_sha=<sha>, verification_summary='...'), then the same spawn\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -2131,7 +2131,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: the code-reviewer spawn prompt carries 377 characters of prose beyond its anchors (task_id=, commit_sha=, branch_id=, repo=, repo_path=, attempt_n=, subagent_session_id=); the cap is 300. The reviewer reads the spec, discussions and swe's completion report from task_brief. Store the remaining context as spawn_note (at most 300 chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors and at most 300 chars of prose.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: the code-reviewer spawn prompt carries 377 characters of prose beyond its anchors (task_id=, commit_sha=, branch_id=, repo=, repo_path=, attempt_n=, subagent_session_id=); the cap is 300. The reviewer reads the spec, discussions and swe's completion report from task_brief, and bro_atomic_close's spawn_note carries the rest. Allowed form: bro_atomic_close(..., spawn_note='<at most 300 chars>'), then the same spawn with the anchors and at most 300 chars of prose\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -2397,7 +2397,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"{\\\"check\\\":\\\"sha_mismatch\\\",\\\"expected\\\":null,\\\"actual\\\":\\\"6c06013b21438d94bd0ba605cf207513c6458232\\\"}\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"{\\\"check\\\":\\\"sha_mismatch\\\",\\\"expected\\\":null,\\\"actual\\\":\\\"6c06013b21438d94bd0ba605cf207513c6458232\\\",\\\"fix\\\":{\\\"allowed\\\":\\\"task_reopen(agent='bro', task_id=19, reason='sha_mismatch: <what failed>'), then the same code-reviewer spawn once swe closes it again\\\"}}\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -2663,7 +2663,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task 21 is at the rework limit: task FAILs: 2 review FAILs on the task since its last pass (limit 2). A further swe run would repeat an approach that keeps failing. Stop and report the task to the Human with its findings; only the Human lifts this limit, by typing `waive task 21`. No agent action lifts it.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task 21 is at the rework limit: task FAILs: 2 review FAILs on the task since its last pass (limit 2). A further swe run would repeat an approach that keeps failing; report the task to the Human with its findings. Only the Human lifts this limit, by typing `waive task 21`. No agent action lifts it. This is policy: stop and report.\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -3739,7 +3739,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=16 is pending and branch docs/readme has no linked worktree (expected @SANDBOX@/project/docs/.claude/worktrees/readme). Call task_reopen(task_id=16, reason=\\\"<why>\\\") to create the worktree, then respawn swe.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=16 is pending and branch docs/readme has no linked worktree (expected @SANDBOX@/project/docs/.claude/worktrees/readme). Allowed form: task_reopen(task_id=16, reason=\\\"<why>\\\") to create the worktree, then the same swe spawn\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -4005,7 +4005,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=15 (tasks.effort) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"low\\\". Pass effort=\\\"medium\\\" on the Agent call. To run it at another effort, change the task first: task_reopen(task_id=15, effort=...) for rework, task_retry(effort=...) for a retry.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task_id=15 (tasks.effort) runs at effort \\\"medium\\\", but the Agent call passed effort=\\\"low\\\". To run it at another effort, change the task first: task_reopen(task_id=15, effort=...) for rework, task_retry(effort=...) for a retry. Allowed form: the same Agent call with effort=\\\"medium\\\"\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

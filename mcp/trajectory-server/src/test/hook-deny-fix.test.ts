@@ -3,11 +3,12 @@
  * appends ` Allowed form: <form>` or ` This is policy: stop and report.`, no
  * other non-test file under src/hooks/ builds deny or block JSON itself, the
  * preflight's JSON reason carries a `fix` key, and every recorded deny or
- * block in tests/fixtures/hook-golden/ ends with one of the two endings.
+ * block in tests/fixtures/hook-golden/ ends with one of the two endings,
+ * except the frozen bash text of a case its corpus payload marks divergent.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,8 @@ import { GOLDEN_DIR } from './golden.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const HOOKS_SRC = join(SERVER_ROOT, 'src/hooks');
-const DENY_LITERAL = /permissionDecision\s*:\s*['"]deny['"]|decision\s*:\s*['"]block['"]/;
+const CORPUS_ROOT = resolve(GOLDEN_DIR, '../hook-corpus');
+const DENY_LITERAL =/permissionDecision\s*:\s*['"]deny['"]|decision\s*:\s*['"]block['"]/;
 
 function tsFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -68,6 +70,14 @@ function structuredFix(reason: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/** A corpus payload with corpus_divergent or corpus_divergence pins the frozen bash text, which predates the endings. */
+function pinsBashDivergence(gate: string, caseName: string): boolean {
+  const path = join(CORPUS_ROOT, gate, caseName);
+  if (!existsSync(path)) return false;
+  const payload = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  return 'corpus_divergent' in payload || 'corpus_divergence' in payload;
 }
 
 describe('hook deny fix', () => {
@@ -154,19 +164,28 @@ describe('hook deny fix', () => {
     });
   });
 
-  it('every deny or block reason in the hook goldens ends with an ending', () => {
+  it('every deny or block reason in the hook goldens ends with an ending, bar the pinned bash divergences', () => {
     const bad: string[] = [];
     let seen = 0;
+    let skipped = 0;
     for (const name of readdirSync(GOLDEN_DIR).filter((n) => n.endsWith('.json'))) {
-      const golden = JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8')) as unknown;
-      for (const reason of strings(golden).flatMap(reasonsIn)) {
-        seen += 1;
-        const fix = structuredFix(reason);
-        if (endsWithFix(reason) || (fix !== undefined && fix !== null)) continue;
-        bad.push(`${name}: ${reason.slice(-160)}`);
+      const golden = JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8')) as Record<string, unknown>;
+      for (const [caseName, entry] of Object.entries(golden)) {
+        const reasons = strings(entry).flatMap(reasonsIn);
+        if (reasons.length > 0 && pinsBashDivergence(name.replace(/\.json$/, ''), caseName)) {
+          skipped += 1;
+          continue;
+        }
+        for (const reason of reasons) {
+          seen += 1;
+          const fix = structuredFix(reason);
+          if (endsWithFix(reason) || (fix !== undefined && fix !== null)) continue;
+          bad.push(`${name} ${caseName}: ${reason.slice(-160)}`);
+        }
       }
     }
     assert.ok(seen > 0, 'expected recorded denies');
+    assert.ok(skipped > 0, 'expected pinned bash divergences');
     assert.deepEqual(bad, []);
   });
 });

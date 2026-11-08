@@ -114,7 +114,7 @@ describe('swe-boundary: the session scratchpad (GH 1912)', () => {
   function assertRuleC(target: string, session: string | null, root: string): void {
     const r = write(target, session);
     assert.equal(r.code, 0);
-    assert.equal(denyReason(r.stdout), `${ruleC(target)} Scratch files go in this session's scratchpad, ${root}.`);
+    assert.equal(denyReason(r.stdout), `${ruleC(target)} Allowed form: the same Write on a path under ${wt}/, or under this session's scratchpad ${root} for a scratch file`);
   }
 
   it('control: a Write inside the worktree is allowed', () => {

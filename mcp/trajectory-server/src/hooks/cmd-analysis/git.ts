@@ -147,6 +147,7 @@ export function denyAmbiguousGitTarget(stmt: string, unresolved = false): string
   const reason = unresolved
     ? `BLOCKED: ambiguous_git_target: \`${what}\` runs in a directory that comes through a variable, \`cd -\` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path.`
     : `BLOCKED: ambiguous_git_target: \`${what}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Name the checkout's literal path.`;
-  const allowed = what === 'git' || what.startsWith('git ') ? `git -C <path>${what.slice(3)}` : `cd <path> && ${what}`;
+  const sub = gitSubcommand(what);
+  const allowed = what === 'git' || what.startsWith('git ') ? `git -C <path>${sub === '' ? '' : ` ${sub}`}` : `cd <path> && ${what}`;
   return `${denyJson(reason, { allowed })}\n`;
 }

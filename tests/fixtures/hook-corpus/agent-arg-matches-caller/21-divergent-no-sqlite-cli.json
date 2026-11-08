@@ -10,6 +10,6 @@
   "corpus_divergent": "decision 703: without the sqlite3 CLI the .sh writes no agent_arg_mismatch row; the port writes it through node:sqlite",
   "corpus_expect": {
     "bash": "pass agent='bro'",
-    "ts": "pass agent='bro'"
+    "ts": "call with agent='bro'"
   }
 }

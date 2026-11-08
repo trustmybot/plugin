@@ -18,10 +18,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
+import { CAP_FIX, CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
-import { GATE_NAME, PARSE_REASON, sweBoundary } from '../hooks/swe-boundary.js';
+import { GATE_NAME, PARSE_FIX, PARSE_REASON as PARSE_TEXT, sweBoundary } from '../hooks/swe-boundary.js';
+import { fixedReason } from '../hooks/lib/deny.js';
+
+const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -143,7 +146,7 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     for (const depth of [5000, 2000]) {
       const r = await sweBoundary(payload('Bash', { command: `echo ${'$('.repeat(depth)}x${')'.repeat(depth)}` }), env);
       assert.equal(r.code, 0);
-      assert.equal(decision(r.stdout)?.permissionDecisionReason, CAP_REASON);
+      assert.equal(decision(r.stdout)?.permissionDecisionReason, fixedReason(CAP_REASON, CAP_FIX));
     }
   });
 
