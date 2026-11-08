@@ -4,8 +4,8 @@
  * (GH 2438); shell syntax goes through `-- bash -c '<cmd>'` — writes its
  * combined raw output to a log file and prints one summary line plus capped
  * failure excerpts instead of the full output. Recognises node TAP, node spec
- * and tests/lib/assert.sh output; anything else prints its tail on a non-zero
- * exit. A full suite (isFullSuiteArgv) first waits for a suite slot
+ * and assert-style (`N/M passed`) output; anything else prints its tail on a
+ * non-zero exit. A full suite (isFullSuiteArgv) first waits for a suite slot
  * (suite-lock.ts, GH 2092).
  */
 import { spawnSync } from 'node:child_process';

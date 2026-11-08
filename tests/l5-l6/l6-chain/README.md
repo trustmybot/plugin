@@ -18,16 +18,16 @@ tests/l5-l6/l6-chain/
 
 ```bash
 # Full chain (~$5–10, ~10 min)
-bash tests/l5-l6/run-l6-chain.sh
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts
 
 # Resume from a specific row (e.g. after fixing a row-7 bug)
-bash tests/l5-l6/run-l6-chain.sh --from 7
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --from 7
 
 # Keep going past failures (instead of halting at first fail)
-bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --halt-on-fail 0
 
 # Check run-dir resolution and HOME isolation without calling the model
-bash tests/l5-l6/run-l6-chain.sh --self-test
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --self-test
 ```
 
 Per-step logs land under `<project>/.claude/tmb/l6-chain-runs/<run-id>/`, where `<project>` is `CLAUDE_PROJECT_DIR` when set, else the repo root; set `L6C_RUNS_DIR` to put runs elsewhere. The directory is gitignored.

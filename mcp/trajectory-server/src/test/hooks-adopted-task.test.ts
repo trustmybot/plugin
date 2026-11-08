@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { ALLOW, type GateResult } from '../hooks/gate.js';
 import { cleanupWorktree } from '../hooks/cleanup-worktree-on-task-close.js';
-import { codeReviewerPreflight } from '../hooks/code-reviewer-preflight.js';
+import { codeReviewerPreflight, preflightFix } from '../hooks/code-reviewer-preflight.js';
 import { containmentGuard } from '../hooks/containment-guard.js';
 import { ensureSweWorktree } from '../hooks/ensure-swe-worktree.js';
 import { postTaskCreateSpawnHint } from '../hooks/post-task-create-spawn-hint.js';
@@ -260,8 +260,9 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
         );
         assert.deepEqual(await codeReviewerPreflight(review, c.env), ALLOW);
         const next = commit(c.worktree, 'more.txt');
-        const failure = JSON.parse(denyReason(await codeReviewerPreflight(review, c.env))) as { check: string; expected: string; actual: string };
+        const { fix, ...failure } = JSON.parse(denyReason(await codeReviewerPreflight(review, c.env))) as { check: 'sha_mismatch'; expected: string; actual: string; fix: unknown };
         assert.deepEqual(failure, { check: 'sha_mismatch', expected: sha, actual: next });
+        assert.deepEqual(fix, preflightFix('sha_mismatch', String(TASK)));
       });
     }
   });

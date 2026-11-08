@@ -275,14 +275,50 @@ describe('world_model tools — repo defaults to the cwd repo (GH 1968)', () => 
     assert.equal(results.length, 3);
     const scores = results.map((r) => Number(r['score']));
     assert.deepEqual(scores, [...scores].sort((x, y) => y - x), 'ranked by score descending');
+    assert.equal(out['total_matched'], 3);
+    assert.equal(out['truncated'], undefined);
 
     const capped = await call(tools, 'world_model_search', { query: 'quokka', mode: 'keyword', k: 2 });
     assert.equal((capped['results'] as unknown[]).length, 2);
-    assert.equal(capped['total_matched'], 2);
+    assert.equal(capped['total_matched'], 3);
+    assert.equal(capped['truncated'], true);
 
     const scoped = await call(tools, 'world_model_search', { query: 'quokka', mode: 'keyword', repo: 'b' });
     assert.equal(scoped['repo_source'], 'arg');
     assert.deepEqual((scoped['results'] as Array<Record<string, unknown>>).map((r) => r['repo']), ['b']);
+    db.close();
+  });
+
+  it('search honours k up to 100 and reports the pre-slice match count (GH 1841)', async () => {
+    const db = twoRepos();
+    for (let i = 0; i < 120; i++) symbol(db, 'a', `wombatItem${i}`);
+    for (let i = 0; i < 3; i++) symbol(db, 'a', `numbatItem${i}`);
+    const tools = worldModelTools(db, GraphHolder.fixed(new WorldModelGraph(db)), join(root, 'a'));
+    const search = async (args: Record<string, unknown>) => {
+      const out = await call(tools, 'world_model_search', { mode: 'keyword', ...args });
+      return { out, results: out['results'] as unknown[] };
+    };
+
+    const fifty = await search({ query: 'wombat', k: 50 });
+    assert.equal(fifty.results.length, 50);
+    assert.ok(Number(fifty.out['total_matched']) >= 50);
+    assert.equal(fifty.out['truncated'], true, 'a full symbol pool means more rows may exist');
+
+    const hundred = await search({ query: 'wombat', k: 100 });
+    assert.equal(hundred.results.length, 100);
+    const over = await search({ query: 'wombat', k: 500 });
+    assert.equal(over.results.length, 100, 'k above 100 clamps to 100');
+    assert.equal(over.out['truncated'], true);
+
+    const small = await search({ query: 'numbat', k: 2 });
+    assert.equal(small.results.length, 2);
+    assert.equal(small.out['total_matched'], 3);
+    assert.equal(small.out['truncated'], true);
+
+    const fits = await search({ query: 'numbat', k: 5 });
+    assert.equal(fits.results.length, 3);
+    assert.equal(fits.out['total_matched'], 3);
+    assert.notEqual(fits.out['truncated'], true);
     db.close();
   });
 

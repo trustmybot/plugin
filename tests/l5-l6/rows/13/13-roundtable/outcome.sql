@@ -1,7 +1,7 @@
 -- 13-roundtable — bro convenes a roundtable on the todo CLI's storage
 -- choice. Participants (cto, data-engineer) are pre-seeded as
 -- project-local consultants (in chain: from prior steps; in L5: by
--- setup-l5.sh). Bro spawns both, each writes a kind='analysis'
+-- setup-l5.ts). Bro spawns both, each writes a kind='analysis'
 -- discussion + a roundtable_vote.
 --
 -- Caveat: the finalize/close path (ratification AUQ) is partial-test territory.

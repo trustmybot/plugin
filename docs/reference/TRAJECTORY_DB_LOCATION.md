@@ -1,6 +1,6 @@
 # Where the trajectory DB lives
 
-One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). The Codex L5/L6 shell chain sources the shim [`scripts/hooks/lib/query-task.sh`](../../scripts/hooks/lib/query-task.sh), whose `tmb_db_path` prints `dbPath` through `dist/cli.js hook-lib db-path`, and among the shell scripts [`tests/l1-lint/no-private-db-path.sh`](../../tests/l1-lint/no-private-db-path.sh) fails on a third copy.
+One rule decides which `trajectory.db` the MCP server and every hook use. It is implemented in the server's `findExistingClaudeDbUp` in [`mcp/trajectory-server/src/platform.ts`](../../mcp/trajectory-server/src/platform.ts) and the hooks' `dbPath` in [`mcp/trajectory-server/src/hooks/lib/db.ts`](../../mcp/trajectory-server/src/hooks/lib/db.ts). Among the scripts, [`tests/l1-lint/no-private-db-path.test.mjs`](../../tests/l1-lint/no-private-db-path.test.mjs) fails on a third copy.
 
 ## Resolution order
 

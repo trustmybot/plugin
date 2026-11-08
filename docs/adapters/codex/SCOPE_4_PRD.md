@@ -1613,7 +1613,7 @@ Scope 4 不得改变这些工具的 schema、返回或固定 Bro 语义。
 必须运行：
 
 ```bash
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```
 
 并确认：
@@ -1878,7 +1878,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 10. 完成 Scope 3 自动化回归。
 11. 更新用户文档和 PARITY。
 12. 运行 prompt lint 和人工 Grade A review。
-13. 运行 `bash tests/run-all.sh`。
+13. 运行 `node --experimental-strip-types tests/run-all.ts`。
 14. 完成 Scope 3 合并 SHA 的 CLI/Desktop live 验收。
 15. 完成 Scope 4 固定 SHA 的 CLI/Desktop live 验收。
 16. 在已确认的交付范围内 commit、push，并创建一个 PR 到 `dev`。
@@ -1986,7 +1986,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 | `docs/reference/MULTI_PLATFORM.md` | 更新平台状态 |
 | `CHANGELOG.md` | 更新 Unreleased |
 | `tests/l1-lint/*` | 增加 Skill/tool/template surface 冻结检查 |
-| `tests/run-all.sh` | 仅在需要注册新 L1 脚本时更新 |
+| `tests/run-all.ts` | 仅在需要注册新 L1 脚本时更新 |
 
 不得修改：
 

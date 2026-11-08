@@ -47,6 +47,7 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'swe-stop-cause',
   'task-overrun-alert',
   'tool-output-size',
+  'wm-read-before-provision',
   'worktree-adopt-guard',
 ]);
 

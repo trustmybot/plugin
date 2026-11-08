@@ -14,12 +14,61 @@ import { ChartCard } from './ChartCard.tsx';
 import { BarList, ColumnChart, Histogram, OverlayHistogram, PairedBarList, niceAxis, shareOf, type Column, type OverlayPeriod, type PairedRow } from './charts.tsx';
 import { POLARITY, compareSlug, delta, sliceLabel, type Compare, type DeltaMeasure } from './compare.ts';
 import { CompareTile, DeltaLabel, PerTaskStrip, totalRuns } from './compare.tsx';
+import {
+  AGENT_HEADER,
+  ATTEMPTS_HEADER,
+  ATTEMPTS_SHARE_UNIT,
+  AVERAGE_BARS,
+  AVG_CLOSED_PER_DAY,
+  AVG_CLOSED_SUBJECT,
+  BRO_DURATION_PER_SESSION,
+  BRO_TOOL_USES_PER_SESSION,
+  CLOSED_HEADER,
+  CLOSED_PER_DAY,
+  DAY_HEADER,
+  DURATION_PER_RUN,
+  DURATION_UNIT,
+  FIRST_PASS_RATE,
+  FIRST_PASS_WHAT,
+  NO_CLOSED_TASKS,
+  PER_RUN,
+  PER_SESSION,
+  REVIEW_ATTEMPTS,
+  SECTIONS,
+  SLOWEST_COMMANDS,
+  TASKS_PER_DAY_UNIT,
+  TIME_SUBJECT,
+  TOOL_USES_PER_RUN,
+  TOOL_USES_UNIT,
+  VERDICTS_WHAT,
+  VERDICT_MIX,
+  VERIFICATION_PASS_RATE,
+  VERIFICATION_WHAT,
+  attemptsLabel,
+  attemptsSubject,
+  averageSubject,
+  closedAria,
+  period1Value,
+  periodBar,
+  periodOf,
+  periodTasks,
+  rateSubject,
+  type Section,
+} from './params.ts';
 import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, fine, pct, plain, ratio, shortDay, usd } from './format.ts';
 import {
   BY_TYPE,
   BY_WEEK,
   EFFICIENCY_COLUMNS,
   EFFICIENCY_EMPTY,
+  EFFICIENCY_PERIOD_EMPTY,
+  EFFICIENCY_TILES,
+  PERIOD_HEADER,
+  TOKENS_PER_LINE_UNIT,
+  TOK_LINE_BY_TYPE,
+  efficiencySubject,
+  periodValue,
+  typeSubject,
   EFFICIENCY_FOOTNOTE,
   EFFICIENCY_SUBTITLE,
   EFFICIENCY_TITLE,
@@ -45,6 +94,7 @@ import {
   NO_RUNS_EITHER,
   OUTLIERS_P2,
   costPerRunSubject,
+  costPerSessionSubject,
   compareMeasured,
   noRunsEither,
   noRunsIn,
@@ -70,7 +120,7 @@ import {
   type InsightParams,
   type MetricKey,
 } from './params.ts';
-import type { AgentKey, AgentStats, Comparison, Efficiency, Insights, Metric, Outlier } from './types.ts';
+import type { AgentKey, AgentStats, Comparison, Efficiency, EfficiencyComparison, EfficiencyGroup, EfficiencyPeriod, Insights, Metric, Outlier, PeriodInsights } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
@@ -458,6 +508,15 @@ const VERDICTS = [
   ['escalate', 'Escalate', AGENT_FILL.bro],
 ] as const;
 
+const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
+const SLOW_COLUMNS: TableColumn[] = [
+  { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: 'fill' },
+  { key: 'n', header: 'Runs', cell: (r) => numeric(plain(Number(r['n']))), hideBelow: 'sm' },
+  { key: 'p50', header: 'p50', cell: (r) => numeric(seconds(r['p50'] as number | null)), hideBelow: 'sm' },
+  { key: 'p95', header: 'p95', cell: (r) => numeric(seconds(r['p95'] as number | null)) },
+  { key: 'max', header: 'max', cell: (r) => numeric(seconds(r['max'] as number | null)) },
+];
+
 export function QualitySection({ data, params }: SectionProps) {
   const q = data.quality;
   const totalVerdicts = q.verdicts.pass + q.verdicts.fail + q.verdicts.escalate;
@@ -465,14 +524,6 @@ export function QualitySection({ data, params }: SectionProps) {
     const label = `${a.attempts} ${a.attempts === 1 ? 'attempt' : 'attempts'}`;
     return { key: String(a.attempts), label: String(a.attempts), value: a.tasks, color: AGENT_COLOR['code-reviewer'], aria: `${label}: ${a.tasks} ${a.tasks === 1 ? 'task' : 'tasks'}`, tip: `${label}: ${a.tasks}` };
   });
-  const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
-  const slowColumns: TableColumn[] = [
-    { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: 'fill' },
-    { key: 'n', header: 'Runs', cell: (r) => numeric(plain(Number(r['n']))), hideBelow: 'sm' },
-    { key: 'p50', header: 'p50', cell: (r) => numeric(seconds(r['p50'] as number | null)), hideBelow: 'sm' },
-    { key: 'p95', header: 'p95', cell: (r) => numeric(seconds(r['p95'] as number | null)) },
-    { key: 'max', header: 'max', cell: (r) => numeric(seconds(r['max'] as number | null)) },
-  ];
   return (
     <div className="space-y-4">
       <SectionHeading>Quality</SectionHeading>
@@ -526,7 +577,7 @@ export function QualitySection({ data, params }: SectionProps) {
       </Grid>
       <section className="space-y-2" aria-label="Slowest verification commands">
         <h3 className="text-sm font-semibold text-fg">Slowest Verification Commands</h3>
-        <DataTable rows={q.slowest_commands as unknown as Row[]} columns={slowColumns} filter={false} />
+        <DataTable rows={q.slowest_commands as unknown as Row[]} columns={SLOW_COLUMNS} filter={false} />
       </section>
     </div>
   );
@@ -609,14 +660,148 @@ export function EfficiencySection({ efficiency }: { efficiency?: { data?: Effici
   );
 }
 
+type EfficiencyTypeGroup = Efficiency['by_type'][number];
+
+type PairedKey = 'first_pass_rate' | 'fp_tok_line' | 'rework_share';
+
+// Sort keys hold the Period 2 values; the cells read both groups.
+type TypePair = { type: string; g1: EfficiencyTypeGroup | undefined; g2: EfficiencyTypeGroup | undefined; few: boolean; n: number } & Record<PairedKey, number | null>;
+
+const noGroups = (p: EfficiencyPeriod) => p.by_type.every((g) => g.n === 0);
+
+const shown = (g: EfficiencyGroup | undefined, key: PairedKey | 'cache_hit') => (g && !g.few ? g[key] : null);
+
+function typePairs(e: EfficiencyComparison): TypePair[] {
+  const types = [...new Set([...e.p1.by_type, ...e.p2.by_type].map((g) => g.type))];
+  const pairs = types.map((type): TypePair => {
+    const g1 = e.p1.by_type.find((g) => g.type === type);
+    const g2 = e.p2.by_type.find((g) => g.type === type);
+    return { type, g1, g2, few: !g2 || g2.few, n: g2?.n ?? 0, first_pass_rate: shown(g2, 'first_pass_rate'), fp_tok_line: shown(g2, 'fp_tok_line'), rework_share: shown(g2, 'rework_share') };
+  });
+  const n1 = (p: TypePair) => p.g1?.n ?? 0;
+  return pairs.sort((a, b) => Number(a.type === 'docs') - Number(b.type === 'docs') || b.n - a.n || n1(b) - n1(a) || a.type.localeCompare(b.type));
+}
+
+function pairedMetric(key: PairedKey, measure: DeltaMeasure, what: string, fmt: (v: number | null) => string): TableColumn {
+  return {
+    key,
+    header: EFFICIENCY_COLUMNS[key].header,
+    title: EFFICIENCY_COLUMNS[key].title,
+    cell: (r) => {
+      const { type, g1, g2 } = r as unknown as TypePair;
+      const v2 = shown(g2, key);
+      return (
+        <span className="flex flex-col items-start gap-0.5">
+          {v2 === null ? muted('—') : numeric(fmt(v2))}
+          <DeltaLabel measure={measure} subject={typeSubject(type, what)} p1={shown(g1, key)} p2={v2} />
+        </span>
+      );
+    },
+  };
+}
+
+const COMPARE_TYPE_COLUMNS: TableColumn[] = [
+  { key: 'type', header: TYPE_HEADER, cell: groupName((r) => String(r['type'])) },
+  {
+    key: 'n',
+    header: EFFICIENCY_COLUMNS.n.header,
+    title: EFFICIENCY_COLUMNS.n.title,
+    cell: (r) => {
+      const { g1, g2 } = r as unknown as TypePair;
+      return (
+        <span className="flex flex-col items-start gap-0.5">
+          {numeric(plain(g2?.n ?? 0))}
+          {muted(period1Value(plain(g1?.n ?? 0)))}
+        </span>
+      );
+    },
+  },
+  pairedMetric('first_pass_rate', 'first_pass', efficiencySubject.first_pass, pct),
+  pairedMetric('fp_tok_line', 'tok_line', efficiencySubject.tok_line, compact),
+  pairedMetric('rework_share', 'rework_share', efficiencySubject.rework_share, pct),
+];
+
+const COMPARE_WEEK_COLUMNS: TableColumn[] = [
+  { key: 'period', header: PERIOD_HEADER, cell: (r) => numeric(periodName(r['period'] as 1 | 2)) },
+  ...WEEK_COLUMNS,
+];
+
+function EfficiencyTiles({ e, empty }: { e: EfficiencyComparison; empty: readonly [boolean, boolean] }) {
+  const side = (n: 1 | 2) => (empty[n - 1] ? undefined : (n === 1 ? e.p1 : e.p2).overall);
+  const [o1, o2] = [side(1), side(2)];
+  const tiles = [
+    { measure: 'tok_line' as const, key: 'fp_tok_line' as const, format: compact },
+    { measure: 'first_pass' as const, key: 'first_pass_rate' as const, format: pct },
+    { measure: 'rework_share' as const, key: 'rework_share' as const, format: pct },
+    { measure: 'cache_hit' as const, key: 'cache_hit' as const, format: pct },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-efficiency-tiles="">
+      {tiles.map((t) => (
+        <CompareTile key={t.measure} title={EFFICIENCY_TILES[t.measure]} measure={t.measure} subject={efficiencySubject[t.measure]} p1={shown(o1, t.key)} p2={shown(o2, t.key)} format={t.format} />
+      ))}
+    </div>
+  );
+}
+
+function CompareEfficiencyBody({ e, compare }: { e: EfficiencyComparison; compare: Compare }) {
+  const empty = [noGroups(e.p1), noGroups(e.p2)] as const;
+  if (empty[0] && empty[1]) return <p className="text-sm text-fg-muted">{EFFICIENCY_EMPTY}</p>;
+  const pairs = typePairs(e);
+  const bars = pairs.map((p) => pairedRow(p.type, SERIES_COLOR, 'tok_line', typeSubject(p.type, efficiencySubject.tok_line), shown(p.g1, 'fp_tok_line'), shown(p.g2, 'fp_tok_line'), compact));
+  const weeks = [
+    ...e.p1.by_week.map((w) => ({ ...w, period: 1 })),
+    ...e.p2.by_week.map((w, i) => ({ ...w, period: 2, first: i === 0 && e.p1.by_week.length > 0 })),
+  ];
+  return (
+    <>
+      {PERIODS.filter((n) => empty[n - 1]).map((n) => (
+        <p key={n} className="text-sm text-fg-muted" data-period-empty={n}>
+          {EFFICIENCY_PERIOD_EMPTY(n)}
+        </p>
+      ))}
+      <EfficiencyTiles e={e} empty={empty} />
+      <ChartCard
+        title={TOK_LINE_BY_TYPE}
+        subtitle={`${COMPARE_SUBTITLE} · ${TOKENS_PER_LINE_UNIT}`}
+        section="efficiency"
+        range={compareSlug(compare)}
+        table={{
+          columns: [TYPE_HEADER, periodValue(1, TOKENS_PER_LINE_UNIT), periodValue(2, TOKENS_PER_LINE_UNIT), periodTasks(1), periodTasks(2)],
+          rows: pairs.map((p) => [p.type, shown(p.g1, 'fp_tok_line') ?? '—', shown(p.g2, 'fp_tok_line') ?? '—', p.g1?.n ?? 0, p.g2?.n ?? 0]),
+        }}
+        legend={periodLegend(compare, SERIES_COLOR)}
+        caption={LOWER_BETTER}
+      >
+        <PairedBarList label={`${TOK_LINE_BY_TYPE}: ${bars.map((r) => r.aria).join('; ')}`} rows={bars} format={(v) => compact(v)} axis={niceAxis((v) => compact(v))} divider={(r) => r.key === 'docs'} />
+      </ChartCard>
+      <EfficiencyTable title={BY_TYPE} rows={pairs} columns={COMPARE_TYPE_COLUMNS} divider={(r) => r['type'] === 'docs'} />
+      <EfficiencyTable title={BY_WEEK} rows={weeks} columns={COMPARE_WEEK_COLUMNS} divider={(r) => r['first'] === true} />
+      <p className="text-xs text-fg-muted">{EFFICIENCY_FOOTNOTE}</p>
+    </>
+  );
+}
+
+export function CompareEfficiencySection({ compare, efficiency }: { compare: Compare; efficiency?: { data?: EfficiencyComparison | undefined; error: Error | null } | undefined }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading>{EFFICIENCY_TITLE}</SectionHeading>
+      <p className="text-sm text-fg-muted">{EFFICIENCY_SUBTITLE}</p>
+      <Loading q={efficiency ?? { error: null }}>{(e) => <CompareEfficiencyBody e={e} compare={compare} />}</Loading>
+    </div>
+  );
+}
+
 const DAY_MS = 86_400_000;
 
-export function closedPerDay(data: Insights): Array<{ day: string; closed: number }> {
+// An open-ended period (until null) ends on its last closed day.
+export function closedPerDay(data: Insights, until: string | null = data.range.until): Array<{ day: string; closed: number }> {
   const byDay = new Map(data.throughput.map((d) => [d.day, d.closed]));
   const first = data.range.since?.slice(0, 10) ?? data.throughput[0]?.day;
-  if (!first) return [];
+  const last = until?.slice(0, 10) ?? data.throughput.at(-1)?.day;
+  if (!first || !last) return [];
   const out: Array<{ day: string; closed: number }> = [];
-  const end = Date.parse(`${data.range.until.slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${last}T00:00:00Z`);
   for (let t = Date.parse(`${first}T00:00:00Z`); t <= end; t += DAY_MS) {
     const day = new Date(t).toISOString().slice(0, 10);
     out.push({ day, closed: byDay.get(day) ?? 0 });
@@ -657,7 +842,7 @@ interface CompareProps {
   compare: Compare;
 }
 
-const polarityCaption = (measure: DeltaMeasure) => (POLARITY[measure] === 'lower' ? LOWER_BETTER : POLARITY[measure] === 'higher' ? HIGHER_BETTER : undefined);
+export const polarityCaption = (measure: DeltaMeasure) => (POLARITY[measure] === 'lower' ? LOWER_BETTER : POLARITY[measure] === 'higher' ? HIGHER_BETTER : undefined);
 
 const withBro = (caption: string | undefined, s: AgentStats) => (s.per === 'session' ? [caption, BRO_CAPTION].filter(Boolean).join(' ') : caption);
 
@@ -676,10 +861,10 @@ function agentPairs({ cmp, params }: CompareProps): AgentPair[] {
   return activeFilterCount(params) > 0 ? kept.filter((p) => p.a1.total + p.a2.total > 0) : kept;
 }
 
-const broNote = ({ cmp, compare }: CompareProps) =>
+export const broNote = ({ cmp, compare }: { cmp: { bro_excluded: boolean }; compare: Compare }) =>
   !cmp.bro_excluded ? null : compare.p1.kind === 'tasks' && compare.p2.kind === 'tasks' ? BRO_TASKS_CAPTION : BRO_EXCLUDED_CAPTION;
 
-function BothEmpty({ params, compare }: { params: InsightParams; compare: Compare }) {
+export function BothEmpty({ params, compare }: { params: InsightParams; compare: Compare }) {
   return (
     <Box>
       <Blankslate
@@ -692,8 +877,8 @@ function BothEmpty({ params, compare }: { params: InsightParams; compare: Compar
   );
 }
 
-function OneEmpty({ cmp, compare }: { cmp: Comparison; compare: Compare }) {
-  const empty = ([1, 2] as const).filter((n) => totalRuns(n === 1 ? cmp.p1 : cmp.p2) === 0);
+export function OneEmpty({ runs, compare }: { runs: readonly [number, number]; compare: Compare }) {
+  const empty = ([1, 2] as const).filter((n) => runs[n - 1] === 0);
   return (
     <>
       {empty.map((n) => (
@@ -704,6 +889,8 @@ function OneEmpty({ cmp, compare }: { cmp: Comparison; compare: Compare }) {
     </>
   );
 }
+
+const runTotals = (cmp: Comparison) => [totalRuns(cmp.p1), totalRuns(cmp.p2)] as const;
 
 const bothEmpty = (cmp: Comparison) => totalRuns(cmp.p1) === 0 && totalRuns(cmp.p2) === 0;
 
@@ -813,7 +1000,7 @@ function CompareAgentCard({ pair, params, compare, yMax }: { pair: AgentPair; pa
   );
 }
 
-function CompareCaption({ text }: { text: string | null }) {
+export function CompareCaption({ text }: { text: string | null }) {
   return text ? (
     <p className="text-xs text-fg-muted" data-bro-caption="">
       {text}
@@ -834,7 +1021,7 @@ export function CompareTokensSection(props: CompareProps) {
         <BothEmpty params={params} compare={compare} />
       ) : (
         <>
-          <OneEmpty cmp={cmp} compare={compare} />
+          <OneEmpty runs={runTotals(cmp)} compare={compare} />
           <PerTaskStrip cmp={cmp} />
           <Grid>
             {runs.map((p) => (
@@ -893,7 +1080,7 @@ function CompareCostCard({ title, rows, compare }: { title: string; rows: PairCo
   );
 }
 
-const LEGEND_COLOR = 'var(--fgColor-muted)';
+export const LEGEND_COLOR = 'var(--fgColor-muted)';
 
 export function CompareCostSection(props: CompareProps) {
   const { cmp, params, compare } = props;
@@ -939,7 +1126,7 @@ export function CompareCostSection(props: CompareProps) {
           </Flash>
         ) : null;
       })}
-      <OneEmpty cmp={cmp} compare={compare} />
+      <OneEmpty runs={runTotals(cmp)} compare={compare} />
       <Grid>
         {runAgents.length > 0 && <CompareCostCard title={COST_PER_RUN_AGENT} rows={runAgents.map(agentCost)} compare={compare} />}
         {broCost && (
@@ -951,12 +1138,277 @@ export function CompareCostSection(props: CompareProps) {
             table={{ columns: [NAME_HEADER, periodName(1), periodName(2), periodRuns(1, 'session'), periodRuns(2, 'session')], rows: [['bro', usdCell(broCost.p1), usdCell(broCost.p2), broCost.runs1, broCost.runs2]] }}
             caption={`${LOWER_BETTER} ${BRO_CAPTION}`}
           >
-            <CompareTile title="bro" measure="cost" subject={costPerRunSubject('bro')} p1={broCost.p1} p2={broCost.p2} format={money} />
+            <CompareTile title="bro" measure="cost" subject={costPerSessionSubject('bro')} p1={broCost.p1} p2={broCost.p2} format={money} />
           </ChartCard>
         )}
         <CompareCostCard title={COST_PER_RUN_MODEL} rows={modelRows} compare={compare} />
       </Grid>
       <CompareCaption text={broNote(props)} />
     </div>
+  );
+}
+
+const sectionTitle = (s: Section) => SECTIONS.find(([k]) => k === s)![1];
+
+export const periodLegend = (compare: Compare, color: string) => [
+  { label: periodLabel(1, sliceLabel(compare.p1)), color, kind: 'outline' as const },
+  { label: periodLabel(2, sliceLabel(compare.p2)), color, kind: 'fill' as const },
+];
+
+function CompareShell({ section, props, children }: { section: Section; props: CompareProps; children: ReactNode }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading>{sectionTitle(section)}</SectionHeading>
+      {bothEmpty(props.cmp) ? (
+        <BothEmpty params={props.params} compare={props.compare} />
+      ) : (
+        <>
+          <OneEmpty runs={runTotals(props.cmp)} compare={props.compare} />
+          {children}
+        </>
+      )}
+    </div>
+  );
+}
+
+type TimeKey = 'duration_ms' | 'tool_uses';
+
+const TIME_FORMAT: Record<TimeKey, (v: number | null) => string> = { duration_ms: duration, tool_uses: plain };
+const TIME_AXIS: Record<TimeKey, (max: number) => { top: number; ticks: Array<{ at: number; label: string }> }> = {
+  duration_ms: (max) => durationTicks(max),
+  tool_uses: niceAxis((v) => plain(v)),
+};
+const STAT_KEYS = ['p50', 'p95', 'avg'] as const;
+
+function pairedRow(key: string, color: string, measure: DeltaMeasure, subject: string, p1: number | null, p2: number | null, fmt: (v: number | null) => string): PairedRow {
+  const d = delta(measure, subject, p1, p2);
+  const text = pairText(key, fmt(p1), fmt(p2));
+  return { key, label: key, color, p1, p2, aria: `${text}. ${d.aria}`, tip: `${text}, ${d.text}`, deltaText: d.text, delta: <DeltaLabel measure={measure} subject={subject} p1={p1} p2={p2} /> };
+}
+
+function CompareTimeCard({ title, unit, pairs, measure, compare, bars }: { title: string; unit: string; pairs: AgentPair[]; measure: TimeKey; compare: Compare; bars: boolean }) {
+  const fmt = TIME_FORMAT[measure];
+  const what = TIME_SUBJECT[measure];
+  const per = pairs[0]!.a2.per;
+  const rows = pairs.map((p) => pairedRow(p.agent, AGENT_COLOR[p.agent], measure, averageSubject(p.agent, what), p.a1[measure].avg, p.a2[measure].avg, fmt));
+  return (
+    <ChartCard
+      title={title}
+      subtitle={`${COMPARE_SUBTITLE} · ${per === 'session' ? PER_SESSION : PER_RUN} · ${bars ? `${unit}; ${AVERAGE_BARS}` : unit}`}
+      section="time"
+      range={compareSlug(compare)}
+      table={{
+        columns: [AGENT_HEADER, MEASURE_HEADER, periodName(1), periodName(2)],
+        rows: pairs.flatMap((p) => STAT_KEYS.map((k) => [p.agent, k, fmt(p.a1[measure][k]), fmt(p.a2[measure][k])])),
+      }}
+      {...(bars ? { legend: periodLegend(compare, LEGEND_COLOR) } : {})}
+      caption={withBro(polarityCaption(measure), pairs[0]!.a2)}
+    >
+      <div className="space-y-3">
+        {pairs.map((p) => (
+          <div key={p.agent} className="space-y-1" data-agent={p.agent}>
+            <p className="text-xs font-semibold text-fg">{p.agent}</p>
+            <CompareStats rows={STAT_KEYS.map((k) => [k, p.a1[measure][k], p.a2[measure][k]])} measure={measure} fmt={fmt} what={what} />
+          </div>
+        ))}
+        {bars && <PairedBarList label={`${title}: ${rows.map((r) => r.aria).join('; ')}`} rows={rows} format={(v) => fmt(v)} axis={TIME_AXIS[measure]} />}
+      </div>
+    </ChartCard>
+  );
+}
+
+export function CompareTimeSection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const pairs = agentPairs(props);
+  const runs = pairs.filter((p) => p.a2.per === 'run');
+  const b = pairs.find((p) => p.agent === 'bro');
+  return (
+    <CompareShell section="time" props={props}>
+      <Grid>
+        {runs.length > 0 && <CompareTimeCard title={DURATION_PER_RUN} unit={DURATION_UNIT} pairs={runs} measure="duration_ms" compare={compare} bars />}
+        {runs.length > 0 && <CompareTimeCard title={TOOL_USES_PER_RUN} unit={TOOL_USES_UNIT} pairs={runs} measure="tool_uses" compare={compare} bars />}
+        {b && <CompareTimeCard title={BRO_DURATION_PER_SESSION} unit={DURATION_UNIT} pairs={[b]} measure="duration_ms" compare={compare} bars={false} />}
+        {b && <CompareTimeCard title={BRO_TOOL_USES_PER_SESSION} unit={TOOL_USES_UNIT} pairs={[b]} measure="tool_uses" compare={compare} bars={false} />}
+      </Grid>
+      <CompareCaption text={broNote(props)} />
+      <Outliers kind="duration_ms" rows={cmp.p2.outliers.duration_ms} suffix={OUTLIERS_P2} />
+    </CompareShell>
+  );
+}
+
+const PERIODS = [1, 2] as const;
+
+function PeriodBars({ bar, captions }: { bar: (n: 1 | 2) => ReactNode; captions: [string, string] }) {
+  return (
+    <div className="space-y-1">
+      {PERIODS.map((n) => (
+        <div key={n} className="space-y-0.5" data-period-bar={n}>
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="w-3 text-xs font-semibold text-fg-muted tabular-nums">
+              {periodBar(n)}
+            </span>
+            <div className="min-w-0 flex-1">{bar(n)}</div>
+          </div>
+          <p className="text-xs text-fg-muted tabular-nums">{periodOf(n, captions[n - 1]!)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type Rate = { passed: number; total: number };
+
+function CompareRateTile({ title, measure, rates, what, fill }: { title: string; measure: 'first_pass' | 'verification'; rates: [Rate, Rate]; what: string; fill: string }) {
+  const [r1, r2] = rates.map((r) => ratio(r.passed, r.total)) as [number | null, number | null];
+  const captions = rates.map((r) => `${r.passed} of ${r.total} ${what}`) as [string, string];
+  return (
+    <Box className="space-y-2 px-4 py-3" data-rate-tile={measure}>
+      <h3 className="text-sm font-semibold text-fg">{title}</h3>
+      <p className="text-2xl font-semibold text-fg tabular-nums">{pct(r2)}</p>
+      <p className="text-xs text-fg-muted tabular-nums" data-period1-rate="">
+        {period1Value(pct(r1))}
+      </p>
+      <DeltaLabel measure={measure} subject={rateSubject[measure]} p1={r1} p2={r2} />
+      <PeriodBars captions={captions} bar={(n) => <ProgressBar value={rates[n - 1]!.passed} max={rates[n - 1]!.total} label={periodOf(n, captions[n - 1]!)} fill={fill} />} />
+    </Box>
+  );
+}
+
+type Verdicts = Insights['quality']['verdicts'];
+
+const verdictTotal = (v: Verdicts) => v.pass + v.fail + v.escalate;
+
+function CompareVerdictTile({ verdicts }: { verdicts: [Verdicts, Verdicts] }) {
+  const captions = verdicts.map((v) => `${v.pass} of ${verdictTotal(v)} ${VERDICTS_WHAT}`) as [string, string];
+  return (
+    <Box className="space-y-2 px-4 py-3" data-rate-tile="verdicts">
+      <h3 className="text-sm font-semibold text-fg">{VERDICT_MIX}</h3>
+      <PeriodBars
+        captions={captions}
+        bar={(n) => {
+          const v = verdicts[n - 1]!;
+          return (
+            <StackedProgressBar
+              label={periodOf(n, `Review verdicts: ${VERDICTS.map(([k, label]) => `${label} ${v[k]}`).join(', ')} of ${verdictTotal(v)}`)}
+              segments={VERDICTS.map(([k, label, fill]) => ({ label, value: v[k], fill }))}
+            />
+          );
+        }}
+      />
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted tabular-nums">
+        {VERDICTS.map(([k, label, fill]) => (
+          <li key={k} className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className={`inline-block size-2 rounded-full ${fill}`} />
+            {label}
+          </li>
+        ))}
+      </ul>
+    </Box>
+  );
+}
+
+const shareOfTasks = (p: PeriodInsights, attempts: number) => {
+  const total = p.quality.attempts.reduce((s, a) => s + a.tasks, 0);
+  const tasks = p.quality.attempts.find((a) => a.attempts === attempts)?.tasks ?? 0;
+  return { tasks, share: total > 0 ? tasks / total : null };
+};
+
+export function CompareQualitySection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const { p1, p2 } = cmp;
+  const buckets = [...new Set([...p1.quality.attempts, ...p2.quality.attempts].map((a) => a.attempts))].sort((a, b) => a - b);
+  const shares = buckets.map((n) => ({ n, s1: shareOfTasks(p1, n), s2: shareOfTasks(p2, n) }));
+  const color = AGENT_COLOR['code-reviewer'];
+  const rows = shares.map(({ n, s1, s2 }) => pairedRow(attemptsLabel(n), color, 'share', attemptsSubject(n), s1.share, s2.share, pct));
+  return (
+    <CompareShell section="quality" props={props}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <CompareRateTile title={FIRST_PASS_RATE} measure="first_pass" rates={[p1.quality.first_pass, p2.quality.first_pass]} what={FIRST_PASS_WHAT} fill={AGENT_FILL['code-reviewer']} />
+        <CompareRateTile title={VERIFICATION_PASS_RATE} measure="verification" rates={[p1.quality.verification, p2.quality.verification]} what={VERIFICATION_WHAT} fill={AGENT_FILL.swe} />
+        <CompareVerdictTile verdicts={[p1.quality.verdicts, p2.quality.verdicts]} />
+      </div>
+      <Grid>
+        <ChartCard
+          title={REVIEW_ATTEMPTS}
+          subtitle={`${COMPARE_SUBTITLE} · ${ATTEMPTS_SHARE_UNIT}`}
+          section="quality"
+          range={compareSlug(compare)}
+          table={{
+            columns: [ATTEMPTS_HEADER, periodTasks(1), periodShare(1), periodTasks(2), periodShare(2)],
+            rows: shares.map(({ n, s1, s2 }) => [n, s1.tasks, pct(s1.share), s2.tasks, pct(s2.share)]),
+          }}
+          legend={periodLegend(compare, color)}
+        >
+          <PairedBarList label={`${REVIEW_ATTEMPTS}: ${rows.map((r) => r.aria).join('; ')}`} rows={rows} format={(v) => pct(v)} axis={niceAxis((v) => pct(v))} />
+        </ChartCard>
+      </Grid>
+      <section className="space-y-2" aria-label={`${SLOWEST_COMMANDS}${OUTLIERS_P2}`}>
+        <h3 className="text-sm font-semibold text-fg">{`${SLOWEST_COMMANDS}${OUTLIERS_P2}`}</h3>
+        <DataTable rows={p2.quality.slowest_commands as unknown as Row[]} columns={SLOW_COLUMNS} filter={false} />
+      </section>
+    </CompareShell>
+  );
+}
+
+// A dates period's until is the exclusive day after its To; an open one runs to today.
+const periodUntil = (p: PeriodInsights): string | null => {
+  if (p.slice.kind !== 'dates') return p.range.until;
+  return p.range.until ? new Date(Date.parse(p.range.until) - DAY_MS).toISOString() : new Date().toISOString();
+};
+
+const closedColumns = (days: Array<{ day: string; closed: number }>): Column[] =>
+  days.map((d) => ({
+    key: d.day,
+    label: shortDay(d.day),
+    value: d.closed,
+    color: SERIES_COLOR,
+    aria: `${shortDay(d.day)}: ${d.closed} closed ${d.closed === 1 ? 'task' : 'tasks'}`,
+    tip: `${shortDay(d.day)}: ${d.closed}`,
+  }));
+
+export function CompareThroughputSection(props: CompareProps) {
+  const { cmp, compare } = props;
+  const periods = PERIODS.map((n) => {
+    const p = n === 1 ? cmp.p1 : cmp.p2;
+    const days = closedPerDay(p, periodUntil(p));
+    const total = days.reduce((s, d) => s + d.closed, 0);
+    return { n, label: periodLabel(n, sliceLabel(n === 1 ? compare.p1 : compare.p2)), days, total, avg: days.length > 0 ? total / days.length : null };
+  });
+  const yMax = Math.max(0, ...periods.flatMap((p) => p.days.map((d) => d.closed)));
+  const [a1, a2] = [periods[0]!.avg, periods[1]!.avg];
+  return (
+    <CompareShell section="throughput" props={props}>
+      <div className="space-y-1" data-throughput-stats="">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm tabular-nums">
+          <span className="font-semibold text-fg">{AVG_CLOSED_PER_DAY}</span>
+          {periods.map((p) => (
+            <span key={p.n} className="flex gap-1.5">
+              <span className="text-fg-muted">{periodName(p.n)}</span>
+              <span className="font-semibold text-fg">{plain(p.avg)}</span>
+            </span>
+          ))}
+          <DeltaLabel measure="throughput" subject={AVG_CLOSED_SUBJECT} p1={a1} p2={a2} />
+        </div>
+        <p className="text-xs text-fg-muted">{HIGHER_BETTER}</p>
+      </div>
+      {periods.map((p) => (
+        <ChartCard
+          key={p.n}
+          title={p.label}
+          subtitle={`${CLOSED_PER_DAY} · ${TASKS_PER_DAY_UNIT}`}
+          section="throughput"
+          range={`${compareSlug(compare)}-p${p.n}`}
+          table={{ columns: [DAY_HEADER, CLOSED_HEADER], rows: p.days.map((d) => [d.day, d.closed]) }}
+        >
+          <div data-throughput-period={p.n}>
+            {p.days.length === 0 ? (
+              <p className="text-sm text-fg-muted">{NO_CLOSED_TASKS}</p>
+            ) : (
+              <ColumnChart label={closedAria(p.label, p.total, p.days.length)} columns={closedColumns(p.days)} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
+            )}
+          </div>
+        </ChartCard>
+      ))}
+    </CompareShell>
   );
 }

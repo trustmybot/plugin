@@ -1,7 +1,7 @@
 -- Step 12 (issue resume) needs an in-progress task to pick up. Step 04's
 -- prompt is intentionally simple (single ceremony — make todo CLI), so no
 -- chain step organically leaves a pending task by step 12 (all earlier
--- atomic-closed). Mirror what step 12's setup-l5.sh seeds so L5 isolation
+-- atomic-closed). Mirror what step 12's setup-l5.ts seeds so L5 isolation
 -- and L6 chain present bro with the same input shape: one in-flight
 -- "count subcommand" task in pending status with a planning_complete audit.
 

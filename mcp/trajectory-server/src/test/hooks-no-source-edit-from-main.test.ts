@@ -12,7 +12,8 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findGate, gateNames } from '../hooks/registry.js';
-import { CAP_REASON } from '../hooks/cmd-analysis/index.js';
+import { CAP_FIX, CAP_REASON } from '../hooks/cmd-analysis/index.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { noSourceEditFromMain } from '../hooks/no-source-edit-from-main.js';
 import { buildSourceEditSandbox } from './hooks-no-source-edit-parity.suite.js';
 
@@ -84,7 +85,7 @@ describe('no-source-edit-from-main compares scratch roots canonically (GH 1796)'
     for (const command of shapes) {
       const payload = JSON.stringify({ hook_event_name: 'PreToolUse', cwd: checkout, tool_name: 'Bash', tool_input: { command } });
       const r = await noSourceEditFromMain(payload, env());
-      assert.equal((JSON.parse(r.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason, CAP_REASON);
+      assert.equal((JSON.parse(r.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason, fixedReason(CAP_REASON, CAP_FIX));
     }
   });
 

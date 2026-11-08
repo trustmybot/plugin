@@ -381,7 +381,7 @@ describe('git-push-guard l3: GH 1196 role from identity, dir from the command', 
   it("bro bare 'git push' while worktrees exist → ambiguous_git_target, not an SWE rule", () => {
     const out = run(undefined, r.repo, 'git push origin main', newDb(r.repo));
     has(out, 'ambiguous_git_target', 'the deny names the real reason');
-    has(out, 'git -C <path> or cd <path>', 'the deny carries the remedy');
+    has(out, 'Allowed form: git -C <path> push origin main', 'the deny carries the remedy');
     hasNot(out, 'SWE must never push', 'bro is never told an SWE rule');
   });
 
@@ -441,6 +441,48 @@ describe('git-push-guard l3: GH 1518 rebased task commits need a verification ru
   it('an integrated rebase (passing run on its SHA) → allowed', () => {
     recordRun(db, 5, rebased, 0);
     hasNot(pushBranch('feat/r-rebased'), DENY, 'a rebased SHA with a passing verification run ships');
+  });
+
+  const recordIntegrated = (carry: boolean, fromNode = 'hook:integrate') => {
+    sql(
+      db,
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         SELECT 1, 'feat/r', ?4, 'task_integrated', 'integrated',
+           json_object('task_id', 5, 'reviewed_sha', ?1, 'commit_sha', ?2, 'base', 'main', 'run_id', 1), ?3
+         FROM audit a WHERE a.event_type = 'bro_verification_pass' AND json_extract(a.content_json, '$.task_id') = 5`,
+      rsha,
+      rebased,
+      new Date(Date.now() + 1000).toISOString(),
+      fromNode,
+    );
+    if (carry) {
+      sql(
+        db,
+        `UPDATE audit SET content_json = json_set(content_json, '$.review_anchor_at',
+           (SELECT created_at FROM audit WHERE event_type = 'bro_verification_pass' AND json_extract(content_json, '$.task_id') = 5))
+         WHERE event_type = 'task_integrated'`,
+      );
+    }
+    sql(db, 'UPDATE tasks SET commit_sha = ? WHERE id = 5', rebased);
+    recordRun(db, 5, rebased, 0);
+  };
+
+  it('GH 2082: an integrated head with a carried pass and a passing run → allowed', () => {
+    recordIntegrated(true);
+    hasNot(pushBranch('feat/r-rebased'), DENY, "the reviewed pass carries to the integrated head through review_anchor_at");
+  });
+
+  it('GH 2546: a legacy hook:integrate row (no review_anchor_at) carries the reviewed SHA anchor → allowed', () => {
+    recordIntegrated(false);
+    hasNot(pushBranch('feat/r-rebased'), DENY, "the legacy row takes its reviewed_sha's anchor");
+  });
+
+  it('GH 2082: an integrated head without a carried pass → BLOCKED as unsigned', () => {
+    recordIntegrated(false, 'hook:other');
+    const out = pushBranch('feat/r-rebased');
+    has(out, DENY, 'a task_integrated row from another author anchors after the reviewed pass');
+    has(out, 'unsigned commit(s)', 'the deny is the unsigned-commit deny');
+    has(out, 'task_id=5', 'the deny names the integrated task');
   });
 
   it('a rebased SHA with the reviewed patch-id and no run → BLOCKED', () => {

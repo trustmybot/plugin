@@ -1,5 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import type { ScanError } from './scan.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
@@ -14,6 +15,8 @@ import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  configKeyReaders,
+  coveringRunners,
   fileRefKey,
   IMPACT_MAX_DEPTH,
   isTestPath,
@@ -23,6 +26,7 @@ import {
   symbolCard,
   symbolImpact,
   symbolsByName,
+  type CoveringRunner,
   type ScoredSymbol,
   type SymbolRow,
 } from '../symbol-index.js';
@@ -54,6 +58,9 @@ const PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
 const SYMBOL_POOL = 40;
 const FILE_RANK_POOL = 20;
 const PATH_RANK_K = 10;
+const AUX_WEIGHT = 0.5;
+const DIR_WEIGHT = 0.5;
+const SEARCH_K_MAX = 100;
 const DEFAULT_IMPACT_DEPTH = 2;
 const SOURCE_MAX_LINES = 200;
 
@@ -267,8 +274,42 @@ interface TreeNode extends DriftView {
   summary_source: string;
   summary_updated_at: string | null;
   file_count: number;
+  covered_by?: CoveringRunner[];
+  covered_by_truncated?: true;
   children: TreeNode[];
   files?: FileView[];
+}
+
+const COVERED_BY_CAP = 10;
+
+// dir, then each ancestor up to the repo root ''.
+function selfAndAncestors(dir: string): string[] {
+  const out: string[] = [];
+  for (let d: string | null = dir; d !== null; d = d === '' ? null : d.includes('/') ? d.slice(0, d.lastIndexOf('/')) : '') {
+    out.push(d);
+  }
+  return out;
+}
+
+// The runners whose covers edge names dir or one of its ancestors, nearest
+// first, each once, their commands framed; {} when none.
+function coveredByView(
+  covers: Map<string, CoveringRunner[]>,
+  dir: string,
+): { covered_by?: CoveringRunner[]; covered_by_truncated?: true } {
+  const seen = new Set<string>();
+  const runners: CoveringRunner[] = [];
+  for (const d of selfAndAncestors(dir)) {
+    for (const r of covers.get(d) ?? []) {
+      const key = `${r.path}\u0000${r.runner}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      runners.push(r);
+    }
+  }
+  if (runners.length === 0) return {};
+  const framed = runners.slice(0, COVERED_BY_CAP).map((r) => ({ ...r, command: frameUntrusted('runner-command', r.command) }));
+  return { covered_by: framed, ...(runners.length > COVERED_BY_CAP ? { covered_by_truncated: true as const } : {}) };
 }
 
 interface FileView {
@@ -304,6 +345,37 @@ function driftView(node: DirectoryNode): DriftView {
 // framed as untrusted data; the graph keeps them raw.
 function framedPurpose(purpose: string): string {
   return purpose ? frameUntrusted('file-purpose', purpose) : '';
+}
+
+const TREE_FIELDS = [
+  'path', 'summary', 'summary_source', 'summary_updated_at', 'file_count', 'summary_sha', 'commits_behind',
+  'dead_refs', 'trust', 'covered_by', 'covered_by_truncated', 'children', 'files',
+] as const satisfies ReadonlyArray<keyof TreeNode>;
+const FILE_FIELDS = ['path', 'purpose', 'purpose_source', 'content_md5'] as const satisfies ReadonlyArray<keyof FileView>;
+const VALID_FIELDS: ReadonlySet<string> = new Set<string>([...TREE_FIELDS, ...FILE_FIELDS]);
+
+// world_model_get's fields argument: null when absent, else the named keys,
+// or an error naming the valid ones.
+export function parseFields(arg: unknown): { fields: Set<string> | null } | { error: string } {
+  if (arg === undefined || arg === null) return { fields: null };
+  const valid = [...VALID_FIELDS].join(', ');
+  if (!Array.isArray(arg) || arg.some((f) => typeof f !== 'string')) return { error: `fields must be an array of strings; valid fields: ${valid}` };
+  const unknown = (arg as string[]).filter((f) => !VALID_FIELDS.has(f));
+  if (unknown.length > 0) return { error: `unknown field(s) ${unknown.join(', ')}; valid fields: ${valid}` };
+  return { fields: new Set(arg as string[]) };
+}
+
+function pickFields(entry: object, fields: Set<string>): Payload {
+  return Object.fromEntries(Object.entries(entry).filter(([key]) => key === 'path' || fields.has(key)));
+}
+
+// A tree node cut to the named keys; path, children and files always stay,
+// and each files[] entry keeps path plus the named keys.
+export function projectTree(node: TreeNode, fields: Set<string>): Payload {
+  const out = pickFields(node, fields);
+  out['children'] = node.children.map((c) => projectTree(c, fields));
+  if (node.files) out['files'] = node.files.map((f) => pickFields(f, fields));
+  return out;
 }
 
 function fileView(f: FileNode): FileView {
@@ -434,18 +506,27 @@ function isBuildOutput(path: string): boolean {
 }
 
 function pathWeight(path: string): number {
-  return isTestPath(path) || /(^|\/)changelog\.d\//.test(path) ? 0.5 : 1;
+  return isTestPath(path) || /(^|\/)changelog\.d\//.test(path) ? AUX_WEIGHT : 1;
+}
+
+// A dir weighs as a file inside it would, times dirWeight.
+function hitWeight(hit: SearchHit, dirWeight: number): number {
+  if (hit.kind === 'dir') return pathWeight(`${hit.node.path}/x`) * dirWeight;
+  if (hit.kind === 'file') return pathWeight(WorldModelGraph.relativeFilePath(hit.node));
+  return pathWeight(hit.node.path);
 }
 
 // Keyword ranking across dirs, files and symbols. A repo-relative path scores
 // w/(K + rank) once for the rank of its first symbol hit and once for its
 // file-hit rank, so a file matched both ways rises; tests and changelog
 // fragments count half. The path's first hit takes the path score, each later
-// hit of the same path a falling share of it. Dirs score by their own rank.
+// hit of the same path a falling share of it. Dirs score w/(K + rank) by their
+// own rank, w scaled by dirWeight.
 function rankKeyword(
   dirs: DirectoryNode[],
   files: FileNode[],
   symbols: ScoredSymbol[],
+  dirWeight: number,
 ): Array<{ hit: SearchHit; score: number }> {
   const pathScore = new Map<string, number>();
   const bump = (path: string, rank: number) =>
@@ -462,7 +543,10 @@ function rankKeyword(
     return (pathScore.get(path) ?? 0) / (n + 1);
   };
   const ranked: Array<{ hit: SearchHit; score: number; order: number }> = [];
-  dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
+  dirs.forEach((d, rank) => {
+    const hit = dirHit(d);
+    ranked.push({ hit, score: hitWeight(hit, dirWeight) / (PATH_RANK_K + rank), order: ranked.length });
+  });
   const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b)! - pathScore.get(a)!);
   const symbolsByPath = new Map<string, ScoredSymbol[]>();
   for (const s of symbols) symbolsByPath.set(s.path, [...(symbolsByPath.get(s.path) ?? []), s]);
@@ -508,12 +592,13 @@ async function cosineHits(
   return hits.sort((a, b) => b.score - a.score);
 }
 
-// Reciprocal rank fusion: each ranked list adds 1/(RRF_K + rank + 1) to a hit.
-function fuse(lists: Array<SearchHit[]>): Array<{ hit: SearchHit; score: number }> {
+// Reciprocal rank fusion: each ranked list adds w/(RRF_K + rank + 1) to a hit,
+// w its hitWeight.
+function fuse(lists: Array<SearchHit[]>, dirWeight: number): Array<{ hit: SearchHit; score: number }> {
   const fused = new Map<string, { hit: SearchHit; score: number }>();
   for (const list of lists) {
     list.forEach((hit, rank) => {
-      const rrf = 1 / (RRF_K + rank + 1);
+      const rrf = hitWeight(hit, dirWeight) / (RRF_K + rank + 1);
       const entry = fused.get(hit.key);
       if (entry) entry.score += rrf;
       else fused.set(hit.key, { hit, score: rrf });
@@ -525,6 +610,7 @@ function fuse(lists: Array<SearchHit[]>): Array<{ hit: SearchHit; score: number 
 export interface WorldModelRanking {
   ranked: Array<{ hit: SearchHit; score: number }>;
   match: KeywordMatch;
+  poolFull: boolean;
   warning?: 'semantic_unavailable';
 }
 
@@ -541,22 +627,34 @@ export async function rankWorldModel(
   k: number,
 ): Promise<WorldModelRanking> {
   const pool = mode === 'keyword' ? k : k * 4;
+  const filePool = Math.max(pool, FILE_RANK_POOL);
+  const symbolPool = Math.max(pool, SYMBOL_POOL);
   const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
-  const symbolSearch = keywordSearchSymbols(db, repo, query, SYMBOL_POOL);
+  const fileSearch = graph.keywordSearchFiles(repo, query, filePool);
+  const symbolSearch = keywordSearchSymbols(db, repo, query, symbolPool);
   const match: KeywordMatch = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === 'any_term')
     ? 'any_term'
     : 'all_terms';
+  const poolFull = dirSearch.hits.length >= pool
+    || fileSearch.hits.length >= filePool
+    || symbolSearch.hits.length >= symbolPool;
   const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
-  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
+  const dirWeight = symbolSearch.hits.length > 0 ? DIR_WEIGHT : 1;
+  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits, dirWeight);
   const hitsOf = (ranked: Array<{ hit: SearchHit }>): SearchHit[] => ranked.map(({ hit }) => hit);
 
-  if (mode === 'keyword') return { ranked: keywordRanked, match };
+  if (mode === 'keyword') return { ranked: keywordRanked, match, poolFull };
 
   await backfillWorldModel(db);
   const semantic = await cosineHits(db, graph, repo, query, pool);
-  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: 'semantic_unavailable' };
-  if (mode === 'semantic') return { ranked: semantic, match };
+  if (semantic.length === 0) return { ranked: keywordRanked, match, poolFull, warning: 'semantic_unavailable' };
+  if (mode === 'semantic') {
+    const weighted = semantic.map(({ hit, score }) => {
+      const w = hitWeight(hit, 1);
+      return { hit, score: score >= 0 ? score * w : score / w };
+    });
+    return { ranked: weighted.sort((a, b) => b.score - a.score), match, poolFull: false };
+  }
 
   return {
     ranked: fuse([
@@ -564,8 +662,9 @@ export async function rankWorldModel(
       hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== 'dir')),
       hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
       hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
-    ]),
+    ], dirWeight),
     match,
+    poolFull,
   };
 }
 
@@ -577,6 +676,204 @@ function derivedSeeds(ranked: Array<{ hit: SearchHit }>): SeedCandidate[] {
       return [];
     })
     .slice(0, DERIVED_SEED_HITS);
+}
+
+export const SCOPE_K_DEFAULT = 10;
+export const SCOPE_K_MAX = 30;
+export const SCOPE_FILES_MAX = 50;
+export const SCOPE_VERIFICATION_MAX = 5;
+const ANCHOR_SCORE = 1;
+const LINKED_SCORE = 0.5;
+
+export interface ScopeFile {
+  path: string;
+  score: number;
+  via: string[];
+}
+
+export interface ScopeRunner {
+  runner: string;
+  path: string;
+  command: string;
+  via: string;
+}
+
+export interface ScopeSuggestion {
+  files: ScopeFile[];
+  files_truncated?: true;
+  tests: Array<{ path: string; via: string }>;
+  runners: ScopeRunner[];
+  unresolved_anchors: string[];
+  draft: { files: string[]; verification: string[] };
+  warning?: 'semantic_unavailable';
+}
+
+function dirOf(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i < 0 ? '' : path.slice(0, i);
+}
+
+// The non-module files whose module imports the symbol, or for a module row
+// any symbol of its file.
+function importerPaths(db: TrajectoryDB, symbol: SymbolRow): string[] {
+  const whole = symbol.kind === 'module' ? 1 : 0;
+  return db
+    .all<{ path: string }>(
+      `SELECT DISTINCT o.path
+         FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.kind = 'imports' AND (d.id = ? OR (? = 1 AND d.repo = ? AND d.path = ?)) AND o.path <> ?
+        ORDER BY o.path`,
+      [symbol.id, whole, symbol.repo, symbol.path, symbol.path],
+    )
+    .map((r) => r.path);
+}
+
+function anchorSymbols(db: TrajectoryDB, repo: string, anchor: string): SymbolRow[] | 'file' | null {
+  const matches = symbolsByName(db, repo, anchor);
+  const definitions = matches.filter((s) => s.kind !== 'module');
+  if (definitions.length > 0) return definitions;
+  if (matches.length > 0) return matches;
+  return db.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? AND path = ?`, [repo, anchor]) ? 'file' : null;
+}
+
+// What is in scope for an objective and its anchors: the top-k search paths,
+// each anchor's file, its callers (symbolImpact depth 1) and importers, the
+// tests reaching it, and the runners covering every in-scope directory,
+// nearest first. A file's score sums one share per distinct via.
+export async function scopeSuggest(
+  db: TrajectoryDB,
+  graph: WorldModelGraph,
+  repo: string,
+  objective: string,
+  anchors: string[],
+  k: number,
+): Promise<ScopeSuggestion> {
+  const scored = new Map<string, { score: number; via: string[] }>();
+  const add = (path: string, score: number, via: string): void => {
+    const entry = scored.get(path) ?? { score: 0, via: [] };
+    if (entry.via.includes(via)) return;
+    entry.score += score;
+    entry.via.push(via);
+    scored.set(path, entry);
+  };
+  const tests = new Map<string, string>();
+  const addTest = (path: string, via: string): void => {
+    if (!tests.has(path)) tests.set(path, via);
+  };
+
+  let warning: 'semantic_unavailable' | undefined;
+  if (objective) {
+    const ranking = await rankWorldModel(db, graph, repo, objective, 'hybrid', k);
+    warning = ranking.warning;
+    const best = new Map<string, number>();
+    for (const { hit, score } of ranking.ranked) {
+      if (hit.kind === 'dir') continue;
+      const path = hit.kind === 'file' ? WorldModelGraph.relativeFilePath(hit.node) : hit.node.path;
+      if (isBuildOutput(path) || (!best.has(path) && best.size >= k)) continue;
+      best.set(path, Math.max(best.get(path) ?? 0, score));
+    }
+    for (const [path, score] of best) {
+      if (isTestPath(path)) addTest(path, 'search');
+      else add(path, score, 'search');
+    }
+  }
+
+  const unresolved: string[] = [];
+  for (const anchor of anchors) {
+    const roots = anchorSymbols(db, repo, anchor);
+    if (roots === null) {
+      unresolved.push(anchor);
+      continue;
+    }
+    if (roots === 'file') {
+      add(anchor, ANCHOR_SCORE, 'anchor');
+      continue;
+    }
+    for (const s of roots) {
+      add(s.path, ANCHOR_SCORE, 'anchor');
+      const impact = symbolImpact(db, s, 1);
+      for (const ref of impact.levels[0]?.refs ?? []) {
+        if (ref.via === 'call' && ref.path !== s.path) add(ref.path, LINKED_SCORE, `caller:${s.qualified_name}`);
+      }
+      for (const t of impact.tests) addTest(t.path, `test_of:${s.qualified_name}`);
+      for (const path of importerPaths(db, s)) {
+        if (isTestPath(path)) addTest(path, `test_of:${s.qualified_name}`);
+        else add(path, LINKED_SCORE, `import:${s.qualified_name}`);
+      }
+    }
+  }
+
+  const ranked = [...scored.entries()]
+    .map(([path, e]) => ({ path, score: e.score, via: e.via }))
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  const files = ranked.slice(0, SCOPE_FILES_MAX);
+  const testList = [...tests.entries()].map(([path, via]) => ({ path, via }));
+
+  const covers = coveringRunners(db, repo);
+  const found = new Map<string, { runner: CoveringRunner; dir: string; distance: number; order: number }>();
+  for (const path of [...files.map((f) => f.path), ...testList.map((t) => t.path)]) {
+    selfAndAncestors(dirOf(path)).forEach((dir, distance) => {
+      for (const runner of covers.get(dir) ?? []) {
+        const key = `${runner.path}\u0000${runner.runner}`;
+        const prior = found.get(key);
+        if (!prior) found.set(key, { runner, dir, distance, order: found.size });
+        else if (distance < prior.distance) found.set(key, { ...prior, dir, distance });
+      }
+    });
+  }
+  const runnerHits = [...found.values()].sort((a, b) => a.distance - b.distance || a.order - b.order);
+  const runners = runnerHits.map(({ runner, dir }) => ({
+    runner: runner.runner,
+    path: runner.path,
+    command: frameUntrusted('runner-command', runner.command),
+    via: `covers:${dir === '' ? '.' : dir}`,
+  }));
+  const commands = [...new Set(runnerHits.map(({ runner }) => runner.command))].slice(0, SCOPE_VERIFICATION_MAX);
+
+  return {
+    files,
+    ...(ranked.length > SCOPE_FILES_MAX ? { files_truncated: true as const } : {}),
+    tests: testList,
+    runners,
+    unresolved_anchors: unresolved,
+    draft: { files: files.map((f) => f.path), verification: commands.map((c) => frameUntrusted('runner-command', c)) },
+    ...(warning ? { warning } : {}),
+  };
+}
+
+interface LastScan {
+  at: string;
+  source: string | null;
+  ok: boolean;
+  errors: ScanError[];
+}
+
+function isScanError(e: unknown): e is ScanError {
+  if (!e || typeof e !== 'object') return false;
+  const r = e as Record<string, unknown>;
+  return typeof r['stage'] === 'string' && typeof r['repo'] === 'string' && typeof r['error'] === 'string';
+}
+
+function lastScan(db: TrajectoryDB): LastScan | null {
+  const row = db.get<{ created_at: string; content_json: string | null }>(
+    `SELECT created_at, content_json FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1`,
+  );
+  if (!row) return null;
+  let content: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = row.content_json ? JSON.parse(row.content_json) : {};
+    if (parsed && typeof parsed === 'object') content = parsed as Record<string, unknown>;
+  } catch {
+    content = {};
+  }
+  const errors = Array.isArray(content['errors']) ? content['errors'].filter(isScanError) : [];
+  const source = typeof content['source'] === 'string' ? content['source'] : null;
+  return { at: row.created_at, source, ok: errors.length === 0, errors };
+}
+
+function indexErrorOf(scan: LastScan | null, repo: string): { index_error?: string } {
+  const hit = scan?.errors.find((e) => e.stage === 'symbol_index' && e.repo === repo);
+  return hit ? { index_error: hit.error } : {};
 }
 
 function ok(data: unknown): CallToolResult {
@@ -603,7 +900,10 @@ function wrap(fn: Fn): Fn {
 type Payload = Record<string, unknown>;
 
 const LOGGED_ARGS: readonly string[] = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'];
-const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source'] };
+const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = {
+  world_model_symbol: ['impact', 'source', 'config_key'],
+  scope_suggest: ['objective', 'anchors'],
+};
 
 function treeNodeCount(node: Payload): number {
   const children = Array.isArray(node['children']) ? (node['children'] as Payload[]) : [];
@@ -614,10 +914,12 @@ function treeNodeCount(node: Payload): number {
 const RESULT_COUNTS: Record<string, (p: Payload) => number> = {
   world_model_get: (p) => (p['root'] && typeof p['root'] === 'object' ? treeNodeCount(p['root'] as Payload) : 0),
   world_model_search: (p) => (Array.isArray(p['results']) ? p['results'].length : 0),
-  world_model_symbol: (p) => (p['symbol'] && typeof p['symbol'] === 'object' ? 1 : 0),
+  world_model_symbol: (p) =>
+    p['symbol'] && typeof p['symbol'] === 'object' ? 1 : Array.isArray(p['readers']) ? p['readers'].length : 0,
   world_model_concepts: (p) => (Array.isArray(p['concepts']) ? p['concepts'].length : 0) + (p['derived'] != null ? 1 : 0),
   world_model_concept_get: () => 1,
   world_model_concept_upsert: (p) => (typeof p['id'] === 'number' ? 1 : 0),
+  scope_suggest: (p) => (Array.isArray(p['files']) ? p['files'].length : 0),
 };
 
 function attributedTask(
@@ -690,7 +992,7 @@ export function buildTree(
   rows: DirRow[],
   rootPath: string,
   depth: number | null,
-  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number },
+  opts?: { nodeCounter?: { count: number; limit: number }; depthOffset?: number; covers?: Map<string, CoveringRunner[]> },
 ): TreeNode | null {
   const byParent = new Map<string, DirRow[]>();
   for (const r of rows) {
@@ -737,6 +1039,7 @@ export function buildTree(
       summary_updated_at: node.summary_updated_at,
       file_count: node.file_count,
       ...driftView(node),
+      ...(opts?.covers ? coveredByView(opts.covers, node.path) : {}),
       children,
     };
   }
@@ -819,9 +1122,10 @@ export function worldModelTools(
     {
       name: 'world_model_get',
       description:
-        "The world model as a directory tree, the primary map for code-touching cold starts. Each node has a README summary (summary_source='readme', with trust 'current' | 'drifting(n)' | 'dead_refs(k)', summary_sha, commits_behind, dead_refs) or a structural one, first line only below the root. " +
-        'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work lists closed-task branch tips not merged into the target branch. ' +
-        'checkout_behind_upstream counts the commits the indexed checkout trails origin/<target> as of the last fetch, so missing files or shifted lines may be checkout lag; absent when current.',
+        "The world model as a directory tree, the map for code-touching cold starts. Each node has a README summary (summary_source='readme', trust current|drifting(n)|dead_refs(k), summary_sha, commits_behind, dead_refs) or a structural one, first line only below root. " +
+        'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
+        'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
+        'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -840,6 +1144,39 @@ export function worldModelTools(
             type: ['integer', 'null'],
             description:
               'How deep to descend. Defaults to 2 (root + immediate children). Pass null for the full subtree.',
+          },
+          fields: {
+            type: 'array',
+            items: { type: 'string', enum: [...VALID_FIELDS] },
+            description:
+              "Keep only these keys on each tree node and files[] entry, e.g. ['path','purpose']. path always stays, and children and files stay on tree nodes. An unknown name is an error listing the valid ones.",
+          },
+        },
+        required: ['agent'],
+      },
+    },
+    {
+      name: 'scope_suggest',
+      description:
+        "Read-only scope draft for a task: given an objective and anchors, the files in scope ranked by score with via (search, anchor, caller:<name>, import:<name>), the tests and covering runners, and draft {files, verification} to edit.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          objective: {
+            type: 'string',
+            description: 'What the task should achieve; seeds the hybrid search. May be empty only when anchors are given.',
+          },
+          anchors: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Symbol qualified_names or repo-relative file paths. A symbol adds its callers (depth 1), importers and tests; one that matches nothing goes to unresolved_anchors.',
+          },
+          repo: { type: 'string', description: REPO_DEFAULT_DOC },
+          k: {
+            type: 'number',
+            description: `Search paths to seed from. Default ${SCOPE_K_DEFAULT}. Max ${SCOPE_K_MAX}.`,
           },
         },
         required: ['agent'],
@@ -870,7 +1207,7 @@ export function worldModelTools(
           },
           k: {
             type: 'number',
-            description: 'Top-K rows to return. Default 5. Max 20.',
+            description: 'Top-K rows to return. Default 5. Max 100.',
           },
         },
         required: ['agent', 'query'],
@@ -879,8 +1216,9 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by (generated bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, or qualified_name plus optional path. " +
-        "note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
+        "note: by-name resolution, lists may be incomplete. symbol.stale: file changed since indexing (rescan). impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
+        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag).",
       inputSchema: {
         type: 'object',
         properties: {
@@ -893,6 +1231,11 @@ export function worldModelTools(
           path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
           qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
           name: { type: 'string', description: 'Alias of qualified_name; qualified_name wins when both are given.' },
+          config_key: {
+            type: 'string',
+            description:
+              "A plugin_config key, e.g. 'verification_timeout_s'. Returns {config_key, readers: [{qualified_name, kind, repo, path, line}]}: the symbols whose SELECT reads it, instead of a card.",
+          },
           impact: {
             type: ['boolean', 'integer'],
             description: `Transitive inbound callers and readers of tables a walked symbol writes. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers and test modules importing any walked symbol go to impact.tests and are not walked past.`,
@@ -979,9 +1322,13 @@ export function worldModelTools(
       'world_model_get',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
       logged(db, 'world_model_get', wrap(async (args) => {
+        const parsedFields = parseFields(args['fields']);
+        if ('error' in parsedFields) return err(parsedFields.error);
+        const { fields } = parsedFields;
+        const last_scan = lastScan(db);
         const resolved = resolveRepo(args['repo']);
         if (resolved.warning) {
-          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos });
+          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos, last_scan });
         }
         const repo = resolved.name;
         const source = sourceOf(resolved);
@@ -999,18 +1346,18 @@ export function worldModelTools(
 
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         if (graph.directoryCount(repo) === 0) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         const rows: DirRow[] = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path, depth, { nodeCounter });
+        const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
         if (!tree) {
-          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag });
+          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
@@ -1018,13 +1365,48 @@ export function worldModelTools(
         return ok({
           repo,
           ...source,
-          root: tree,
+          root: fields ? projectTree(tree, fields) : tree,
           ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
           ...(truncated ? { truncated: true } : {}),
           ...(unmerged.warning ? { warning: unmerged.warning } : {}),
           unmerged_work: unmerged.unmerged_work,
           ...lag,
+          last_scan,
         });
+      })),
+    ),
+
+    scope_suggest: requireRoles(
+      'scope_suggest',
+      ['bro', 'consultant'],
+      logged(db, 'scope_suggest', wrap(async (args) => {
+        const objectiveArg = args['objective'];
+        if (objectiveArg !== undefined && objectiveArg !== null && typeof objectiveArg !== 'string') {
+          return err('objective must be a string');
+        }
+        const objective = (objectiveArg ?? '').trim();
+        const anchorsArg = args['anchors'] ?? [];
+        if (!Array.isArray(anchorsArg) || anchorsArg.some((a) => typeof a !== 'string')) {
+          return err('anchors must be an array of strings');
+        }
+        const anchors = [...new Set((anchorsArg as string[]).map((a) => a.trim()).filter((a) => a !== ''))];
+        if (!objective && anchors.length === 0) return err('objective is required when no anchors are given');
+        const kArg = args['k'];
+        const k = typeof kArg === 'number' && Number.isFinite(kArg)
+          ? Math.min(Math.max(1, Math.floor(kArg)), SCOPE_K_MAX)
+          : SCOPE_K_DEFAULT;
+
+        const empty = { files: [], tests: [], runners: [], unresolved_anchors: [], draft: { files: [], verification: [] } };
+        const resolved = resolveRepo(args['repo']);
+        if (resolved.warning) {
+          return ok({ repo: '', ...empty, warning: resolved.warning, available_repos: resolved.available_repos });
+        }
+        const repo = resolved.name;
+        const source = sourceOf(resolved);
+        const lag = checkoutLag(db, repo);
+        const graph = graphHolder?.ensureGraph() ?? null;
+        if (!graph) return ok({ repo, ...source, ...empty, warning: 'world-model-unavailable', ...lag });
+        return ok({ repo, ...source, ...(await scopeSuggest(db, graph, repo, objective, anchors, k)), ...lag });
       })),
     ),
 
@@ -1035,7 +1417,7 @@ export function worldModelTools(
         const query = args['query'] as string;
         if (!query || typeof query !== 'string') return err('query is required');
         const mode = (args['mode'] as string | undefined) ?? 'hybrid';
-        const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
+        const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), SEARCH_K_MAX);
 
         const resultsOf = (top: WorldModelRanking['ranked']): Array<Record<string, unknown>> => {
           const stale = staleFiles(
@@ -1059,7 +1441,17 @@ export function worldModelTools(
           const results = resultsOf(top);
           const warning = rankings.find((r) => r.warning)?.warning;
           const match: KeywordMatch = rankings.some((r) => r.match === 'any_term') ? 'any_term' : 'all_terms';
-          return ok({ ...scope, results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match });
+          const total_matched = rankings.reduce((n, r) => n + r.ranked.length, 0);
+          const truncated = rankings.some((r) => r.poolFull) || results.length < total_matched;
+          return ok({
+            ...scope,
+            results,
+            total_matched,
+            ...(truncated ? { truncated } : {}),
+            ...(warning ? { warning } : {}),
+            mode,
+            match,
+          });
         }
         const repo = resolved.name;
         const scope = resolved.repo_source ? { repo, repo_source: resolved.repo_source } : {};
@@ -1070,9 +1462,20 @@ export function worldModelTools(
           return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
         }
 
-        const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
+        const { ranked, match, poolFull, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
         const results = resultsOf(ranked.slice(0, k));
-        return ok({ ...scope, results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match, ...lag });
+        const total_matched = ranked.length;
+        const truncated = poolFull || results.length < total_matched;
+        return ok({
+          ...scope,
+          results,
+          total_matched,
+          ...(truncated ? { truncated } : {}),
+          ...(warning ? { warning } : {}),
+          mode,
+          match,
+          ...lag,
+        });
       })),
     ),
 
@@ -1080,6 +1483,18 @@ export function worldModelTools(
       'world_model_symbol',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
       logged(db, 'world_model_symbol', wrap(async (args) => {
+        const configKey = args['config_key'];
+        if (configKey !== undefined && configKey !== null) {
+          if (typeof configKey !== 'string' || !configKey) return err('config_key must be a non-empty string');
+          const resolved = resolveRepo(args['repo']);
+          const allRepos = resolved.warning !== undefined;
+          const repos = allRepos ? resolved.available_repos : [resolved.name];
+          return ok({
+            config_key: configKey,
+            readers: configKeyReaders(db, repos, configKey),
+            ...(allRepos ? { repo_source: 'all' } : sourceOf(resolved)),
+          });
+        }
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource } = {};
@@ -1100,7 +1515,11 @@ export function worldModelTools(
             ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
             : symbolsByName(db, repo, name, path);
           if (matches.length === 0) {
-            return err(`symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}`);
+            const indexError = allRepos ? undefined : indexErrorOf(lastScan(db), repo).index_error;
+            return err(
+              `symbol ${name} not found in ${allRepos ? 'any repo' : `repo ${repo || '(none)'}`}` +
+                (indexError ? `; the last scan's symbol index failed for this repo: ${indexError}` : ''),
+            );
           }
           const definitions = matches.filter((m) => m.kind !== 'module');
           if (definitions.length > 1) {
@@ -1117,6 +1536,7 @@ export function worldModelTools(
                 line_start: m.start_line,
               })),
               ...(allRepos ? {} : checkoutLag(db, repo)),
+              ...(allRepos ? {} : indexErrorOf(lastScan(db), repo)),
             });
           }
           symbol = definitions[0] ?? matches[0]!;
@@ -1140,6 +1560,7 @@ export function worldModelTools(
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
           ...checkoutLag(db, symbol.repo),
+          ...indexErrorOf(lastScan(db), symbol.repo),
         });
       })),
     ),

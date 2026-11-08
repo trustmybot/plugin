@@ -4,7 +4,7 @@
 
 **Scenario:** Onboarded project with a pre-seeded `todo.py`. User asks for a sync API — an architecture-touching change that triggers the difficult-path Q+A flow in `tmb_planning`. Bro must write `kind='decision'` discussions before creating a task.
 
-**L5 mode:** `setup-l5.sh` seeds `onboarding-named` state + commits `todo.py` as prior work.
+**L5 mode:** `setup-l5.ts` seeds `onboarding-named` state + commits `todo.py` as prior work.
 **L6 mode:** Not in chain manifest (standalone row).
 
 ## Scorers

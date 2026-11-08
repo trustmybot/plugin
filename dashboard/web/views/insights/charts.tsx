@@ -3,8 +3,9 @@ import { GridRows } from '@visx/grid';
 import { Group } from '@visx/group';
 import { ParentSize } from '@visx/responsive';
 import { scaleLinear } from '@visx/scale';
-import { BarRounded, Line } from '@visx/shape';
+import { BarRounded, Line, Pie } from '@visx/shape';
 import { Tooltip, useTooltip } from '@visx/tooltip';
+import { LABEL_BORDER, LABEL_ICON, LABEL_ICON_GAP, LABEL_PAD_X } from '../../ui/Label.tsx';
 import { OUTLINE_DASH } from './ChartCard.tsx';
 import type { Tick } from './format.ts';
 import { overlayTip } from './params.ts';
@@ -351,7 +352,7 @@ function BarListPlot({ width, label, rows, format, axis, max }: BarListProps & {
         <Group left={1}>
           {rows.map((r, i) => {
             const rowY = i * ROW;
-            const end = r.note === undefined && r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
+            const end = r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
             return (
               <g key={r.key}>
                 <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
@@ -408,6 +409,66 @@ export function BarList(props: BarListProps) {
         {({ width }) => <BarListPlot {...props} width={width || 480} />}
       </ParentSize>
     </div>
+  );
+}
+
+export interface DonutSegment {
+  key: string;
+  label: string;
+  value: number;
+  color: string;
+}
+
+export interface DonutProps {
+  label: string;
+  segments: DonutSegment[];
+  totalLabel: string;
+}
+
+const DONUT_W = 320;
+const DONUT_H = 180;
+const DONUT_OUTER = 64;
+const DONUT_INNER = 44;
+const DONUT_LABEL_GAP = 12;
+const SEGMENT_MOTION = 'motion-safe:transition-opacity motion-safe:duration-500 motion-safe:starting:opacity-0';
+
+export const segmentShare = (value: number, total: number) => (total > 0 ? Math.round((100 * value) / total) : 0);
+
+// Each segment is labelled at its mid-angle just outside the ring; the total sits in the hole.
+export function Donut({ label, segments, totalLabel }: DonutProps) {
+  const total = segments.reduce((s, d) => s + d.value, 0);
+  const shown = segments.filter((d) => d.value > 0);
+  return (
+    <svg width={DONUT_W} height={DONUT_H} viewBox={`0 0 ${DONUT_W} ${DONUT_H}`} role="img" aria-label={label} className="block max-w-full tabular-nums" data-donut="">
+      <Group left={DONUT_W / 2} top={DONUT_H / 2}>
+        {total === 0 && <circle r={(DONUT_OUTER + DONUT_INNER) / 2} fill="none" stroke={GRID} strokeWidth={DONUT_OUTER - DONUT_INNER} />}
+        <Pie data={shown} pieValue={(d) => d.value} outerRadius={DONUT_OUTER} innerRadius={DONUT_INNER} padAngle={shown.length > 1 ? 0.02 : 0} pieSort={null} pieSortValues={null}>
+          {({ arcs, path }) =>
+            arcs.map((a) => {
+              const mid = (a.startAngle + a.endAngle) / 2;
+              const r = DONUT_OUTER + DONUT_LABEL_GAP;
+              const lx = Math.sin(mid) * r;
+              const ly = -Math.cos(mid) * r;
+              const anchor = Math.abs(lx) < 1 ? 'middle' : lx > 0 ? 'start' : 'end';
+              return (
+                <g key={a.data.key} data-segment={a.data.key}>
+                  <path d={path(a) ?? ''} fill={a.data.color} className={SEGMENT_MOTION} />
+                  <text x={lx} y={ly + 4} textAnchor={anchor} fill={TEXT} fontSize={12} data-segment-label="">
+                    {`${a.data.label} ${a.data.value} (${segmentShare(a.data.value, total)}%)`}
+                  </text>
+                </g>
+              );
+            })
+          }
+        </Pie>
+        <text y={2} textAnchor="middle" fill={TEXT} fontSize={20} fontWeight={600} data-donut-total="">
+          {total}
+        </text>
+        <text y={18} textAnchor="middle" fill={MUTED} fontSize={11}>
+          {totalLabel}
+        </text>
+      </Group>
+    </svg>
   );
 }
 
@@ -509,7 +570,7 @@ const PAIR_P1 = 18;
 const PAIR_P2 = 32;
 const DELTA_H = 20;
 const DELTA_GAP = 6;
-const DELTA_ICON = 24;
+export const deltaPillWidth = (text: string) => textWidth(text) + 2 * LABEL_PAD_X + 2 * LABEL_BORDER + LABEL_ICON + LABEL_ICON_GAP;
 
 export interface PairedRow {
   key: string;
@@ -528,13 +589,14 @@ export interface PairedBarListProps {
   rows: PairedRow[];
   format: (v: number) => string;
   axis: (max: number) => { top: number; ticks: Tick[] };
+  divider?: (r: PairedRow) => boolean;
 }
 
 const pairText = (v: number | null, format: (v: number) => string) => (v === null ? '—' : format(v));
 
-function PairedBarListPlot({ width, label, rows, format, axis }: PairedBarListProps & { width: number }) {
+function PairedBarListPlot({ width, label, rows, format, axis, divider }: PairedBarListProps & { width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
-  const deltaW = (r: PairedRow) => textWidth(r.deltaText) + DELTA_ICON;
+  const deltaW = (r: PairedRow) => deltaPillWidth(r.deltaText);
   const reserve =
     Math.max(0, ...rows.map((r) => Math.max(textWidth(pairText(r.p1, format)), textWidth(pairText(r.p2, format)) + DELTA_GAP + deltaW(r)))) + 2 * LABEL_PAD + 4;
   const innerW = Math.max(0, width - 1 - reserve);
@@ -557,6 +619,7 @@ function PairedBarListPlot({ width, label, rows, format, axis }: PairedBarListPr
             const v2 = pairText(r.p2, format);
             return (
               <g key={r.key} data-pair="">
+                {i > 0 && divider?.(r) && <Line from={{ x: 0, y: rowY }} to={{ x: innerW, y: rowY }} stroke={GRID} strokeWidth={1} data-divider="" />}
                 <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
                   {r.label}
                 </text>

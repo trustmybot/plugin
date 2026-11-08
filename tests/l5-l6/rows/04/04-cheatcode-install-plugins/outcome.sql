@@ -5,7 +5,7 @@
 -- scope. The deterministic proof is (a) two cheatcode_installed audit rows,
 -- (b) the two cheatcodes rows (feature-dev + code-review) written scope='project-local',
 -- and (c) the per-agent attachment records — feature-dev → swe, code-review →
--- code-reviewer. Marketplace results are stubbed via TMB_CHEATCODE_INSTALL_FIXTURE;
+-- code-reviewer. Marketplace results are stubbed via .tmb-cheatcode-install-fixture.json;
 -- the install/attachment SHAPE is covered by L2/L3, the per-candidate routing
 -- here.
 

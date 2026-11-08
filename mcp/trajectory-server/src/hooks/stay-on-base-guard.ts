@@ -14,13 +14,14 @@
  */
 import { statSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
-import { PARSE_REASON } from './git-guards.js';
-import { cmdStatements, denyAmbiguousGitTarget, gitSubcommand } from './cmd-analysis/index.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
+import { denyResult } from './lib/deny.js';
+import { cmdStatements, denyAmbiguousGitTarget, gitSubcommand, type Statement } from './cmd-analysis/index.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote } from './lib/db.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 import { repoGitRoot } from './lib/repo.js';
-import { denyResult, payloadCwdOf, readTabFields, statementRows } from './lib/statement-rows.js';
+import { payloadCwdOf, readTabFields, statementRows } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'stay-on-base-guard';
 
@@ -31,6 +32,7 @@ interface Switch {
   dir: string;
   target: string;
   stmt: string;
+  row?: Statement;
 }
 
 /** The last word of `${sub#* }`'s first line that is no option, "" when none. */
@@ -56,15 +58,18 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
   if (!command.includes('checkout') && !command.includes('switch')) return ALLOW;
 
   const listed = await cmdStatements(command, payloadCwdOf(input, env), env);
-  if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON) : ALLOW;
+  if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
   let lines = '';
-  for (const { dir, stmt } of statementRows(listed.statements)) {
+  const kept: Statement[] = [];
+  for (const row of statementRows(listed.statements)) {
+    const { dir, stmt } = row;
     const sub = gitSubcommand(stmt);
     if (!sub.startsWith('checkout ') && !sub.startsWith('switch ')) continue;
     if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
     const target = switchTarget(sub);
     if (target === '' || !BRANCH_WORD.test(target)) continue;
     lines += `${dir}\t${target}\t${stmt}\n`;
+    kept.push(row);
   }
   if (lines === '') return ALLOW;
 
@@ -72,11 +77,11 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
   const db = dbPath(env) ?? '';
   if (!isFile(db)) return ALLOW;
 
-  const switches: Switch[] = lines.split('\n').map((line) => {
+  const switches: Switch[] = lines.split('\n').map((line, i) => {
     const [dir, target, stmt] = readTabFields(line, 3);
-    return { dir, target, stmt };
+    return { dir, target, stmt, row: kept[i] };
   });
-  for (const { dir, target, stmt } of switches) {
+  for (const { dir, target, stmt, row } of switches) {
     if (target === '') continue;
     if (dir === '-' || dir.includes('/.claude/worktrees/')) continue;
     const openTask = gateRead(
@@ -91,12 +96,13 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
     );
     if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
     if (openTask === '' || !openTask.split('\n').some((l) => /^[0-9]+$/.test(l))) continue;
-    if (dir === '?') return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
+    if (dir === '?') return { stdout: denyAmbiguousGitTarget({ stmt, src: row?.stmt === stmt ? row.src : undefined }), code: 0 };
 
     const loc = taskLocation(db, openTask, env);
     const wt = loc.code === 0 ? loc.worktree : `${await repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
     return denyResult(
-      `the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`,
+      `the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}.`,
+      { allowed: `cd ${wt}` },
     );
   }
   return ALLOW;

@@ -25,8 +25,9 @@
  */
 import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { NEVER_JUDGED, UNJUDGED_PHRASE } from './containment-guard.js';
+import { NEVER_JUDGED, UNJUDGED_PHRASE, UNRESOLVED_FIX } from './containment-guard.js';
 import {
+  CAP_FIX,
   CAP_REASON,
   cmdStatements,
   ghMutation,
@@ -53,6 +54,8 @@ import {
   stateDir,
   stripTrailingNewlines,
 } from './lib/db.js';
+import { type DenyFix, denyResult as deny } from './lib/deny.js';
+import { SWE_PUSH_FIX, SWE_PUSH_REASON } from './git-push-guard.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { posixDirname } from './lib/project-env.js';
 import { agentRole } from './lib/role.js';
@@ -65,12 +68,11 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const GLOB_CHAR = /[*?[]/;
 
-const PUSH_REASON =
-  'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).';
 const GH_REASON =
   'BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro.';
 export const PARSE_REASON =
-  'BLOCKED: swe-boundary could not parse this command, so it cannot tell whether it pushes, runs a gh/glab mutation or writes a prompt-surface path. Split it into simpler commands or fix its quoting.';
+  'BLOCKED: swe-boundary could not parse this command, so it cannot tell whether it pushes, runs a gh/glab mutation or writes a prompt-surface path.';
+export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simpler commands with plain quoting' };
 
 function claudeMdReason(target: string): string {
   return `BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: ${target}. Propose the change in your report; the Human applies it.`;
@@ -86,11 +88,6 @@ function field(input: string, ...paths: string[][]): string {
 
 function canonical(path: string): string {
   return capture(pathCanonical(path));
-}
-
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
 }
 
 function context(text: string, prefix = ''): GateResult {
@@ -207,10 +204,10 @@ class Boundary {
     const cwd = payloadCwd(this.input, this.env);
     const root = this.worktree || capture(projectRoot(this.env));
     const written = await writePaths(command, { cwd, root, env: this.env });
-    if (written.some(isCapLine)) return deny(CAP_REASON);
+    if (written.some(isCapLine)) return deny(CAP_REASON, CAP_FIX);
     const listed = await statementsOrOverflow(command, cwd, this.env);
-    if (listed === 'overflow') return deny(CAP_REASON);
-    if (!listed.ok) return deny(PARSE_REASON);
+    if (listed === 'overflow') return deny(CAP_REASON, CAP_FIX);
+    if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
     let push = false;
     let mutating = false;
     for (const { stmt } of listed.statements) {
@@ -218,8 +215,8 @@ class Boundary {
       if ((sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `)) push = true;
       if (ghMutation(stmt) !== '') mutating = true;
     }
-    if (push) return deny(PUSH_REASON);
-    if (mutating) return deny(GH_REASON);
+    if (push) return deny(SWE_PUSH_REASON, SWE_PUSH_FIX);
+    if (mutating) return deny(GH_REASON, 'policy');
 
     let surface = '';
     let anchor = '';
@@ -250,7 +247,7 @@ class Boundary {
       if (wt !== '') fence.push(path);
     }
 
-    if (rootClaudeMd !== '') return deny(claudeMdReason(rootClaudeMd));
+    if (rootClaudeMd !== '') return deny(claudeMdReason(rootClaudeMd), 'policy');
 
     const db = surface !== '' || unresolved !== '' || fence.length > 0 ? this.dbPath() : '';
     if ((surface !== '' || unresolved !== '') && dbState(this.env) === 'error') return this.dbDenied();
@@ -269,17 +266,17 @@ class Boundary {
       if (glob >= 0) {
         const over = capture(posixDirname(`${surface.slice(0, glob)}x`));
         return deny(
-          `BLOCKED: a loop or glob over ${over} reaches prompt-surface paths (${surface}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.`,
+          `BLOCKED: a loop or glob over ${over} reaches prompt-surface paths (${surface}); scope the listing below agents/, skills/, commands/, templates/ and rules/. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.`,
+          { allowed: "the same command with the paths inlined, or excluding them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents')" },
         );
       }
       return deny(
         `BLOCKED: SWE may not write prompt-surface files via Bash (${writeShapes()}). Target: ${surface}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.`,
+        'policy',
       );
     }
     if (unresolved !== '' && !lifted) {
-      return deny(
-        `BLOCKED: write target "${unresolved}" ${UNJUDGED_PHRASE} depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.`,
-      );
+      return deny(`BLOCKED: write target "${unresolved}" ${UNJUDGED_PHRASE} depends on a variable the guard cannot resolve in this command.`, UNRESOLVED_FIX);
     }
 
     if (fence.length === 0 || db === '' || !haveSqlite(this.env)) return ALLOW;
@@ -400,6 +397,7 @@ class Boundary {
     if (this.ctxState === 'missing') {
       return deny(
         `BLOCKED: swe-boundary cannot resolve this swe's worktree: ${this.missing}. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: ${target}. Report this to bro.`,
+        'policy',
       );
     }
     const abs = target.startsWith('/') ? target : `${payloadCwd(this.input, this.env)}/${target}`;
@@ -409,9 +407,9 @@ class Boundary {
       const base = `${canonical('/tmp')}/claude-${uid}`;
       if (this.scratchpadAllows(abs, session, base)) return ALLOW;
       const hint = this.scratchHint(session, base, uid);
-      return deny(
-        `BLOCKED: SWE may only edit files inside its assigned worktree (${this.worktree}) of task ${this.callerTask}. Target '${target}' is outside the worktree. Scratch files go in this session's scratchpad, ${hint}/.`,
-      );
+      return deny(`BLOCKED: SWE may only edit files inside its assigned worktree (${this.worktree}) of task ${this.callerTask}. Target '${target}' is outside the worktree.`, {
+        allowed: `the same ${this.toolName} on a path under ${this.worktree}/, or under this session's scratchpad ${hint}/ for a scratch file`,
+      });
     }
 
     let subject: string;
@@ -422,7 +420,7 @@ class Boundary {
       this.wtD = worktreeRootForTarget(target);
       subject = this.wtD === '' ? target : stripDir(target, this.wtD);
     }
-    if (this.wtD !== '' && subject === 'CLAUDE.md') return deny(claudeMdReason(target));
+    if (this.wtD !== '' && subject === 'CLAUDE.md') return deny(claudeMdReason(target), 'policy');
     if (!await isPromptSurfacePath(subject, this.wtD, this.env)) return await this.bypassCheck();
 
     const db = this.dbPath();
@@ -437,6 +435,7 @@ class Boundary {
     }
     return deny(
       `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${target}. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.`,
+      'policy',
     );
   }
 }

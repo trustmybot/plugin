@@ -60,7 +60,7 @@ import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from 
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
-import { briefLocations } from '../brief-locations.js';
+import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
@@ -359,7 +359,7 @@ const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
 const BRIEF_RESPONSE_FORMAT_HINT =
   "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
 const BRIEF_SECTION_HINTS = {
-  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it',
+  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
   scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
@@ -1282,9 +1282,9 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        "Bro's recovery of a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (with no passing code-reviewer verdict it writes review_gate_bypassed), without one it returns a re-dispatch directive; any other status is a no-op. " +
-        'Every call runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept row, open runs closed swept_stale); pending tasks older than 7 days are only reported; runs open on terminal tasks are closed; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
-        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported}, plus the recovery result with task_id.',
+        'Recover a swe task stuck pending/completed after its executor died: with commit_sha it closes the task (review_gate_bypassed when no code-reviewer verdict passes), else it returns a re-dispatch directive; other statuses are a no-op. ' +
+        'Every call also sweeps: running tasks with no open swe run and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) fail (task_stale_swept, runs closed swept_stale); pending ones over 7 days old are reported; runs open on terminal tasks close; closed swe/code-reviewer runs with no tokens or usage_source get usage_source=unmeasured. ' +
+        'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} plus the recovery result.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1467,7 +1467,7 @@ export function compositeTools(
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
         "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
-        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
         'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
@@ -2245,6 +2245,8 @@ export function compositeTools(
             stop && stop.stop_cause !== null
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
+          const taskFiles = parseTaskFiles(task.files);
+          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2257,13 +2259,14 @@ export function compositeTools(
             worktree_path: worktreePath,
             effort: task.effort,
             spec_body: task.spec_body,
-            files: parseTaskFiles(task.files),
+            files: taskFiles,
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations: briefLocations(db, repo, task.spec_body ?? '', parseTaskFiles(task.files)),
+            locations,
+            concepts: briefConcepts(db, repo, taskFiles, locations),
           };
         };
 

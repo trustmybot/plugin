@@ -15,6 +15,7 @@
  */
 import { ALLOW, type SyncGate } from './gate.js';
 import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote } from './lib/db.js';
+import type { DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { denyPreToolUse, denyUnreadable, reworkLimitVerdict } from './rework-limit.js';
 
@@ -30,9 +31,12 @@ interface SweTarget {
 export function effortMismatchReason(agentId: string, target: SweTarget): string {
   return (
     `BLOCKED: swe ${agentId} ran task ${target.task_id} at effort ${target.run_effort}; the task's effort is now ${target.task_effort}. ` +
-    'A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change. ' +
-    `Spawn a fresh swe at the task's effort instead: Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}').`
+    'A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change.'
   );
+}
+
+export function effortMismatchFix(target: SweTarget): DenyFix {
+  return { allowed: `Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}')` };
 }
 
 export const sweResumeGate: SyncGate = (payload, env) => {
@@ -57,7 +61,7 @@ export const sweResumeGate: SyncGate = (payload, env) => {
   const verdict = reworkLimitVerdict(GATE_NAME, db, String(target.task_id), env);
   if (verdict !== ALLOW) return verdict;
   if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
-    return denyPreToolUse(effortMismatchReason(to, target));
+    return denyPreToolUse(effortMismatchReason(to, target), effortMismatchFix(target));
   }
   return ALLOW;
 };

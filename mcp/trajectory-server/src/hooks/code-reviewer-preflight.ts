@@ -27,7 +27,8 @@ import { taskLocation } from './lib/agent-context.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
 import { gitSpawn } from './lib/git.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from './lib/git-refs.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { structuredDenyResult, type DenyFix } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 
 export const GATE_NAME = 'code-reviewer-preflight';
@@ -78,17 +79,12 @@ function listed(items: readonly string[]): string {
   return items.length > MAX_LISTED ? `${shown}; (+${items.length - MAX_LISTED} more)` : shown;
 }
 
-function deny(failure: PreflightFailure): GateResult {
-  return {
-    stdout: `${jqCompact({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: JSON.stringify(failure),
-      },
-    })}\n`,
-    code: 0,
-  };
+export function preflightFix(check: PreflightCheck, taskId: string): DenyFix {
+  return { allowed: `task_reopen(agent='bro', task_id=${taskId}, reason='${check}: <what failed>'), then the same code-reviewer spawn once swe closes it again` };
+}
+
+function deny(failure: PreflightFailure, taskId: string): GateResult {
+  return structuredDenyResult(failure, preflightFix(failure.check, taskId));
 }
 
 function dbUnavailable(env: NodeJS.ProcessEnv): GateResult {
@@ -304,7 +300,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
 
   const recorded = task.commitSha;
   if (location.code !== 0) {
-    return deny({ check: 'sha_mismatch', expected: recorded || null, actual: `branch tip unresolvable: ${location.missing}` });
+    return deny({ check: 'sha_mismatch', expected: recorded || null, actual: `branch tip unresolvable: ${location.missing}` }, taskId);
   }
   const repo = location.repoRoot;
   const branch = task.branch;
@@ -315,7 +311,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'sha_mismatch',
       expected: recorded === '' ? null : commit ?? recorded,
       actual: tip ?? `refs/heads/${branch} does not resolve in ${repo}`,
-    });
+    }, taskId);
   }
 
   const shaIn = `commit_sha IN ('${sqlQuote(recorded)}', '${sqlQuote(commit)}')`;
@@ -336,7 +332,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'no_passing_run',
       expected: `a verification_runs row for task ${taskId} at ${commit} with exit_code=0 and timed_out=0`,
       actual: latest === GATE_READ_ERROR || latest === '' ? `no verification_runs row for task ${taskId} at ${commit}` : latest,
-    });
+    }, taskId);
   }
 
   const targetRow = gateRead(
@@ -352,7 +348,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'base_conflict',
       expected: `${commit} merges cleanly into the PR target`,
       actual: `no PR target ref resolves in ${repo}`,
-    });
+    }, taskId);
   }
   const merge = await git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
   if (merge.code !== 0) {
@@ -361,7 +357,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'base_conflict',
       expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
       actual: merge.code !== 1 || conflicted.length === 0 ? `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}` : `conflicts in ${listed(conflicted)}`,
-    });
+    }, taskId);
   }
 
   const mergeBase = (await git(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
@@ -370,7 +366,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'base_conflict',
       expected: `${commit} shares history with ${targetRef} (${targetTip})`,
       actual: 'no merge-base',
-    });
+    }, taskId);
   }
   const stale = await staleDocRefs(repo, mergeBase, commit, env);
   if (typeof stale === 'string' || stale.length > 0) {
@@ -378,7 +374,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       check: 'stale_doc_ref',
       expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${mergeBase}..${commit} removes`,
       actual: typeof stale === 'string' ? stale : listed(stale),
-    });
+    }, taskId);
   }
 
   if (await hasChangelogDir(repo, commit, env) || await hasChangelogDir(repo, mergeBase, env)) {
@@ -388,7 +384,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
         check: 'missing_changelog',
         expected: `${mergeBase}..${commit} adds a file under ${CHANGELOG_DIR}/`,
         actual: added.code !== 0 ? `git diff failed: ${added.stderr.trim()}` : `no file added under ${CHANGELOG_DIR}/`,
-      });
+      }, taskId);
     }
   }
   return ALLOW;

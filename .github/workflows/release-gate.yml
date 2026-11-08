@@ -101,6 +101,8 @@ jobs:
           node-version: '22'
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Cache HuggingFace ONNX model
         uses: actions/cache@v5
@@ -151,8 +153,8 @@ jobs:
           fi
           ls -la "$MODEL_DIR" "$MODEL_DIR/onnx"
 
-      - name: Run L1-L4 sweep (run-all.sh)
-        run: bash tests/run-all.sh
+      - name: Run L1-L4 sweep (run-all.ts)
+        run: node --experimental-strip-types tests/run-all.ts
 
       - name: Install Claude Code CLI (required by L6 chain runner)
         if: ${{ inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
@@ -166,9 +168,9 @@ jobs:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
         run: |
           if [ "$L6_FROM_STEP" = "1" ]; then
-            bash tests/l5-l6/run-l6-chain.sh --fresh
+            node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --fresh
           else
-            bash tests/l5-l6/run-l6-chain.sh --from "$L6_FROM_STEP"
+            node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --from "$L6_FROM_STEP"
           fi
 
       - name: Upload L6 chain artifacts (on success or failure)
@@ -198,6 +200,8 @@ jobs:
           node-version: '22'
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install deps
         run: |
@@ -215,7 +219,7 @@ jobs:
       - name: Run sandbox network probe
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash tests/l5-l6/probes/sandbox-network-probe.sh --check-recorded
+        run: node --experimental-strip-types tests/l5-l6/probes/sandbox-network-probe.ts --check-recorded
 
   install-smoke:
     name: L0 docker install-smoke
@@ -227,5 +231,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
       - name: Run install-smoke
-        run: bash tests/l0-install/run-install-smoke.sh
+        run: node --experimental-strip-types tests/l0-install/run-docker.ts install

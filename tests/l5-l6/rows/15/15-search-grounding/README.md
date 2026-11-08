@@ -1,6 +1,6 @@
 # 15-search-grounding
 
-**Scenario under test:** the Human asks bro why a prior architectural decision was made in `src/cli.py`. Bro must use `discussion_search` to ground the answer in the step 08 ADR decision rather than hallucinating from context. A `kind='decision'` discussion seeded by step 08 (or by `setup-l5.sh` in L5 isolation) is the only source of truth.
+**Scenario under test:** the Human asks bro why a prior architectural decision was made in `src/cli.py`. Bro must use `discussion_search` to ground the answer in the step 08 ADR decision rather than hallucinating from context. A `kind='decision'` discussion seeded by step 08 (or by `setup-l5.ts` in L5 isolation) is the only source of truth.
 
 The `discussions_embeddings` table is pre-seeded with a deterministic stub vector (zeros) for the decision row so keyword + hybrid search return it without a real ONNX embedding call.
 
@@ -21,7 +21,7 @@ The `discussions_embeddings` table is pre-seeded with a deterministic stub vecto
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `discussions_embeddings` ≥ 1 row (seeded by setup-l5.sh or step 08 organically) |
+| `outcome.sql` | `discussions_embeddings` ≥ 1 row (seeded by setup-l5.ts or step 08 organically) |
 | `outcome-coherence.json` | `discussions_embeddings`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `discussion_search` |

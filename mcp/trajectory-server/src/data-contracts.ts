@@ -213,6 +213,25 @@ const PENDING_PROPOSALS = `tasks t,
                                   AND ${auditField('p', 'task_id')} = t.id
                                   AND ${auditField('p', 'name')} = json_extract(c.value, '$.name'))`;
 
+export const CONCEPT_AREA_MIN_FAN_IN_DEFAULT = 50;
+
+const areaOf = (path: string): string => `rtrim(${path}, replace(${path}, '/', ''))`;
+const notTestPath = (path: string): string => `${path} NOT LIKE '%test/%' AND ${path} NOT LIKE '%.test.%'`;
+
+// Directories whose cross-directory, non-test caller fan-in reaches :min_fan_in
+// and that no verified concept has a step in.
+const UNCOVERED_HOT_AREAS = `(SELECT d.repo AS repo, ${areaOf('d.path')} AS area, COUNT(*) AS fan_in
+               FROM wm_edges e
+               JOIN wm_symbols s ON s.id = e.src_id
+               JOIN wm_symbols d ON d.id = e.dst_id
+              WHERE e.kind = 'calls' AND s.repo = d.repo
+                AND ${areaOf('s.path')} <> ${areaOf('d.path')}
+                AND ${notTestPath('s.path')} AND ${notTestPath('d.path')}
+              GROUP BY d.repo, ${areaOf('d.path')}
+             HAVING COUNT(*) >= :min_fan_in) h
+             WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k JOIN wm_concept_steps p ON p.concept_id = k.id
+                                WHERE k.status = 'verified' AND p.repo = h.repo AND ${areaOf('p.path')} = h.area)`;
+
 const UNCONCEPTUALIZED_REPOS = `(SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= ${CONCEPTS_MIN_SYMBOLS}) s
              WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired')`;
 
@@ -528,6 +547,16 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       sql: `SELECT COUNT(*) FROM wm_concepts WHERE status IN ('suspect','broken')`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT id, repo, name, status, status_reason FROM wm_concepts WHERE status IN ('suspect','broken') ORDER BY id DESC LIMIT 5`,
+    },
+    {
+      id: 'concepts_cover_hot_areas',
+      severity: 'warn',
+      min_schema: CONCEPTS_SCHEMA,
+      description: `no directory reached by TMB_CONCEPT_AREA_MIN_FAN_IN (default ${CONCEPT_AREA_MIN_FAN_IN_DEFAULT}) or more calls from other directories of its repo (test code excluded on both ends) lacks a step of a verified L2 concept: write a concept for the area with world_model_concept_upsert, or raise TMB_CONCEPT_AREA_MIN_FAN_IN`,
+      sql: `SELECT COUNT(*) FROM ${UNCOVERED_HOT_AREAS}`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT h.repo, h.area, h.fan_in FROM ${UNCOVERED_HOT_AREAS} ORDER BY h.fan_in DESC, h.repo, h.area LIMIT 5`,
+      params: [{ name: 'min_fan_in', env: 'TMB_CONCEPT_AREA_MIN_FAN_IN', default: CONCEPT_AREA_MIN_FAN_IN_DEFAULT }],
     },
     {
       id: 'concept_proposals_not_stale',

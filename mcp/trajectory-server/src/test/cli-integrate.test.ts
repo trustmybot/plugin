@@ -198,7 +198,7 @@ describe('cli.js integrate', () => {
     assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), next, 'tasks.commit_sha names the rebased commit');
     assert.deepEqual(
       JSON.parse(q("SELECT content_json FROM audit WHERE event_type = 'task_integrated'")),
-      { task_id: 1, reviewed_sha: commit, commit_sha: next, base: 'main', run_id: 1 },
+      { task_id: 1, reviewed_sha: commit, review_anchor_at: '2026-10-19T01:00:00.000Z', commit_sha: next, base: 'main', run_id: 1 },
       'one task_integrated row naming the reviewed and rebased SHAs',
     );
     assert.equal(
@@ -345,24 +345,159 @@ describe('cli.js integrate', () => {
     assertNotIntegrated();
   });
 
-  it('the integrated head needs its own review: HAS_PASS_SQL anchors on task_integrated (GH 2411)', () => {
+  it('the reviewed pass carries to the integrated head and across a second integrate (GH 2082)', () => {
     setup('clean');
     assert.equal(hasPass(), '1', 'the reviewed commit has a pass before any integration');
     const first = integrate('main');
     assert.equal(first.code, 0, first.err);
-    assert.equal(hasPass(), '0', 'the pass of the reviewed commit predates the task_integrated anchor');
-    recordPass('2026-10-19T03:00:00.000Z');
-    assert.equal(hasPass(), '0', 'a pass older than the anchor is no review of the integrated head');
+    assert.equal(q('SELECT commit_sha FROM tasks WHERE id = 1'), first.out, 'tasks.commit_sha names the integrated head');
+    assert.equal(hasPass(), '1', 'the carried anchor lets the reviewed pass cover the integrated head');
+    assert.equal(
+      q("SELECT json_extract(content_json, '$.review_anchor_at') FROM audit WHERE event_type = 'task_integrated'"),
+      '2026-10-19T01:00:00.000Z',
+      "the task_integrated row carries the reviewed commit's anchor",
+    );
 
     commitFile('n.txt', 'again');
     const again = integrate('main');
-    assert.equal(again.code, 3, again.err);
-    assert.equal(again.err, `integrate: task 1 has no passing code-reviewer verdict for commit ${first.out}\n`);
-    assert.equal(rev('refs/heads/feat/x-1'), first.out, 'feat/x-1 stays at the first integration');
-    assert.equal(q("SELECT COUNT(*) FROM audit WHERE event_type = 'task_integrated'"), '1', 'task_integrated rows');
+    assert.equal(again.code, 0, again.err);
+    assert.notEqual(again.out, first.out, 'the second integrate rebased the integrated head');
+    assert.equal(hasPass(), '1', 'the pass still covers the rebase of the rebase');
+    assert.equal(
+      q("SELECT group_concat(json_extract(content_json, '$.review_anchor_at'), ',') FROM audit WHERE event_type = 'task_integrated'"),
+      '2026-10-19T01:00:00.000Z,2026-10-19T01:00:00.000Z',
+      'a chain of integrates collapses to the first review anchor',
+    );
+    assert.equal(q('SELECT COUNT(*) FROM validation_attempts'), '1', 'no new review was recorded');
+  });
 
-    recordPass(new Date(Date.now() + 1000).toISOString());
-    assert.equal(hasPass(), '1', 'a pass recorded after the anchor reviews the integrated head');
+  it('a legacy task_integrated row (no review_anchor_at) takes the anchor of its reviewed_sha (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec("UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';");
+    assert.equal(hasPass(), '1', "a legacy row carries the reviewed commit's bro_verification_pass anchor");
+    commitFile('n.txt', 'again');
+    const again = integrate('main');
+    assert.equal(again.code, 0, again.err);
+    assert.equal(
+      q("SELECT json_extract(content_json, '$.review_anchor_at') FROM audit WHERE event_type = 'task_integrated' ORDER BY id DESC LIMIT 1"),
+      '2026-10-19T01:00:00.000Z',
+      'an integrate after a legacy row writes the anchor found through it',
+    );
+    assert.equal(hasPass(), '1', 'the pass covers the integrate of the legacy head');
+  });
+
+  it('a chain of two legacy task_integrated rows carries the pass on the first commit to the last (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    commitFile('n.txt', 'again');
+    const again = integrate('main');
+    assert.equal(again.code, 0, again.err);
+    exec("UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';");
+    assert.equal(
+      q("SELECT group_concat(json_extract(content_json, '$.reviewed_sha') || '>' || json_extract(content_json, '$.commit_sha'), ',') FROM audit WHERE event_type = 'task_integrated'"),
+      `${commit}>${first.out},${first.out}>${again.out}`,
+      'two chained legacy rows',
+    );
+    assert.equal(hasPass(), '1', 'the walk back through both rows reaches the reviewed anchor');
+  });
+
+  it('a legacy task_integrated row stays fail-closed without a carried anchor (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec("UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';");
+    assert.equal(hasPass(), '1', 'the legacy row carries the pass');
+
+    exec("UPDATE audit SET from_node = 'hook:other' WHERE event_type = 'task_integrated';");
+    assert.equal(hasPass(), '0', 'a legacy row from another author anchors at its created_at');
+    exec("UPDATE audit SET from_node = 'hook:integrate' WHERE event_type = 'task_integrated';");
+
+    exec(`UPDATE audit SET content_json = json_set(content_json, '$.commit_sha', '${base0}') WHERE event_type = 'bro_verification_pass';`);
+    assert.equal(hasPass(), '0', 'a reviewed_sha with no anchor row leaves the legacy row at its created_at');
+    exec(`UPDATE audit SET content_json = json_set(content_json, '$.commit_sha', '${commit}') WHERE event_type = 'bro_verification_pass';`);
+
+    exec(`UPDATE audit SET content_json = json_set(content_json, '$.task_id', 2) WHERE event_type = 'bro_verification_pass';`);
+    assert.equal(hasPass(), '0', "another task's anchor on the reviewed_sha does not count");
+    exec(`UPDATE audit SET content_json = json_set(content_json, '$.task_id', 1) WHERE event_type = 'bro_verification_pass';`);
+
+    exec("UPDATE validation_attempts SET created_at = '2026-10-19T00:30:00.000Z';");
+    assert.equal(hasPass(), '0', "a pass recorded before the reviewed commit's bro_verification_pass does not count");
+    exec("UPDATE validation_attempts SET created_at = '2026-10-19T02:00:00.000Z';");
+
+    exec(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+      VALUES (1, 2, 'code-reviewer', 'fail', 1, 'no', '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '0', 'a newer fail verdict blocks the carried pass');
+  });
+
+  it('a cycle of legacy task_integrated rows ends at the hop cap (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec(`UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'hook:integrate', 'task_integrated', 'loop',
+        json_object('task_id', 1, 'reviewed_sha', '${first.out}', 'commit_sha', '${commit}'), '${new Date().toISOString()}');
+      UPDATE audit SET content_json = json_set(content_json, '$.commit_sha', '${base0}') WHERE event_type = 'bro_verification_pass';`);
+    assert.equal(hasPass(), '0', 'a cycle with no anchor terminates and fails closed');
+  });
+
+  it('a malformed task_integrated row from hook:integrate is skipped by the legacy walk (GH 2546)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec(`UPDATE audit SET content_json = json_remove(content_json, '$.review_anchor_at') WHERE event_type = 'task_integrated';
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'hook:integrate', 'task_integrated', 'bad', '{bad', '${new Date().toISOString()}');
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'bro', 'bro_verification_pass', 'bad', '{bad', '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '1', 'the legacy row still carries the pass past malformed rows');
+  });
+
+  it('a carried review_anchor_at counts only on a task_integrated row from hook:integrate (GH 2082)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec("UPDATE audit SET from_node = 'hook:other' WHERE event_type = 'task_integrated';");
+    assert.equal(hasPass(), '0', 'another author cannot carry an anchor');
+    exec(`DELETE FROM audit WHERE event_type = 'task_integrated';
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'bro', 'bro_verification_pass', 'v',
+        json_object('task_id', 1, 'commit_sha', '${first.out}', 'review_anchor_at', '2026-10-19T01:00:00.000Z'), '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '0', 'a bro_verification_pass row cannot carry an anchor');
+    exec(`UPDATE audit SET from_node = 'hook:integrate', event_type = 'task_integrated',
+      content_json = json_set(content_json, '$.review_anchor_at', 0) WHERE event_type = 'bro_verification_pass' AND json_extract(content_json, '$.commit_sha') = '${first.out}';`);
+    assert.equal(hasPass(), '0', 'a non-text review_anchor_at is ignored');
+  });
+
+  it('a FAIL verdict after the carried pass blocks the integrated head (GH 2082)', () => {
+    setup('clean');
+    const first = integrate('main');
+    assert.equal(first.code, 0, first.err);
+    exec(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+      VALUES (1, 2, 'code-reviewer', 'fail', 1, 'no', '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '0', 'the newest verdict is a fail');
+    commitFile('n.txt', 'again');
+    const again = integrate('main');
+    assert.equal(again.code, 3, again.err);
+    assert.equal(rev('refs/heads/feat/x-1'), first.out, 'feat/x-1 stays at the first integration');
+  });
+
+  it('a new commit_sha with only a bro_verification_pass anchor needs a fresh review (GH 2082)', () => {
+    setup('clean');
+    git('checkout', '-q', 'feat/x-1');
+    commitFile('b.txt', 'more');
+    const next = rev('HEAD');
+    git('checkout', '-q', 'main');
+    exec(`UPDATE tasks SET commit_sha = '${next}' WHERE id = 1;
+      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+      VALUES (1, 'feat/x-1', 'bro', 'bro_verification_pass', 'v', json_object('task_id', 1, 'commit_sha', '${next}'), '${new Date().toISOString()}');`);
+    assert.equal(hasPass(), '0', 'the earlier pass predates the new commit anchor');
+    const r = integrate('main');
+    assert.equal(r.code, 3, r.err);
+    assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 is not moved');
   });
 
   it('re-integration after the integrated head is reviewed: the branch moves from it', () => {

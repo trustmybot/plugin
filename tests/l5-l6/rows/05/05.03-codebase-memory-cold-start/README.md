@@ -4,7 +4,7 @@
 
 **Scenario:** Existing repo with files but the world model is cold (no `deep_scan_completed` audit row) → bro receives the world-model-cold gate from `task_create_batch`. In test mode there's no Human to ask, so bro must self-fire `scan_run` to populate the world-model tables, then continue planning.
 
-**L5 mode:** `setup-l5.sh` seeds `onboarding-named` + commits `src/existing.py` + leaves the world model cold (no `deep_scan_completed` audit row).
+**L5 mode:** `setup-l5.ts` seeds `onboarding-named` + commits `src/existing.py` + leaves the world model cold (no `deep_scan_completed` audit row).
 **L6 mode:** Not in chain manifest (standalone row).
 
 ## Scorers

@@ -27,7 +27,7 @@ const EXEMPT = new Set([
   'mcp/trajectory-server/src/test/schema.test.ts',
   'mcp/trajectory-server/src/test/schema-upgrade.test.ts',
   'tests/l1-lint/no-file-registry-refs.test.mjs',
-  'tests/run-all.sh',
+  'tests/run-all.ts',
   'tests/EVALUATION.md',
   'tests/l3-integration/mcp/search-tools.test.mjs',
 ]);

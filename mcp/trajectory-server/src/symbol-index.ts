@@ -13,7 +13,9 @@
 // unchanged files that name a symbol this pass inserted (ADR 0002). A
 // generated bundle with a sibling source map gets a 'module' row of its own,
 // re-read only when the map changes, with a 'bundles' edge to each in-repo
-// source the map lists (GH 2284).
+// source the map lists (GH 2284). A manifest, task file or CI file the env
+// readers recognise is indexed as 'runner' rows with name-only 'covers' edges
+// to the directories each command checks (parsing/runners.ts, GH 2326).
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,9 +43,11 @@ import {
   type SymbolKind,
 } from './parsing/extract.js';
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
+import { extractRunners, repoPaths, type RepoPaths } from './parsing/runners.js';
+import { envReaderFor } from './env/collect.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 10;
+export const EXTRACTOR_VERSION = 14;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -124,7 +128,27 @@ export interface SymbolCard {
   writes_table: RefList;
   tests: RefList;
   bundled_by: RefList;
+  reads_config: ConfigKeyList;
   note?: string;
+}
+
+export interface ConfigKeyRef {
+  key: string;
+  line: number;
+}
+
+export interface ConfigKeyList {
+  refs: ConfigKeyRef[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface ConfigReader {
+  qualified_name: string;
+  kind: SymbolKind;
+  repo: string;
+  path: string;
+  line: number;
 }
 
 export interface BundleMap {
@@ -137,7 +161,13 @@ const SYMBOL_COLUMNS =
 
 const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_function']);
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
+const TABLE_EDGES_JSON = JSON.stringify([...TABLE_EDGES]);
 const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
+// Edges stored by name alone (dst_id NULL, resolution 'name') that no
+// resolution pass rebinds or resets: neither a plugin_config key nor a
+// directory a runner covers is a symbol.
+const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config', 'covers']);
+const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
 export { isTestPath };
 
@@ -260,10 +290,11 @@ class SymbolWriter {
     for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
     return extraction.edges.map((edge) => ({
       rowid: Number(
-        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, 'unresolved', ?, ?)`, [
+        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, ?, ?, ?)`, [
           ids[edge.src],
           edge.dst_name,
           edge.kind,
+          NAME_ONLY_EDGES.has(edge.kind) ? 'name' : 'unresolved',
           edge.line,
           edge.hint,
         ]).lastInsertRowid,
@@ -320,6 +351,7 @@ class Resolver {
   }
 
   resolve(from: string, edge: ExtractedEdge): { dst: number; how: 'exact' | 'name' } | null {
+    if (NAME_ONLY_EDGES.has(edge.kind)) return null;
     if (edge.kind === 'imports') {
       const target = resolveImport(from, edge.hint, this.fileSet);
       if (!target) return null;
@@ -341,7 +373,11 @@ class Resolver {
     }
     if (TABLE_EDGES.has(edge.kind)) {
       const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === 'sql_table');
+      const real = cands.filter((c) => !outsideConceptLane(c.path));
+      if (real.length === 1) return { dst: real[0]!.id, how: 'exact' };
       const pick =
+        real.find((c) => c.path.endsWith('.sql')) ??
+        real[0] ??
         cands.find((c) => c.path.endsWith('.sql') && !isTestPath(c.path)) ??
         cands.find((c) => !isTestPath(c.path)) ??
         cands[0];
@@ -349,20 +385,20 @@ class Resolver {
     }
     const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
     const member = edge.hint !== null && edge.hint !== 'this';
-    const same = cands.find((c) => c.path === from);
-    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
-    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
-    if (same && !member) return { dst: same.id, how: 'exact' };
-    if (viaImport) {
-      const hit = cands.find((c) => c.path === viaImport);
-      if (hit) return { dst: hit.id, how: 'exact' };
-    } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
     if (member) {
       const typed = cands.filter(
         (c) => c.kind === 'method' && !isTestPath(c.path) && c.qualified_name === `${edge.hint}.${edge.dst_name}`,
       );
       return typed.length === 1 ? { dst: typed[0]!.id, how: 'name' } : null;
     }
+    const same = cands.find((c) => c.path === from);
+    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
+    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
+    if (same) return { dst: same.id, how: 'exact' };
+    if (viaImport) {
+      const hit = cands.find((c) => c.path === viaImport);
+      if (hit) return { dst: hit.id, how: 'exact' };
+    } else if (viaSource) return { dst: viaSource.id, how: 'exact' };
     const unique = cands.filter((c) => !isTestPath(c.path));
     return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0]!.id, how: 'name' } : null;
   }
@@ -374,9 +410,14 @@ function push<V>(map: Map<string, V[]>, key: string, value: V): void {
   else map.set(key, [value]);
 }
 
-// An edge whose target was deleted (ON DELETE SET NULL) no longer resolves.
+// An edge whose target was deleted (ON DELETE SET NULL) no longer resolves;
+// a name-only edge never had a target and keeps its resolution.
 export function markOrphanedEdges(db: TrajectoryDB): void {
-  db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+  db.run(
+    `UPDATE wm_edges SET resolution = 'unresolved'
+      WHERE dst_id IS NULL AND resolution <> 'unresolved' AND kind NOT IN (SELECT value FROM json_each(?))`,
+    [NAME_ONLY_JSON],
+  );
 }
 
 export function deleteFileSymbols(db: TrajectoryDB, repo: string, path: string): void {
@@ -407,21 +448,44 @@ const toPending = (r: StoredEdge): Pick<PendingEdge, 'from' | 'edge'> => ({
   edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint },
 });
 
+// The tables a non-exact table edge names that have exactly one sql_table
+// definition outside test and fixture paths.
+function soleTables(db: TrajectoryDB, repo: string): string[] {
+  const real = new Map<string, number>();
+  for (const s of db.all<{ qualified_name: string; path: string }>(
+    `SELECT qualified_name, path FROM wm_symbols
+      WHERE repo = ? AND kind = 'sql_table' AND qualified_name IN (
+        SELECT e.dst_name FROM wm_edges e JOIN wm_symbols src ON src.id = e.src_id
+         WHERE src.repo = ? AND e.resolution <> 'exact' AND e.kind IN (SELECT value FROM json_each(?)))`,
+    [repo, repo, TABLE_EDGES_JSON],
+  )) {
+    if (!outsideConceptLane(s.path)) real.set(s.qualified_name, (real.get(s.qualified_name) ?? 0) + 1);
+  }
+  return [...real].filter(([, n]) => n === 1).map(([name]) => name);
+}
+
 // Files this pass did not re-parse keep their edges, so a caller of a symbol
 // that was just added, moved into another file or re-created under a new kind
 // stays unresolved. Re-run resolution, with each caller file's stored imports
 // and sources as context, over the edges naming an inserted symbol that are
 // not exact or lost their target, and over every edge whose target this pass
 // deleted (dst_id cleared by ON DELETE SET NULL, resolution not yet reset).
+// A table edge is exact only while its table has one definition outside test
+// and fixture paths, so a table edge naming an inserted symbol is revisited
+// even when exact, and a non-exact one whose table is now down to one such
+// definition is revisited whatever pass removed the others.
 function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip: Set<number>): number {
   const candidates = db
     .all<StoredEdge>(
       `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
          FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
-        WHERE s.repo = ?
+        WHERE s.repo = ? AND e.kind NOT IN (SELECT value FROM json_each(?))
           AND ((e.dst_id IS NULL AND e.resolution <> 'unresolved')
-            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL) AND e.dst_name IN (SELECT value FROM json_each(?))))`,
-      [repo, JSON.stringify([...names])],
+            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL OR e.kind IN (SELECT value FROM json_each(?)))
+                AND e.dst_name IN (SELECT value FROM json_each(?)))
+            OR (e.kind IN (SELECT value FROM json_each(?)) AND e.resolution <> 'exact'
+                AND e.dst_name IN (SELECT value FROM json_each(?))))`,
+      [repo, NAME_ONLY_JSON, TABLE_EDGES_JSON, JSON.stringify([...names]), TABLE_EDGES_JSON, JSON.stringify(soleTables(db, repo))],
     )
     .filter((r) => !skip.has(Number(r.rowid)));
   if (candidates.length === 0) return 0;
@@ -588,11 +652,16 @@ export async function indexRepoSymbols(
   const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
   const parsers: Parsers | null = jobs.some((j) => j.lang !== null && needsParser(j.lang)) ? await loadParsers() : null;
 
+  let known: RepoPaths | null = null;
+  const knownPaths = (): RepoPaths =>
+    (known ??= repoPaths(db.all<{ path: string }>(`SELECT path FROM wm_files WHERE repo = ?`, [repo]).map((r) => r.path)));
+
   const failed: Array<{ file: StaleFile; error: string }> = [];
   const parsed: Parsed[] = [];
   for (const { file, lang } of jobs) {
     const isHooks = file.path === HOOKS_PATH;
-    if (lang === null && !isHooks) {
+    const env = Number(file.size_bytes) > MAX_PARSE_BYTES ? null : envReaderFor(file.path);
+    if (lang === null && !isHooks && !env) {
       parsed.push({ file, extraction: null });
       continue;
     }
@@ -600,7 +669,9 @@ export async function indexRepoSymbols(
       const src = readSource(repoPath, file.path);
       const extraction = isHooks
         ? extractHooks(src, routerTable(repoPath))
-        : extractFile(parsers, file.path, lang as SourceLanguage, src);
+        : env
+          ? extractRunners(file.path, env.reader(file.path, src), env.ci, knownPaths())
+          : extractFile(parsers, file.path, lang as SourceLanguage, src);
       parsed.push({ file, extraction });
     } catch (e) {
       failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
@@ -758,7 +829,7 @@ function refList(rows: EdgeEnd[]): RefList {
 
 // A symbol card: who calls it, what it calls and imports, the tables it reads
 // and writes (for a table, who reads and writes it), the tests that reference
-// it and the bundles that inline its file.
+// it, the bundles that inline its file and the plugin_config keys it reads.
 export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   const inbound = db.all<EdgeEnd>(
     `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
@@ -767,8 +838,8 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
       ORDER BY o.path, o.start_line`,
     [symbol.id],
   );
-  const outbound = db.all<EdgeEnd>(
-    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+  const outbound = db.all<EdgeEnd & { dst_name: string; line: number | null }>(
+    `SELECT e.kind AS edge_kind, e.resolution, e.dst_name, e.line, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
        FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
       WHERE e.src_id = ?
       ORDER BY e.line`,
@@ -794,9 +865,58 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
     writes_table: refList(of(tableSide, ['writes_table'])),
     tests: refList(inbound.filter((r) => r.edge_kind !== 'bundles' && r.path !== null && isTestPath(r.path))),
     bundled_by: refList(bundlers),
+    reads_config: configKeyList(outbound.filter((r) => r.edge_kind === 'reads_config')),
   };
-  if ([...inbound, ...outbound].some((r) => r.resolution !== 'exact')) card.note = 'found by name; not all callers';
+  const byName = [...inbound, ...outbound].some((r) => r.resolution !== 'exact' && !NAME_ONLY_EDGES.has(r.edge_kind));
+  if (byName) card.note = 'found by name; not all callers';
   return card;
+}
+
+function configKeyList(rows: Array<{ dst_name: string; line: number | null }>): ConfigKeyList {
+  const unique = new Map<string, ConfigKeyRef>();
+  for (const r of rows) {
+    const line = Number(r.line);
+    unique.set(`${r.dst_name}\u0000${line}`, { key: r.dst_name, line });
+  }
+  const refs = [...unique.values()];
+  return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
+}
+
+// The symbols holding a SELECT that reads plugin_config key `key`, in the
+// given repos, one row per reading line.
+export function configKeyReaders(db: TrajectoryDB, repos: string[], key: string): ConfigReader[] {
+  return db
+    .all<ConfigReader>(
+      `SELECT DISTINCT o.qualified_name, o.kind, o.repo, o.path, e.line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.kind = 'reads_config' AND e.dst_name = ? AND o.repo IN (SELECT value FROM json_each(?))
+        ORDER BY o.repo, o.path, e.line, o.qualified_name`,
+      [key, JSON.stringify(repos)],
+    )
+    .map((r) => ({ qualified_name: r.qualified_name, kind: r.kind, repo: r.repo, path: r.path, line: Number(r.line) }));
+}
+
+export interface CoveringRunner {
+  runner: string;
+  path: string;
+  line: number;
+  command: string;
+}
+
+// The runners of a repo by the directory a 'covers' edge names, keyed by the
+// world-model directory path ('' for the repo root).
+export function coveringRunners(db: TrajectoryDB, repo: string): Map<string, CoveringRunner[]> {
+  const out = new Map<string, CoveringRunner[]>();
+  for (const r of db.all<{ dst_name: string; runner: string; path: string; line: number; command: string }>(
+    `SELECT DISTINCT e.dst_name, s.qualified_name AS runner, s.path, e.line, s.signature AS command
+       FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+      WHERE s.repo = ? AND e.kind = 'covers'
+      ORDER BY s.path, e.line, s.qualified_name`,
+    [repo],
+  )) {
+    push(out, r.dst_name === '.' ? '' : r.dst_name, { runner: r.runner, path: r.path, line: Number(r.line), command: r.command });
+  }
+  return out;
 }
 
 interface ImpactRow extends EdgeEnd {

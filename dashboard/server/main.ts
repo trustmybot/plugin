@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
-import { efficiency } from './efficiency.ts';
+import { efficiency, efficiencyCompare } from './efficiency.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { loadReleases } from './releases.ts';
@@ -96,9 +96,18 @@ async function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): Promi
     const body = 'error' in filter ? filter : q.explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, 'error' in body ? 400 : 200, body);
   }
+  if (parts.length === 3 && resource === 'insights' && id === 'explore' && parts[2] === 'compare') {
+    const query = q.compareQuery(url.searchParams);
+    const body = 'error' in query ? query : q.exploreCompare(db, query.filter, query.p1, query.p2, url.searchParams, RELEASES);
+    return sendJson(res, 'error' in body ? 400 : 200, body);
+  }
   if (parts.length === 2 && resource === 'insights' && id === 'efficiency') {
     const filter = q.insightFilter(url.searchParams);
     return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, await efficiency(db, filter));
+  }
+  if (parts.length === 3 && resource === 'insights' && id === 'efficiency' && parts[2] === 'compare') {
+    const query = q.compareQuery(url.searchParams);
+    return 'error' in query ? sendJson(res, 400, query) : sendJson(res, 200, await efficiencyCompare(db, query.filter, query.p1, query.p2));
   }
   if (parts.length === 2 && resource === 'insights' && id === 'compare') {
     const query = q.compareQuery(url.searchParams);

@@ -3,6 +3,7 @@ import {
   ALL_TASKS,
   DATE_ORDER_ERROR,
   NO_CHANGE,
+  NO_BASELINE_TASKS_TITLE,
   NO_BASELINE_TITLE,
   RANGES,
   PREV_RANGES,
@@ -155,7 +156,7 @@ export function dateDraft(from: string, to: string): DraftResult<Slice> {
   return { slice: { kind: 'dates', from: a, to: b }, error: null, field: null };
 }
 
-export type DeltaMeasure = 'tokens_out' | 'context' | 'cache_hit' | 'cost' | 'duration_ms' | 'tool_uses' | 'count';
+export type DeltaMeasure = 'tokens_out' | 'context' | 'cache_hit' | 'cost' | 'duration_ms' | 'tool_uses' | 'count' | 'first_pass' | 'verification' | 'share' | 'throughput' | 'tok_line' | 'rework_share';
 export type Polarity = 'lower' | 'higher' | 'neutral';
 
 export const POLARITY: Record<DeltaMeasure, Polarity> = {
@@ -163,10 +164,19 @@ export const POLARITY: Record<DeltaMeasure, Polarity> = {
   context: 'lower',
   cost: 'lower',
   duration_ms: 'lower',
+  tok_line: 'lower',
+  rework_share: 'lower',
   cache_hit: 'higher',
+  first_pass: 'higher',
+  verification: 'higher',
+  throughput: 'higher',
   tool_uses: 'neutral',
   count: 'neutral',
+  share: 'neutral',
 };
+
+const POINTS: ReadonlySet<DeltaMeasure> = new Set(['cache_hit', 'first_pass', 'verification', 'share', 'rework_share']);
+const TASK_LEVEL: ReadonlySet<DeltaMeasure> = new Set(['first_pass', 'verification', 'share', 'throughput', 'tok_line', 'rework_share']);
 
 const REL_BAND = 0.05;
 const PTS_BAND = 1;
@@ -187,11 +197,14 @@ function magnitude(abs: number, unit: '%' | ' pts'): string {
   return unit === '%' && one === '10.0' ? '10%' : `${one}${unit}`;
 }
 
-// Period 1 is the baseline: relative change (p2 − p1) / p1, or for cache-hit
-// the difference in percentage points.
+// Period 1 is the baseline: relative change (p2 − p1) / p1, or for rates and
+// shares the difference in percentage points.
 export function delta(measure: DeltaMeasure, subject: string, p1: number | null, p2: number | null): Delta {
-  const points = measure === 'cache_hit';
-  if (p1 === null || (p1 === 0 && !points)) return { text: vsPeriod1('—'), variant: 'secondary', direction: 'none', aria: noBaselineAria(subject), title: NO_BASELINE_TITLE };
+  const points = POINTS.has(measure);
+  if (p1 === null || (p1 === 0 && !points)) {
+    const title = TASK_LEVEL.has(measure) ? NO_BASELINE_TASKS_TITLE : NO_BASELINE_TITLE;
+    return { text: vsPeriod1('—'), variant: 'secondary', direction: 'none', aria: noBaselineAria(subject, title), title };
+  }
   if (p2 === null) return { text: vsPeriod1('—'), variant: 'secondary', direction: 'none', aria: vsPeriod1(`${subject} —`) };
   const change = points ? (p2 - p1) * 100 : (p2 - p1) / p1;
   if (change === 0) return { text: NO_CHANGE, variant: 'secondary', direction: 'none', aria: noChangeAria(subject) };

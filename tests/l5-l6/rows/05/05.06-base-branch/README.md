@@ -2,7 +2,7 @@
 
 **Flow under test**: `repos.target_branch` honored server-side by `task_provision`, which defaults `parent_branch_id` from it (bro passes no `base`). Issue #101 allows base allowlist {dev, main, master}; this row regresses on default-fallback.
 
-**Pre-state** (`onboarding-named` + `setup-l5.sh`): `repos.target_branch='dev'`. Real `dev` branch exists in git.
+**Pre-state** (`onboarding-named` + `setup-l5.ts`): `repos.target_branch='dev'`. Real `dev` branch exists in git.
 
 **Trigger**: `@bro write a python cli todo`
 
@@ -12,7 +12,7 @@
 3. `task_create_batch` is called with `parent_branch_id='dev'`
 4. No task falls back to 'main'
 
-**L5 mode**: `setup-l5.sh` seeds `repos.target_branch='dev'` and creates the dev branch.
+**L5 mode**: `setup-l5.ts` seeds `repos.target_branch='dev'` and creates the dev branch.
 **L6 mode**: standalone row, not in chain.
 
 ## Scorers

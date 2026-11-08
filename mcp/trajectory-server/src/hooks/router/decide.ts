@@ -33,6 +33,7 @@ import ROUTER_BUDGETS from './budgets.json' with { type: 'json' };
 import { bashParser } from '../cmd-analysis/parser.js';
 import type { Gate, GateResult } from '../gate.js';
 import { runWithDeadline } from '../lib/deadline.js';
+import { fixedReason, passthroughDeny } from '../lib/deny.js';
 import { runWithGitMemo } from '../lib/git.js';
 import { type RouterGate, type RouterGroup, ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 
@@ -99,22 +100,22 @@ function trimNewlines(text: string): string {
 }
 
 export function failClosedReason(gate: string, cause: string): string {
-  return `BLOCKED: TMB gate ${gate} ${cause} without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry.`;
+  return fixedReason(`BLOCKED: TMB gate ${gate} ${cause} without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; the gate needs fixing.`, 'policy');
 }
 
+const RETRY_FIX = { allowed: 'the same call again; if it keeps timing out, report it' } as const;
+
 export function timeoutReason(gate: string, budgetMs: number): string {
-  return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+  return fixedReason(`BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed).`, RETRY_FIX);
 }
 
 export function groupBudgetReason(gate: string, groupBudgetMs: number, ran: boolean): string {
   const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
-  return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+  return fixedReason(`BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed).`, RETRY_FIX);
 }
 
-export function denyOutput(reason: string, event: string): string {
-  const output = event === 'PreToolUse' ? { hookSpecificOutput: { hookEventName: event, permissionDecision: 'deny', permissionDecisionReason: reason } } : { decision: 'block', reason };
-  return `${JSON.stringify(output)}\n`;
-}
+/** A reason that already carries its ending, printed as its event wants. */
+export const denyOutput = passthroughDeny;
 
 /** deny_reason: the first JSON object's permissionDecisionReason or reason, else <fallback>. */
 export function denyReason(stdout: string, fallback: string): string {

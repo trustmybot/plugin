@@ -6,7 +6,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` pre-seeds:
+`onboarding-named` fixture. `setup-l5.ts` pre-seeds:
 
 - `src/cli.py` (TODO CLI with JSON storage) — the substrate the deliberation references
 - `cto` (templated) registered with a `project:` file_path (in L6 chain: comes from step 10's `/tmb:agent-create cto` ceremony)

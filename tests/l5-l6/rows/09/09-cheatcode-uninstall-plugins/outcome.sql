@@ -1,12 +1,12 @@
 -- Outcome assertions for 09-cheatcode-uninstall-plugins. Each row returns
 -- (pass, description). The scorer requires every row's pass column to be 1.
 --
--- Scope: setup-l5.sh pre-seeds two installed plugins (feature-dev → swe,
+-- Scope: setup-l5.ts pre-seeds two installed plugins (feature-dev → swe,
 -- code-review → code-reviewer). bro tears both down. The deterministic proof is
 -- (a) two cheatcode_uninstalled audit rows, (b) both cheatcodes rows gone
 -- (COUNT=0 by name), and (c) their attachment rows gone (the install + teardown
 -- reverse each attachment via the marketplace path). Marketplace results are
--- stubbed via TMB_CHEATCODE_UNINSTALL_FIXTURE; the teardown SHAPE is covered by
+-- stubbed via .tmb-cheatcode-uninstall-fixture.json; the teardown SHAPE is covered by
 -- L2/L3, the journey-level reversal here.
 
 SELECT

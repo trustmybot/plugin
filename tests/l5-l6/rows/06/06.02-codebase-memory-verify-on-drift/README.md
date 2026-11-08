@@ -4,7 +4,7 @@
 
 **Scenario:** Existing repo + world model pre-warmed with v1's README summary + `README.md` then edited on disk to v2 (without commit). On the next code-touching ask, bro plans and dispatches; the post-task-close-rescan hook (when bro_atomic_close fires) refreshes the world model from the new README.
 
-**L5 mode:** `setup-l5.sh` commits a v1 `src/foo.py` + `README.md`, seeds a `deep_scan_completed` audit row (proxy for "world model warm with v1 summary"), then edits both files on disk without committing.
+**L5 mode:** `setup-l5.ts` commits a v1 `src/foo.py` + `README.md`, seeds a `deep_scan_completed` audit row (proxy for "world model warm with v1 summary"), then edits both files on disk without committing.
 **L6 mode:** Not in chain manifest (standalone row).
 
 ## Scorers

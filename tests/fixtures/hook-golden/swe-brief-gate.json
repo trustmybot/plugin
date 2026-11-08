@@ -251,7 +251,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=11)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=11)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -282,7 +282,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=10) before Write. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=10)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=10) before Write. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=10)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -313,7 +313,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=10) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=10)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=10) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=10)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -344,7 +344,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before mcp__plugin_tmb_trajectory-server__task_get. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=11)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before mcp__plugin_tmb_trajectory-server__task_get. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=11)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -375,7 +375,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Write. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=11)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Write. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=11)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -406,7 +406,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=11)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Edit. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=11)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -437,7 +437,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before mcp__plugin_tmb_trajectory-server__task_update_status. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=11)\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before mcp__plugin_tmb_trajectory-server__task_update_status. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Allowed form: task_brief(agent='swe', task_id=11)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

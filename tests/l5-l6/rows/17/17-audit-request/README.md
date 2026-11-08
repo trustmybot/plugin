@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` commits `src/cli.py` (todo CLI, JSON store at `todos.json`) and a `todos.json` holding 12 items written by `add`. `list` prints only the first 10 (`_load()[:PAGE]`), so `python3 src/cli.py list` against the store shows two items lost — a violation the data exposes before the code explains it.
+`onboarding-named` fixture. `setup-l5.ts` commits `src/cli.py` (todo CLI, JSON store at `todos.json`) and a `todos.json` holding 12 items written by `add`. `list` prints only the first 10 (`_load()[:PAGE]`), so `python3 src/cli.py list` against the store shows two items lost — a violation the data exposes before the code explains it.
 
 ## Turns
 

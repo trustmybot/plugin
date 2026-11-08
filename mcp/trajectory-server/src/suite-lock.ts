@@ -97,7 +97,7 @@ function nodeFullSuite(words: string[]): boolean {
   return files.length === 0 || files.some((f) => /[*?[]/.test(f));
 }
 
-/** True for a command that runs a whole test suite: bun/npm/pnpm run test, npm/pnpm test, tests/run-all.sh, or node --test with a glob or no file. */
+/** True for a command that runs a whole test suite: bun/npm/pnpm run test, npm/pnpm test, tests/run-all.ts or .sh, or node --test with a glob or no file. */
 export function isFullSuite(command: string): boolean {
   return command.split(SHELL_SEPARATORS).some((segment) => wordsFullSuite(commandWords(segment)));
 }
@@ -112,7 +112,7 @@ export function isFullSuiteArgv(argv: string[]): boolean {
 function wordsFullSuite(words: string[]): boolean {
   if (words.length === 0) return false;
   if (PACKAGE_TEST.test(words.join(' '))) return true;
-  if (words.some((w) => /(?:^|\/)tests\/run-all\.sh$/.test(w))) return true;
+  if (words.some((w) => /(?:^|\/)tests\/run-all\.(?:ts|sh)$/.test(w))) return true;
   return nodeFullSuite(words);
 }
 

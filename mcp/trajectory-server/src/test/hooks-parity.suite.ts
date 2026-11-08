@@ -309,6 +309,7 @@ export function hooksParityShard(k: number, n: number): void {
           'swe-stop-cause',
           'task-overrun-alert',
           'tool-output-size',
+          'wm-read-before-provision',
           'worktree-adopt-guard',
         ]);
       });

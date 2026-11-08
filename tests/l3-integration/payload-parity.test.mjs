@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,4 +87,18 @@ test('exits 2 without --ref', (t) => {
   const repo = repoWith(t, GENERATED);
   const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', SCRIPT, '--root', repo], { encoding: 'utf8' });
   assert.equal(r.status, 2);
+});
+
+test('runs when invoked through a symlinked directory', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'payload-parity-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, 'root');
+  symlinkSync(ROOT, link);
+  const r = spawnSync(
+    process.execPath,
+    ['--experimental-strip-types', '--no-warnings', join(link, 'scripts/maintenance/payload-parity.ts'), '--bogus'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /usage: payload-parity\.ts --ref <ref>/);
 });

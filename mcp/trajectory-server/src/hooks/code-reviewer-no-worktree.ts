@@ -7,7 +7,7 @@
  * Bypass: TMB_ALLOW_CODE_REVIEWER_WORKTREE=1.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
-import { jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqPath, jqRawOr } from './lib/lint-shell.js';
 import { commandSubstitution } from './lib/project-env.js';
 import { CODE_REVIEWER_ROLE, normalizeRole } from './lib/role.js';
@@ -19,8 +19,8 @@ export const DENY_REASON =
   'code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin — ' +
   "from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate " +
   '(V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.\n\n' +
-  'Spawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. ' +
   `For exceptional override, set ${BYPASS_ENV}=1.`;
+export const DENY_FIX: DenyFix = { allowed: 'the same code-reviewer spawn without isolation (defaults to none) or with a non-worktree isolation' };
 
 /** `$(echo "$INPUT" | jq -r '.<keys> // ""')` over the payload `INPUT=$(cat)` captured. */
 export function spawnField(payload: string, ...keys: string[]): string {
@@ -32,16 +32,10 @@ export function isCodeReviewerSpawn(payload: string): boolean {
   return spawnField(payload, 'tool_name') === 'Agent' && normalizeRole(spawnField(payload, 'tool_input', 'subagent_type')) === CODE_REVIEWER_ROLE;
 }
 
-/** The `jq -nc '{hookSpecificOutput: {…, permissionDecision: "deny", permissionDecisionReason: $reason}}'` line. */
-export function spawnDeny(reason: string): GateResult {
-  return {
-    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`,
-    code: 0,
-  };
-}
+export const spawnDeny: (reason: string, fix: DenyFix) => GateResult = denyResult;
 
 export const codeReviewerNoWorktree: SyncGate = (payload, env) => {
   if (env[BYPASS_ENV] === '1') return ALLOW;
   if (!isCodeReviewerSpawn(payload)) return ALLOW;
-  return spawnField(payload, 'tool_input', 'isolation') === 'worktree' ? spawnDeny(DENY_REASON) : ALLOW;
+  return spawnField(payload, 'tool_input', 'isolation') === 'worktree' ? spawnDeny(DENY_REASON, DENY_FIX) : ALLOW;
 };

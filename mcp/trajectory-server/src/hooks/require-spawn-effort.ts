@@ -43,9 +43,9 @@ function givenEffort(payload: string): string {
 
 function denyMismatch(who: string, expected: string, given: string, change: string): GateResult {
   const passed = given !== '' ? `passed effort="${given}"` : 'passed no effort';
-  return denyPreToolUse(
-    `BLOCKED: ${who} runs at effort "${expected}", but the Agent call ${passed}. Pass effort="${expected}" on the Agent call. ${change}`,
-  );
+  return denyPreToolUse(`BLOCKED: ${who} runs at effort "${expected}", but the Agent call ${passed}. ${change}`, {
+    allowed: `the same Agent call with effort="${expected}"`,
+  });
 }
 
 function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): GateResult {
@@ -57,7 +57,8 @@ function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): Gat
   if (expected === GATE_READ_ERROR) {
     if (gateRead(db, "SELECT name FROM pragma_table_info('tasks') WHERE name = 'effort';", env) === '') {
       return denyPreToolUse(
-        'BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet. Restart Claude Code so the server migrates the DB, then retry the spawn.',
+        'BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet; a Claude Code restart lets the server migrate it.',
+        'policy',
       );
     }
     return denyUnreadable(GATE_NAME, env);

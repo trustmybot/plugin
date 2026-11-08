@@ -10,6 +10,7 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,11 +18,14 @@ import { fileURLToPath } from 'node:url';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
 import { encode } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements } from '../hooks/cmd-analysis/index.js';
-import { gitPushGuard, PARSE_REASON } from '../hooks/git-push-guard.js';
+import { gitPushGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT, SWE_PUSH_FIX, SWE_PUSH_REASON } from '../hooks/git-push-guard.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { CODE_REVIEWER_ROLE } from '../hooks/lib/role.js';
 import { findGate } from '../hooks/registry.js';
 import { buildSandbox, materialize } from './hooks-git-push-guard-parity.suite.js';
+import { GIT_ENV } from './hook-sandbox.js';
 
+const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const PUSH_CORPUS = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../tests/fixtures/hook-corpus/git-push-guard');
 const INTEGRATE = 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>';
 
@@ -120,10 +124,41 @@ describe('git-push-guard: GH 1692 the rebased-commit deny names cli.js integrate
       const why = reason((await gitPushGuard(c.input, env)).stdout);
       assert.ok(why.includes(phrase), why);
       assert.ok(why.includes('Then rebase it with cli.js integrate, which re-runs verification[]'), why);
-      assert.ok(why.endsWith(`\n  ${INTEGRATE}`), why);
+      assert.ok(why.endsWith(` Allowed form: ${INTEGRATE}`), why);
       assert.ok(!why.includes('skills/tmb_planning/scripts'), why);
     });
   }
+});
+
+describe("git-push-guard: GH 2549 an empty quoted git -C '' value still names the push", () => {
+  let root: string;
+  let repo: string;
+  let env: NodeJS.ProcessEnv;
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  before(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gpg-2549-')));
+    repo = join(root, 'repo');
+    env = { ...process.env, ...GIT_ENV, CLAUDE_PROJECT_DIR: repo, TRAJECTORY_DB_PATH: join(root, 'none.db') };
+    git(root, 'init', '-q', '-b', 'dev', repo);
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(repo, 'worktree', 'add', '-q', '-b', 'fix/x', join(repo, 'wt'));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const command of ["git -C '' push origin dev", 'git -C "" push origin dev'])
+    it(`${command}: swe gets the SWE push deny`, async () => {
+      const input = JSON.stringify({ tool_name: 'Bash', cwd: repo, agent_type: 'tmb:swe', tool_input: { command } });
+      assert.equal(reason((await gitPushGuard(input, env)).stdout), fixedReason(SWE_PUSH_REASON, SWE_PUSH_FIX));
+    });
+
+  it("git -C '' push origin dev: bro in a repo with linked worktrees gets the ambiguous-target deny", async () => {
+    const why = reason((await gitPushGuard(payload("git -C '' push origin dev", repo), env)).stdout);
+    assert.match(why, /^BLOCKED: ambiguous_git_target: /);
+    assert.ok(why.endsWith(' Allowed form: git -C <path> push origin dev'), why);
+  });
 });
 
 describe('git-push-guard: wiring', () => {

@@ -6,5 +6,5 @@
   "tool_input": {
     "command": "git merge feat/x"
   },
-  "corpus_expect": "To sync a branch with its own upstream"
+  "corpus_expect": "Syncing a branch with its own upstream"
 }

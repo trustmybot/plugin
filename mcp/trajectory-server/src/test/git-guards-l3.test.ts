@@ -586,8 +586,42 @@ describe('git-guards l3: target dir from the command, heredocs are data (GH 1196
     const out = run('swe', repo, "git commit -m 'fix: thing'");
     deny(out, 'no dir and several checkouts must deny');
     has(out, 'ambiguous_git_target', 'the deny names the real reason');
-    has(out, 'git -C <path> or cd <path>', 'the deny carries the remedy');
+    has(out, 'Allowed form: git -C <path> commit -m ', 'the deny carries the remedy');
     hasNot(out, 'shared workflow base', 'never the protected-branch rule the agent did not break');
+  });
+
+  it("GH 2536: the ambiguous-target deny quotes the command as written, its allowed form keeping the quoted literals", () => {
+    const reason = (out: string): string => JSON.parse(out.split('\n').find((l) => l.startsWith('{')) ?? '{}').hookSpecificOutput?.permissionDecisionReason;
+    assert.equal(
+      reason(run('swe', repo, "git commit -m 'fix: thing'")),
+      "BLOCKED: ambiguous_git_target: `git commit -m 'fix: thing'` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Name the checkout's literal path. Allowed form: git -C <path> commit -m 'fix: thing'",
+    );
+    assert.equal(
+      reason(run('swe', repo, `cd $D && git -c user.name='A B' commit -m "x y"`)),
+      "BLOCKED: ambiguous_git_target: `git -c user.name='A B' commit -m \"x y\"` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> commit -m \"x y\"",
+    );
+    assert.match(reason(run('swe', repo, "FOO=1 git commit -m 'a  b' 2>&1")), /`git commit -m 'a {2}b' 2>&1` .* Allowed form: git -C <path> commit -m 'a {2}b' 2>&1$/);
+    assert.match(reason(run(undefined, repo, "git push origin 'fix/thing'", 'git-push-guard')), / Allowed form: git -C <path> push origin 'fix\/thing'$/);
+  });
+
+  it("GH 2510: SWE bare 'git commit' with the payload cwd inside its linked worktree: judged there, allowed", () => {
+    const out = run('swe', wt, 'git commit -q -m x');
+    hasNot(out, 'ambiguous_git_target', 'git proves the cwd is a linked worktree: one checkout');
+    allow(out, 'the commit lands on the worktree branch fix/thing');
+    mkdirSync(join(wt, 'sub'));
+    allow(run('swe', join(wt, 'sub'), 'git commit -q -m x'), 'a subdirectory of the linked worktree is judged there too');
+  });
+
+  it("GH 2510: SWE bare 'git commit' with the payload cwd at the main checkout beside linked worktrees: still ambiguous", () =>
+    has(run('swe', repo, 'git commit -q -m x'), 'ambiguous_git_target', 'the main checkout holding linked worktrees is not one checkout'));
+
+  it("GH 2510: 'git -C $W commit' and 'cd $D && git commit' from a linked worktree cwd: still ambiguous", () => {
+    let out = run('swe', wt, 'git -C $W commit -q -m x');
+    has(out, 'ambiguous_git_target', 'an unresolved -C dir may name any checkout');
+    has(out, 'comes through a variable', 'the deny names the unresolved dir');
+    out = run('swe', wt, 'cd $D && git commit -m x');
+    has(out, 'ambiguous_git_target', 'an unresolved cd dir may name any checkout');
+    has(out, 'comes through a variable', 'the deny names the unresolved dir');
   });
 
   it('GH 1196: markdown-only heredoc mentioning git commit / gh pr merge: allowed', () => {
@@ -606,7 +640,7 @@ describe('git-guards l3: target dir from the command, heredocs are data (GH 1196
   it("GH 1196: 'cd $D && git commit' with worktrees present: ambiguous_git_target, as git-push-guard", () => {
     let out = run('swe', repo, 'cd $D && git commit -m x');
     has(out, 'ambiguous_git_target', 'a dir behind a variable in a repo with worktrees is ambiguous');
-    has(out, 'git -C <path> or cd <path>', 'the deny carries the remedy');
+    has(out, 'Allowed form: git -C <path> commit -m x', 'the deny carries the remedy');
     out = run(undefined, repo, 'cd $D && git checkout -b feat/y');
     has(out, 'ambiguous_git_target', 'a branch create behind a variable dir is ambiguous too');
     has(run(undefined, repo, 'cd $D && git push origin fix/thing', 'git-push-guard'), 'ambiguous_git_target', 'git-push-guard gives the same verdict for the same unknown dir');

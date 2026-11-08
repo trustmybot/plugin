@@ -2,10 +2,8 @@
  * The `while IFS=$'\t' read -r dir stmt; do …; done < <(tmb_cmd_statements …)`
  * loop and the tmb_payload_cwd capture the git branch guards share (GH 1692).
  */
-import type { Statement } from '../cmd-analysis/index.js';
-import type { GateResult } from '../gate.js';
+import { type Statement, withSource } from '../cmd-analysis/git.js';
 import { stripTrailingNewlines } from './db.js';
-import { jqCompact } from './jq.js';
 import { jqCapture, type JqInput } from './jq-raw.js';
 import { shellPwd } from './project-env.js';
 
@@ -27,23 +25,27 @@ export function readTabFields(line: string, n: number): string[] {
   return fields;
 }
 
-/** The `dir` / `stmt` pairs the .sh's read loop sees from tmb_cmd_statements' lines. */
+/** Per `${dir}\t${stmt}` line of <statements>: the statement that line is all of, undefined for a line of a statement that spans more (GH 2536). */
+export function lineStatements(statements: readonly Statement[]): Array<Statement | undefined> {
+  return statements.flatMap((statement) => {
+    const n = `${statement.dir}\t${statement.stmt}`.split('\n').length;
+    return n === 1 ? [statement] : new Array<undefined>(n).fill(undefined);
+  });
+}
+
+/** The `dir` / `stmt` pairs the .sh's read loop sees from tmb_cmd_statements' lines, a row of a one-line statement reading that statement's `src`. */
 export function statementRows(statements: readonly Statement[]): Statement[] {
   const text = stripTrailingNewlines(statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
   if (text === '') return [];
-  return text.split('\n').map((line) => {
+  const owners = lineStatements(statements);
+  return text.split('\n').map((line, i) => {
     const [dir, stmt] = readTabFields(line, 2);
-    return { dir, stmt };
+    const owner = owners[i];
+    return owner && 'src' in owner ? withSource({ dir, stmt }, () => owner.src) : { dir, stmt };
   });
 }
 
 /** tmb_payload_cwd: the payload's `.cwd // empty`, else $PWD. */
 export function payloadCwdOf(input: JqInput, env: NodeJS.ProcessEnv = process.env): string {
   return jqCapture(input, ['cwd'], true) || shellPwd(env);
-}
-
-/** The PreToolUse deny of <reason> as `jq -nc --arg reason …` prints it. */
-export function denyResult(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
 }

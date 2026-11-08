@@ -14,9 +14,10 @@
  */
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { cmdStatements, denyAmbiguousGitTarget, gitSubcommand, payloadCwd, stmtRepoRoot } from './cmd-analysis/index.js';
-import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
+import { DB_RETRY_FIX, dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult as deny } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath } from './lib/repo.js';
 import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
 import { HAS_PASS_SQL } from '../review-sql.js';
@@ -27,20 +28,17 @@ const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclu
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
 
-const SWE_REASON =
-  'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).';
+export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
+export const SWE_PUSH_FIX: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report)" };
 const CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
-const WORKTREE_REASON =
-  'BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`.';
+const WORKTREE_REASON = 'BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaping the detached-HEAD commits.';
+const WORKTREE_FIX: DenyFix = { allowed: 'git fetch ./.claude/worktrees/<slug> HEAD:<feature>, then git push from the main checkout' };
 const DB_REASON =
-  'BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push.';
+  'BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB.';
 export const PARSE_REASON =
-  'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout. Split it into simpler commands or fix its quoting, then retry the push.';
-
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
-}
+  'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout.';
+export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler commands with plain quoting' };
+const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 
 /** The lines of a `$(...)` capture, as `printf '%s\n' "$x"` feeds them on: [""] for "". */
 function lines(text: string): string[] {
@@ -265,17 +263,18 @@ class Guard {
     const unsigned = this.read(
       `SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(',')}) AND NOT ${HAS_PASS_SQL};`,
     );
-    if (unsigned === GATE_READ_ERROR) return deny(DB_REASON);
+    if (unsigned === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
     if (unsigned !== '') {
       const rows = lines(unsigned);
       const list = rows.map((r) => `  - task_id=${field(r, 1)}  ${field(r, 2)}  (${field(r, 3)})`).join('\n');
       return deny(
-        `BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\n\n${list}\nRun: @bro review before push\n\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`,
+        `BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\n\n${list}\n\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`,
+        { allowed: '@bro review before push' },
       );
     }
 
     const unchecked = await this.uncheckedRebases(dir, pushed);
-    if (unchecked === GATE_READ_ERROR) return deny(DB_REASON);
+    if (unchecked === GATE_READ_ERROR) return deny(DB_REASON, DB_RETRY_FIX);
     if (unchecked === '') return null;
     const rows = lines(unchecked);
     const list = rows
@@ -286,7 +285,8 @@ class Guard {
       })
       .join('\n');
     return deny(
-      `BLOCKED: pushing ${rows.length} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\n\n${list}\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch:\n  node --experimental-sqlite "\${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>`,
+      `BLOCKED: pushing ${rows.length} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:\n\n${list}\nA task with no passing review needs @bro review before push first. Then rebase it with cli.js integrate, which re-runs verification[] on the rebased commit, records the run and only then moves the branch.`,
+      INTEGRATE_FIX,
     );
   }
 }
@@ -297,7 +297,7 @@ export const gitPushGuard: Gate = async (payload, env) => {
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);
-  if (!listed.ok) return deny(PARSE_REASON);
+  if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
   const pushes = listed.statements.filter(({ stmt }) => {
     const sub = gitSubcommand(stmt);
     return (sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `);
@@ -305,15 +305,16 @@ export const gitPushGuard: Gate = async (payload, env) => {
   if (pushes.length === 0) return ALLOW;
 
   const role = agentRole(payload);
-  if (role === 'swe') return deny(SWE_REASON);
-  if (role === CODE_REVIEWER_ROLE) return deny(CODE_REVIEWER_REASON);
+  if (role === 'swe') return deny(SWE_PUSH_REASON, SWE_PUSH_FIX);
+  if (role === CODE_REVIEWER_ROLE) return deny(CODE_REVIEWER_REASON, 'policy');
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   const guard = new Guard(db, cwd, env);
-  for (const { dir, stmt } of pushes) {
-    if (dir === '?') return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
-    if (dir === '-') return { stdout: denyAmbiguousGitTarget(stmt, true), code: 0 };
-    if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON);
+  for (const push of pushes) {
+    const { dir } = push;
+    if (dir === '?') return { stdout: denyAmbiguousGitTarget(push), code: 0 };
+    if (dir === '-') return { stdout: denyAmbiguousGitTarget(push, true), code: 0 };
+    if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON, WORKTREE_FIX);
     if (db === '' || !haveSqlite(env)) continue;
     const verdict = await guard.judge(dir);
     if (verdict) return verdict;

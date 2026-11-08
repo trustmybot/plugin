@@ -214,7 +214,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed.\\nFailing command (2/2): echo 'Error: boom' >&2; echo tail; false\\nExit 1 after <s>; <s> cumulative. Recorded as verification run #2.\\n\\nFailure lines (max 15):\\nError: boom\\n\\nOutput (last 20 lines):\\nError: boom\\ntail\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed.\\nFailing command (2/2): echo 'Error: boom' >&2; echo tail; false\\nExit 1 after <s>; <s> cumulative. Recorded as verification run #2.\\n\\nFailure lines (max 15):\\nError: boom\\n\\nOutput (last 20 lines):\\nError: boom\\ntail Allowed form: task_update_status(status='completed', commit_sha, report) again once the fix is committed\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -250,7 +250,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification timed out — the 5s budget ran out <s> in, while running command 1/1 after <s>:\\nsleep 30\\n\\nRaise plugin_config.verification_timeout_s (config_set; capped at 1800s) or speed up the command. Recorded as verification run #2.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification timed out — the 5s budget ran out <s> in, while running command 1/1 after <s>:\\nsleep 30\\n\\nRaise plugin_config.verification_timeout_s (config_set; capped at 1800s) or speed up the command. Recorded as verification run #2. This is policy: stop and report.\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -428,7 +428,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read). Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -499,7 +499,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed — review finding probe(s) failed; <s> cumulative. Recorded as verification run #2.\\n\\nFinding F36-1 (probe 1/1) — REGRESSION: this finding was fixed and its probe fails again: echo 'FAIL: regressed'; exit 3\\nExit 3 after <s>.\\nOutput (last 20 lines):\\nFAIL: regressed\\n\\nFix each finding so its probe exits 0 (task_brief.open_findings lists the open ones).\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed — review finding probe(s) failed; <s> cumulative. Recorded as verification run #2.\\n\\nFinding F36-1 (probe 1/1) — REGRESSION: this finding was fixed and its probe fails again: echo 'FAIL: regressed'; exit 3\\nExit 3 after <s>.\\nOutput (last 20 lines):\\nFAIL: regressed\\n\\nFix each finding so its probe exits 0 (task_brief.open_findings lists the open ones). Allowed form: task_update_status(status='completed', commit_sha, report) again once the fix is committed\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -535,7 +535,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification gate could not locate the task worktree at @SANDBOX@/project/checkout/.claude/worktrees/missing — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification gate could not locate the task worktree at @SANDBOX@/project/checkout/.claude/worktrees/missing — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason. This is policy: stop and report.\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -640,7 +640,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed.\\nFailing command (2/2): echo 'Error: boom' >&2; echo tail; false\\nExit 1 after <s>; <s> cumulative. Recorded as verification run #2.\\n\\nFailure lines (max 15):\\nError: boom\\n\\nOutput (last 20 lines):\\nError: boom\\ntail\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: verification failed.\\nFailing command (2/2): echo 'Error: boom' >&2; echo tail; false\\nExit 1 after <s>; <s> cumulative. Recorded as verification run #2.\\n\\nFailure lines (max 15):\\nError: boom\\n\\nOutput (last 20 lines):\\nError: boom\\ntail Allowed form: task_update_status(status='completed', commit_sha, report) again once the fix is committed\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

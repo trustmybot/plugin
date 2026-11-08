@@ -36,4 +36,4 @@
 
 ## Run status
 
-**Authored but not yet run end-to-end against `claude -p`.** Reasoning: the assertions are correctness-by-construction (any successful `skill_register` call with default or explicit `scope='project-local'` produces the expected row; the schema seed is fixed at `scope='global'`). Run via `bash tests/l5-l6/run-l5.sh 05.08-skill-register-on-creation` when you want a live signal.
+**Authored but not yet run end-to-end against `claude -p`.** Reasoning: the assertions are correctness-by-construction (any successful `skill_register` call with default or explicit `scope='project-local'` produces the expected row; the schema seed is fixed at `scope='global'`). Run via `node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts 05.08-skill-register-on-creation` when you want a live signal.

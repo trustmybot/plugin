@@ -109,6 +109,9 @@ describe('task_stats — hook blocks (GH 1915)', () => {
         gate_failures: 1,
         blocks_per_run: 1,
         by_reason: { 'git-guards:ambiguous_git_target': 2, 'containment-guard:gate_failure': 1 },
+        hook_block_tokens: 0,
+        hook_block_share: 0,
+        runs_with_cost: 0,
       },
       tool_output: {},
     });
@@ -122,7 +125,17 @@ describe('task_stats — hook blocks (GH 1915)', () => {
   it('window mode with no runs reports blocks_per_run 0', async () => {
     const { db } = fixture();
     const payload = parse(await taskStats(db, { since: '2027-01-01' }));
-    assert.deepEqual(payload.window, { runs: 0, runs_with_blocks: 0, denials: 0, gate_failures: 0, blocks_per_run: 0, by_reason: {} });
+    assert.deepEqual(payload.window, {
+      runs: 0,
+      runs_with_blocks: 0,
+      denials: 0,
+      gate_failures: 0,
+      blocks_per_run: 0,
+      by_reason: {},
+      hook_block_tokens: 0,
+      hook_block_share: 0,
+      runs_with_cost: 0,
+    });
     db.close();
   });
 
@@ -144,6 +157,49 @@ describe('task_stats — hook blocks (GH 1915)', () => {
     assert.deepEqual(def?.inputSchema.required, ['agent']);
     assert.match(def?.description ?? '', /task_id/);
     assert.match(def?.description ?? '', /since/);
+  });
+});
+
+describe('task_stats — hook-block turn cost (GH 1915)', () => {
+  const costFixture = () => {
+    const f = fixture();
+    const tokens = (id: number, hookBlockTokens: number | null, tokensIn: number, tokensOut: number, cacheRead: number, cacheCreation: number) =>
+      f.db.run(
+        'UPDATE agent_runs SET hook_block_tokens = ?, tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ? WHERE id = ?',
+        [hookBlockTokens, tokensIn, tokensOut, cacheRead, cacheCreation, id],
+      );
+    tokens(f.runs.runA, 21_000, 100, 900, 50_000, 9_000);
+    tokens(f.runs.runB, 44_000, 200, 800, 70_000, 9_000);
+    tokens(f.runs.runC, null, 10, 10, 1_000, 0);
+    tokens(f.runs.runD, null, 0, 0, 0, 0);
+    return f;
+  };
+
+  it('each spawn carries its hook_block_tokens (null when unmeasured) and the task its total', async () => {
+    const { db, taskId, runs } = costFixture();
+    const payload = parse(await taskStats(db, { task_id: taskId }));
+    assert.deepEqual(
+      payload.spawns.map((s: { id: number; hook_block_tokens: number | null }) => [s.id, s.hook_block_tokens]),
+      [[runs.runA, 21_000], [runs.runB, 44_000], [runs.runC, null], [runs.runD, null]],
+    );
+    assert.equal(payload.hook_block_tokens, 65_000);
+    db.close();
+  });
+
+  it('the window sums hook_block_tokens over its swe runs, its share of their tokens_total, and runs_with_cost', async () => {
+    const { db } = costFixture();
+    const { window } = parse(await taskStats(db, { since: '2026-10-26' }));
+    assert.equal(window.runs, 3);
+    assert.equal(window.hook_block_tokens, 65_000);
+    assert.equal(window.runs_with_cost, 2);
+    assert.equal(window.hook_block_share, Math.round((65_000 / (60_000 + 80_000)) * 1000) / 1000);
+    assert.equal(window.hook_block_share, 0.464);
+    db.close();
+  });
+
+  it('the tool description names the new fields', () => {
+    const def = statsTools(tempDB()).definitions.find((d) => d.name === 'task_stats');
+    for (const field of ['hook_block_tokens', 'hook_block_share', 'runs_with_cost']) assert.match(def?.description ?? '', new RegExp(field));
   });
 });
 

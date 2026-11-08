@@ -7,8 +7,8 @@
 # v1.0.2 server and hook, boots the current tree's server on the same project so
 # the migration runs, and requires trajectory-doctor to exit 0.
 #
-# Build (the wrapper supplies the v1.0.2 tree as the `v102` build context):
-#   bash tests/l0-install/run-upgrade-smoke.sh
+# Build (the runner supplies the v1.0.2 tree as the `v102` build context):
+#   node --experimental-strip-types tests/l0-install/run-docker.ts upgrade
 #
 # Each RUN is a fail-fast assertion. Build success = the upgrade is clean.
 

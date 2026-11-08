@@ -13,15 +13,18 @@ import { join } from 'node:path';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { ANCHORS } from '../hooks/code-reviewer-spawn-note.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
-import { codeReviewerNoWorktree, DENY_REASON } from '../hooks/code-reviewer-no-worktree.js';
+import { codeReviewerNoWorktree, DENY_FIX, DENY_REASON } from '../hooks/code-reviewer-no-worktree.js';
 import {
   codeReviewerSpawnPromptShape,
   missingAnchors,
+  missingAnchorsFix,
   missingAnchorsReason,
+  RUBBER_STAMP_FIX,
   rubberStampPhrase,
   rubberStampReason,
 } from '../hooks/code-reviewer-spawn-prompt-shape.js';
-import { codeReviewerAfterAtomicClose, notClosedReason, promptTaskId } from '../hooks/code-reviewer-after-atomic-close.js';
+import { codeReviewerAfterAtomicClose, notClosedFix, notClosedReason, promptTaskId } from '../hooks/code-reviewer-after-atomic-close.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { buildSandbox } from './hooks-reviewer-spawn-parity.suite.js';
 
 const ALLOWED = { stdout: '', code: 0 };
@@ -59,7 +62,7 @@ describe('code-reviewer-no-worktree', () => {
     for (const subagent_type of ['code-reviewer', 'tmb:code-reviewer']) {
       const r = codeReviewerNoWorktree(spawn({ subagent_type, isolation: 'worktree' }), env);
       assert.equal(r.code, 0);
-      assert.equal(denyReason(r.stdout), DENY_REASON);
+      assert.equal(denyReason(r.stdout), fixedReason(DENY_REASON, DENY_FIX));
     }
   });
   it('allows other isolation values, other agents and other tools', () => {
@@ -88,8 +91,9 @@ describe('code-reviewer-spawn-prompt-shape', () => {
     assert.deepEqual(codeReviewerSpawnPromptShape(cr(`${ANCHORED(13)}\nReview it.`), env), ALLOWED);
   });
   it('denies the missing anchors in ANCHORS order, before any shortcut', () => {
-    assert.equal(denyReason(codeReviewerSpawnPromptShape(cr(), env).stdout), missingAnchorsReason([...ANCHORS]));
-    assert.equal(denyReason(codeReviewerSpawnPromptShape(cr('task_id=1 rubber stamp'), env).stdout), missingAnchorsReason(ANCHORS.slice(1)));
+    const missing = (anchors: readonly string[]): string => fixedReason(missingAnchorsReason(anchors), missingAnchorsFix(anchors));
+    assert.equal(denyReason(codeReviewerSpawnPromptShape(cr(), env).stdout), missing([...ANCHORS]));
+    assert.equal(denyReason(codeReviewerSpawnPromptShape(cr('task_id=1 rubber stamp'), env).stdout), missing(ANCHORS.slice(1)));
     assert.match(missingAnchorsReason(['repo']), /missing required anchors: repo\.\n\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, .*, and subagent_session_id, each as name=value/);
   });
   it('needs a non-word character or line start before an anchor', () => {
@@ -104,7 +108,7 @@ describe('code-reviewer-spawn-prompt-shape', () => {
   });
   it('denies the first shortcut phrase, folding ASCII case only', () => {
     const r = codeReviewerSpawnPromptShape(cr(`${ANCHORED(13)}\nTrust The PRIOR Verdict`), env);
-    assert.equal(denyReason(r.stdout), rubberStampReason('trust the prior verdict'));
+    assert.equal(denyReason(r.stdout), fixedReason(rubberStampReason('trust the prior verdict'), RUBBER_STAMP_FIX));
     assert.equal(rubberStampPhrase('just rubber-stamp it', false), 'rubber.stamp');
     assert.equal(rubberStampPhrase('the prior verdict', false), 'prior verdict');
     assert.equal(rubberStampPhrase('FAST-TRACK IF green', false), 'fast-track if');
@@ -150,9 +154,10 @@ describe('code-reviewer-after-atomic-close', () => {
     assert.equal(commandOnPath('sqlite3', env()), false);
   });
   it('denies an unclosed task through node:sqlite, where the .sh lets the spawn through without jq or sqlite3', () => {
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notClosedReason('13', 'running'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notClosedReason('12', 'completed'));
-    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notClosedReason('14', 'needs_validation'));
+    const notClosed = (id: string, status: string): string => fixedReason(notClosedReason(id, status), notClosedFix(id));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notClosed('13', 'running'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notClosed('12', 'completed'));
+    assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notClosed('14', 'needs_validation'));
   });
   it('allows a closed task, a missing row, no task_id and no DB', () => {
     assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(11)), env()), ALLOWED);
@@ -166,7 +171,7 @@ describe('code-reviewer-after-atomic-close', () => {
     const bad = join(s, 'bad/.claude/tmb/trajectory.db');
     assert.equal(
       denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env({ TRAJECTORY_DB_PATH: bad })).stdout),
-      `BLOCKED: trajectory DB unavailable — code-reviewer-after-atomic-close could not read ${bad} (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.`,
+      `BLOCKED: trajectory DB unavailable — code-reviewer-after-atomic-close could not read ${bad} (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry. Allowed form: the same call again, once the trajectory DB reads`,
     );
   });
   it('allows other agents and TMB_SKIP_CODE_REVIEWER_CLOSE_GATE=1', () => {

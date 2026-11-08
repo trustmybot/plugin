@@ -16,7 +16,7 @@ PROJECT/
     └── src/index.ts
 ```
 
-Both inner repos are registered by path in the `repos` table via `setup-l5.sh` — `api` carries a per-repo `protected_branches=["main"]` (authoritative), `app` omits it (falls back to the global config).
+Both inner repos are registered by path in the `repos` table via `setup-l5.ts` — `api` carries a per-repo `protected_branches=["main"]` (authoritative), `app` omits it (falls back to the global config).
 
 **Trigger**: `@bro this is a multi-repo workspace. Run /scan and confirm the world model has the api repo indexed correctly.`
 
@@ -26,7 +26,7 @@ Both inner repos are registered by path in the `repos` table via `setup-l5.sh` �
 3. Repo-relative paths land as `wm_directories.path` values (no `api/` or `app/` prefix)
 4. Each row's `repo` column correctly distinguishes which inner repo it belongs to
 
-**L5 mode**: `setup-l5.sh` builds the two sibling repos + registers both by path in the `repos` table.
+**L5 mode**: `setup-l5.ts` builds the two sibling repos + registers both by path in the `repos` table.
 **L6 mode**: standalone row, not in chain.
 
 ## Scorers

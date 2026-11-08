@@ -9,10 +9,11 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { loadParsers, parserLoadCount } from '../parsing/loader.js';
-import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, markOrphanedEdges, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isBannerLine, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
 import { extractHooks } from '../parsing/hooks.js';
+import { coveredDirs, repoPaths } from '../parsing/runners.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -136,6 +137,27 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     const second = await scan(db, holder, WORKTREE);
     assert.equal(second.symbols.files_parsed, 0);
     assert.deepEqual(symbolRows(db, repo), before);
+  });
+
+  it('the inline task_reopen handler in composites.ts is a tool:task_reopen symbol calling ensureTaskWorktree (GH 1970)', () => {
+    const row = db.get<{ id: number; path: string; kind: string }>(
+      `SELECT id, path, kind FROM wm_symbols WHERE repo = ? AND qualified_name = 'tool:task_reopen'`,
+      [repo],
+    );
+    assert.ok(row, 'tool:task_reopen is indexed');
+    assert.equal(row.path, 'mcp/trajectory-server/src/tools/composites.ts');
+    assert.equal(row.kind, 'function');
+    const n = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'ensureTaskWorktree'`,
+      [row.id],
+    )!.n;
+    assert.ok(n >= 1, 'tool:task_reopen calls ensureTaskWorktree');
+    const caller = db.get<{ qualified_name: string }>(
+      `SELECT s.qualified_name FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE e.dst_id = ? AND e.kind = 'calls'`,
+      [row.id],
+    );
+    assert.equal(caller?.qualified_name, 'compositeTools');
   });
 
   it('world_model_search returns symbol hits with id, qualified_name, path, line_start and signature', async () => {
@@ -1026,7 +1048,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 10);
+      assert.equal(EXTRACTOR_VERSION, 14);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1799,8 +1821,649 @@ describe('member calls bind only by receiver type (GH 1838)', () => {
     assert.notEqual(edge.hint, null);
     assert.equal(edge.hint!.endsWith('…'), true);
   });
+});
 
-  it('the extractor version is 10', () => {
-    assert.equal(EXTRACTOR_VERSION, 10);
+describe('member calls skip named-import and sourced-file binding (GH 2472)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-member-2472-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  const callees = (src: string): Array<[string, string | null]> =>
+    db
+      .all<{ dst_name: string; dst: string | null }>(
+        `SELECT e.dst_name, d.path || ':' || d.qualified_name AS dst
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id LEFT JOIN wm_symbols d ON d.id = e.dst_id
+          WHERE s.repo = 'app' AND s.qualified_name = ? AND e.kind = 'calls'
+          ORDER BY e.rowid`,
+        [src],
+      )
+      .map((r) => [r.dst_name, r.dst]);
+
+  before(async () => {
+    const files: Record<string, string> = {
+      'src/paths.ts': "export function join(s: string): string {\n  return s;\n}\n",
+      'src/write-paths.ts': 'export class WritePaths {\n  join(): string {\n    return "";\n  }\n}\n',
+      'src/caller.ts': [
+        "import { join } from './paths.js';",
+        "import { WritePaths } from './write-paths.js';",
+        'export function bareAndUntyped(): string {',
+        "  const segments = ['a', 'b'];",
+        "  join('a');",
+        "  return segments.join('/');",
+        '}',
+        'export function typed(): string {',
+        '  const w = new WritePaths();',
+        '  return w.join();',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a bare call binds to the named import; a member call on an untyped local stays unresolved', () => {
+    assert.deepEqual(callees('bareAndUntyped'), [
+      ['join', 'src/paths.ts:join'],
+      ['join', null],
+    ]);
+  });
+
+  it('a member call on a typed receiver binds by receiver type, not to the same-named import', () => {
+    assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
+  });
+
+  it('the extractor version is 14', () => {
+    assert.equal(EXTRACTOR_VERSION, 14);
+  });
+});
+
+describe('reads_config edges name the plugin_config keys a symbol reads (GH 2325)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-config-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  const CONFIG_TS = [
+    "const MODE_KEY = 'review_mode';",
+    'interface Db {',
+    '  get(sql: string, params?: unknown[]): unknown;',
+    '  run(sql: string, params?: unknown[]): void;',
+    '}',
+    'export function literalSql(): string {',
+    "  return \"SELECT value FROM plugin_config WHERE key = 'pr_target'\";",
+    '}',
+    'export function boundRead(db: Db): unknown {',
+    "  return db.get('SELECT value FROM plugin_config WHERE key = ?', [MODE_KEY]);",
+    '}',
+    'export function listRead(db: Db): unknown {',
+    "  return db.get(\"SELECT key, value FROM plugin_config WHERE key IN ('alpha_key', 'beta_key')\");",
+    '}',
+    'export function boundListRead(db: Db): unknown {',
+    "  return db.get('SELECT key, value FROM plugin_config WHERE key IN (?, ?)', [MODE_KEY, 'gamma_key']);",
+    '}',
+    'export function templateConstRead(db: Db): unknown {',
+    "  return db.get(`SELECT value FROM plugin_config WHERE key = '${MODE_KEY}'`);",
+    '}',
+    'export function dynamicRead(db: Db, key: string): unknown {',
+    "  return db.get(`SELECT value FROM plugin_config WHERE key = '${key}'`);",
+    '}',
+    'export function dynamicBound(db: Db, key: string): unknown {',
+    "  return db.get('SELECT value FROM plugin_config WHERE key = ?', [key]);",
+    '}',
+    'export function deleteRow(db: Db): void {',
+    "  db.run(\"DELETE FROM plugin_config WHERE key = 'gone_key'\");",
+    '}',
+    'export function otherTable(db: Db): unknown {',
+    "  return db.get(\"SELECT value FROM settings WHERE key = 'not_config'\");",
+    '}',
+    '',
+  ].join('\n');
+  const CONFIG_SH = [
+    '#!/usr/bin/env bash',
+    'read_cfg() {',
+    '  sqlite3 "$DB" "SELECT value FROM plugin_config WHERE key = \'sh_key\'"',
+    '}',
+    'read_var() {',
+    '  sqlite3 "$DB" "SELECT value FROM plugin_config WHERE key = \'$1\'"',
+    '}',
+    '',
+  ].join('\n');
+  const lineOf = (body: string, needle: string): number => body.split('\n').findIndex((l) => l.includes(needle)) + 1;
+
+  const configEdges = () =>
+    db
+      .all<{ qualified_name: string; dst_name: string; dst_id: number | null; resolution: string; line: number }>(
+        `SELECT s.qualified_name, e.dst_name, e.dst_id, e.resolution, e.line
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'reads_config'
+          ORDER BY s.qualified_name, e.dst_name`,
+      )
+      .map((r) => ({ ...r }));
+  const keysBySymbol = () => {
+    const out: Record<string, string[]> = {};
+    for (const e of configEdges()) (out[e.qualified_name] ??= []).push(e.dst_name);
+    return out;
+  };
+  const EXPECTED = {
+    boundListRead: ['gamma_key', 'review_mode'],
+    boundRead: ['review_mode'],
+    listRead: ['alpha_key', 'beta_key'],
+    literalSql: ['pr_target'],
+    read_cfg: ['sh_key'],
+    templateConstRead: ['review_mode'],
+  };
+
+  before(async () => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/config.ts'), CONFIG_TS);
+    writeFileSync(join(root, 'scripts/config.sh'), CONFIG_SH);
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a literal, a const-bound ?, an IN list and a ${CONST} read each yield edges; a dynamic key, a DELETE and another table yield none', () => {
+    assert.deepEqual(keysBySymbol(), EXPECTED);
+    for (const e of configEdges()) {
+      assert.equal(e.resolution, 'name');
+      assert.equal(e.dst_id, null);
+    }
+    assert.equal(
+      configEdges().find((e) => e.qualified_name === 'boundRead')?.line,
+      lineOf(CONFIG_TS, "WHERE key = ?', [MODE_KEY]"),
+    );
+  });
+
+  it('indexRepoSymbols re-parsing every file and markOrphanedEdges leave the edges name-resolved', async () => {
+    const before = configEdges();
+    const out = await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1);
+    assert.equal(out.files_parsed, 2);
+    markOrphanedEdges(db);
+    assert.deepEqual(configEdges(), before);
+  });
+
+  it('the card lists the keys read and its reads_config edges add no by-name note; config_key lists the readers', async () => {
+    const outboundKinds = () =>
+      db
+        .all<{ kind: string; resolution: string }>(
+          `SELECT e.kind, e.resolution FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+            WHERE s.repo = 'app' AND s.qualified_name = 'literalSql' ORDER BY e.kind`,
+        )
+        .map((r) => `${r.kind}:${r.resolution}`);
+    assert.deepEqual(outboundKinds(), ['reads_config:name', 'reads_table:unresolved']);
+    db.run(
+      `DELETE FROM wm_edges WHERE kind = 'reads_table'
+         AND src_id = (SELECT id FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'literalSql')`,
+    );
+    const card = parse<{ reads_config: { refs: Payload[]; total: number; truncated: boolean }; note?: string }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'literalSql' })) as CallToolResult,
+    );
+    assert.deepEqual(card.reads_config, {
+      refs: [{ key: 'pr_target', line: lineOf(CONFIG_TS, "'pr_target'") }],
+      total: 1,
+      truncated: false,
+    });
+    assert.equal(card.note, undefined);
+
+    const readers = parse<{ config_key: string; readers: Payload[] }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: 'review_mode' })) as CallToolResult,
+    );
+    assert.equal(readers.config_key, 'review_mode');
+    assert.deepEqual(
+      readers.readers.map((r) => ({ ...r })),
+      ['boundRead', 'boundListRead', 'templateConstRead'].map((qualified_name) => ({
+        qualified_name,
+        kind: 'function',
+        repo: 'app',
+        path: 'src/config.ts',
+        line: lineOf(CONFIG_TS, `function ${qualified_name}(`) + 1,
+      })),
+    );
+    const none = parse<{ readers: Payload[] }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: 'gone_key' })) as CallToolResult,
+    );
+    assert.deepEqual(none.readers, []);
+    const bad = (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: '' })) as CallToolResult;
+    assert.ok(bad.isError);
+  });
+});
+
+describe('covers edges from lint and test runners to the directories they check (GH 2326)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-covers-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  const packageJson = (lint: string) =>
+    JSON.stringify(
+      {
+        name: 'app',
+        scripts: {
+          test: 'node --test tests/unit/*.test.mjs',
+          lint,
+          typecheck: 'tsc --noEmit',
+          ghost: 'eslint missing/dir gone',
+        },
+      },
+      null,
+      2,
+    ) + '\n';
+  const WORKFLOW = ['name: ci', 'on: push', 'jobs:', '  test:', '    runs-on: ubuntu-latest', '    steps:', '      - run: cd pkg && npm test', ''].join('\n');
+  const lineOf = (body: string, needle: string): number => body.split('\n').findIndex((l) => l.includes(needle)) + 1;
+
+  const commit = (files: Record<string, string>) => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c', '--allow-empty'], { cwd: root });
+  };
+  const coversEdges = () =>
+    db
+      .all<{ runner: string; path: string; dst_name: string; dst_id: number | null; resolution: string; line: number }>(
+        `SELECT s.qualified_name AS runner, s.path, e.dst_name, e.dst_id, e.resolution, e.line
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'covers'
+          ORDER BY s.path, s.qualified_name, e.dst_name`,
+      )
+      .map((r) => ({ ...r }));
+  const dirsByRunner = () => {
+    const out: Record<string, string[]> = {};
+    for (const e of coversEdges()) (out[`${e.path}#${e.runner}`] ??= []).push(e.dst_name);
+    return out;
+  };
+
+  before(async () => {
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    commit({
+      'package.json': packageJson('eslint src lib'),
+      '.github/workflows/ci.yml': WORKFLOW,
+      'src/a.ts': 'export const a = 1;\n',
+      'lib/b.ts': 'export const b = 2;\n',
+      'tests/unit/a.test.mjs': 'export const t = 1;\n',
+      'tests/unit/sub/b.test.mjs': 'export const u = 1;\n',
+      'pkg/index.js': 'export const p = 1;\n',
+      'docs/guide.txt': 'guide\n',
+    });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('indexes runner symbols with covers edges for a glob, path arguments and a cd step, and none for tsc --noEmit or a missing directory', () => {
+    const runners = db
+      .all<{ path: string; qualified_name: string; signature: string; start_line: number; end_line: number }>(
+        `SELECT path, qualified_name, signature, start_line, end_line FROM wm_symbols WHERE repo = 'app' AND kind = 'runner' ORDER BY path, qualified_name`,
+      )
+      .map((r) => ({ ...r }));
+    const ciLine = lineOf(WORKFLOW, 'cd pkg');
+    assert.deepEqual(
+      runners.map((r) => `${r.path}#${r.qualified_name}`),
+      [`.github/workflows/ci.yml#ci:${ciLine}`, 'package.json#ghost', 'package.json#lint', 'package.json#test', 'package.json#typecheck'],
+    );
+    const test = runners.find((r) => r.qualified_name === 'test')!;
+    assert.equal(test.signature, 'node --test tests/unit/*.test.mjs');
+    assert.equal(test.start_line, lineOf(packageJson('eslint src lib'), '"test"'));
+    assert.equal(test.end_line, test.start_line);
+    assert.deepEqual(dirsByRunner(), {
+      [`.github/workflows/ci.yml#ci:${ciLine}`]: ['pkg'],
+      'package.json#lint': ['lib', 'src'],
+      'package.json#test': ['tests/unit'],
+    });
+    for (const e of coversEdges()) {
+      assert.equal(e.resolution, 'name');
+      assert.equal(e.dst_id, null);
+    }
+    assert.equal(coversEdges().find((e) => e.runner === 'test')?.line, test.start_line);
+  });
+
+  it('a re-parse at EXTRACTOR_VERSION + 1 and markOrphanedEdges keep covers name-resolved; a dropped path argument drops its edge', async () => {
+    const before = coversEdges();
+    const out = await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1);
+    assert.ok(out.files_parsed >= 2);
+    markOrphanedEdges(db);
+    assert.deepEqual(coversEdges(), before);
+
+    commit({ 'package.json': packageJson('eslint src') });
+    await scan(db, holder, ws);
+    assert.deepEqual(dirsByRunner()['package.json#lint'], ['src']);
+    for (const e of coversEdges()) assert.deepEqual([e.resolution, e.dst_id], ['name', null]);
+  });
+});
+
+describe('coveredDirs reads the directories a runner command names (GH 2326)', () => {
+  const known = repoPaths(['src/a.ts', 'src/deep/b.ts', 'lib/c.ts', 'pkg/sub/d.ts', 'scripts/run.mjs', 'README.md']);
+  const cases: Array<[string, string, string[]]> = [
+    ['node --test tests/none/*.test.mjs', '.', []],
+    ['eslint src lib', '.', ['src', 'lib']],
+    ['eslint "src/**/*.ts" --max-warnings=0', '.', ['src']],
+    ['prettier --check src/ --config=lib/x.json', '.', ['src']],
+    ['cd pkg && npm test', '.', ['pkg']],
+    ['cd pkg; vitest run sub', '.', ['pkg/sub']],
+    ['cd pkg && cd sub && make', '.', ['pkg/sub']],
+    ['cd "$DIR" && eslint src', '.', []],
+    ['tsc --noEmit', '.', []],
+    ['node scripts/run.mjs', '.', ['scripts']],
+    ['eslint ../outside /abs/src ~/src', '.', []],
+    ['eslint deep', 'src', ['src/deep']],
+    ['eslint .', 'pkg', ['pkg']],
+    ['grep -E \'^[a-z]+$\' README.md > src/out.txt 2>&1', '.', []],
+    ['NODE_ENV=test eslint $SRC src # lib', '.', ['src']],
+    ['eslint src \\\n  lib', '.', ['src', 'lib']],
+    ['eslint src src/ ./src', '.', ['src']],
+    ['eslint *.ts', 'src', []],
+    ['eslint ./*.ts', 'src', ['src']],
+    ["git tag -l 'v[0-9]*'", '.', []],
+    ['if [ "$X" = 1 ]; then { echo hi; }; fi', '.', []],
+  ];
+  for (const [command, base, dirs] of cases) {
+    it(`${JSON.stringify(command)} from ${base} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, base, known), dirs);
+    });
+  }
+});
+
+describe('coveredDirs skips script names, echo text and make targets (GH 2521)', () => {
+  const known = repoPaths(['src/a.ts', 'src/schema.json', 'docs/guide.md', 'tests/a.test.mjs']);
+  const cases: Array<[string, string[]]> = [
+    ['npm run docs', []],
+    ['pnpm run docs', []],
+    ['yarn run-script docs', []],
+    ['bun run docs', []],
+    ['./node_modules/.bin/npm run --silent docs', []],
+    ['echo src', []],
+    ['printf src', []],
+    ['make docs', []],
+    ['just docs', []],
+    ['task docs', []],
+    ['make -C docs/ docs', ['docs']],
+    ['npm run lint -- src', ['src']],
+    ['node --test tests', ['tests']],
+    ['npm test src', ['src']],
+    ['make schema > src/schema.json', []],
+    ['just gen > src/schema.json', []],
+    ['task gen >> src/schema.json', []],
+    ['make docs < src/a.ts', []],
+    ['make gen 2> src/schema.json', []],
+    ['echo x > src/a.txt', []],
+    ['npm run docs > src/a.txt', []],
+  ];
+  for (const [command, dirs] of cases) {
+    it(`${JSON.stringify(command)} covers ${JSON.stringify(dirs)}`, () => {
+      assert.deepEqual(coveredDirs(command, '.', known), dirs);
+    });
+  }
+});
+
+describe('scan_run records no covers edge for a script name or echo text (GH 2521)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-covers-names-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+
+  before(async () => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'tests'), { recursive: true });
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'app', scripts: { 'build:docs': 'npm run docs', show: 'echo src', test: 'node --test tests' } }, null, 2) + '\n',
+    );
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'docs/guide.txt'), 'guide\n');
+    writeFileSync(join(root, 'tests/a.test.mjs'), 'export const t = 1;\n');
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('only test covers tests', () => {
+    const edges = db
+      .all<{ runner: string; dst_name: string }>(
+        `SELECT s.qualified_name AS runner, e.dst_name
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'covers'`,
+      )
+      .map((r) => ({ ...r }));
+    assert.deepEqual(edges, [{ runner: 'test', dst_name: 'tests' }]);
+  });
+});
+
+describe('table edges resolve exact when one non-test definition exists (GH 2523)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-table-exact-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  const write = (files: Record<string, string>) => {
+    for (const [p, body] of Object.entries(files)) {
+      mkdirSync(join(root, p, '..'), { recursive: true });
+      writeFileSync(join(root, p), body);
+    }
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'change', '--allow-empty'], { cwd: root });
+  };
+  const reader = (name: string, table: string) =>
+    `export function ${name}(): string {\n  return 'SELECT id FROM ${table}';\n}\n`;
+  const tableEdge = (reader: string) =>
+    db.get<{ path: string | null; resolution: string }>(
+      `SELECT d.path, e.resolution FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+         LEFT JOIN wm_symbols d ON d.id = e.dst_id
+        WHERE s.repo = 'app' AND s.qualified_name = ? AND e.kind = 'reads_table'`,
+      [reader],
+    );
+  const noteOf = async (qualified_name: string) =>
+    parse<{ note?: string }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name })) as CallToolResult,
+    ).note;
+
+  before(async () => {
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    write({
+      'src/schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\nCREATE TABLE pairs (id INTEGER PRIMARY KEY);\n',
+      'src/other.sql': 'CREATE TABLE pairs (id INTEGER PRIMARY KEY);\n',
+      'src/test/schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\nCREATE TABLE lonely (id INTEGER PRIMARY KEY);\n',
+      'fixtures/items.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n',
+      'fixtures/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/a/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/b/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/dups.ts': reader('readDups', 'dups'),
+      'src/items.ts': reader('readItems', 'items'),
+      'src/pairs.ts': reader('readPairs', 'pairs'),
+      'src/lonely.ts': reader('readLonely', 'lonely'),
+    });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('one definition outside test and fixture paths resolves exact, despite test and fixture copies', () => {
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+  });
+
+  it('two non-test definitions, or only test definitions, keep the pick by name', () => {
+    assert.deepEqual({ ...tableEdge('readPairs') }, { path: 'src/other.sql', resolution: 'name' });
+    assert.deepEqual({ ...tableEdge('readLonely') }, { path: 'src/test/schema.sql', resolution: 'name' });
+  });
+
+  it('two real definitions plus a fixtures copy pick a real definition by name (GH 2527)', () => {
+    const edge = tableEdge('readDups')!;
+    assert.equal(edge.resolution, 'name');
+    assert.ok(['src/a/schema.sql', 'src/b/schema.sql'].includes(edge.path!), `bound to ${edge.path}`);
+  });
+
+  it('a card whose only table edge resolves exact carries no found-by-name note', async () => {
+    assert.equal(await noteOf('readItems'), undefined);
+    assert.equal(await noteOf('readPairs'), 'found by name; not all callers');
+  });
+
+  it('a second non-test definition turns the edge to name, and removing it turns it back to exact', async () => {
+    write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.equal(tableEdge('readItems')!.resolution, 'name');
+    assert.equal(await noteOf('readItems'), 'found by name; not all callers');
+
+    write({ 'src/more.sql': 'CREATE TABLE extra (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+
+    write({ 'src/more.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n' });
+    await scan(db, holder, ws);
+    assert.equal(tableEdge('readItems')!.resolution, 'name');
+
+    rmSync(join(root, 'src/more.sql'));
+    write({});
+    await scan(db, holder, ws);
+    assert.deepEqual({ ...tableEdge('readItems') }, { path: 'src/schema.sql', resolution: 'exact' });
+    assert.equal(await noteOf('readItems'), undefined);
+  });
+});
+
+describe('inline self-naming tool handlers are tool:<name> symbols (GH 1970)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-tools-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const TOOLS_TS = [
+    'function helper(): void {}',
+    'function go(): void {}',
+    'function x(): void {}',
+    'export function tools() {',
+    '  return {',
+    '    foo_bar: requireRoles(',
+    "      'foo_bar',",
+    "      ['bro'],",
+    '      wrap(async () => {',
+    '        helper();',
+    '      }),',
+    '    ),',
+    "    task_reopen: wrap('task_reopen', () => go()),",
+    '    onClick: debounce(() => go()),',
+    "    a: wrap('b', () => x()),",
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+
+  before(async () => {
+    mkdirSync(join(root, 'src/test'), { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'src/tools.ts'), TOOLS_TS);
+    writeFileSync(join(root, 'src/test/tools.test.ts'), "import { tools } from '../tools.js';\nit('x', () => { tools(); });\n");
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const row = (name: string) =>
+    db.get<{ id: number; kind: string; start_line: number; end_line: number; signature: string }>(
+      `SELECT id, kind, start_line, end_line, signature FROM wm_symbols WHERE repo = 'app' AND qualified_name = ?`,
+      [name],
+    );
+
+  it('a pair whose call chain names its key and holds a closure is a function symbol spanning the pair, calling helper', () => {
+    const sym = row('tool:foo_bar');
+    assert.ok(sym, 'tool:foo_bar is indexed');
+    assert.deepEqual({ kind: sym.kind, start_line: sym.start_line, end_line: sym.end_line, signature: sym.signature }, {
+      kind: 'function',
+      start_line: 6,
+      end_line: 12,
+      signature: 'foo_bar: requireRoles(',
+    });
+    const edge = db.get<{ dst_id: number | null; resolution: string }>(
+      `SELECT dst_id, resolution FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'helper'`,
+      [sym.id],
+    );
+    assert.deepEqual({ ...edge }, { dst_id: row('helper')!.id, resolution: 'exact' });
+  });
+
+  it('the enclosing function calls the tool: symbol, so a handler-only helper keeps its transitive callers and tests', async () => {
+    const edge = db.get<{ dst_id: number | null; resolution: string }>(
+      `SELECT dst_id, resolution FROM wm_edges WHERE src_id = ? AND kind = 'calls' AND dst_name = 'tool:foo_bar'`,
+      [row('tools')!.id],
+    );
+    assert.deepEqual({ ...edge }, { dst_id: row('tool:foo_bar')!.id, resolution: 'exact' });
+    const wm = worldModelTools(db, holder).handlers;
+    const card = parse<{ impact: { levels: Array<{ refs: Payload[] }>; tests: Payload[] } }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'helper', impact: 3 })) as CallToolResult,
+    );
+    const levels = card.impact.levels.map((l) => l.refs.map((r) => r['qualified_name']));
+    assert.deepEqual(levels.slice(0, 2), [['tool:foo_bar'], ['tools']]);
+    assert.ok(
+      card.impact.tests.some((t) => t['path'] === 'src/test/tools.test.ts'),
+      JSON.stringify(card.impact.tests),
+    );
+  });
+
+  it('a pair with no string literal, or a literal other than its key, is no tool: symbol', () => {
+    const tools = db
+      .all<{ qualified_name: string }>(`SELECT qualified_name FROM wm_symbols WHERE repo = 'app' AND qualified_name LIKE 'tool:%' ORDER BY qualified_name`)
+      .map((r) => r.qualified_name);
+    assert.deepEqual(tools, ['tool:foo_bar', 'tool:task_reopen']);
+  });
+
+  it('a keyword search for the tool name returns the tool: symbol', async () => {
+    const wm = worldModelTools(db, holder).handlers;
+    const out = parse<{ results: Payload[] }>(
+      (await wm['world_model_search']!({ agent: 'bro', repo: 'app', query: 'task_reopen', mode: 'keyword', k: 10 })) as CallToolResult,
+    );
+    assert.ok(
+      out.results.some((r) => r['kind'] === 'symbol' && r['qualified_name'] === 'tool:task_reopen'),
+      JSON.stringify(out.results),
+    );
   });
 });

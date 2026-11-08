@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 58, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 60, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -479,7 +479,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     stop_cause           TEXT CHECK (stop_cause IN ('budget','hook_block')),
     -- stop_detail (GH 1905; schema v52): the deny text of a hook_block stop
     -- capped at 500 characters. NULL on every other stop. Keep this comment comma-free.
-    stop_detail          TEXT
+    stop_detail          TEXT,
+    -- hook_block_tokens (GH 1915; schema v59): the swe run's block-turn cost. For each
+    -- PreToolUse hook block in the run the context size of the first assistant entry
+    -- after it. The swe-stop-cause gate writes it at SubagentStop with stop_cause
+    -- (0 for a run with no blocks). NULL on unmeasured runs. Keep this comment comma-free.
+    hook_block_tokens    INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
@@ -746,6 +751,11 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     'bundles' (GH 2284; schema v56) runs from a generated bundle's 'module'
 --     row (its body_hash is the source map's md5 and the extractor version)
 --     to each in-repo source the bundle's sibling .map lists.
+--     'reads_config' (GH 2325; schema v60) runs from the symbol holding a
+--     SELECT ... FROM plugin_config to each key it reads: dst_name is the key,
+--     dst_id NULL, resolution 'name', and no resolution pass rebinds it.
+--     The 'covers' edge kind and the 'runner' symbol kind (v60) are reserved
+--     for GH 2326.
 --   hook rows (GH 1680): each hooks/hooks.json entry is a kind='hook' symbol,
 --     qualified_name '<Event>#<pos>:<gate>', with run_order = event rank * 100
 --     + position (NULL on every other kind) and a 'runs' edge to its gate.
@@ -802,7 +812,7 @@ CREATE TABLE IF NOT EXISTS wm_symbols (
     id              INTEGER PRIMARY KEY,
     repo            TEXT    NOT NULL,
     path            TEXT    NOT NULL,
-    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')),
+    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')),
     qualified_name  TEXT    NOT NULL,
     signature       TEXT    NOT NULL DEFAULT '',
     doc             TEXT    NOT NULL DEFAULT '',
@@ -819,7 +829,7 @@ CREATE TABLE IF NOT EXISTS wm_edges (
     src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
     dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
     dst_name    TEXT    NOT NULL,
-    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')),
+    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers')),
     resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
     line        INTEGER,
     hint        TEXT

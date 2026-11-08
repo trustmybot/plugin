@@ -2,7 +2,7 @@
 
 **Flow under test**: `FLOWS.md §C — Consultant invocation`. Bro spawns a single project-local consultant for a second opinion. (Renamed from `C-consultant` per the single-tree canonical layout.)
 
-**Pre-state** (`onboarding-named` + `setup-l5.sh`): identity set, `.claude/agents/architect.md` from `templates/agents/`.
+**Pre-state** (`onboarding-named` + `setup-l5.ts`): identity set, `.claude/agents/architect.md` from `templates/agents/`.
 
 **Trigger**: `@bro get the architect's read on whether SQLite WAL mode is sufficient for our concurrency model`
 
@@ -12,7 +12,7 @@
 3. Architect writes `discussion_append(kind='analysis')`
 4. Bro relays the read to the Human
 
-**L5 mode**: `setup-l5.sh` copies architect.md from plugin templates.
+**L5 mode**: `setup-l5.ts` copies architect.md from plugin templates.
 **L6 mode**: standalone row, not in chain.
 
 ## Scorers

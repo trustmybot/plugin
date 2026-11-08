@@ -8,5 +8,5 @@
   "corpus_env": {
     "TRAJECTORY_DB_PATH": "@SANDBOX@/fresh/.claude/tmb/trajectory.db"
   },
-  "corpus_expect": "pass agent='swe'"
+  "corpus_expect": "call with agent='swe'"
 }

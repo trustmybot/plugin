@@ -15,6 +15,7 @@
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { auditAppend } from './lib/audit.js';
 import { dbPath, dbState, sqlInt, sqliteRo } from './lib/db.js';
+import { denyResult } from './lib/deny.js';
 import { jqCompact } from './lib/jq.js';
 import { jqAlt, jqGet, jqInput, jqNumber, jqTostring, JqUnindexable } from './lib/jq-raw.js';
 import { setlocaleUtf8 } from './lib/project-env.js';
@@ -88,12 +89,6 @@ export function callFields(payload: string): CallFields | null {
   return lastFailed ? null : first;
 }
 
-export function denyJson(reason: string): string {
-  return `${jqCompact({
-    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
-  })}\n`;
-}
-
 function recordMismatch(env: NodeJS.ProcessEnv, toolShort: string, f: CallFields, actual: string, caller: string): void {
   const db = dbPath(env);
   if (db === null) return;
@@ -130,8 +125,7 @@ export const agentArgMatchesCaller: SyncGate = (payload, env): GateResult => {
   const caller = f.actual === '' ? 'the main session (bro)' : `a ${actual} subagent`;
   dbPath(env, (line) => process.stderr.write(`${line}\n`));
   if (dbState(env) === 'ok') recordMismatch(env, toolShort, f, actual, caller);
-  return {
-    stdout: denyJson(`BLOCKED: ${toolShort} called with agent='${f.given}' but the caller is ${caller}; pass agent='${actual}'.`),
-    code: 0,
-  };
+  return denyResult(`BLOCKED: ${toolShort} called with agent='${f.given}' but the caller is ${caller}.`, {
+    allowed: `the same ${toolShort} call with agent='${actual}'`,
+  });
 };

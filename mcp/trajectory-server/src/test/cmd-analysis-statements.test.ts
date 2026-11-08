@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import type { Parser } from 'web-tree-sitter';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
 import { encode } from '../hooks/cmd-analysis/encode.js';
-import { cmdStatements } from '../hooks/cmd-analysis/git.js';
+import { cmdStatements, gitSubcommand } from '../hooks/cmd-analysis/git.js';
 import { statementsEnc } from '../hooks/cmd-analysis/statements.js';
 import { GIT_ENV } from './hook-sandbox.js';
 
@@ -116,4 +116,70 @@ describe('cmdStatements keeps git -C $W past a literal redirect (GH 2404)', () =
     it(`W=<wt>; git -C $W merge x ${redirect} stays unresolved`, async () => {
       assert.equal((await dirs(`W=${wt}; git -C $W merge x ${redirect}`))[0], '-');
     });
+});
+
+describe("cmdStatements keeps an empty quoted git -C '' value (GH 2549)", () => {
+  let root: string;
+  let single: string;
+  let linked: string;
+  const env = { ...process.env, ...GIT_ENV };
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  const listed = async (cmd: string, cwd: string) => {
+    const res = await cmdStatements(cmd, cwd, env);
+    assert.ok(res.ok);
+    return res.statements;
+  };
+  before(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gh2549-')));
+    single = join(root, 'single');
+    linked = join(root, 'linked');
+    for (const repo of [single, linked]) {
+      git(root, 'init', '-q', '-b', 'dev', repo);
+      git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+    }
+    git(linked, 'worktree', 'add', '-q', '-b', 'fix/x', join(linked, 'wt'));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const [cmd, sub] of [
+    ["git -C '' push origin dev", 'push origin dev'],
+    ['git -C "" push origin dev', 'push origin dev'],
+    ["git -C $'' push origin dev", 'push origin dev'],
+    ["git -c '' push origin dev", 'push origin dev'],
+  ])
+    it(`${cmd}: the subcommand is ${sub}`, async () => {
+      const [stmt] = await listed(cmd, single);
+      assert.equal(gitSubcommand(stmt.stmt), sub);
+    });
+
+  it("git -C '' commit -m 'a b': the subcommand starts with commit", async () => {
+    const [stmt] = await listed("git -C '' commit -m 'a b'", single);
+    assert.match(gitSubcommand(stmt.stmt), /^commit /);
+  });
+
+  for (const sub of ['push origin dev', 'merge x', 'commit -m x'])
+    it(`git -C '' ${sub} runs in the dir git ${sub} runs in`, async () => {
+      for (const [repo, dir] of [
+        [single, single],
+        [linked, '?'],
+      ]) {
+        const bare = await listed(`git ${sub}`, repo);
+        const empty = await listed(`git -C '' ${sub}`, repo);
+        assert.equal(bare[0].dir, dir);
+        assert.equal(empty[0].dir, bare[0].dir);
+      }
+    });
+
+  it("git -C '' -C wt merge x runs in <linked>/wt", async () => {
+    const [stmt] = await listed("git -C '' -C wt merge x", linked);
+    assert.equal(stmt.dir, join(linked, 'wt'));
+  });
+
+  it('an empty -m value after the subcommand is still dropped', async () => {
+    const [stmt] = await listed("git commit -m ''", single);
+    assert.equal(stmt.stmt, 'git commit -m');
+  });
 });

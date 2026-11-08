@@ -1,6 +1,6 @@
 # tests
 
-> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `l5-l6/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.sh`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `l5-l6/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.ts`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
 
 How to run, what each layer covers, when to add a test where.
 
@@ -15,8 +15,8 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), hook suites `mcp/trajectory-server/src/test/*-l3.test.ts` (node:test, run with L2) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.ts` (if present) to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.ts`](./l5-l6/run-l5.ts), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
+| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.ts`. | [`l5-l6/run-l6-chain.ts`](./l5-l6/run-l6-chain.ts), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`l0-install/release-canary.Dockerfile`](./l0-install/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
@@ -36,7 +36,7 @@ Applies to:
 The escalation chain:
 
 ```
-Local run before push → bash tests/run-all.sh (L1–L4, free, < 2 min)
+Local run before push → node --experimental-strip-types tests/run-all.ts (L1–L4, free, < 2 min)
    ↓ green
 PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
    ↓ green
@@ -55,7 +55,7 @@ Promote RC → main → tag stable.
 tests/
 ├── README.md                   ← (this) framework + operational
 ├── EVALUATION.md               ← L5 + L6 evaluation system reference + TODO-CLI journey table
-├── run-all.sh                  ← orchestrator — runs L1–L4
+├── run-all.ts                  ← orchestrator — runs L1–L4
 ├── l0-install/                 ← L0 install-smoke + Release canary
 ├── l1-lint/                    ← L1 lints (version sync, links, doctrine docs, layer budgets)
 ├── l2-mcp-unit/                ← pointer — see mcp/trajectory-server/src/test/ for the actual tests
@@ -65,9 +65,9 @@ tests/
 ├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
 ├── lib/                        ← shared shell-assert helpers
 └── l5-l6/                      ← L5 + L6
-    ├── run-l5.sh, run-l6-chain.sh
-    ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
-    ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
+    ├── run-l5.ts, run-l6-chain.ts
+    ├── lib/                    ← flow-helpers, l6-chain-helpers, sandbox, scorers, smoke-helpers, timeout (.ts, each with a .test.ts)
+    ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.ts (optional) + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
 ```
@@ -77,7 +77,7 @@ L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the 
 ## Run everything automated (L1–L4)
 
 ```bash
-bash tests/run-all.sh
+node --experimental-strip-types tests/run-all.ts
 ```
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
@@ -90,10 +90,10 @@ Two switches narrow a run:
 - `TMB_L1_SKIP` holds space-separated lint basenames (`tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
 
 ```bash
-TMB_L1_SKIP="tool-description-budget.test.mjs" bash tests/run-all.sh --l1-only
+TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types tests/run-all.ts --l1-only
 ```
 
-`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `bash tests/run-all.sh --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
+`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
@@ -113,7 +113,7 @@ Codex home.
 
 ## Test-environment posture
 
-- **Issue sync is off by default.** `run-all.sh` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
+- **Issue sync is off by default.** `run-all.ts` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
 - **CI is not your laptop.** GitHub runners have no `rg`, so scripts and lints use `grep`. `l1-lint/no-grep-q-in-pipelines.test.mjs` is textual: even a string literal, such as a fixture's verify command, must use `| grep PAT >/dev/null`. `gh --jq` separates expressions with `,`.
 
 ## Run an individual suite
@@ -145,10 +145,10 @@ L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool 
 export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
 
 # Run all flows
-bash tests/l5-l6/run-l5.sh
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts
 
 # Run a single flow by name substring
-bash tests/l5-l6/run-l5.sh onboarding
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts onboarding
 ```
 
 Run L5 locally before tagging a release candidate. The token is the one-time `CLAUDE_CODE_OAUTH_TOKEN` from a `claude setup-token` flow.
@@ -157,7 +157,7 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.ts` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.ts` is ignored).
 
 ```bash
 # Chained run — walks all 15 chain rows against a cumulative trajectory DB.
@@ -166,10 +166,10 @@ The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs ag
 # <project>/.claude/tmb/l6-chain-runs/<run-id>/ (<project> = CLAUDE_PROJECT_DIR,
 # else the repo root); the chain runs in the project <run-dir>/project/.
 # See tests/l5-l6/l6-chain/README.md.
-bash tests/l5-l6/run-l6-chain.sh                  # full chain
-bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
-bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
-bash tests/l5-l6/run-l6-chain.sh --self-test      # run-dir + HOME isolation check, no model calls
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts                  # full chain
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --from 7         # resume from row 7
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --halt-on-fail 0 # don't stop at first fail
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --self-test      # run-dir + HOME isolation check, no model calls
 ```
 
 The chain runs with `HOME=<run-dir>/home`; the model cache, mise installs and the OAuth token stay reachable through env (`TMB_MODEL_CACHE_DIR`/`HF_HOME`/`TRANSFORMERS_CACHE`, `MISE_DATA_DIR`/`MISE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`). The run fails at exit, listing the entries, if that HOME holds anything but `.cache/huggingface`.
@@ -181,13 +181,13 @@ Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 
 When an L6 step fails, the failure can come from either the step itself or from prior chain steps that left bad state behind. To isolate, run the same row in L5 mode:
 
 ```bash
-bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 12-consultant
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts <NN>-<step-name>     # e.g. 12-consultant
 ```
 
-L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
+L5 applies the step's `setup-l5.ts` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
 
 - **L5 passes** — the L6 failure is upstream contamination. Bisect by running the chain `--from` earlier steps; the step whose post-state breaks the next step's L5 pre-conditions is the real culprit.
-- **L5 fails** — the step itself is broken (prompt drift, stale scorer, bad `setup-l5.sh`). Fix in isolation, re-run L5 until green, then re-run the chain.
+- **L5 fails** — the step itself is broken (prompt drift, stale scorer, bad `setup-l5.ts`). Fix in isolation, re-run L5 until green, then re-run the chain.
 
 Faster iteration: ~$0.20 per L5 row vs ~$5–10 for a full L6 chain run.
 
@@ -272,7 +272,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/l3-integration/mcp/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook | `mcp/trajectory-server/src/test/<name>-l3.test.ts` | `node:test` + `node:assert/strict`; `makeSandbox()` + `runGate()` from `src/test/hook-sandbox.ts`, `CLAUDE_PROJECT_DIR` pinned to the sandbox (skeleton below) |
-| L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
+| L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + optional `setup-l5.ts` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 
 ### Hook test skeleton
 
@@ -322,7 +322,7 @@ node --experimental-sqlite mcp/trajectory-server/dist/cli.js assert-sql .claude/
 
 ## L5/L6 sandbox
 
-All L5 (`run-l5.sh`) and L6 (`run-l6-chain.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/l5-l6/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
+All L5 (`run-l5.ts`) and L6 (`run-l6-chain.ts`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmbTestSandboxInit` (from `tests/l5-l6/lib/sandbox.ts`) before each `claude -p` invocation and torn down by `tmbTestSandboxTeardown` after.
 
 ### What the sandbox does
 
@@ -338,16 +338,16 @@ All L5 (`run-l5.sh`) and L6 (`run-l6-chain.sh`) runs execute inside a network-is
 
 When `$TMB_TEST_REMOTE` is set (test/sandbox mode), `origin` is a local bare repo at that path. All git push/pull operates against `$TMB_TEST_REMOTE` only. Real-remote operations (`gh repo create`, `glab repo create`, `git push https://...`) will fail loudly with "tmb sandbox" in stderr — that is the test mode signal.
 
-### L3 isolation test
+### Isolation test
 
-`mcp/trajectory-server/src/test/sandbox-isolation-l3.test.ts` is the acceptance gate. It verifies:
+`tests/l5-l6/lib/sandbox.test.ts` is the acceptance gate. It verifies:
 
 1. `gh repo create` → exit 1 + "tmb sandbox" in stderr
 2. `glab repo create` → exit 1 + "tmb sandbox" in stderr
 3. `git push https://github.com/...` → exit 1 + sandbox-blocked message
 4. After teardown: `PATH`, `HOME`, `TMB_TEST_REMOTE` all restored / unset
 
-Run it directly: `cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/sandbox-isolation-l3.test.js`. It runs automatically as part of `npm test` in `mcp/trajectory-server`.
+Run it directly: `node --experimental-strip-types --test tests/l5-l6/lib/sandbox.test.ts`. It runs automatically as part of `node --experimental-strip-types tests/run-all.ts` (the L5/L6 helper libs step).
 
 ## Anti-patterns
 
