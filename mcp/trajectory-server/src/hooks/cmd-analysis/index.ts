@@ -21,6 +21,7 @@ export {
   denyAmbiguousGitTarget,
   gitSubcommand,
   stmtRepoRoot,
+  withSource,
   type GitStatements,
   type Statement,
 } from './git.js';

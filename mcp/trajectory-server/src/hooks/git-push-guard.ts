@@ -310,9 +310,10 @@ export const gitPushGuard: Gate = async (payload, env) => {
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   const guard = new Guard(db, cwd, env);
-  for (const { dir, stmt } of pushes) {
-    if (dir === '?') return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
-    if (dir === '-') return { stdout: denyAmbiguousGitTarget(stmt, true), code: 0 };
+  for (const push of pushes) {
+    const { dir } = push;
+    if (dir === '?') return { stdout: denyAmbiguousGitTarget(push), code: 0 };
+    if (dir === '-') return { stdout: denyAmbiguousGitTarget(push, true), code: 0 };
     if (dir.includes('/.claude/worktrees/')) return deny(WORKTREE_REASON, WORKTREE_FIX);
     if (db === '' || !haveSqlite(env)) continue;
     const verdict = await guard.judge(dir);

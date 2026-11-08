@@ -6,15 +6,28 @@
  * body in it, cmdStatements fails closed instead of listing the statements it
  * could read (GH 1927).
  */
-import type { Parser } from 'web-tree-sitter';
+import type { Node, Parser } from 'web-tree-sitter';
 import { gitOk, gitOut, cdPwd, isDir } from '../lib/git.js';
 import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
-import { decode, encode } from './encode.js';
+import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
-import { statementsEnc, type Record as Statement } from './statements.js';
+import { statementsEnc, type Record } from './statements.js';
 
-export type { Statement };
+/** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
+export type Statement = Record & { readonly src?: string };
+
+/** <statement> with a `src` that <get> works out on its first read, so a gate that never quotes the statement never pays for it. */
+export function withSource<T extends Record>(statement: T, get: () => string | undefined): T & { readonly src?: string } {
+  let src: string | undefined;
+  let read = false;
+  return Object.defineProperty(statement, 'src', {
+    get: () => {
+      if (!read) [src, read] = [get(), true];
+      return src;
+    },
+  });
+}
 
 export type GitStatements = { ok: true; statements: Statement[] } | { ok: false };
 
@@ -49,21 +62,92 @@ function inner(stmt: string): string {
   return '';
 }
 
+/** The nodes a statement's source can be: a command, unless it is a redirected statement's body, and a redirected statement; children first. */
+function candidates(node: Node, out: Node[] = []): Node[] {
+  for (const child of node.namedChildren) if (child) candidates(child, out);
+  const body = node.parent?.type === 'redirected_statement' && node.parent.childForFieldName('body')?.id === node.id;
+  if (node.type === 'redirected_statement' || (node.type === 'command' && !body)) out.push(node);
+  return out;
+}
+
+/** The starts of a candidate's words: its named children, and those of a command among them. */
+const STATEMENT_GROUPS = new Set(['list', 'pipeline', 'negated_command', 'redirected_statement', 'subshell', 'compound_statement']);
+
+function wordStarts(node: Node): number[] {
+  const starts: number[] = [];
+  for (const child of node.namedChildren) {
+    if (child?.type === 'command') starts.push(...child.namedChildren.flatMap((word) => (word ? [word.startIndex] : [])));
+    else if (child) starts.push(child.startIndex, ...(STATEMENT_GROUPS.has(child.type) ? wordStarts(child) : []));
+  }
+  return starts.sort((a, b) => a - b);
+}
+
+/**
+ * Each listed statement's source in `cmd` (GH 2536): the innermost candidate
+ * node whose own listing still holds that statement, from its last word on
+ * that still lists it, so a leading assignment, `time` or wrapper the listing
+ * drops is dropped here too. A statement listed inside a node counts against
+ * that node and every candidate around it; undefined when no node holds it.
+ */
+function sources(parser: Parser, cmd: string, home: string, stmts: readonly string[]): Array<string | undefined> {
+  const tree = parser.parse(cmd);
+  if (!tree) return stmts.map(() => undefined);
+  try {
+    const encoder = new Encoder(cmd, NO_CHARGE);
+    const listed = (node: Node, at: number): string[] =>
+      statementsEnc(encoder.from(node, at), '@', home, false)
+        .map((record) => readStmt(record.stmt))
+        .filter((stmt) => stmt !== '');
+    const left = new Map<number, Map<string, number>>();
+    const holders = new Map<string, Node[]>();
+    for (const node of candidates(tree.rootNode)) {
+      const counts = new Map<string, number>();
+      for (const stmt of listed(node, node.startIndex)) {
+        const n = (counts.get(stmt) ?? 0) + 1;
+        counts.set(stmt, n);
+        if (n > 1) continue;
+        const nodes = holders.get(stmt);
+        if (nodes) nodes.push(node);
+        else holders.set(stmt, [node]);
+      }
+      left.set(node.id, counts);
+    }
+    return stmts.map((stmt) => {
+      const node = holders.get(stmt)?.find((n) => (left.get(n.id)?.get(stmt) ?? 0) > 0);
+      if (!node) return undefined;
+      for (let up: Node | null = node; up; up = up.parent) {
+        const counts = left.get(up.id);
+        const n = counts?.get(stmt) ?? 0;
+        if (n > 0) counts!.set(stmt, n - 1);
+      }
+      const start = wordStarts(node)
+        .reverse()
+        .find((at) => listed(node, at).includes(stmt));
+      return cmd.slice(start ?? node.startIndex, node.endIndex);
+    });
+  } finally {
+    tree.delete();
+  }
+}
+
 /** _tmb_cmd_statements_enc <cmd> <base> <depth> without assign; null when the command or a body in it does not parse. */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string): Statement[] | null {
   if (cmd.trim() === '') return [];
   const encoded = encode(parser, cmd);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
-  for (const record of statementsEnc(encoded.text, base, home, false)) {
-    const stmt = readStmt(record.stmt);
-    if (stmt === '') continue;
-    const body = depth < MAX_DEPTH && !record.dir.startsWith('=') ? inner(stmt) : '';
+  const records = statementsEnc(encoded.text, base, home, false)
+    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt) }))
+    .filter((record) => record.stmt !== '');
+  let srcs: Array<string | undefined> | undefined;
+  const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
+  for (const [k, { dir, stmt }] of records.entries()) {
+    const body = depth < MAX_DEPTH && !dir.startsWith('=') ? inner(stmt) : '';
     if (body === '') {
-      out.push({ dir: record.dir, stmt });
+      out.push(withSource({ dir, stmt }, () => srcAt(k)));
       continue;
     }
-    const nested = listing(parser, decode(body).replace(/\n+$/, ''), record.dir, depth + 1, home);
+    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home);
     if (nested === null) return null;
     out.push(...nested);
   }
@@ -95,7 +179,8 @@ export async function cwdState(cwd: string, env: NodeJS.ProcessEnv = process.env
 /**
  * tmb_cmd_statements <cmd> <cwd>: each executable statement with the dir it
  * runs in (`@` made the cwd's state, `@/x` made <cwd>/x), its encoded bytes
- * shown as `_` and encode.ts's heredoc marks dropped.
+ * shown as `_` and encode.ts's heredoc marks dropped, and with `src`, its
+ * text as written, when the listing finds it.
  */
 export async function cmdStatements(command: string, cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<GitStatements> {
   const parser = await bashParser();
@@ -103,11 +188,11 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
   if (listed === null) return { ok: false };
   let state: string | undefined;
   const statements: Statement[] = [];
-  for (const { dir: listedDir, stmt } of listed) {
-    let dir = listedDir;
+  for (const entry of listed) {
+    let dir = entry.dir;
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
     else if (dir === '@') dir = state ??= await cwdState(cwd, env);
-    statements.push({ dir, stmt: stmt.replace(HD_MARK, '<<').replace(ENCODED, '_') });
+    statements.push(withSource({ dir, stmt: entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_') }, () => entry.src));
   }
   return { ok: true, statements };
 }
@@ -116,6 +201,12 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
 export function gitSubcommand(stmt: string): string {
   const w = readWords(stmt);
   if (w[0] !== 'git') return '';
+  const k = subcommandAt(w);
+  return k < w.length ? w.slice(k).join(' ') : '';
+}
+
+/** The index of git's subcommand in a git statement's words: past git's own options. */
+function subcommandAt(w: readonly string[]): number {
   let k = 1;
   while (k < w.length) {
     const word = w[k];
@@ -123,7 +214,71 @@ export function gitSubcommand(stmt: string): string {
     else if (word.startsWith('-')) k += 1;
     else break;
   }
-  return k < w.length ? w.slice(k).join(' ') : '';
+  return k;
+}
+
+/** Where each word of the first line of shell source `src` starts, with its unquoted text; null at an unclosed quote or substitution. */
+function sourceWords(src: string): Array<{ start: number; text: string }> | null {
+  const words: Array<{ start: number; text: string }> = [];
+  let i = 0;
+  for (;;) {
+    while (src[i] === ' ' || src[i] === '\t') i++;
+    if (i >= src.length || src[i] === '\n') return words;
+    const start = i;
+    let text = '';
+    while (i < src.length && !/[ \t\n]/.test(src[i])) {
+      const c = src[i];
+      if (c === "'") {
+        const close = src.indexOf("'", i + 1);
+        if (close < 0) return null;
+        text += src.slice(i + 1, close);
+        i = close + 1;
+      } else if (c === '"') {
+        let j = i + 1;
+        for (; j < src.length && src[j] !== '"'; j++) {
+          if (src[j] === '\\') j++;
+          if (j < src.length) text += src[j];
+        }
+        if (j >= src.length) return null;
+        i = j + 1;
+      } else if (c === '\\') {
+        text += src[i + 1] ?? '';
+        i += 2;
+      } else if (c === '$' && src[i + 1] === '(') {
+        let depth = 0;
+        let j = i + 1;
+        for (; j < src.length; j++) {
+          if (src[j] === '(') depth++;
+          else if (src[j] === ')' && --depth === 0) break;
+        }
+        if (j >= src.length) return null;
+        text += src.slice(i, j + 1);
+        i = j + 1;
+      } else {
+        text += c;
+        i++;
+      }
+    }
+    words.push({ start, text });
+  }
+}
+
+/** The allowed form and the quoted command of an ambiguous-target deny: from the statement's source as written when it has one that lines up with `stmt`. */
+function deniedForm(stmt: string, src: string | undefined): { what: string; allowed: string } {
+  const git = stmt === 'git' || stmt.startsWith('git ');
+  if (src !== undefined && src.trim() !== '') {
+    if (!git) return { what: src, allowed: `cd <path> && ${src}` };
+    const words = sourceWords(src);
+    const w = readWords(stmt);
+    const k = subcommandAt(w);
+    if (words !== null && words[0]?.text === 'git' && words.length === w.length) {
+      const sub = k < words.length ? src.slice(words[k].start).replace(/\s+$/, '') : '';
+      return { what: src, allowed: `git -C <path>${sub === '' ? '' : ` ${sub}`}` };
+    }
+  }
+  if (!git) return { what: stmt, allowed: `cd <path> && ${stmt}` };
+  const sub = gitSubcommand(stmt);
+  return { what: stmt, allowed: `git -C <path>${sub === '' ? '' : ` ${sub}`}` };
 }
 
 /** tmb_stmt_repo_root <dir> <cwd>: the main checkout of the repo a statement's dir is in, "" when none. */
@@ -141,13 +296,12 @@ export async function stmtRepoRoot(dir: string, cwd: string, env: NodeJS.Process
   return await gitOut(dir, ['rev-parse', '--show-toplevel'], env);
 }
 
-/** tmb_deny_ambiguous_git_target <stmt> [unresolved]: the deny JSON line. */
-export function denyAmbiguousGitTarget(stmt: string, unresolved = false): string {
-  const what = stmt || 'git';
+/** tmb_deny_ambiguous_git_target <stmt> [unresolved]: the deny JSON line, quoting a statement's `src` as written when it has one (GH 2536). */
+export function denyAmbiguousGitTarget(statement: string | Pick<Statement, 'stmt' | 'src'>, unresolved = false): string {
+  const { stmt, src } = typeof statement === 'string' ? { stmt: statement, src: undefined } : statement;
+  const { what, allowed } = deniedForm(stmt || 'git', src);
   const reason = unresolved
     ? `BLOCKED: ambiguous_git_target: \`${what}\` runs in a directory that comes through a variable, \`cd -\` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path.`
     : `BLOCKED: ambiguous_git_target: \`${what}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Name the checkout's literal path.`;
-  const sub = gitSubcommand(what);
-  const allowed = what === 'git' || what.startsWith('git ') ? `git -C <path>${sub === '' ? '' : ` ${sub}`}` : `cd <path> && ${what}`;
   return `${denyJson(reason, { allowed })}\n`;
 }
