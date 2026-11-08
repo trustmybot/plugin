@@ -94,18 +94,27 @@ describe('lint hooks: the TypeScript gates', () => {
       assert.deepEqual(result, { stdout: '', code: 0 });
     });
 
-    it('still warns on an unknown type', async () => {
+    it('denies an unknown type (GH 2582)', async () => {
       const result = await commitMsgLint(bashPayload('git commit -m "⚡ nonsense(scope): description"'), process.env);
-      assert.match(context(result.stdout).text, /^commit-msg-lint: commit subject does not match/);
+      assert.equal(context(result.stdout).decision, 'deny');
+      assert.match(context(result.stdout).text, /^BLOCKED: commit-msg-lint: commit subject breaks the grammar rule: it does not match/);
+    });
+
+    it('admits the research type (GH 2582)', async () => {
+      const result = await commitMsgLint(bashPayload('git commit -m "🔬 research(x): y"'), process.env);
+      assert.deepEqual(result, { stdout: '', code: 0 });
     });
   });
 
   describe('with no jq on PATH, where each .sh exited silently', () => {
-    it('commit-msg-lint still warns', async () => {
+    it('commit-msg-lint still denies', async () => {
       const env = { ...process.env, PATH: noJq, LC_ALL: 'C' };
       const result = await commitMsgLint(bashPayload('git commit -m "feat: add x"'), env);
-      assert.match(context(result.stdout).text, /^commit-msg-lint: commit subject does not match/);
-      assert.match(context(runBundled('commit-msg-lint', bashPayload('git commit -m "feat: add x"'), env)).text, /^commit-msg-lint: commit subject does not match/);
+      const bundled = context(runBundled('commit-msg-lint', bashPayload('git commit -m "feat: add x"'), env));
+      assert.equal(context(result.stdout).decision, 'deny');
+      assert.match(context(result.stdout).text, /^BLOCKED: commit-msg-lint: commit subject breaks the grammar rule/);
+      assert.equal(bundled.decision, 'deny');
+      assert.match(bundled.text, /^BLOCKED: commit-msg-lint: commit subject breaks the grammar rule/);
     });
 
     it('naming-lint still warns', () => {
