@@ -204,6 +204,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: no stale framing prose', 'stale-framing-prose.test.mjs'),
     lint('L1 lint: no hardcoded plugin name', 'no-hardcoded-plugin-name.test.mjs'),
     lint('L1 lint: CI workflow file refs exist', 'ci-workflow-refs-exist.test.mjs'),
+    lint('L1 lint: workflow-run scripts build before importing dist', 'workflow-scripts-no-dist.test.mjs'),
     lint('L1 lint: no bare role compare in hooks', 'no-bare-role-compare.test.mjs'),
     lint('L1 lint: symlink targets all resolve', 'symlink-targets.test.mjs'),
     lint('L1 lint: hooks.json commands executable', 'hooks-executable.test.mjs'),
