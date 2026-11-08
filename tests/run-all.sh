@@ -125,7 +125,7 @@ run_step "L1 lint: no generated output tracked in git"  node --test "$HERE/l1-li
 run_step "L1 lint: bug.yml matches the bug-report FORM_FIELDS"  node --test "$HERE/l1-lint/bug-form.test.mjs"
 run_step "L1 lint: new ts/tsx/sh files open with a purpose header"  node --test "$HERE/l1-lint/purpose-header.test.mjs"
 run_step "L1 lint: shipped skills match builtin seed"  node --test "$HERE/l1-lint/skill-catalog-sync.test.mjs"
-run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
+run_step "L1 lint: ENUMs.md vs code parity"           node --test "$HERE/l1-lint/enums-stable.test.mjs"
 run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  node --test "$HERE/l1-lint/enums-doc-fresh.test.mjs"
 run_step "L1 lint: ERD.md generated from schema.sql"  node --test "$HERE/l1-lint/erd-doc-fresh.test.mjs"
 run_step "L1 lint: CONFIG_KEYS.md generated from code" node --test "$HERE/l1-lint/config-keys-doc-fresh.test.mjs"

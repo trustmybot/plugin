@@ -1,4 +1,4 @@
-# Fixture ENUMS.md for enums-stable.sh's self-test
+# Fixture ENUMS.md for enums-stable.test.mjs's self-test
 
 ### `issues.status` — issue lifecycle
 
