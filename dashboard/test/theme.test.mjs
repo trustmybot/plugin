@@ -2,7 +2,8 @@
 // reproduces the committed web/theme/primer-tokens.css byte for byte, stays
 // under 8 KB gzipped, declares every var() it uses and carries both the light
 // and dark theme selectors; then render <AppHeader> and <UnderlineNav> to
-// static HTML and check the tab links, the current tab and the toggle.
+// static HTML and check the tab links, the current tab, the toggle and the
+// Reindexing indicator.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -55,12 +56,18 @@ describe('dashboard shell', () => {
       stdin: {
         contents: `import { renderToStaticMarkup } from 'react-dom/server';
           import { createElement, Fragment } from 'react';
+          import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
           import { TABS } from './web/App.tsx';
           import { AppHeader } from './web/ui/AppHeader.tsx';
           import { UnderlineNav } from './web/ui/UnderlineNav.tsx';
-          export const render = (active) => renderToStaticMarkup(
-            createElement(Fragment, null, createElement(AppHeader), createElement(UnderlineNav, { tabs: TABS, active })),
-          );`,
+          export const render = (active, status) => {
+            const client = new QueryClient();
+            if (status) client.setQueryData(['world-model/status'], status);
+            return renderToStaticMarkup(
+              createElement(QueryClientProvider, { client },
+                createElement(Fragment, null, createElement(AppHeader), createElement(UnderlineNav, { tabs: TABS, active }))),
+            );
+          };`,
         resolveDir: DASH,
         loader: 'js',
       },
@@ -85,5 +92,14 @@ describe('dashboard shell', () => {
     assert.match(current[0][0], /href="#\/tasks"/);
     assert.match(html, /<button [^>]*aria-label="Colour mode: auto \(system\)[^"]*"/);
     assert.match(html, /TMB Dashboard/);
+    assert.doesNotMatch(html, /Reindexing/);
+  });
+
+  test('shows Reindexing with its icon while any repo reindexes', () => {
+    const block = (state) => ({ indexed_commit: 'a', target_commit: 'a', target_ref: null, stale: state === 'running', reindex: { state }, needs_review_count: 0 });
+    const idle = render('map', { repos: [{ repo: 'a', freshness: block('idle') }, { repo: 'b', freshness: null }], history: [] });
+    assert.doesNotMatch(idle, /Reindexing/);
+    const html = render('map', { repos: [{ repo: 'a', freshness: block('idle') }, { repo: 'b', freshness: block('running') }], history: [] });
+    assert.match(html, /title="Reindexing b"[^>]*><svg [^>]*octicon-sync[^>]*>.*?<\/svg>Reindexing<\/span>/);
   });
 });

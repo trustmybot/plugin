@@ -172,7 +172,7 @@ describe('dashboard file graph cache', () => {
     assert.notEqual(res.headers.get('etag'), oldTag);
     const body = await res.text();
     assert.notEqual(body, oldBody);
-    assert.equal(body, JSON.stringify(fresh()));
+    assert.deepEqual(JSON.parse(body), { ...fresh(), freshness: null });
   };
 
   test('a delete+reinsert that reuses the top edge rowid misses the cache', async () => {
@@ -227,6 +227,31 @@ describe('dashboard file graph cache with repos.indexed_commit', () => {
     const second = await etag();
     assert.ok(second.includes('2222222bbbbbbb'), second);
     assert.notEqual(first, second);
+  });
+});
+
+describe('graph etag across server processes', () => {
+  const { tmp, dbPath } = fixture('graph-restart');
+  after(() => rmSync(tmp, { recursive: true, force: true }));
+
+  test('a restarted server on an unchanged DB gives a new etag, so an old tag gets 200, not 304', async () => {
+    const url = (s) => `${s.url}api/world-model/graph?repo=plugin`;
+    const first = await startServer(dbPath);
+    let oldTag;
+    try {
+      oldTag = (await fetch(url(first))).headers.get('etag');
+    } finally {
+      await first.stop();
+    }
+    const second = await startServer(dbPath);
+    try {
+      const res = await fetch(url(second), { headers: { 'if-none-match': oldTag } });
+      assert.equal(res.status, 200);
+      assert.notEqual(res.headers.get('etag'), oldTag);
+      assert.ok((await res.text()).length > 0);
+    } finally {
+      await second.stop();
+    }
   });
 });
 

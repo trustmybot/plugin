@@ -8,6 +8,7 @@ import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/m
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
+import { clampHistory, freshnessFor, withFreshness, worldModelStatus, type Freshness } from './freshness.ts';
 import { cachedGraph, etagMatches, type GraphResponse } from './graph-cache.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
@@ -68,10 +69,15 @@ function clampLimit(raw: string | null): number {
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), 1000) : 100;
 }
 
-function sendGraph(res: ServerResponse, graph: GraphResponse, ifNoneMatch: string | string[] | undefined): void {
+function sendGraph(
+  res: ServerResponse,
+  graph: GraphResponse,
+  freshness: () => Freshness | null,
+  ifNoneMatch: string | string[] | undefined,
+): void {
   if (graph.etag === null) {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(graph.body);
+    res.end(withFreshness(graph.body, freshness()));
     return;
   }
   const headers = { etag: graph.etag, 'cache-control': 'no-cache', 'x-tmb-graph-cache': graph.hit ? 'hit' : 'miss' };
@@ -80,7 +86,7 @@ function sendGraph(res: ServerResponse, graph: GraphResponse, ifNoneMatch: strin
     return;
   }
   res.writeHead(200, { 'content-type': 'application/json', ...headers });
-  res.end(graph.body);
+  res.end(withFreshness(graph.body, freshness()));
 }
 
 async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
@@ -103,7 +109,9 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
       }
       case 'world-model': {
         const p = url.searchParams;
-        return sendJson(res, 200, q.worldModel(db, p.get('repo') || null, p.get('path') ?? '', q.clampDepth(p.get('depth'))));
+        const repo = p.get('repo') || null;
+        const body = q.worldModel(db, repo, p.get('path') ?? '', q.clampDepth(p.get('depth')));
+        return sendJson(res, 200, { ...body, freshness: freshnessFor(db, repo) });
       }
     }
   }
@@ -131,10 +139,15 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
   }
   if (parts.length === 2 && resource === 'world-model' && id === 'search') {
     const p = url.searchParams;
-    return sendJson(res, 200, q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit'))));
+    const body = q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit')));
+    return sendJson(res, 200, { ...body, freshness: freshnessFor(db, p.get('repo') || null) });
   }
   if (parts.length === 2 && resource === 'world-model' && id === 'graph') {
-    return sendGraph(res, cachedGraph(db, url.searchParams.get('repo') || null), req.headers['if-none-match']);
+    const repo = url.searchParams.get('repo') || null;
+    return sendGraph(res, cachedGraph(db, repo), () => freshnessFor(db, repo), req.headers['if-none-match']);
+  }
+  if (parts.length === 2 && resource === 'world-model' && id === 'status') {
+    return sendJson(res, 200, worldModelStatus(db, clampHistory(url.searchParams.get('limit'))));
   }
   if (parts.length === 2 && resource === 'issues' && /^-?\d+$/.test(id!)) {
     const detail = q.issueDetail(db, Number(id));
