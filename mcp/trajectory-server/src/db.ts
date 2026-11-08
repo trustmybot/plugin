@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 59;
+export const TARGET_SCHEMA_VERSION = 60;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -833,6 +833,9 @@ function runMigrations(
   }
   if (fromVersion < 59 && toVersion >= 59) {
     migrateV58toV59(db);
+  }
+  if (fromVersion < 60 && toVersion >= 60) {
+    migrateV59toV60(db);
   }
 }
 
@@ -3253,6 +3256,85 @@ function migrateV58toV59(db: DatabaseSync): void {
       // Original error wins.
     }
     throw err;
+  }
+}
+
+// v59→v60: 'reads_config' edges (GH 2325), plus the 'covers' edge kind and the
+// 'runner' symbol kind GH 2326 emits. wm_symbols and wm_edges are rebuilt,
+// rows and ids kept, so their kind CHECKs admit them; their indexes and the
+// wm_symbols FTS triggers drop with the old tables and come back in the
+// schema.sql reapply.
+function migrateV59toV60(db: DatabaseSync): void {
+  const symbolsDone = !tableExists(db, 'wm_symbols') || readTableSql(db, 'wm_symbols').includes("'runner'");
+  const edgesDone = !tableExists(db, 'wm_edges') || readTableSql(db, 'wm_edges').includes("'reads_config'");
+  if (symbolsDone && edgesDone) return;
+  db.exec('PRAGMA foreign_keys = OFF');
+  beginImmediate(db);
+  try {
+    if (!symbolsDone) {
+      rebuildTable(
+        db,
+        'wm_symbols',
+        `
+          id              INTEGER PRIMARY KEY,
+          repo            TEXT    NOT NULL,
+          path            TEXT    NOT NULL,
+          kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')),
+          qualified_name  TEXT    NOT NULL,
+          signature       TEXT    NOT NULL DEFAULT '',
+          doc             TEXT    NOT NULL DEFAULT '',
+          start_line      INTEGER,
+          end_line        INTEGER,
+          body_hash       TEXT    NOT NULL,
+          exported        INTEGER NOT NULL DEFAULT 0,
+          terms           TEXT    NOT NULL DEFAULT '',
+          run_order       INTEGER,
+          UNIQUE (repo, path, kind, qualified_name)
+        `,
+        [
+          ['id', 'NULL'], ['repo', "''"], ['path', "''"], ['kind', "'module'"], ['qualified_name', "''"],
+          ['signature', "''"], ['doc', "''"], ['start_line', 'NULL'], ['end_line', 'NULL'], ['body_hash', "''"],
+          ['exported', '0'], ['terms', "''"], ['run_order', 'NULL'],
+        ],
+      );
+    }
+    if (!edgesDone) {
+      rebuildTable(
+        db,
+        'wm_edges',
+        `
+          src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+          dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+          dst_name    TEXT    NOT NULL,
+          kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers')),
+          resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+          line        INTEGER,
+          hint        TEXT
+        `,
+        [
+          ['src_id', '0'], ['dst_id', 'NULL'], ['dst_name', "''"], ['kind', "'calls'"],
+          ['resolution', "'unresolved'"], ['line', 'NULL'], ['hint', 'NULL'],
+        ],
+      );
+    }
+    if (tableExists(db, 'wm_edges')) {
+      const fkViolations = db.prepare('PRAGMA foreign_key_check(wm_edges)').all() as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `migrateV59toV60: foreign_key_check found ${fkViolations.length} dangling reference(s) after the wm_symbols rebuild`,
+        );
+      }
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
   }
 }
 

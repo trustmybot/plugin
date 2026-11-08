@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 59`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 60`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 59`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 60`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -403,7 +403,7 @@ erDiagram
         INTEGER id PK "NOT NULL"
         TEXT repo "NOT NULL"
         TEXT path "NOT NULL"
-        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module|hook"
+        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module|hook|runner"
         TEXT qualified_name "NOT NULL"
         TEXT signature "NOT NULL"
         TEXT doc "NOT NULL"
@@ -419,7 +419,7 @@ erDiagram
         INTEGER src_id FK "NOT NULL; → wm_symbols.id CASCADE"
         INTEGER dst_id FK "→ wm_symbols.id SET NULL"
         TEXT dst_name "NOT NULL"
-        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles"
+        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on|bundles|reads_config|covers"
         TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
         INTEGER line
         TEXT hint
@@ -916,7 +916,7 @@ Table constraints:
 | `id` | INTEGER | NOT NULL |  | PK |
 | `repo` | TEXT | NOT NULL |  |  |
 | `path` | TEXT | NOT NULL |  |  |
-| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')` |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook','runner')` |
 | `qualified_name` | TEXT | NOT NULL |  |  |
 | `signature` | TEXT | NOT NULL | `''` |  |
 | `doc` | TEXT | NOT NULL | `''` |  |
@@ -938,7 +938,7 @@ Table constraints:
 | `src_id` | INTEGER | NOT NULL |  | FK → `wm_symbols.id` ON DELETE CASCADE |
 | `dst_id` | INTEGER | nullable |  | FK → `wm_symbols.id` ON DELETE SET NULL |
 | `dst_name` | TEXT | NOT NULL |  |  |
-| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles')` |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on','bundles','reads_config','covers')` |
 | `resolution` | TEXT | NOT NULL | `'unresolved'` | CHECK `resolution IN ('exact','name','unresolved')` |
 | `line` | INTEGER | nullable |  |  |
 | `hint` | TEXT | nullable |  |  |

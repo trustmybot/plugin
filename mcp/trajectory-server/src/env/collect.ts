@@ -39,6 +39,15 @@ const ROOT_READERS: Partial<Record<string, Reader>> = {
 const GITLAB_CI = '.gitlab-ci.yml';
 const ACTIONS_WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 
+// The env reader for a repo-relative path: a CI file by its path (ci: its
+// steps run from the repo root), else a manifest or task file by basename.
+export function envReaderFor(path: string): { reader: Reader; ci: boolean } | null {
+  if (path === GITLAB_CI) return { reader: readGitlabCi, ci: true };
+  if (ACTIONS_WORKFLOW.test(path)) return { reader: readActionsWorkflow, ci: true };
+  const reader = ROOT_READERS[posix.basename(path)];
+  return reader ? { reader, ci: false } : null;
+}
+
 // Root files that are code, prose or assets rather than configuration.
 const NON_CONFIG_EXTENSIONS = new Set([
   '.md', '.markdown', '.rst', '.adoc',
@@ -144,7 +153,7 @@ function packageEvidence(root: string, dir: string, files: readonly string[], ow
   }
   for (const f of ci) {
     const text = readText(root, f);
-    if (text !== null) merge(f === GITLAB_CI ? readGitlabCi(f, text) : readActionsWorkflow(f, text));
+    if (text !== null) merge(envReaderFor(f)!.reader(f, text));
   }
   const extensions: Record<string, number> = {};
   const counts = new Map<string, number>();
