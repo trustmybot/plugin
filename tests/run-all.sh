@@ -8,8 +8,8 @@
 #   L2 — Unit (MCP handlers)             → mcp/trajectory-server/src/test/*.ts ← this file
 #   L3 — Integration (server + hooks)    → tests/l3-integration/mcp/*.mjs (hook suites: mcp/trajectory-server/src/test/*-l3.test.ts, run in L2) ← this file
 #   L4 — Workflow simulation             → tests/l4-workflow-sim/*.mjs     ← this file
-#   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
-#   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
+#   L5 — Per-row eval (real CC)          → node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts (token required)
+#   L6 — Multi-turn chain (real CC)      → node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts (token required)
 #   Release canary                       → tests/l0-install/release-canary.Dockerfile (release-gate on RC tags)
 
 set -uo pipefail
@@ -164,7 +164,6 @@ run_step "L1 lint: CI workflow file refs exist"       node --test "$HERE/l1-lint
 run_step "L1 lint: no bare role compare in hooks"     node --test "$HERE/l1-lint/no-bare-role-compare.test.mjs"
 run_step "L1 lint: symlink targets all resolve"       node --test "$HERE/l1-lint/symlink-targets.test.mjs"
 run_step "L1 lint: hooks.json commands executable"     node --test "$HERE/l1-lint/hooks-executable.test.mjs"
-run_step "L1 lint: L5 harness helpers (flow-helpers.test.sh)" bash "$HERE/l5-l6/lib/flow-helpers.test.sh"
 run_step "L1 lint: valid permissionDecision values"    node --test "$HERE/l1-lint/valid-permission-decisions.test.mjs"
 run_step "L1 lint: no citations of the retired shell gates" node --test "$HERE/l1-lint/no-retired-hook-gate-paths.test.mjs"
 run_step "L1 lint: no directories-table refs"         node --test "$HERE/l1-lint/no-directories-table-refs.test.mjs"

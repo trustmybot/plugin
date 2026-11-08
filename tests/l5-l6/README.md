@@ -5,18 +5,18 @@ The heaviest, non-deterministic layers: they drive real Claude Code (`claude -p`
 > Test prompts (`rows/*/prompt.txt`) are Human-authored. Do not edit them to make a chain pass — fix the assertion, `setup-l5.sh`, hook, or doctrine instead.
 
 ```bash
-bash tests/l5-l6/run-l5.sh                 # all rows in isolation
-bash tests/l5-l6/run-l5.sh onboarding      # one row by name substring
-bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts             # all rows in isolation
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts onboarding  # one row by name substring
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts       # full cumulative chain
 ```
 
 | File / folder | Purpose |
 |---|---|
-| [`run-l5.sh`](./run-l5.sh) | Per-row isolated runner — applies `setup-l5.sh`, drives the prompt, runs scorers |
-| [`run-l6-chain.sh`](./run-l6-chain.sh) | Multi-turn chain runner — walks the manifest rows against one cumulative trajectory DB |
+| [`run-l5.ts`](./run-l5.ts) | Per-row isolated runner — applies `setup-l5.sh`, drives the prompt, runs scorers |
+| [`run-l6-chain.ts`](./run-l6-chain.ts) | Multi-turn chain runner — walks the manifest rows against one cumulative trajectory DB |
 | [`rows/`](./rows/) | The canonical row tree, organized into family folders `<NN>/` that hold the primary step `<NN>-<name>/` plus its edge cases `<NN>.<MM>-<name>/` (standalone `23-bulk-cleanup/` stays flat). Each leaf row dir holds `prompt.txt`, `script.json`, `fixture.txt`, `setup-l5.sh`, `outcome.sql`, `tools-required.json`, `tools-forbidden.json`, `cost-budget.json`, and optional outcome bundles |
 | [`l6-chain/`](./l6-chain/) | Chain configuration — `chain-manifest.json` (ordered steps) + `seeds/` (between-row SQL bridges). See its [`README.md`](./l6-chain/README.md) |
-| [`lib/`](./lib/) | Shared helpers — flow/chain shell helpers, the TypeScript scorers ([`scorers.ts`](./lib/scorers.ts), tested by [`scorers.test.ts`](./lib/scorers.test.ts)), sandbox, stubs, timeout shim |
+| [`lib/`](./lib/) | Shared TypeScript helpers, each tested by its `.test.ts` — flow and chain helpers, the scorers ([`scorers.ts`](./lib/scorers.ts)), sandbox, stubs, timeout |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
 | [`inspect-trajectory.ts`](./inspect-trajectory.ts) | Helper to inspect a run's trajectory DB: `node --experimental-strip-types tests/l5-l6/inspect-trajectory.ts <project-dir>` |
 

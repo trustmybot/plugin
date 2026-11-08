@@ -162,7 +162,7 @@ All rows live in **`tests/l5-l6/rows/`**, organized into **family folders** `row
 
 | Aspect | L5 mode | L6 chain mode |
 |---|---|---|
-| Runner | `tests/l5-l6/run-l5.sh` | `tests/l5-l6/run-l6-chain.sh` |
+| Runner | `tests/l5-l6/run-l5.ts` | `tests/l5-l6/run-l6-chain.ts` |
 | Pre-seed | `fixture.txt` seeds DB; `setup-l5.sh` (if present) adds env state | `fixture.txt` applied ONLY at chain step 1; subsequent steps inherit cumulative DB |
 | `setup-l5.sh` | Runs (simulates prior-step state for isolation) | NOT run (chain state carries from prior step) |
 | Per-turn session | Fresh `claude -p` per turn (no `--resume`). Continuity within a row is DB-driven. | Same. |
@@ -237,8 +237,8 @@ These don't appear in the chain manifest. They test isolated behaviours that don
 ## L5 — per-row runner
 
 ```bash
-bash tests/l5-l6/run-l5.sh 08-push-gate           # one row by substring, ~30-60s
-bash tests/l5-l6/run-l5.sh                        # all rows
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts 08-push-gate           # one row by substring, ~30-60s
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts                        # all rows
 ```
 
 When to use L5: debugging one row, regression-tracing after a fix, pre-flight before re-running L6.
@@ -256,23 +256,23 @@ The trajectory is preserved at `<project>/.claude/tmb/l5-trajectories/<row>/<run
 ### FILTER argument
 
 ```bash
-bash tests/l5-l6/run-l5.sh <SUBSTRING>
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts <SUBSTRING>
 ```
 
 Runs only rows whose directory name contains `<SUBSTRING>`. Examples:
-- `bash tests/l5-l6/run-l5.sh 08` → runs `08-push-gate`
-- `bash tests/l5-l6/run-l5.sh consultant` → runs `12-consultant` + `12.02-consultant-ad-hoc`
-- `bash tests/l5-l6/run-l5.sh misc` → runs all three `misc-*` rows
+- `node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts 08` → runs `08-push-gate`
+- `node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts consultant` → runs `12-consultant` + `12.02-consultant-ad-hoc`
+- `node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts misc` → runs all three `misc-*` rows
 
 ---
 
 ## L6 — chained integration runner
 
 ```bash
-bash tests/l5-l6/run-l6-chain.sh                  # auto-resume from last halt, or fresh
-bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from a specific row
-bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
-bash tests/l5-l6/run-l6-chain.sh --fresh          # force fresh from row 1
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts                  # auto-resume from last halt, or fresh
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --from 7         # resume from a specific row
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --halt-on-fail 0 # don't stop at first fail
+node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts --fresh          # force fresh from row 1
 ```
 
 When to use L6: integration smoke before any release; verifying cross-row continuity after fixes that span multiple rows.
@@ -300,15 +300,16 @@ Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a
 
 ```
 tests/l5-l6/
-├── run-l5.sh                 # orchestrator — iterates rows/ tree
-├── run-l6-chain.sh           # chain runner — manifest-driven
+├── run-l5.ts                 # orchestrator — iterates rows/ tree
+├── run-l6-chain.ts           # chain runner — manifest-driven
 ├── lib/
-│   ├── flow-helpers.sh       # row-level setup + run + score helpers
-│   ├── l6-chain-helpers.sh   # l6c_run_step, l6c_score_step, l6c_snapshot_db, etc.
+│   ├── flow-helpers.ts       # row-level setup + run + score helpers
+│   ├── l6-chain-helpers.ts   # l6cRunStep, l6cScoreStep, l6cSnapshotDb, etc.
+│   ├── sandbox.ts            # per-step sandbox (stubs/ on PATH, scratch HOME, no credentials)
 │   ├── scorers.ts            # the ten scorers (outcome / trajectory / cost / files / coherence / git / usage / materialized / no_sandbox); `score-all` CLI
-│   ├── scorers.test.ts       # node:test suite for scorers.ts
-│   ├── smoke-helpers.sh      # pre-flight substrate health (MCP spawn + auth + plugin-load)
-│   └── timeout-shim.sh       # cross-platform timeout wrapper
+│   ├── smoke-helpers.ts      # pre-flight substrate health (MCP spawn + auth + plugin-load)
+│   ├── timeout.ts            # cross-platform timeout wrapper
+│   └── *.test.ts             # node:test suite for each lib
 ├── rows/<NN>/<row-name>/     # canonical row layout in family folders (used by both L5 + L6)
 │   └── ... (see "Row layout" above)
 ├── l6-chain/

@@ -62,7 +62,7 @@ const SELF_TEST_CASES = [
 
 describe('--self-test cases', () => {
   const checks = selfTestChecks();
-  test('covers every case of the .sh self-test', () => {
+  test('covers every self-test case', () => {
     assert.deepEqual(
       checks.map((c) => c.name),
       SELF_TEST_CASES,

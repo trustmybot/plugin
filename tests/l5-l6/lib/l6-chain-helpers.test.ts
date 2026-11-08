@@ -1,4 +1,4 @@
-// node:test suite for l6-chain-helpers.ts: the runs root (run-l6-chain.sh's self-test cases), HOME
+// node:test suite for l6-chain-helpers.ts: the runs root (run-l6-chain.ts's self-test cases), HOME
 // isolation and its leak check, the sandboxed step launch, seeds, snapshots, the doctor, the
 // multi-turn step against a stub claude, and the chain summary. No test calls the real claude.
 // Run: node --experimental-strip-types --experimental-sqlite --test tests/l5-l6/lib/l6-chain-helpers.test.ts
@@ -98,7 +98,7 @@ const mainCheckout = dirname(
   spawnSync('git', ['-C', import.meta.dirname, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).stdout.trim(),
 );
 
-describe('l6cResolveRunsRoot (run-l6-chain.sh:83-87)', () => {
+describe('l6cResolveRunsRoot', () => {
   const env = { ...process.env };
   delete env.L6C_RUNS_DIR;
   delete env.CLAUDE_PROJECT_DIR;

@@ -1,7 +1,7 @@
-// node:test suite for flow-helpers.ts: every case of flow-helpers.test.sh (scratch projects carry
-// no CLAUDE.md, the TEST MODE preamble and composed prompt, the reonboard and roundtable-slash
-// hooks on a composed prompt, the chain-seed scan-row drop, the claude call disabling the
-// project-scoped trajectory-server) plus the state dir, scratch setup, seeding, preservation,
+// node:test suite for flow-helpers.ts: scratch projects carry no CLAUDE.md, the TEST MODE
+// preamble and composed prompt, the reonboard and roundtable-slash hooks on a composed prompt,
+// the chain-seed scan-row drop, the claude call disabling the project-scoped trajectory-server,
+// the state dir, scratch setup, seeding, preservation,
 // the git snapshot, the claude run against a stub claude, and cleanup. The hooks run through the
 // built dist (dist/hooks.js <gate>); no test calls the real claude.
 // Run: node --experimental-strip-types --experimental-sqlite --test tests/l5-l6/lib/flow-helpers.test.ts
@@ -164,7 +164,6 @@ describe('scratch projects', () => {
 describe('TEST MODE preamble', () => {
   test('compose: starts with the unchanged preamble', () => {
     assert.equal(COMPOSED.slice(0, PREAMBLE.length), PREAMBLE);
-    assert.equal(readFileSync(join(import.meta.dirname, 'flow-helpers.sh'), 'utf8').includes(PREAMBLE), true);
   });
 
   test('preamble pins the /onboard sandbox answer to no (GH 1549)', () => {

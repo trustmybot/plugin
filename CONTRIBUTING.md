@@ -103,7 +103,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
-- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
+- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.ts`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
 
 `.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
 
@@ -143,8 +143,8 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 2. Bump PR on a branch off `dev`: `bump-version.ts X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
 **Phase B — local pre-flight**
-3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Then fast-forward `rc` to that same `dev` commit, dispatch the gate from it (`gh workflow run release-gate.yml --ref rc`), and tag that commit only on green; the tag push inherits the green same-SHA verdict (within 48h) instead of re-running it.
-4. On any step failure: reproduce and debug with the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.sh --from <step>`). Iterate until the chain completes. An L6 step that needs the network is made hermetic (a fixture env var or fixture file), never re-rolled until it passes.
+3. Run the full local L6 chain (`node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l6-chain.ts`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Then fast-forward `rc` to that same `dev` commit, dispatch the gate from it (`gh workflow run release-gate.yml --ref rc`), and tag that commit only on green; the tag push inherits the green same-SHA verdict (within 48h) instead of re-running it.
+4. On any step failure: reproduce and debug with the matching L5 row (`node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.ts --from <step>`). Iterate until the chain completes. An L6 step that needs the network is made hermetic (a fixture env var or fixture file), never re-rolled until it passes.
 5. Whether the resumed 15/15 clears you to tag depends on what the fix touched:
    - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
    - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.

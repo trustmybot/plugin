@@ -152,7 +152,7 @@ function runRow(row: Row, runBase: string, pluginRoot: string, baseEnv: NodeJS.P
   }
 }
 
-/** run-l5.sh [filter]: returns the exit code (1 on a failed check or any failed row). */
+/** run-l5.ts [filter]: returns the exit code (1 on a failed check or any failed row). */
 export function main(argv: readonly string[], opts: MainOptions = {}): number {
   const out = (text: string) => process.stdout.write(text);
   const env: NodeJS.ProcessEnv = { ...(opts.env ?? process.env) };

@@ -1,4 +1,4 @@
-// L1 lint: TMB writes nothing under the user's home directory. Project state (trajectory DB, logs, locks, session markers, the headless shim) lives under <project>/.claude/<plugin>/; the only path outside the project is the embedding model cache, declared once as TMB_MODEL_CACHE_DIR. Scans scripts/, skills/*/scripts/ and the L5/L6 runners + their libs under tests/l5-l6/ (shell, *.sh) and mcp/trajectory-server/src/ (TypeScript, tests excluded). A line is a violation when it writes and its target references the home directory — directly ($HOME, ${HOME}, ~/, homedir(), process.env.HOME) or through a variable assigned from one in the same file. Shell writes: > / >> redirects (target), mkdir, tee, touch (any arg), cp, mv, ln, install (last arg). TS writes: writeFileSync, mkdirSync, appendFileSync, cpSync, renameSync, symlinkSync, writeFile, mkdir, appendFile. TS taint also covers a `homeDir` parameter and functions that return a home-rooted path. Lines naming TMB_MODEL_CACHE_DIR are allowed; comment lines are skipped. Allowlist: tests/l1-lint/no-home-writes.allowlist — repo-relative paths of Human-run tools whose job is repairing Claude Code's own config; nothing a hook or the server runs may be listed. Every run also checks fixtures/no-home-writes/.
+// L1 lint: TMB writes nothing under the user's home directory. Project state (trajectory DB, logs, locks, session markers, the headless shim) lives under <project>/.claude/<plugin>/; the only path outside the project is the embedding model cache, declared once as TMB_MODEL_CACHE_DIR. Scans scripts/ and skills/*/scripts/ (shell, *.sh), and the L5/L6 runners + their libs in tests/l5-l6/ and tests/l5-l6/lib/ and mcp/trajectory-server/src/ (TypeScript, tests excluded). A line is a violation when it writes and its target references the home directory — directly ($HOME, ${HOME}, ~/, homedir(), process.env.HOME) or through a variable assigned from one in the same file. Shell writes: > / >> redirects (target), mkdir, tee, touch (any arg), cp, mv, ln, install (last arg). TS writes: writeFileSync, mkdirSync, appendFileSync, cpSync, renameSync, symlinkSync, writeFile, mkdir, appendFile. TS taint also covers a `homeDir` parameter and functions that return a home-rooted path. Lines naming TMB_MODEL_CACHE_DIR are allowed; comment lines are skipped. Allowlist: tests/l1-lint/no-home-writes.allowlist — repo-relative paths of Human-run tools whose job is repairing Claude Code's own config; nothing a hook or the server runs may be listed. Every run also checks fixtures/no-home-writes/.
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -123,6 +123,7 @@ test('no writes under the home directory', () => {
       : [],
   );
   const sh = (rel) => rel.endsWith('.sh');
+  const l5l6Ts = (rel) => rel.endsWith('.ts') && !rel.endsWith('.test.ts');
   const skillScripts = existsSync(join(ROOT, 'skills'))
     ? readdirSync(join(ROOT, 'skills'), { withFileTypes: true })
         .filter((e) => e.isDirectory())
@@ -130,7 +131,7 @@ test('no writes under the home directory', () => {
     : [];
   const files = [
     ...[...find('scripts', sh, []), ...skillScripts].sort(),
-    ...[...find('tests/l5-l6', sh, [], 1), ...find('tests/l5-l6/lib', sh, [], 1)].sort(),
+    ...[...find('tests/l5-l6', l5l6Ts, [], 1), ...find('tests/l5-l6/lib', l5l6Ts, [], 1)].sort(),
     ...find('mcp/trajectory-server/src', (rel) => rel.endsWith('.ts') && !rel.includes('/test/'), []).sort(),
   ].filter((f) => !allowed.has(f));
   const out = scan(files);

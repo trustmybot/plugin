@@ -1,9 +1,10 @@
-// node:test suite for sandbox.ts: init's env and on-disk setup, and teardown's cleanup.
+// node:test suite for sandbox.ts: init's env and on-disk setup, gh, glab and an https git push
+// failing inside the sandbox, and teardown's cleanup.
 // Run: node --experimental-strip-types --test tests/l5-l6/lib/sandbox.test.ts
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -29,13 +30,6 @@ describe('tmbTestSandboxInit', () => {
     assert.equal(env.PATH, `${STUBS_DIR}${delimiter}${base.PATH}`);
     assert.equal(env.PATH?.split(delimiter)[0], join(import.meta.dirname, 'stubs'));
     assert.equal(env.TMB_SANDBOX_ORIG_PATH, base.PATH);
-  });
-
-  test('the stubs on PATH block gh', () => {
-    const { env } = tmbTestSandboxInit(scratch(), base);
-    const r = spawnSync('gh', ['auth', 'status'], { env, encoding: 'utf8' });
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /gh CLI disabled in test mode/);
   });
 
   test('points HOME at <scratch>/_home with the test .gitconfig and .ssh', () => {
@@ -91,6 +85,39 @@ describe('tmbTestSandboxInit', () => {
     const before = { ...base };
     tmbTestSandboxInit(scratch(), base);
     assert.deepEqual(base, before);
+  });
+});
+
+const NETWORK_BLOCKED =
+  /transport|blocked|disabled|Couldn.t connect|Failed to connect|Connection refused|Connection reset|Connection timed out|SSL_ERROR_SYSCALL|Could not resolve host|unable to access|terminal prompts disabled|could not read Username|Device not configured|Authentication failed/i;
+
+describe('isolation inside the sandbox', () => {
+  for (const [cli, args] of [
+    ['gh', ['repo', 'create', `probe-repo-${process.pid}`]],
+    ['glab', ['repo', 'create', `probe-${process.pid}`]],
+  ] as const) {
+    test(`${cli} repo create fails with the sandbox message`, () => {
+      const { env } = tmbTestSandboxInit(scratch(), base);
+      const r = spawnSync(cli, args, { env, encoding: 'utf8', timeout: 30_000 });
+      assert.equal(r.status, 1, `${cli} exit code`);
+      assert.match(r.stderr, /tmb sandbox/);
+    });
+  }
+
+  test('git push to an https remote is blocked', () => {
+    const dir = scratch();
+    const { env } = tmbTestSandboxInit(dir, base);
+    const repo = join(dir, 'probe');
+    mkdirSync(repo, { recursive: true });
+    const git = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { env, encoding: 'utf8', timeout: 60_000 });
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'README.md'), 'probe\n');
+    git('add', '.');
+    assert.equal(git('commit', '-qm', 'probe').status, 0);
+    const r = git('push', 'https://github.com/probe/probe.git', 'main');
+    assert.notEqual(r.status, 0, 'git push https exit code');
+    const out = `${r.stdout}${r.stderr}`;
+    assert.ok(out.includes('tmb sandbox') || NETWORK_BLOCKED.test(out), `git push https output: ${out}`);
   });
 });
 
