@@ -3,7 +3,7 @@ import { GridRows } from '@visx/grid';
 import { Group } from '@visx/group';
 import { ParentSize } from '@visx/responsive';
 import { scaleLinear } from '@visx/scale';
-import { BarRounded, Line } from '@visx/shape';
+import { BarRounded, Line, Pie } from '@visx/shape';
 import { Tooltip, useTooltip } from '@visx/tooltip';
 import { OUTLINE_DASH } from './ChartCard.tsx';
 import type { Tick } from './format.ts';
@@ -351,7 +351,7 @@ function BarListPlot({ width, label, rows, format, axis, max }: BarListProps & {
         <Group left={1}>
           {rows.map((r, i) => {
             const rowY = i * ROW;
-            const end = r.note === undefined && r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
+            const end = r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
             return (
               <g key={r.key}>
                 <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
@@ -408,6 +408,66 @@ export function BarList(props: BarListProps) {
         {({ width }) => <BarListPlot {...props} width={width || 480} />}
       </ParentSize>
     </div>
+  );
+}
+
+export interface DonutSegment {
+  key: string;
+  label: string;
+  value: number;
+  color: string;
+}
+
+export interface DonutProps {
+  label: string;
+  segments: DonutSegment[];
+  totalLabel: string;
+}
+
+const DONUT_W = 320;
+const DONUT_H = 180;
+const DONUT_OUTER = 64;
+const DONUT_INNER = 44;
+const DONUT_LABEL_GAP = 12;
+const SEGMENT_MOTION = 'motion-safe:transition-opacity motion-safe:duration-500 motion-safe:starting:opacity-0';
+
+export const segmentShare = (value: number, total: number) => (total > 0 ? Math.round((100 * value) / total) : 0);
+
+// Each segment is labelled at its mid-angle just outside the ring; the total sits in the hole.
+export function Donut({ label, segments, totalLabel }: DonutProps) {
+  const total = segments.reduce((s, d) => s + d.value, 0);
+  const shown = segments.filter((d) => d.value > 0);
+  return (
+    <svg width={DONUT_W} height={DONUT_H} viewBox={`0 0 ${DONUT_W} ${DONUT_H}`} role="img" aria-label={label} className="block max-w-full tabular-nums" data-donut="">
+      <Group left={DONUT_W / 2} top={DONUT_H / 2}>
+        {total === 0 && <circle r={(DONUT_OUTER + DONUT_INNER) / 2} fill="none" stroke={GRID} strokeWidth={DONUT_OUTER - DONUT_INNER} />}
+        <Pie data={shown} pieValue={(d) => d.value} outerRadius={DONUT_OUTER} innerRadius={DONUT_INNER} padAngle={shown.length > 1 ? 0.02 : 0} pieSort={null} pieSortValues={null}>
+          {({ arcs, path }) =>
+            arcs.map((a) => {
+              const mid = (a.startAngle + a.endAngle) / 2;
+              const r = DONUT_OUTER + DONUT_LABEL_GAP;
+              const lx = Math.sin(mid) * r;
+              const ly = -Math.cos(mid) * r;
+              const anchor = Math.abs(lx) < 1 ? 'middle' : lx > 0 ? 'start' : 'end';
+              return (
+                <g key={a.data.key} data-segment={a.data.key}>
+                  <path d={path(a) ?? ''} fill={a.data.color} className={SEGMENT_MOTION} />
+                  <text x={lx} y={ly + 4} textAnchor={anchor} fill={TEXT} fontSize={12} data-segment-label="">
+                    {`${a.data.label} ${a.data.value} (${segmentShare(a.data.value, total)}%)`}
+                  </text>
+                </g>
+              );
+            })
+          }
+        </Pie>
+        <text y={2} textAnchor="middle" fill={TEXT} fontSize={20} fontWeight={600} data-donut-total="">
+          {total}
+        </text>
+        <text y={18} textAnchor="middle" fill={MUTED} fontSize={11}>
+          {totalLabel}
+        </text>
+      </Group>
+    </svg>
   );
 }
 
