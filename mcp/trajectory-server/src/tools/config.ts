@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -294,11 +295,14 @@ export function storedConfigParseErrorPrefix(key: string): string {
 
 /**
  * Persist one or more shared plugin-config values atomically. Callers remain
- * responsible for exposing only the keys their host contract permits.
+ * responsible for exposing only the keys their host contract permits. Each
+ * key whose stored value changes gets a `config_changed` audit row in the same
+ * transaction, naming the key only: a value may hold a secret.
  */
 export function setConfigValues(
   db: TrajectoryDB,
   entries: readonly ConfigValueInput[],
+  fromNode = 'bro',
 ): void {
   const serialized = entries.map(({ key, value }) => ({
     key,
@@ -306,12 +310,21 @@ export function setConfigValues(
   }));
   db.transaction(() => {
     for (const { key, valueJson } of serialized) {
+      const stored = db.get<{ value_json: string }>('SELECT value_json FROM plugin_config WHERE key = ?', [key]);
+      if (stored?.value_json === valueJson) continue;
       db.run(
         `INSERT INTO plugin_config (key, value_json)
          VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
         [key, valueJson],
       );
+      insertAudit(db, {
+        issue_id: -1,
+        from_node: fromNode,
+        event_type: 'config_changed',
+        summary: `Config changed: ${key}`,
+        content_json: JSON.stringify({ key }),
+      });
     }
   });
 }
@@ -433,7 +446,7 @@ export function configTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     config_set: requireRoles('config_set', ['bro'], wrapHandler(async (args) => {
       const key = args['key'];
-      setConfigValues(db, [{ key: key as string, value: args['value'] }]);
+      setConfigValues(db, [{ key: key as string, value: args['value'] }], normalizeAgent(args['agent']));
       return ok({ key });
     })),
 

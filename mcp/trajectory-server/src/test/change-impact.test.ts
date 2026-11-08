@@ -23,6 +23,7 @@ import {
 } from '../change-impact/index.js';
 import { bootstrapRatioCi, holm, mannWhitneyU, median } from '../change-impact/stats.js';
 import { changeImpactTools } from '../tools/change-impact.js';
+import { insertAudit } from '../tools/audit.js';
 
 const DAY = 86_400_000;
 const T0 = Date.parse('2026-10-01T00:00:00.000Z');
@@ -374,6 +375,94 @@ describe('change impact — config and ids (SC5)', () => {
     assert.equal(list.changes.filter((c) => c.source === 'agent_surface').length, 0);
     const v = computeChangeImpact(db, ctx, { change: { source: 'plugin_version', id: '1.0.0' } });
     assert.equal(v.id, '1.0.0');
+  });
+});
+
+describe('change impact — tmb_events', () => {
+  const T = T0 + 5 * DAY;
+
+  function seedCheatcode(db: TrajectoryDB, name: string, status: string, at: number): number {
+    db.run(
+      "INSERT INTO cheatcodes (name, kind, origin, source_url, status, installed_at) VALUES (?, 'mcp', 'marketplace', ?, ?, ?)",
+      [name, `https://example.invalid/${name}`, status, iso(at)],
+    );
+    return db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+  }
+
+  function seedAudit(db: TrajectoryDB, eventType: 'cheatcode_uninstalled' | 'config_changed', summary: string, content: string, at: number): number {
+    return insertAudit(db, { issue_id: -1, from_node: 'bro', event_type: eventType, summary, content_json: content, created_at: iso(at) });
+  }
+
+  function tmbFixture(): { db: TrajectoryDB; installId: number; uninstallId: number; configId: number } {
+    const db = tempDB();
+    const installId = seedCheatcode(db, 'acme-search', 'active', T);
+    seedCheatcode(db, 'acme-draft', 'draft', T);
+    const uninstallId = seedAudit(db, 'cheatcode_uninstalled', "Cheatcode uninstall: 'acme-old' (kind=mcp)", JSON.stringify({ name: 'acme-old' }), T + 3 * DAY);
+    const configId = seedAudit(db, 'config_changed', 'Config changed: acme.flag', JSON.stringify({ key: 'acme.flag' }), T + 4 * DAY);
+    seedReworkSides(db, 25, T - 2 * DAY, null, T + 3_600_000, null);
+    return { db, installId, uninstallId, configId };
+  }
+
+  it('lists the install, the uninstall and the config change, not a draft or a builtin, and splits by time (SC1)', () => {
+    const { db, installId, uninstallId, configId } = tmbFixture();
+    const list = computeChangeImpact(db) as ChangeImpactList;
+    assert.ok(list.sources.includes('tmb_events'));
+    const tmb = list.changes.filter((c) => c.source === 'tmb_events');
+    assert.deepEqual(
+      tmb.map((c) => [c.id, c.kind, c.label, c.repo]).sort(),
+      [
+        [`audit-${configId}`, 'config', 'config changed: acme.flag', null],
+        [`audit-${uninstallId}`, 'cheatcode_uninstall', 'cheatcode uninstalled: acme-old', null],
+        [`cheatcode-${installId}`, 'cheatcode_install', 'cheatcode installed: acme-search', null],
+      ].sort(),
+    );
+    const r = computeChangeImpact(db, undefined, { change: { source: 'tmb_events', id: `cheatcode-${installId}` } });
+    assert.equal(r.at, iso(T));
+    const m = r.metrics.find((x) => x.id === 'swe_rework_ratio')!;
+    assert.ok(m.before.n >= 20 && m.after.n >= 20, `${m.before.n}/${m.after.n}`);
+    assert.notEqual(m.p, null);
+    assert.equal(m.verdict, 'improved');
+    assert.deepEqual(r.measured_with.map((c) => c.id).sort(), [`audit-${configId}`, `audit-${uninstallId}`].sort());
+  });
+
+  it('names an uninstall from its summary, then cheatcode; skips bad JSON and a keyless config row', () => {
+    const db = tempDB();
+    const fromSummary = seedAudit(db, 'cheatcode_uninstalled', "Cheatcode uninstall: 'acme-legacy' (kind=skill)", '{}', T);
+    const bare = seedAudit(db, 'cheatcode_uninstalled', 'Cheatcode uninstall', '{}', T);
+    seedAudit(db, 'cheatcode_uninstalled', "Cheatcode uninstall: 'acme-bad'", 'not json', T);
+    seedAudit(db, 'config_changed', 'Config changed', '{}', T);
+    seedAudit(db, 'config_changed', 'Config changed: x', '[]', T);
+    const list = computeChangeImpact(db, undefined, { source: 'tmb_events' }) as ChangeImpactList;
+    assert.deepEqual(
+      list.changes.map((c) => [c.id, c.label]).sort(),
+      [
+        [`audit-${bare}`, 'cheatcode uninstalled: cheatcode'],
+        [`audit-${fromSummary}`, 'cheatcode uninstalled: acme-legacy'],
+      ].sort(),
+    );
+  });
+
+  it('a missing table yields no events, never an error', () => {
+    const { db } = tmbFixture();
+    const reader = {
+      get: db.get.bind(db),
+      all<T>(sql: string, params?: unknown[]): T[] {
+        if (/FROM (cheatcodes|audit)\b/.test(sql)) throw new Error('no such table');
+        return db.all<T>(sql, params);
+      },
+    };
+    const list = computeChangeImpact(reader, providerContext(reader)) as ChangeImpactList;
+    assert.ok(!list.sources.includes('tmb_events'));
+    assert.equal(list.changes.filter((c) => c.source === 'tmb_events').length, 0);
+  });
+
+  it('agent_surface and tmb_events split one sample set identically at the same time', () => {
+    const { db, surfaceSha } = acmeFixture(25);
+    const surface = computeChangeImpact(db, undefined, { change: { source: 'agent_surface', id: surfaceSha.slice(0, 12) } });
+    const id = seedCheatcode(db, 'acme-same-time', 'installed', Date.parse(surface.at));
+    const tmb = computeChangeImpact(db, undefined, { change: { source: 'tmb_events', id: `cheatcode-${id}` } });
+    const unseeded = (r: ChangeImpact) => r.metrics.map(({ ratio_ci: _ci, ...rest }) => rest);
+    assert.deepEqual(unseeded(tmb), unseeded(surface));
   });
 });
 

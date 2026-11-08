@@ -86,7 +86,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Reports | `tools/reports.ts` | `issue_report_md`, `issue_snapshot_md` |
 | Branch report | `tools/branch_report_md.ts` | `branch_report_md` |
 | Stats | `tools/stats.ts` | `task_stats` (token/duration aggregate per task; `cost_estimate` from `plugin_config.model_prices`) |
-| Change impact | `tools/change-impact.ts` | `change_impact` (read-only before/after statistics on the agent metrics for one change `{source, id}`, a plugin version or an agent-surface commit, from `src/change-impact/`) |
+| Change impact | `tools/change-impact.ts` | `change_impact` (read-only before/after statistics on the agent metrics for one change `{source, id}`, a plugin version, an agent-surface commit, or a cheatcode install, uninstall or config change, from `src/change-impact/`) |
 | Roundtable | `tools/roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
 | PR monitor | `tools/pr_monitor.ts` | `pr_monitor_comments_get`, `pr_monitor_runs_list` |
 | Cheatcodes | `tools/cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list`, `cheatcode_reconcile` |

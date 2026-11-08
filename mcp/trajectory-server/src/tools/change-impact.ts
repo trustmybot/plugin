@@ -79,7 +79,7 @@ export function changeImpactTools(
             },
             required: ['source', 'id'],
             description:
-              'A change: plugin_version (an installed version; on dev builds a merged change by build), or agent_surface (a base-branch commit touching agent files; id is its merge number or 12-char SHA). Omit for {sources, changes} over the last `limit`. ' +
+              'A change: plugin_version (an installed version; on dev builds a merged change by build), agent_surface (a base-branch commit touching agent files; id is its merge number or 12-char SHA), or tmb_events (a cheatcode install, id cheatcode-<n>, or a cheatcode uninstall or config change, id audit-<n>). Omit for {sources, changes} over the last `limit`. ' +
               'Per metric: before/after {n, median, mean, estimated_n, unattributed_n}, ratio_of_medians, ratio_ci (seeded 95% bootstrap), p (Mann-Whitney U), p_holm (Holm), verdict (improved, regressed, no_change, not_enough_data under 20 a side). measured_with: changes no sample separates from it.',
           },
           source: { type: 'string', enum: [...CHANGE_SOURCES], description: 'Without change: list only this source' },
