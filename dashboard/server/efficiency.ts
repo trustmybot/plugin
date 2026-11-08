@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { nearestRank, sinceOf, type InsightFilter } from './queries.ts';
+import { nearestRank, periodOf, periodWhere, sinceOf, type InsightFilter, type Period, type Slice } from './queries.ts';
 
 type Row = Record<string, unknown>;
 
@@ -262,7 +262,8 @@ function grouped<K extends string>(tasks: readonly TaskFacts[], key: (t: TaskFac
 
 const fewLast = (a: Group, b: Group) => Number(a.few) - Number(b.few);
 
-function taskRows(db: DatabaseSync, f: InsightFilter, since: string | null): TaskRow[] {
+function taskRows(db: DatabaseSync, f: InsightFilter, p: Period): TaskRow[] {
+  const period = periodWhere(p, 't.completed_at', 't.id');
   return db
     .prepare(
       `SELECT t.id, t.repo, r.path AS repo_path, t.commit_sha, t.completed_at,
@@ -281,11 +282,11 @@ function taskRows(db: DatabaseSync, f: InsightFilter, since: string | null): Tas
          ) a ON a.task_id = t.id
          LEFT JOIN (SELECT task_id, COUNT(*) AS fails FROM validation_attempts WHERE verdict = 'fail' GROUP BY task_id) v ON v.task_id = t.id
         WHERE t.status = 'closed' AND t.commit_sha IS NOT NULL AND t.completed_at IS NOT NULL
-          AND (? IS NULL OR t.completed_at >= ?)
+          AND ${period.sql}
           AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
         ORDER BY t.id`,
     )
-    .all(since, since, f.repo, f.repo, f.effort, f.effort) as unknown as TaskRow[];
+    .all(...period.args, f.repo, f.repo, f.effort, f.effort) as unknown as TaskRow[];
 }
 
 function factsOf(r: TaskRow): TaskFacts | null {
@@ -308,14 +309,9 @@ function factsOf(r: TaskRow): TaskFacts | null {
   };
 }
 
-// GET /api/insights/efficiency: tokens per changed line of closed tasks by
-// commit type and by local ISO week (code types only). Read-only: git runs
-// asynchronously through spawn with argv, never a shell, at most twice per
-// repo with uncached SHAs.
-export async function efficiency(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Promise<Row> {
-  const since = sinceOf(f.range, now);
-  const rows = taskRows(db, f, since);
-  await loadNumstats(rows);
+// One period's groups over rows whose numstats are loaded: `overall` and
+// `by_week` cover the code types only, `by_type` ends with docs.
+function bodyOf(rows: readonly TaskRow[]): Row {
   const facts: TaskFacts[] = [];
   let skipped = 0;
   for (const r of rows) {
@@ -323,18 +319,47 @@ export async function efficiency(db: DatabaseSync, f: InsightFilter, now: Date =
     if (t === null) skipped += 1;
     else facts.push(t);
   }
+  const codeFacts = facts.filter((t) => t.type !== 'docs');
   const types = grouped(facts, (t) => t.type);
   const code = types.filter(([k]) => k !== 'docs').sort(([ka, a], [kb, b]) => fewLast(a, b) || b.n - a.n || ka.localeCompare(kb));
   const docs = types.filter(([k]) => k === 'docs');
-  const weeks = grouped(
-    facts.filter((t) => t.type !== 'docs'),
-    (t) => t.week,
-  ).sort(([ka, a], [kb, b]) => fewLast(a, b) || ka.localeCompare(kb));
+  const weeks = grouped(codeFacts, (t) => t.week).sort(([ka, a], [kb, b]) => fewLast(a, b) || ka.localeCompare(kb));
   return {
-    range: { key: f.range, since, until: now.toISOString() },
-    filters: { repo: f.repo, effort: f.effort },
+    overall: groupOf(codeFacts),
     by_type: [...code, ...docs].map(([type, g]) => ({ type, ...g })),
     by_week: weeks.map(([week, g]) => ({ week, ...g })),
     skipped,
+  };
+}
+
+// GET /api/insights/efficiency: tokens per changed line of closed tasks by
+// commit type and by local ISO week (code types only). Read-only: git runs
+// asynchronously through spawn with argv, never a shell, at most twice per
+// repo with uncached SHAs.
+export async function efficiency(db: DatabaseSync, f: InsightFilter, now: Date = new Date()): Promise<Row> {
+  const since = sinceOf(f.range, now);
+  const rows = taskRows(db, f, { since, before: null, fromTask: null, toTask: null });
+  await loadNumstats(rows);
+  return {
+    range: { key: f.range, since, until: now.toISOString() },
+    filters: { repo: f.repo, effort: f.effort },
+    ...bodyOf(rows),
+  };
+}
+
+// GET /api/insights/efficiency/compare: the efficiency body of each period,
+// with week bins of its own, after one numstat load over both periods' rows.
+export async function efficiencyCompare(db: DatabaseSync, f: InsightFilter, s1: Slice, s2: Slice): Promise<Row> {
+  const r1 = taskRows(db, f, periodOf(s1));
+  const r2 = taskRows(db, f, periodOf(s2));
+  const union = new Map<number, TaskRow>();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  await loadNumstats([...union.values()]);
+  const ids1 = new Set(r1.map((r) => r.id));
+  return {
+    p1: { slice: s1, ...bodyOf(r1) },
+    p2: { slice: s2, ...bodyOf(r2) },
+    filters: { repo: f.repo, effort: f.effort },
+    shared_tasks: r2.filter((r) => ids1.has(r.id)).length,
   };
 }
