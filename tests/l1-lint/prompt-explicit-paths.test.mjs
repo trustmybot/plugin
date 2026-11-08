@@ -7,7 +7,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ANCHORED_CLAUDE = /(<[^<>]+>|~|\$HOME|\$\{HOME\})\/\.claude\//g;
+const ANCHORS = ['~/', '$HOME/', '${HOME}/'];
 const BARE_GIT = /(^|[^A-Za-z0-9_-])git\s+(push|switch|checkout|pull)([^A-Za-z0-9_-]|$)/;
 
 function isDir(path) {
@@ -26,6 +26,21 @@ function markdown(dir, depth, minDepth, maxDepth, out) {
   }
 }
 
+function anchored(before) {
+  if (ANCHORS.some((a) => before.endsWith(a))) return true;
+  if (!before.endsWith('>/')) return false;
+  const inner = before.slice(0, -2);
+  const open = inner.lastIndexOf('<');
+  return open >= 0 && open < inner.length - 1 && !inner.slice(open + 1).includes('>');
+}
+
+function bareClaude(line) {
+  for (let i = line.indexOf('.claude/'); i >= 0; i = line.indexOf('.claude/', i + 1)) {
+    if (!anchored(line.slice(0, i))) return true;
+  }
+  return false;
+}
+
 function prompts(root) {
   const out = [];
   for (const d of ['agents', 'commands']) {
@@ -41,7 +56,7 @@ export function scan(root = ROOT) {
     const rel = f.slice(root.length + 1);
     const lines = readFileSync(f, 'utf8').split('\n');
     lines.forEach((line, i) => {
-      if (line.includes('.claude/') && line.replace(ANCHORED_CLAUDE, '').includes('.claude/')) {
+      if (bareClaude(line)) {
         out.push(`${rel}:${i + 1}: relative .claude/ path — anchor it as <project>/.claude/...`);
       }
     });
@@ -73,6 +88,7 @@ describe('planted prompts', () => {
 
   for (const [label, name, rel, line, phrase] of [
     ['a relative .claude/ path in a command', 'rel-claude', 'commands/x.md', 'Write the file to `.claude/x`.', 'commands/x.md:5: relative .claude/ path'],
+    ['an anchored and a bare .claude/ path on one line', 'mixed-claude', 'commands/x.md', 'Copy `<project>/.claude/x` to `.claude/y`.', 'commands/x.md:5: relative .claude/ path'],
     ['a bare git push in a skill', 'bare-push', 'skills/tmb_x/SKILL.md', 'Then `git push origin <feature>`.', 'skills/tmb_x/SKILL.md:5: git command without -C'],
     ['bare git switch, checkout and pull in an agent', 'bare-verbs', 'agents/a.md', 'Run `git switch dev`, `git checkout -b x` and `git pull --ff-only`.', 'agents/a.md:5: git command without -C'],
   ]) {
