@@ -887,6 +887,13 @@ describe('containment-guard l3', () => {
     }
   });
 
+  it('GH 2451: a bare $ in a relative write path is judged against the cwd, not skipped', () => {
+    assert.equal(swe('touch a$'), 'allow', 'a$ is a file under the worktree');
+    const OUT = run(WT, 'swe', 'Bash', bashCmd('cd /etc && touch a$'));
+    assert.equal(decision(OUT), 'deny', 'a trailing $ resolves against the new cwd');
+    hasNot(OUT, 'cannot be judged', 'judged, not unjudged');
+  });
+
   it('un-onboarded project → allow', () => {
     const BARE = join(SANDBOX, 'bare');
     mkdirSync(BARE, { recursive: true });
