@@ -13,12 +13,48 @@
 // TRIVIAL_REBASE copyCondition): integrate writes it only after its own
 // HAS_PASS check, a matching `git patch-id --stable` list and a passing
 // verification[] run on the new SHA, so the pass carries over and a chain of
-// integrates collapses to the first review. Any other author's
-// review_anchor_at is ignored. NULL when the commit has no anchor row.
+// integrates collapses to the first review. A hook:integrate row written
+// before GH 2082 has a text reviewed_sha and no text review_anchor_at (GH
+// 2546): it takes the anchor of its reviewed_sha instead, found by walking
+// back through such legacy rows of the task (each row's reviewed_sha is the
+// previous row's commit_sha, at most LEGACY_CHAIN_HOPS hops) to the earliest
+// bro_verification_pass or carried review_anchor_at on the chain, and keeps
+// its created_at when the chain has none. Any other author's row anchors at
+// its created_at. NULL when the commit has no anchor row.
+const LEGACY_CHAIN_HOPS = 10;
+
+const integrateRowSql = (alias: string): string =>
+  `${alias}.event_type = 'task_integrated' AND ${alias}.from_node = 'hook:integrate'`;
+
+const carriesAnchorSql = (alias: string): string =>
+  `${integrateRowSql(alias)} AND json_type(${alias}.content_json, '$.review_anchor_at') = 'text'`;
+
+const legacyIntegrateSql = (alias: string): string =>
+  `${integrateRowSql(alias)} AND json_type(${alias}.content_json, '$.review_anchor_at') IS NOT 'text'
+          AND json_type(${alias}.content_json, '$.reviewed_sha') = 'text'`;
+
+const LEGACY_CHAIN_ANCHOR_SQL = `(WITH RECURSIVE chain(sha, hops) AS (
+          SELECT json_extract(a.content_json, '$.reviewed_sha'), 1
+          UNION
+          SELECT json_extract(c.content_json, '$.reviewed_sha'), chain.hops + 1 FROM chain JOIN audit c
+            ON ${legacyIntegrateSql('c')} AND json_valid(c.content_json)
+              AND json_extract(c.content_json, '$.task_id') = t.id
+              AND json_extract(c.content_json, '$.commit_sha') = chain.sha
+          WHERE chain.hops < ${LEGACY_CHAIN_HOPS})
+        SELECT MIN(CASE WHEN p.event_type = 'bro_verification_pass' THEN p.created_at
+          ELSE json_extract(p.content_json, '$.review_anchor_at') END)
+        FROM chain JOIN audit p
+          ON (p.event_type = 'bro_verification_pass' OR (${carriesAnchorSql('p')}))
+            AND json_valid(p.content_json)
+            AND json_extract(p.content_json, '$.task_id') = t.id
+            AND json_extract(p.content_json, '$.commit_sha') = chain.sha)`;
+
 export const REVIEW_ANCHOR_AT_SQL = `(SELECT MIN(CASE
-      WHEN a.event_type = 'task_integrated' AND a.from_node = 'hook:integrate'
-        AND json_type(a.content_json, '$.review_anchor_at') = 'text'
-      THEN json_extract(a.content_json, '$.review_anchor_at') ELSE a.created_at END) FROM audit a
+      WHEN ${carriesAnchorSql('a')}
+      THEN json_extract(a.content_json, '$.review_anchor_at')
+      WHEN ${legacyIntegrateSql('a')}
+      THEN COALESCE(${LEGACY_CHAIN_ANCHOR_SQL}, a.created_at)
+      ELSE a.created_at END) FROM audit a
     WHERE a.event_type IN ('bro_verification_pass', 'task_integrated') AND json_valid(a.content_json)
       AND json_extract(a.content_json, '$.task_id') = t.id
       AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha)`;
