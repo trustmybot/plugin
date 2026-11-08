@@ -10,6 +10,8 @@
  *   merged PR, attributed by build.
  * - agent_surface: a change is a first-parent commit on a repo's base branch
  *   touching the agent surface globs; samples split by time.
+ * - tmb_events: a change is a cheatcode install or uninstall, or a config
+ *   change (`config_changed` audit rows); samples split by time.
  */
 import type { StatsReader } from '../tools/stats.js';
 import {
@@ -23,7 +25,7 @@ import {
 } from './attribution.js';
 import { METRICS, type Metric, type Sample } from './metrics.js';
 
-export const CHANGE_SOURCES = ['plugin_version', 'agent_surface'] as const;
+export const CHANGE_SOURCES = ['plugin_version', 'agent_surface', 'tmb_events'] as const;
 export type ChangeSource = (typeof CHANGE_SOURCES)[number];
 
 export interface ChangeRef {
@@ -299,24 +301,106 @@ function surfaceEvents(ctx: ProviderContext): ChangeEvent[] {
   );
 }
 
+/** Splits a metric's samples at <event>'s time: before is t < at, after is t >= at. */
+function timeSplit(event: ChangeEvent, ctx: ProviderContext, metric: Metric): Split {
+  const at = Date.parse(event.at);
+  const samples = samplesOf(ctx, metric).map(plain);
+  return { before: samples.filter((s) => s.t < at), after: samples.filter((s) => s.t >= at), unattributed: [] };
+}
+
+/** The other <events> at or after <event> and within <windowMs> of it. */
+function timeMeasuredWith(events: ChangeEvent[], event: ChangeEvent, windowMs: number): ChangeRef[] {
+  const at = Date.parse(event.at);
+  return events
+    .filter((e) => e !== event && !(e.id === event.id && e.repo === event.repo))
+    .filter((e) => {
+      const t = Date.parse(e.at);
+      return t >= at && t <= at + windowMs;
+    })
+    .map((e) => ({ source: e.source, id: e.id }));
+}
+
 export const agentSurfaceProvider: ChangeProvider = {
   source: 'agent_surface',
   list: surfaceEvents,
-  split(event, ctx, metric) {
-    const at = Date.parse(event.at);
-    const samples = samplesOf(ctx, metric).map(plain);
-    return { before: samples.filter((s) => s.t < at), after: samples.filter((s) => s.t >= at), unattributed: [] };
-  },
+  split: timeSplit,
   measuredWith(event, ctx, windowMs) {
-    const at = Date.parse(event.at);
-    return surfaceEvents(ctx)
-      .filter((e) => e !== event && !(e.id === event.id && e.repo === event.repo))
-      .filter((e) => {
-        const t = Date.parse(e.at);
-        return t >= at && t <= at + windowMs;
-      })
-      .map((e) => ({ source: e.source, id: e.id }));
+    return timeMeasuredWith(surfaceEvents(ctx), event, windowMs);
   },
 };
 
-export const PROVIDERS: readonly ChangeProvider[] = [pluginVersionProvider, agentSurfaceProvider];
+interface InstallRow {
+  id: number;
+  name: string;
+  installed_at: string;
+}
+
+interface AuditRow {
+  id: number;
+  event_type: string;
+  summary: string | null;
+  content_json: string | null;
+  created_at: string;
+}
+
+const QUOTED_NAME = /'([^']+)'/;
+
+function rowsOrNone<T>(ctx: ProviderContext, sql: string): T[] {
+  try {
+    return ctx.reader.all<T>(sql);
+  } catch {
+    return [];
+  }
+}
+
+function objectOf(json: string | null): Record<string, unknown> | null {
+  if (json === null) return null;
+  try {
+    const value: unknown = JSON.parse(json);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function tmbEvent(id: string, kind: string, label: string, at: string): ChangeEvent[] {
+  if (Number.isNaN(Date.parse(at))) return [];
+  return [{ source: 'tmb_events', id, label, at: iso(at), kind, repo: null }];
+}
+
+function auditEvent(row: AuditRow): ChangeEvent[] {
+  const content = objectOf(row.content_json);
+  if (content === null) return [];
+  const id = `audit-${row.id}`;
+  if (row.event_type === 'config_changed') {
+    return typeof content['key'] === 'string' ? tmbEvent(id, 'config', `config changed: ${content['key']}`, row.created_at) : [];
+  }
+  const fromContent = typeof content['name'] === 'string' && content['name'].length > 0 ? content['name'] : undefined;
+  const name = fromContent ?? QUOTED_NAME.exec(row.summary ?? '')?.[1] ?? 'cheatcode';
+  return tmbEvent(id, 'cheatcode_uninstall', `cheatcode uninstalled: ${name}`, row.created_at);
+}
+
+/** Cheatcode installs (builtin rows ship with the plugin and are its version's change), uninstalls and config changes. */
+function tmbEvents(ctx: ProviderContext): ChangeEvent[] {
+  return memo(ctx, 'tmb_events', () => [
+    ...rowsOrNone<InstallRow>(
+      ctx,
+      "SELECT id, name, installed_at FROM cheatcodes WHERE installed_at IS NOT NULL AND status IN ('active', 'installed') AND origin != 'builtin' ORDER BY id",
+    ).flatMap((r) => tmbEvent(`cheatcode-${r.id}`, 'cheatcode_install', `cheatcode installed: ${r.name}`, r.installed_at)),
+    ...rowsOrNone<AuditRow>(
+      ctx,
+      "SELECT id, event_type, summary, content_json, created_at FROM audit WHERE event_type IN ('cheatcode_uninstalled', 'config_changed') ORDER BY id",
+    ).flatMap(auditEvent),
+  ]);
+}
+
+export const tmbEventsProvider: ChangeProvider = {
+  source: 'tmb_events',
+  list: tmbEvents,
+  split: timeSplit,
+  measuredWith(event, ctx, windowMs) {
+    return timeMeasuredWith(tmbEvents(ctx), event, windowMs);
+  },
+};
+
+export const PROVIDERS: readonly ChangeProvider[] = [pluginVersionProvider, agentSurfaceProvider, tmbEventsProvider];

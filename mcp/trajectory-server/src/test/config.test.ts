@@ -283,3 +283,51 @@ describe('configTools', () => {
     db.close();
   });
 });
+
+describe('config_set — config_changed audit rows (SC2)', () => {
+  type Row = { from_node: string; summary: string; content_json: string; issue_id: number };
+  const rows = (db: ReturnType<typeof tempDB>) =>
+    db.all<Row>("SELECT from_node, summary, content_json, issue_id FROM audit WHERE event_type = 'config_changed' ORDER BY id");
+
+  it('writes one key-only row per changed value and none for an identical re-set', async () => {
+    const db = tempDB();
+    const tools = configTools(db);
+    const valueA = 'alpha-value-one';
+    const valueB = 'bravo-value-two';
+
+    assert.ok(!(await call(tools.handlers, 'config_set', { agent: 'bro', key: 'acme.flag', value: valueA })).isError);
+    assert.equal(rows(db).length, 1);
+    const first = rows(db)[0]!;
+    assert.equal(first.content_json, JSON.stringify({ key: 'acme.flag' }));
+    assert.equal(first.summary, 'Config changed: acme.flag');
+    assert.equal(first.from_node, 'bro');
+    assert.equal(first.issue_id, -1);
+    assert.ok(!JSON.stringify(first).includes(valueA));
+
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'acme.flag', value: valueA });
+    assert.equal(rows(db).length, 1);
+
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'acme.flag', value: valueB });
+    assert.equal(rows(db).length, 2);
+    for (const v of [valueA, valueB]) assert.ok(!JSON.stringify(rows(db)).includes(v));
+
+    db.close();
+  });
+
+  it('a rejected value writes neither the config nor an audit row', async () => {
+    const db = tempDB();
+    const tools = configTools(db);
+    assert.ok((await call(tools.handlers, 'config_set', { agent: 'bro', key: 'acme.key', value: null })).isError);
+    assert.equal(rows(db).length, 0);
+    db.close();
+  });
+
+  it('a failing audit write rolls the config upsert back', async () => {
+    const db = tempDB();
+    const tools = configTools(db);
+    db.run("CREATE TRIGGER fail_config_audit BEFORE INSERT ON audit WHEN NEW.event_type = 'config_changed' BEGIN SELECT RAISE(ABORT, 'audit down'); END");
+    assert.ok((await call(tools.handlers, 'config_set', { agent: 'bro', key: 'acme.flag', value: 'on' })).isError);
+    assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM plugin_config WHERE key = 'acme.flag'")?.n, 0);
+    db.close();
+  });
+});
