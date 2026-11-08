@@ -13,9 +13,9 @@
 //                 key set disagrees with KEYS
 //   --root <dir>  read and write docs/reference/CONFIG_KEYS.md under <dir> (lint self-tests)
 
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const BEGIN = '<!-- config-keys:generated:start -->';
 export const END = '<!-- config-keys:generated:end -->';
@@ -272,6 +272,6 @@ function main() {
   if (errors.length > 0) process.exit(1);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   main();
 }

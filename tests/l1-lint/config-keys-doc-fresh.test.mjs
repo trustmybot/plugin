@@ -1,7 +1,7 @@
 // L1 lint: the generated key table in docs/reference/CONFIG_KEYS.md matches the plugin_config keys the code uses, each with a KEYS entry in scripts/maintenance/gen-config-keys-doc.mjs.
 import { strict as assert } from 'node:assert';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -45,4 +45,21 @@ test('CONFIG_KEYS.md matches the plugin_config keys the code uses', () => {
     result.ok,
     `${result.stderr}\n  To fix: add the key's KEYS entry in scripts/maintenance/gen-config-keys-doc.mjs if it is new, then run node scripts/maintenance/gen-config-keys-doc.mjs\nConfig-keys-doc-fresh: FAIL`,
   );
+});
+
+test('GH 2533: run through a symlinked directory, gen-config-keys-doc.mjs still runs main()', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-config-keys-doc-link-'));
+  try {
+    const link = join(dir, 'plugin');
+    symlinkSync(ROOT, link);
+    const run = spawnSync(
+      process.execPath,
+      [join(link, 'scripts', 'maintenance', 'gen-config-keys-doc.mjs'), '--check', '--root', join(dir, 'missing')],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /ENOENT/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

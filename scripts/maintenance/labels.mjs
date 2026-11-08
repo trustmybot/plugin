@@ -10,9 +10,9 @@
 //   --repo <owner/name>  the GH repo for --sync, --check-live and --triage (default: gh's current repo)
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { IMPACT_PRIORITY, REPORT_MARKER_RE } from '../../mcp/trajectory-server/dist/bug-report/form.js';
 
@@ -214,6 +214,6 @@ function main(argv) {
   return 2;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exit(main(process.argv.slice(2)));
 }
