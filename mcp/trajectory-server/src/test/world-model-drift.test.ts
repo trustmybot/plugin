@@ -206,6 +206,7 @@ describe('README drift helpers (GH 1680)', () => {
     for (const p of deleted) deletedByBasename.set(p.slice(p.lastIndexOf('/') + 1), [p]);
     return {
       root,
+      commit: 'HEAD',
       deleted: new Set(deleted),
       deletedByBasename,
       renamedAway: new Set(),

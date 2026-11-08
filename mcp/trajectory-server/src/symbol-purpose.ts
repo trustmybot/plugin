@@ -30,14 +30,35 @@ interface CandidateRow {
   purpose_source: string;
 }
 
-export function refreshSymbolPurposes(db: TrajectoryDB, repo: string): { updated: number } {
+// heads: the file heads read from the indexed commit (GH 2584), '' for a path
+// it lacks; without it a head is read from the working tree. paths limits the
+// pass to those files, so a reindex of a few files leaves the rest alone.
+export interface PurposeRefreshOptions {
+  heads?: ReadonlyMap<string, string>;
+  paths?: ReadonlySet<string>;
+}
+
+function candidates(db: TrajectoryDB, repo: string, paths?: ReadonlySet<string>): CandidateRow[] {
   const files = db.all<CandidateRow>(
     `SELECT id, path, purpose, purpose_source FROM wm_files
       WHERE repo = ? AND purpose_source IN ('none', 'symbols') ORDER BY path`,
     [repo],
   );
+  return paths ? files.filter((f) => paths.has(f.path)) : files;
+}
+
+export function purposeHeadPaths(db: TrajectoryDB, repo: string, paths?: ReadonlySet<string>): string[] {
+  return candidates(db, repo, paths)
+    .map((f) => f.path)
+    .filter(needsHeadForSymbols);
+}
+
+export function refreshSymbolPurposes(db: TrajectoryDB, repo: string, opts: PurposeRefreshOptions = {}): { updated: number } {
+  const files = candidates(db, repo, opts.paths);
   if (files.length === 0) return { updated: 0 };
   const repoPath = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = ?`, [repo])?.path ?? null;
+  const headOf = (path: string): string =>
+    opts.heads ? (opts.heads.get(path) ?? '') : repoPath !== null ? readFileHead(join(repoPath, path)) : '';
   const byPath = new Map<string, PurposeSymbol[]>();
   const rows = db.all<PurposeSymbol & { path: string }>(
     `SELECT path, kind, qualified_name, doc, exported, start_line, end_line FROM wm_symbols
@@ -62,7 +83,7 @@ export function refreshSymbolPurposes(db: TrajectoryDB, repo: string): { updated
   let updated = 0;
   db.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join(repoPath, f.path)) : '';
+      const head = needsHeadForSymbols(f.path) ? headOf(f.path) : '';
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? '';
       const source = next ? 'symbols' : 'none';

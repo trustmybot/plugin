@@ -13,6 +13,9 @@ import { probeBaseRef, resolveBaseRef, resolveRepoDefaultBranch } from '../utils
 import { gitUnanswered, runGit } from '../utils/git-run.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
+import { readBlobSync } from '../utils/git-objects.js';
+import { serverLog } from '../logger.js';
+import { ensureFresh, freshnessFields, isStale, type Freshness } from '../world-model/freshness.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -322,6 +325,7 @@ interface FileView {
   purpose: string;
   purpose_source: string;
   content_md5: string;
+  stale?: true;
 }
 
 // How far a README summary can be trusted (GH 1680): 'current', 'drifting(n)'
@@ -434,12 +438,28 @@ interface SymbolSource {
   truncated: boolean;
 }
 
-// The symbol's lines read from the repo root on disk, framed as untrusted
-// content, refusing a path that resolves (through .. or a symlink) outside
-// that root.
+function sourceLines(start_line: number, end_line: number, lines: string[]): { source: SymbolSource | null; source_reason?: string } {
+  const start = Math.max(1, start_line);
+  if (start > lines.length) return { source: null, source_reason: 'range-past-eof' };
+  const end = Math.min(end_line, lines.length);
+  const truncated = end - start + 1 > SOURCE_MAX_LINES;
+  const last = truncated ? start + SOURCE_MAX_LINES - 1 : end;
+  const text = frameUntrusted('symbol-source', lines.slice(start - 1, last).join('\n'));
+  return { source: { start_line: start, end_line: last, text, truncated } };
+}
+
+// The symbol's lines framed as untrusted content: from the blob at the
+// repo's indexed commit, the content its range was taken from (GH 2584), else
+// from the repo root on disk, refusing a path that resolves (through .. or a
+// symlink) outside that root.
 function symbolSource(db: TrajectoryDB, symbol: SymbolRow): { source: SymbolSource | null; source_reason?: string } {
   const rootArg = resolveSoleRepo(db, symbol.repo)?.path;
   if (!rootArg) return { source: null, source_reason: 'repo-path-unknown' };
+  const indexed = db.get<{ indexed_commit: string | null }>(`SELECT indexed_commit FROM repos WHERE name = ?`, [symbol.repo])?.indexed_commit;
+  if (indexed) {
+    const blob = readBlobSync(rootArg, indexed, symbol.path);
+    if (blob !== null) return sourceLines(symbol.start_line, symbol.end_line, blob.split('\n'));
+  }
   let root: string;
   let file: string;
   try {
@@ -456,13 +476,7 @@ function symbolSource(db: TrajectoryDB, symbol: SymbolRow): { source: SymbolSour
   } catch {
     return { source: null, source_reason: 'file-unreadable' };
   }
-  const start = Math.max(1, symbol.start_line);
-  if (start > lines.length) return { source: null, source_reason: 'range-past-eof' };
-  const end = Math.min(symbol.end_line, lines.length);
-  const truncated = end - start + 1 > SOURCE_MAX_LINES;
-  const last = truncated ? start + SOURCE_MAX_LINES - 1 : end;
-  const text = frameUntrusted('symbol-source', lines.slice(start - 1, last).join('\n'));
-  return { source: { start_line: start, end_line: last, text, truncated } };
+  return sourceLines(symbol.start_line, symbol.end_line, lines);
 }
 
 function symbolResult(symbol: SymbolRow, score: number, stale: boolean): Record<string, unknown> {
@@ -500,10 +514,17 @@ function symbolHit(node: SymbolRow): SearchHit {
   return { kind: 'symbol', key: `symbol:${node.id}`, node };
 }
 
-function hitResult(hit: SearchHit, score: number, stale: Set<string>): Record<string, unknown> {
+function hitResult(hit: SearchHit, score: number, stale: Set<string>, fresh: ReadonlyMap<string, Freshness>): Record<string, unknown> {
   if (hit.kind === 'dir') return dirResult({ ...hit.node, score });
-  if (hit.kind === 'file') return fileResult({ ...hit.node, score });
-  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
+  if (hit.kind === 'file') {
+    const result = fileResult({ ...hit.node, score });
+    return isStale(fresh.get(hit.node.repo), WorldModelGraph.relativeFilePath(hit.node)) ? { ...result, stale: true } : result;
+  }
+  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)) || isStale(fresh.get(hit.node.repo), hit.node.path));
+}
+
+function staleFlag(fresh: Freshness | null | undefined): { stale?: true } {
+  return fresh && (fresh.stale === 'all' || fresh.stale.size > 0) ? { stale: true } : {};
 }
 
 function isBuildOutput(path: string): boolean {
@@ -1130,7 +1151,8 @@ export function worldModelTools(
         "The world model as a directory tree, the map for code-touching cold starts. Each node has a README summary (summary_source='readme', trust current|drifting(n)|dead_refs(k), summary_sha, commits_behind, dead_refs) or a structural one, first line only below root. " +
         'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
         'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
-        'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null.',
+        'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null. ' +
+        'Each read first brings the repo index to its target (origin/<target>, else HEAD): indexed_commit, target_commit; stale:true (and files[].stale) when another session holds the reindex.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1190,7 +1212,7 @@ export function worldModelTools(
     {
       name: 'world_model_search',
       description:
-        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a symbol hit has stale: true when its file changed since the last scan. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
+        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a hit has stale: true when its file is not yet indexed at its commit or another session is reindexing it. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1222,7 +1244,7 @@ export function worldModelTools(
       name: 'world_model_symbol',
       description:
         "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
-        "note: by-name resolution, lists may be incomplete. symbol.stale: file changed since indexing (rescan). impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
+        "note: by-name resolution, lists may be incomplete. symbol.stale: another session is still reindexing its file; indexed_commit, target_commit: the commit the card is from and the read's target. impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
         "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag).",
       inputSchema: {
         type: 'object',
@@ -1321,6 +1343,26 @@ export function worldModelTools(
   const resolveRepo = (arg: unknown): ResolvedWorldModelRepo => resolveWorldModelRepo(db, arg, cwd);
   const sourceOf = (r: ResolvedWorldModelRepo): { repo_source?: RepoSource } =>
     r.repo_source ? { repo_source: r.repo_source } : {};
+  // Bring the repo's index to its target before answering (GH 2584). A
+  // failure answers from the index as it is.
+  const freshen = async (repo: string): Promise<Freshness | null> => {
+    const graph = repo ? (graphHolder?.ensureGraph() ?? null) : null;
+    if (!graph) return null;
+    try {
+      return await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger: 'read' });
+    } catch (e) {
+      serverLog({ event: 'wm_freshness_error', repo, error: (e as Error).message });
+      return null;
+    }
+  };
+  const freshenAll = async (repos: readonly string[]): Promise<Map<string, Freshness>> => {
+    const byRepo = new Map<string, Freshness>();
+    for (const repo of repos) {
+      const f = await freshen(repo);
+      if (f) byRepo.set(repo, f);
+    }
+    return byRepo;
+  };
 
   const handlers: Record<string, Fn> = {
     world_model_get: requireRoles(
@@ -1354,6 +1396,7 @@ export function worldModelTools(
           return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
 
+        const fr = await freshen(repo);
         if (graph.directoryCount(repo) === 0) {
           return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
         }
@@ -1366,10 +1409,17 @@ export function worldModelTools(
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        if (path !== '') tree.files = graph.filesForDirectory(repo, path).map(fileView);
+        if (path !== '') {
+          tree.files = graph.filesForDirectory(repo, path).map((f) => {
+            const view = fileView(f);
+            return isStale(fr, view.path) ? { ...view, stale: true } : view;
+          });
+        }
         return ok({
           repo,
           ...source,
+          ...freshnessFields(fr),
+          ...staleFlag(fr),
           root: fields ? projectTree(tree, fields) : tree,
           ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
           ...(truncated ? { truncated: true } : {}),
@@ -1424,12 +1474,12 @@ export function worldModelTools(
         const mode = (args['mode'] as string | undefined) ?? 'hybrid';
         const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), SEARCH_K_MAX);
 
-        const resultsOf = (top: WorldModelRanking['ranked']): Array<Record<string, unknown>> => {
+        const resultsOf = (top: WorldModelRanking['ranked'], fresh: ReadonlyMap<string, Freshness>): Array<Record<string, unknown>> => {
           const stale = staleFiles(
             db,
             top.flatMap(({ hit }) => (hit.kind === 'symbol' ? [hit.node] : [])),
           );
-          return top.map(({ hit, score }) => hitResult(hit, score, stale));
+          return top.map(({ hit, score }) => hitResult(hit, score, stale, fresh));
         };
 
         const resolved = resolveRepo(args['repo']);
@@ -1437,19 +1487,21 @@ export function worldModelTools(
           const scope = { repo_source: 'all' as const, repos_searched: resolved.available_repos };
           const graph = graphHolder?.ensureGraph() ?? null;
           if (!graph) return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
+          const fresh = await freshenAll(resolved.available_repos);
           const rankings: WorldModelRanking[] = [];
           for (const repo of resolved.available_repos) rankings.push(await rankWorldModel(db, graph, repo, query, mode, k));
           const top = rankings
             .flatMap((r) => r.ranked.slice(0, k))
             .sort((a, b) => b.score - a.score)
             .slice(0, k);
-          const results = resultsOf(top);
+          const results = resultsOf(top, fresh);
           const warning = rankings.find((r) => r.warning)?.warning;
           const match: KeywordMatch = rankings.some((r) => r.match === 'any_term') ? 'any_term' : 'all_terms';
           const total_matched = rankings.reduce((n, r) => n + r.ranked.length, 0);
           const truncated = rankings.some((r) => r.poolFull) || results.length < total_matched;
           return ok({
             ...scope,
+            ...([...fresh.values()].some((f) => staleFlag(f).stale) ? { stale: true } : {}),
             results,
             total_matched,
             ...(truncated ? { truncated } : {}),
@@ -1467,12 +1519,15 @@ export function worldModelTools(
           return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
         }
 
+        const fr = await freshen(repo);
         const { ranked, match, poolFull, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
-        const results = resultsOf(ranked.slice(0, k));
+        const results = resultsOf(ranked.slice(0, k), fr ? new Map([[repo, fr]]) : new Map());
         const total_matched = ranked.length;
         const truncated = poolFull || results.length < total_matched;
         return ok({
           ...scope,
+          ...freshnessFields(fr),
+          ...staleFlag(fr),
           results,
           total_matched,
           ...(truncated ? { truncated } : {}),
@@ -1503,9 +1558,13 @@ export function worldModelTools(
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource } = {};
+        let fresh: Map<string, Freshness> = new Map();
         if (typeof id === 'number') {
-          symbol = symbolById(db, id);
-          if (!symbol) return err(`symbol ${id} not found`);
+          const before = symbolById(db, id);
+          if (!before) return err(`symbol ${id} not found`);
+          fresh = await freshenAll([before.repo]);
+          symbol = symbolById(db, id) ?? symbolsByName(db, before.repo, before.qualified_name, before.path)[0] ?? null;
+          if (!symbol) return err(`symbol ${id} not found: ${before.qualified_name} left ${before.path} at the target commit`);
         } else {
           const qualified = args['qualified_name'];
           const name = typeof qualified === 'string' && qualified ? qualified : args['name'];
@@ -1516,6 +1575,7 @@ export function worldModelTools(
           source = allRepos ? { repo_source: 'all' } : sourceOf(resolved);
           const pathArg = args['path'];
           const path = typeof pathArg === 'string' && pathArg ? pathArg : undefined;
+          fresh = await freshenAll(allRepos ? resolved.available_repos : [repo]);
           const matches = allRepos
             ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
             : symbolsByName(db, repo, name, path);
@@ -1558,10 +1618,12 @@ export function worldModelTools(
           return err(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
         }
         const card = symbolCard(db, symbol);
+        const fr = fresh.get(symbol.repo);
         return ok({
           ...card,
           ...source,
-          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
+          ...freshnessFields(fr),
+          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale || isStale(fr, symbol.path) },
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
           ...checkoutLag(db, symbol.repo),

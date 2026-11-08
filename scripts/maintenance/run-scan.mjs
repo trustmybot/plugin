@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Standalone scan invoker. Used by post-task-close-rescan.sh hook to
-// re-run /scan against the current commit after bro_atomic_close.
+// Standalone scan invoker: runs scan_run outside the MCP server, for the
+// server's connect-time startup catch-up and for manual runs.
 //
 // Reads the same scan_run logic as the MCP tool, so pruning / summary
 // preservation behave identically. The DB is checked before any tool module
@@ -14,7 +14,9 @@
 // CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never the working
 // directory, which may be a worktree or a subdirectory. Neither → exit 2.
 // The source is scan_run's audit `source`: bro_auto_post_close by default,
-// startup_catchup from the server's connect-time catch-up.
+// startup_catchup from the server's connect-time catch-up, which on a warm DB
+// reindexes each known repo to its target commit instead of walking the
+// workspace (GH 2584).
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';

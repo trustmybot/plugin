@@ -133,8 +133,8 @@ export function renameRepo(
     return db.transaction(() => {
       const rows_by_table: Record<string, number> = {};
       db.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches)
-         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, indexed_commit, indexed_stamp
            FROM repos WHERE name = ?`,
         [next, old],
       );
@@ -166,6 +166,7 @@ export function renameRepo(
           graph_error = (e as Error).message;
         }
       }
+      if (graphState !== 'rekeyed') db.run(`UPDATE repos SET indexed_commit = NULL WHERE name = ?`, [next]);
 
       const audit_id = insertAudit(db, {
         issue_id: -1,

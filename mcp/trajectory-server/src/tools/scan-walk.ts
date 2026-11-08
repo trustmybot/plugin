@@ -1,6 +1,6 @@
 /**
  * The deterministic project walker behind scan_run (GH 1692). Walks the session dir for git repos, enumerates each repo's
- * tracked files, computes md5 + size + last_commit_sha per file, then
+ * tracked files at its index target commit, computes md5 + size + last_commit_sha per file, then
  * reconciles locally-present skills, plugins and MCP servers into the
  * cheatcodes table of the DB it is handed.
  *
@@ -9,8 +9,10 @@
  *     invalidation signal.
  *   - Repo discovery walks the filesystem (max depth 4), not git, since the
  *     session dir itself is not required to be a git repo.
- *   - Per-repo file enumeration is `git ls-files` (.gitignore-aware).
- *   - One `git log --format=%H --name-only` pass per repo builds the
+ *   - Each repo is indexed at one commit (resolveIndexTarget: origin/<target
+ *     branch>, else HEAD, GH 2584): the file list is `git ls-tree` of that
+ *     commit and every md5 comes from its blobs, never the working tree.
+ *   - One `git log --format=%H --name-only <commit>` pass per repo builds the
  *     path→sha map; no per-file git subprocess.
  *
  * plugin_inventory.status: cli (`claude plugin list --json`), fixture
@@ -24,14 +26,14 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, createReadStream, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { lstat, stat } from 'node:fs/promises';
+import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { commandOnPath } from '../hooks/lib/host.js';
-import { serverLog } from '../logger.js';
+import { CommitContent, lastCommitByPath, lsTree } from '../utils/git-objects.js';
+import { resolveIndexTarget } from '../utils/index-target.js';
 import { insertAudit } from './audit.js';
 import { selectProjectInstalls } from './cheatcode-runtime.js';
 
@@ -47,6 +49,7 @@ export interface ScanRepo {
   name: string;
   path: string;
   file_count: number;
+  commit?: string | null;
 }
 
 export interface Inventory {
@@ -59,6 +62,7 @@ export interface ScanOutput {
   scanned_at: string;
   repos: ScanRepo[];
   files: ScanFile[];
+  contents?: Map<string, CommitContent>;
   plugin_inventory?: Inventory;
   mcp_inventory?: Inventory;
 }
@@ -144,7 +148,6 @@ export function upsertDiscoveredCheatcode(
 const MAX_DEPTH = 4;
 const PRUNED_TAIL = /\/(node_modules|dist|build|\.next|target|\.venv|venv)$/;
 const FILE_WORKERS = 16;
-const SHA_LINE = /^[0-9a-f]{40}$/;
 const VALID_NAME = /^[A-Za-z0-9._-]+$/;
 const DEFAULT_DISCOVERY_TIMEOUT_S = 4;
 const NO_CHEATCODES_NOTE = 'no trajectory DB with a cheatcodes table';
@@ -356,57 +359,6 @@ async function discoverRepos(db: TrajectoryDB, sessionDir: string, env: NodeJS.P
   return repos;
 }
 
-const TRANSIENT_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY']);
-const MD5_RETRY_DELAYS_MS = [25, 100];
-
-export type OpenRead = (path: string) => NodeJS.ReadableStream;
-
-function md5Once(path: string, open: OpenRead): Promise<{ md5: string } | { code: string }> {
-  return new Promise((resolvePromise) => {
-    const hash = createHash('md5');
-    let stream: NodeJS.ReadableStream;
-    try {
-      stream = open(path);
-    } catch (e) {
-      resolvePromise({ code: (e as NodeJS.ErrnoException).code ?? 'UNKNOWN' });
-      return;
-    }
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', (e: NodeJS.ErrnoException) => resolvePromise({ code: e.code ?? 'UNKNOWN' }));
-    stream.on('end', () => resolvePromise({ md5: hash.digest('hex') }));
-  });
-}
-
-/** The file's md5, or '' (unknown content) once a read fails for good: a transient errno is retried first. */
-export async function md5Of(path: string, open: OpenRead = createReadStream): Promise<string> {
-  for (let attempt = 0; ; attempt++) {
-    const result = await md5Once(path, open);
-    if ('md5' in result) return result.md5;
-    const delay = MD5_RETRY_DELAYS_MS[attempt];
-    if (!TRANSIENT_READ_CODES.has(result.code) || delay === undefined) {
-      serverLog({ event: 'scan_md5_error', path, code: result.code, attempts: attempt + 1 });
-      return '';
-    }
-    await new Promise((r) => setTimeout(r, delay));
-  }
-}
-
-async function isFile(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function sizeOf(path: string): Promise<number> {
-  try {
-    return (await lstat(path)).size;
-  } catch {
-    return 0;
-  }
-}
-
 async function eachLimited<T>(items: T[], deadline: Deadline, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -418,48 +370,48 @@ async function eachLimited<T>(items: T[], deadline: Deadline, fn: (item: T) => P
   await Promise.all(Array.from({ length: Math.min(FILE_WORKERS, items.length) }, worker));
 }
 
-async function walkRepo(repoRoot: string, env: NodeJS.ProcessEnv, deadline: Deadline): Promise<{ repo: ScanRepo; files: ScanFile[] }> {
+export function blobMd5(content: Buffer | null): string {
+  return content === null ? '' : createHash('md5').update(content).digest('hex');
+}
+
+// One repo's tracked files at `commit`, read from git objects: the tree for the
+// file list, one cat-file process for the md5s, one log for last_commit_sha.
+export async function walkRepoAtCommit(
+  repoRoot: string,
+  commit: string,
+  timeoutMs: number,
+  name = basename(repoRoot),
+): Promise<{ repo: ScanRepo; files: ScanFile[]; content: CommitContent | null }> {
+  const deadline = new Deadline(timeoutMs);
+  const tree = lsTree(repoRoot, commit);
+  if (tree === null || tree.size === 0) return { repo: { name, path: repoRoot, file_count: 0, commit }, files: [], content: null };
+  const content = new CommitContent(repoRoot, commit, tree);
+  const shaByPath = lastCommitByPath(repoRoot, commit);
+  const relPaths = [...tree.keys()];
+  const md5ByPath = new Map<string, string>();
+  await eachLimited(relPaths, deadline, async (rel) => {
+    md5ByPath.set(rel, blobMd5(await content.read(rel)));
+  });
+  const files = relPaths.map((rel) => ({
+    repo: name,
+    path: rel,
+    size_bytes: tree.get(rel)?.size ?? 0,
+    content_md5: md5ByPath.get(rel) ?? '',
+    last_commit_sha: shaByPath.get(rel) ?? '',
+  }));
+  return { repo: { name, path: repoRoot, file_count: files.length, commit }, files, content };
+}
+
+async function walkRepo(
+  db: TrajectoryDB,
+  repoRoot: string,
+  deadline: Deadline,
+): Promise<{ repo: ScanRepo; files: ScanFile[]; content: CommitContent | null }> {
   const name = basename(repoRoot);
-  const empty = { repo: { name, path: repoRoot, file_count: 0 }, files: [] };
-  const listed = captured((await git(['-C', repoRoot, '-c', 'core.quotePath=false', 'ls-files'], env, deadline)).stdout);
-  if (listed === '') return empty;
-  const relPaths = listed.split('\n');
-
-  const shaByPath = new Map<string, string>();
-  let current = '';
-  await git(['-C', repoRoot, '-c', 'core.quotePath=false', 'log', '--format=%H', '--name-only', '--no-renames'], env, deadline, (line) => {
-    if (SHA_LINE.test(line)) current = line;
-    else if (line !== '' && !shaByPath.has(line)) shaByPath.set(line, current);
-  });
-
-  const present: string[] = [];
-  await eachLimited(relPaths.map((rel, i) => ({ rel, i })), deadline, async ({ rel, i }) => {
-    if (await isFile(`${repoRoot}/${rel}`)) present[i] = `${repoRoot}/${rel}`;
-  });
-  const existing = present.filter((abs) => abs !== undefined);
-  if (existing.length === 0) return empty;
-
-  const md5ByAbs = new Map<string, string>();
-  const sizeByAbs = new Map<string, number>();
-  await eachLimited([...new Set(existing)], deadline, async (abs) => {
-    const [md5, size] = await Promise.all([md5Of(abs), sizeOf(abs)]);
-    md5ByAbs.set(abs, md5);
-    sizeByAbs.set(abs, size);
-  });
-
-  const files = relPaths
-    .filter((rel) => rel !== '')
-    .map((rel) => {
-      const abs = `${repoRoot}/${rel}`;
-      return {
-        repo: name,
-        path: rel,
-        size_bytes: sizeByAbs.get(abs) ?? 0,
-        content_md5: md5ByAbs.get(abs) ?? '',
-        last_commit_sha: shaByPath.get(rel) ?? '',
-      };
-    });
-  return { repo: { name, path: repoRoot, file_count: existing.length }, files };
+  const commit = resolveIndexTarget(db, name, repoRoot);
+  if (!commit) return { repo: { name, path: repoRoot, file_count: 0, commit: null }, files: [], content: null };
+  deadline.check();
+  return walkRepoAtCommit(repoRoot, commit, deadline.left(), name);
 }
 
 /** A JSON scalar as jq's `join` renders it; null, false and anything else as "". */
@@ -699,20 +651,36 @@ export async function walkProject(db: TrajectoryDB, sessionDir: string, opts: Wa
 
   const repos: ScanRepo[] = [];
   const files: ScanFile[] = [];
-  for (const repoRoot of await discoverRepos(db, root, env, deadline)) {
-    if (!isDir(repoRoot)) continue;
-    const walked = await walkRepo(repoRoot, env, deadline);
-    repos.push(walked.repo);
-    files.push(...walked.files);
+  const contents = new Map<string, CommitContent>();
+  try {
+    for (const repoRoot of await discoverRepos(db, root, env, deadline)) {
+      if (!isDir(repoRoot)) continue;
+      const walked = await walkRepo(db, repoRoot, deadline);
+      repos.push(walked.repo);
+      files.push(...walked.files);
+      if (walked.content) contents.set(walked.repo.name, walked.content);
+    }
+  } catch (e) {
+    for (const c of contents.values()) c.close();
+    throw e;
   }
 
   const inventory = await discoverResources(db, root, env, deadline);
   return {
     session_dir: root,
-    scanned_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    scanned_at: scannedAtNow(),
     repos,
     files,
+    contents,
     plugin_inventory: inventory.plugin,
     mcp_inventory: inventory.mcp,
   };
+}
+
+export function scannedAtNow(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+export function closeContents(out: Pick<ScanOutput, 'contents'>): void {
+  for (const c of out.contents?.values() ?? []) c.close();
 }

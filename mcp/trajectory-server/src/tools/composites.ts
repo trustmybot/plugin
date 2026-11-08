@@ -33,6 +33,9 @@ import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
+import { revParseCommit } from '../utils/git-objects.js';
+import { serverLog } from '../logger.js';
+import { ensureFresh } from '../world-model/freshness.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -1491,6 +1494,20 @@ export function compositeTools(
     },
   ];
 
+  // A spawn brings the repo's world model to the base tip the worktree is cut
+  // from before it returns, waiting for another holder of the repo's lock
+  // (GH 2584). A failure leaves the index as it was.
+  const spawnReindex = async (repo: string | null, repoPath: string, baseRef: string | null | undefined): Promise<void> => {
+    const graph = graphHolder?.ensureGraph() ?? null;
+    const target = baseRef ? revParseCommit(repoPath, baseRef) : null;
+    if (!graph || !repo || !target) return;
+    try {
+      await ensureFresh(db, graph, repo, { dbPath, trigger: 'spawn', target, wait: true });
+    } catch (e) {
+      serverLog({ event: 'wm_spawn_reindex_error', repo, error: (e as Error).message });
+    }
+  };
+
   const handlers: Record<string, Fn> = {
     task_provision: requireRoles(
       'task_provision',
@@ -1822,6 +1839,7 @@ export function compositeTools(
             diagnostic = (e as Error).message;
           }
         }
+        await spawnReindex(repoValue, repoPath, resolvedBaseRef);
 
         return ok({
           task_id: result.task_id,
@@ -2021,6 +2039,9 @@ export function compositeTools(
           }
         } else {
           diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ''}'; worktree not checked`;
+        }
+        if (repoPath) {
+          await spawnReindex(task.repo, repoPath, resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref);
         }
 
         return ok({
@@ -2707,6 +2728,7 @@ export function compositeTools(
             diagnostic = (e as Error).message;
           }
         }
+        await spawnReindex(repoValue, repoPath, branchSetup.baseRef);
         return ok({
           task_id: result.id,
           branch_id: result.branch_id,
