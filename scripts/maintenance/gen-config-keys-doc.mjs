@@ -109,6 +109,13 @@ export const KEYS = [
     effect: '`swe-verification-gate` gives one run of a task\'s `verification[]` this many seconds of command time on the swe close (the run-record writes are budgeted apart), clamped to 1–1800; 0 or a non-integer falls back to 900 with a stderr warning. `TMB_VERIFICATION_TIMEOUT_S` overrides it (tests).',
   },
   {
+    name: 'readme_nudge_skip_dirs',
+    type: 'string[]: path segments',
+    defaultText: 'unset (read as `["dist","build","changelog.d","fixtures","test","tests","__tests__","node_modules"]`)',
+    setBy: 'bro via `config_set`',
+    effect: 'The post-close README nudge (`post-atomic-close-readme`, GH 1965) skips a touched dir when any of its path segments is listed; unset, malformed JSON or anything but an array of strings reads as the default, and `[]` skips nothing.',
+  },
+  {
     name: 'swe_default_effort',
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `medium`)',
