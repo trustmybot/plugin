@@ -11,7 +11,7 @@ File name: `<gh-issue>-<slug>.md` — the GitHub issue number, a hyphen, a lower
 - **What the user sees now** (GH 1277): what was wrong, what changed, and what it means for them.
 ```
 
-- Line 1 is the section, exactly one of `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Security`.
+- Line 1 is the section, exactly one of `### Added`, `### Changed`, `### Fixed`, `### Removed`, `### Security`. No other line starts with `### `.
 - The rest is the entry: one bullet starting with `- `, citing `GH <n>` for the issue in the file name (more issues may be cited alongside). Cite issues as `GH <n>`, never `#<n>`.
 - A change that spans two sections adds two fragments (`1277-fragments.md`, `1277-fragments-removed.md`).
 

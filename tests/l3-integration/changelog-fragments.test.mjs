@@ -289,6 +289,26 @@ test('a malformed fragment refuses the bump and leaves every file unchanged', ()
   assert.equal(snapshot(b), before, 'nothing changed');
 });
 
+test('a fragment with a second section line fails validate and refuses the bump (GH 2599)', () => {
+  const twoSections = '### Changed\n- **One** (GH 78): one.\n\n### Removed\n- **Two** (GH 78): two.\n';
+  const dir = join(TMP, 'validate-two-sections');
+  write(join(dir, '78-two.md'), twoSections);
+  const v = fragments(dir, 'validate', '78-two.md');
+  assert.equal(v.status, 1, 'second section → exit 1');
+  assert.deepEqual(v.stdout.split('\n').filter(Boolean), [
+    '78-two.md:4: a second section line "### Removed"; one section per fragment, so split it into two fragments (changelog.d/README.md)',
+  ]);
+
+  const b = bumpRepo('bump-two-sections');
+  addFragments(b, '9-nine.md');
+  write(join(b, 'changelog.d/78-two.md'), twoSections);
+  const before = snapshot(b);
+  const r = bump(b, '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 1, 'second section → bump exits 1');
+  assert.match(r.stderr, /78-two\.md:4: a second section line "### Removed"/, 'names the fragment, line and header');
+  assert.equal(snapshot(b), before, 'nothing changed');
+});
+
 test('versions are matched literally, never as regex patterns', () => {
   const b = bumpRepo('bump-literal');
   const odd = '1.0.0+build(1)';
