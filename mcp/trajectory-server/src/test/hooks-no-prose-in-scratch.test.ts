@@ -316,6 +316,63 @@ describe('no-prose-in-scratch', () => {
       });
     });
 
+    describe('GH 2469: a command tree-sitter parses with an error', () => {
+      const S = '/tmp/tmb-no-prose-2469';
+
+      it('denies a here-string after a stderr redirect piped into a capture', async () => {
+        assert.match(await shell(`tr a b 2>/dev/null <<< "plan" | sort > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+        assert.match(await shell('tr a b 2>/dev/null <<< "plan" | sort > $TMPDIR/x.txt'), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('denies a heredoc after a stderr redirect piped into a capture', async () => {
+        assert.match(await shell(`cat 2>/dev/null <<'EOF' | sort > ${S}/x.txt\nplan\nEOF`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('denies any prose file a command with a parse error writes into scratch', async () => {
+        assert.match(await shell('tr a b 2>/dev/null <<< plan | tee .claude/tmb/scratch/x.md'), /^BLOCKED: prose file.*x\.md/);
+        assert.match(await shell(`tr a b 2>/dev/null <<< plan > "${S}/x.md"`), /^BLOCKED: prose file.*x\.md/);
+      });
+
+      it('allows the same command writing a log or prose outside every zone', async () => {
+        assert.equal(await shell(`tr a b 2>/dev/null <<< plan | sort > ${S}/x.log`), '');
+        assert.equal(await shell(`tr a b 2>/dev/null <<< plan | sort > ${OUTSIDE_EVERY_ZONE}/x.md`), '');
+      });
+    });
+
+    describe('GH 2470: every member of the pipeline', () => {
+      const S = '/tmp/tmb-no-prose-2470';
+
+      it('denies echo and printf in the middle of a pipeline', async () => {
+        assert.match(await shell(`find . | echo plan | sort > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+        assert.match(await shell(`find . | printf x | sort > ${S}/x.md`), /^BLOCKED: prose file.*x\.md/);
+      });
+
+      it('denies a here-string in the middle of a pipeline', async () => {
+        assert.match(await shell(`find . | cat <<< hi | sort > ${S}/x.md`), /^BLOCKED: prose file.*x\.md/);
+      });
+
+      it('denies an authoring member in the middle of an outer pipeline', async () => {
+        assert.match(await shell(`find . 2>/dev/null | echo hi | sort 2> ${S}/e.txt | wc`), /^BLOCKED: prose file.*e\.txt/);
+        assert.match(await shell(`a | echo hi 2>/dev/null | c 2>/dev/null | d > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('still denies a bare cat at the head', async () => {
+        assert.match(await shell(`cat | sort > ${S}/x.txt`), /^BLOCKED: prose file.*x\.txt/);
+      });
+
+      it('allows captures in the middle', async () => {
+        for (const command of [
+          `find . | sort | uniq -c > ${S}/x.txt`,
+          `grep x a | cat | sort > ${S}/x.txt`,
+          `bash t.sh 2>&1 | grep -v y 2>/dev/null | sort > ${S}/x.txt`,
+          `git log | cat > ${S}/x.txt`,
+          `a | b 2>/dev/null | c 2>/dev/null | d > ${S}/x.txt`,
+        ]) {
+          assert.equal(await shell(command), '', command);
+        }
+      });
+    });
+
     it('leave an UNRESOLVED target to containment-guard', async () => {
       assert.equal(await shell('echo hi > "$(pick-a-name)"'), '');
     });
