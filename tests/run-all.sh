@@ -144,6 +144,7 @@ run_step "L1 lint: new ts/tsx/sh files open with a purpose header"  node --test 
 run_step "L1 lint: shipped skills match builtin seed"  node --test "$HERE/l1-lint/skill-catalog-sync.test.mjs"
 run_step "L1 lint: ENUMs.md vs code parity"           node --test "$HERE/l1-lint/enums-stable.test.mjs"
 run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  node --test "$HERE/l1-lint/enums-doc-fresh.test.mjs"
+run_step "L1 lint: build generators create scripts/hooks/lib/"  node --test "$HERE/l1-lint/generators-create-lib-dir.test.mjs"
 run_step "L1 lint: ERD.md generated from schema.sql"  node --test "$HERE/l1-lint/erd-doc-fresh.test.mjs"
 run_step "L1 lint: CONFIG_KEYS.md generated from code" node --test "$HERE/l1-lint/config-keys-doc-fresh.test.mjs"
 run_step "L1 lint: tool docs list every family + tool" node --test "$HERE/l1-lint/tool-families-documented.test.mjs"
