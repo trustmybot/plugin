@@ -5,9 +5,10 @@
  *      template-string SQL, utcnow, mutable defaults, catch (e: any) and TODOs
  *      in a source file's new text, and skips other tools, non-source files,
  *      fixtures paths and TMB_SKIP_CQ_LINT=1;
- *   2. commit-msg-lint flags a git commit subject with no emoji, an unknown
- *      type or over 72 chars, reads the subject from the real argv (GH 1196),
- *      and skips amend, fixup, heredoc messages and TMB_SKIP_COMMIT_MSG_LINT=1;
+ *   2. commit-msg-lint denies a git commit subject with no emoji, an unknown
+ *      type or over 72 chars (GH 2582), reads the subject from the real argv
+ *      (GH 1196), and skips --no-edit, fixup, heredoc messages and
+ *      TMB_SKIP_COMMIT_MSG_LINT=1;
  *   3. naming-lint flags a new file whose basename breaks its language's
  *      convention, and skips existing files, exempt names, node_modules and
  *      TMB_SKIP_NAMING_LINT=1.
@@ -122,24 +123,30 @@ describe('commit-msg-lint', () => {
     });
   }
 
-  it('a subject with no emoji emits an advisory naming the hook', () => {
+  const DENY = '"permissionDecision":"deny"';
+
+  it('a subject with no emoji is denied, naming the hook', () => {
     const out = run(GATE, bash("git commit -m 'feat(auth): add refresh endpoint'"));
-    assert.ok(out.includes('additionalContext'), out);
+    assert.ok(out.includes(DENY), out);
     assert.ok(out.includes('commit-msg-lint'), out);
   });
 
-  it('an unknown type emits an advisory', () => {
-    assert.ok(run(GATE, bash("git commit -m '🔥 update(auth): change something'")).includes('additionalContext'));
+  it('an unknown type is denied', () => {
+    assert.ok(run(GATE, bash("git commit -m '🔥 update(auth): change something'")).includes(DENY));
   });
 
-  it('a subject over 72 chars emits an advisory naming >72', () => {
+  it('a subject over 72 chars is denied, naming >72', () => {
     const long = '🐛 fix(auth): this is a very long commit message that exceeds seventy-two characters total';
     const out = run(GATE, bash(`git commit -m '${long}'`));
-    assert.ok(out.includes('additionalContext'), out);
+    assert.ok(out.includes(DENY), out);
     assert.ok(out.includes('>72'), out);
   });
 
-  it('the advisory is JSON with hookEventName PreToolUse', () => {
+  it('--amend with -m is linted', () => {
+    assert.ok(run(GATE, bash("git commit --amend -m 'bad subject'")).includes(DENY));
+  });
+
+  it('the deny is JSON with hookEventName PreToolUse', () => {
     assert.equal(eventOf(run(GATE, bash("git commit -m 'bad message without emoji or type'"))), 'PreToolUse');
   });
 
