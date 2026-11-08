@@ -43,7 +43,7 @@ import {
 import { extractHooks, HOOKS_PATH, ROUTER_TABLE_PATH, ROUTER_TABLE_SOURCE } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
-export const EXTRACTOR_VERSION = 11;
+export const EXTRACTOR_VERSION = 12;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 const execFileAsync = promisify(execFile);
@@ -124,7 +124,27 @@ export interface SymbolCard {
   writes_table: RefList;
   tests: RefList;
   bundled_by: RefList;
+  reads_config: ConfigKeyList;
   note?: string;
+}
+
+export interface ConfigKeyRef {
+  key: string;
+  line: number;
+}
+
+export interface ConfigKeyList {
+  refs: ConfigKeyRef[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface ConfigReader {
+  qualified_name: string;
+  kind: SymbolKind;
+  repo: string;
+  path: string;
+  line: number;
 }
 
 export interface BundleMap {
@@ -138,6 +158,10 @@ const SYMBOL_COLUMNS =
 const CALLABLE = new Set<SymbolKind>(['function', 'method', 'class', 'sh_function']);
 const TABLE_EDGES = new Set<EdgeKind>(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
 const CALL_EDGES: EdgeKind[] = ['calls', 'instantiates', 'runs', 'sources'];
+// Edges stored by name alone (dst_id NULL, resolution 'name') that no
+// resolution pass rebinds or resets: a plugin_config key is no symbol.
+const NAME_ONLY_EDGES = new Set<EdgeKind>(['reads_config']);
+const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
 export { isTestPath };
 
@@ -260,10 +284,11 @@ class SymbolWriter {
     for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
     return extraction.edges.map((edge) => ({
       rowid: Number(
-        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, 'unresolved', ?, ?)`, [
+        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, ?, ?, ?)`, [
           ids[edge.src],
           edge.dst_name,
           edge.kind,
+          NAME_ONLY_EDGES.has(edge.kind) ? 'name' : 'unresolved',
           edge.line,
           edge.hint,
         ]).lastInsertRowid,
@@ -320,6 +345,7 @@ class Resolver {
   }
 
   resolve(from: string, edge: ExtractedEdge): { dst: number; how: 'exact' | 'name' } | null {
+    if (NAME_ONLY_EDGES.has(edge.kind)) return null;
     if (edge.kind === 'imports') {
       const target = resolveImport(from, edge.hint, this.fileSet);
       if (!target) return null;
@@ -374,9 +400,14 @@ function push<V>(map: Map<string, V[]>, key: string, value: V): void {
   else map.set(key, [value]);
 }
 
-// An edge whose target was deleted (ON DELETE SET NULL) no longer resolves.
+// An edge whose target was deleted (ON DELETE SET NULL) no longer resolves;
+// a name-only edge never had a target and keeps its resolution.
 export function markOrphanedEdges(db: TrajectoryDB): void {
-  db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+  db.run(
+    `UPDATE wm_edges SET resolution = 'unresolved'
+      WHERE dst_id IS NULL AND resolution <> 'unresolved' AND kind NOT IN (SELECT value FROM json_each(?))`,
+    [NAME_ONLY_JSON],
+  );
 }
 
 export function deleteFileSymbols(db: TrajectoryDB, repo: string, path: string): void {
@@ -418,10 +449,10 @@ function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip
     .all<StoredEdge>(
       `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
          FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
-        WHERE s.repo = ?
+        WHERE s.repo = ? AND e.kind NOT IN (SELECT value FROM json_each(?))
           AND ((e.dst_id IS NULL AND e.resolution <> 'unresolved')
             OR ((e.resolution <> 'exact' OR e.dst_id IS NULL) AND e.dst_name IN (SELECT value FROM json_each(?))))`,
-      [repo, JSON.stringify([...names])],
+      [repo, NAME_ONLY_JSON, JSON.stringify([...names])],
     )
     .filter((r) => !skip.has(Number(r.rowid)));
   if (candidates.length === 0) return 0;
@@ -758,7 +789,7 @@ function refList(rows: EdgeEnd[]): RefList {
 
 // A symbol card: who calls it, what it calls and imports, the tables it reads
 // and writes (for a table, who reads and writes it), the tests that reference
-// it and the bundles that inline its file.
+// it, the bundles that inline its file and the plugin_config keys it reads.
 export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   const inbound = db.all<EdgeEnd>(
     `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
@@ -767,8 +798,8 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
       ORDER BY o.path, o.start_line`,
     [symbol.id],
   );
-  const outbound = db.all<EdgeEnd>(
-    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+  const outbound = db.all<EdgeEnd & { dst_name: string; line: number | null }>(
+    `SELECT e.kind AS edge_kind, e.resolution, e.dst_name, e.line, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
        FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
       WHERE e.src_id = ?
       ORDER BY e.line`,
@@ -794,9 +825,35 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
     writes_table: refList(of(tableSide, ['writes_table'])),
     tests: refList(inbound.filter((r) => r.edge_kind !== 'bundles' && r.path !== null && isTestPath(r.path))),
     bundled_by: refList(bundlers),
+    reads_config: configKeyList(outbound.filter((r) => r.edge_kind === 'reads_config')),
   };
-  if ([...inbound, ...outbound].some((r) => r.resolution !== 'exact')) card.note = 'found by name; not all callers';
+  const byName = [...inbound, ...outbound].some((r) => r.resolution !== 'exact' && !NAME_ONLY_EDGES.has(r.edge_kind));
+  if (byName) card.note = 'found by name; not all callers';
   return card;
+}
+
+function configKeyList(rows: Array<{ dst_name: string; line: number | null }>): ConfigKeyList {
+  const unique = new Map<string, ConfigKeyRef>();
+  for (const r of rows) {
+    const line = Number(r.line);
+    unique.set(`${r.dst_name}\u0000${line}`, { key: r.dst_name, line });
+  }
+  const refs = [...unique.values()];
+  return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
+}
+
+// The symbols holding a SELECT that reads plugin_config key `key`, in the
+// given repos, one row per reading line.
+export function configKeyReaders(db: TrajectoryDB, repos: string[], key: string): ConfigReader[] {
+  return db
+    .all<ConfigReader>(
+      `SELECT DISTINCT o.qualified_name, o.kind, o.repo, o.path, e.line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.kind = 'reads_config' AND e.dst_name = ? AND o.repo IN (SELECT value FROM json_each(?))
+        ORDER BY o.repo, o.path, e.line, o.qualified_name`,
+      [key, JSON.stringify(repos)],
+    )
+    .map((r) => ({ qualified_name: r.qualified_name, kind: r.kind, repo: r.repo, path: r.path, line: Number(r.line) }));
 }
 
 interface ImpactRow extends EdgeEnd {

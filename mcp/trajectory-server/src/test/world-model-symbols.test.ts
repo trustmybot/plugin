@@ -9,7 +9,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { loadParsers, parserLoadCount } from '../parsing/loader.js';
-import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { builtBundleMaps, bundleMaps, bundleSources, EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, markOrphanedEdges, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isBannerLine, isRuleLine, languageOf, needsParser, type SourceLanguage } from '../parsing/extract.js';
 import { extractHooks } from '../parsing/hooks.js';
@@ -1026,7 +1026,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 11);
+      assert.equal(EXTRACTOR_VERSION, 12);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1865,7 +1865,168 @@ describe('member calls skip named-import and sourced-file binding (GH 2472)', ()
     assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
   });
 
-  it('the extractor version is 11', () => {
-    assert.equal(EXTRACTOR_VERSION, 11);
+  it('the extractor version is 12', () => {
+    assert.equal(EXTRACTOR_VERSION, 12);
+  });
+});
+
+describe('reads_config edges name the plugin_config keys a symbol reads (GH 2325)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-config-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  const CONFIG_TS = [
+    "const MODE_KEY = 'review_mode';",
+    'interface Db {',
+    '  get(sql: string, params?: unknown[]): unknown;',
+    '  run(sql: string, params?: unknown[]): void;',
+    '}',
+    'export function literalSql(): string {',
+    "  return \"SELECT value FROM plugin_config WHERE key = 'pr_target'\";",
+    '}',
+    'export function boundRead(db: Db): unknown {',
+    "  return db.get('SELECT value FROM plugin_config WHERE key = ?', [MODE_KEY]);",
+    '}',
+    'export function listRead(db: Db): unknown {',
+    "  return db.get(\"SELECT key, value FROM plugin_config WHERE key IN ('alpha_key', 'beta_key')\");",
+    '}',
+    'export function boundListRead(db: Db): unknown {',
+    "  return db.get('SELECT key, value FROM plugin_config WHERE key IN (?, ?)', [MODE_KEY, 'gamma_key']);",
+    '}',
+    'export function templateConstRead(db: Db): unknown {',
+    "  return db.get(`SELECT value FROM plugin_config WHERE key = '${MODE_KEY}'`);",
+    '}',
+    'export function dynamicRead(db: Db, key: string): unknown {',
+    "  return db.get(`SELECT value FROM plugin_config WHERE key = '${key}'`);",
+    '}',
+    'export function dynamicBound(db: Db, key: string): unknown {',
+    "  return db.get('SELECT value FROM plugin_config WHERE key = ?', [key]);",
+    '}',
+    'export function deleteRow(db: Db): void {',
+    "  db.run(\"DELETE FROM plugin_config WHERE key = 'gone_key'\");",
+    '}',
+    'export function otherTable(db: Db): unknown {',
+    "  return db.get(\"SELECT value FROM settings WHERE key = 'not_config'\");",
+    '}',
+    '',
+  ].join('\n');
+  const CONFIG_SH = [
+    '#!/usr/bin/env bash',
+    'read_cfg() {',
+    '  sqlite3 "$DB" "SELECT value FROM plugin_config WHERE key = \'sh_key\'"',
+    '}',
+    'read_var() {',
+    '  sqlite3 "$DB" "SELECT value FROM plugin_config WHERE key = \'$1\'"',
+    '}',
+    '',
+  ].join('\n');
+  const lineOf = (body: string, needle: string): number => body.split('\n').findIndex((l) => l.includes(needle)) + 1;
+
+  const configEdges = () =>
+    db
+      .all<{ qualified_name: string; dst_name: string; dst_id: number | null; resolution: string; line: number }>(
+        `SELECT s.qualified_name, e.dst_name, e.dst_id, e.resolution, e.line
+           FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+          WHERE s.repo = 'app' AND e.kind = 'reads_config'
+          ORDER BY s.qualified_name, e.dst_name`,
+      )
+      .map((r) => ({ ...r }));
+  const keysBySymbol = () => {
+    const out: Record<string, string[]> = {};
+    for (const e of configEdges()) (out[e.qualified_name] ??= []).push(e.dst_name);
+    return out;
+  };
+  const EXPECTED = {
+    boundListRead: ['gamma_key', 'review_mode'],
+    boundRead: ['review_mode'],
+    listRead: ['alpha_key', 'beta_key'],
+    literalSql: ['pr_target'],
+    read_cfg: ['sh_key'],
+    templateConstRead: ['review_mode'],
+  };
+
+  before(async () => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'src/config.ts'), CONFIG_TS);
+    writeFileSync(join(root, 'scripts/config.sh'), CONFIG_SH);
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('a literal, a const-bound ?, an IN list and a ${CONST} read each yield edges; a dynamic key, a DELETE and another table yield none', () => {
+    assert.deepEqual(keysBySymbol(), EXPECTED);
+    for (const e of configEdges()) {
+      assert.equal(e.resolution, 'name');
+      assert.equal(e.dst_id, null);
+    }
+    assert.equal(
+      configEdges().find((e) => e.qualified_name === 'boundRead')?.line,
+      lineOf(CONFIG_TS, "WHERE key = ?', [MODE_KEY]"),
+    );
+  });
+
+  it('indexRepoSymbols re-parsing every file and markOrphanedEdges leave the edges name-resolved', async () => {
+    const before = configEdges();
+    const out = await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1);
+    assert.equal(out.files_parsed, 2);
+    markOrphanedEdges(db);
+    assert.deepEqual(configEdges(), before);
+  });
+
+  it('the card lists the keys read and its reads_config edges add no by-name note; config_key lists the readers', async () => {
+    const outboundKinds = () =>
+      db
+        .all<{ kind: string; resolution: string }>(
+          `SELECT e.kind, e.resolution FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+            WHERE s.repo = 'app' AND s.qualified_name = 'literalSql' ORDER BY e.kind`,
+        )
+        .map((r) => `${r.kind}:${r.resolution}`);
+    assert.deepEqual(outboundKinds(), ['reads_config:name', 'reads_table:unresolved']);
+    db.run(
+      `DELETE FROM wm_edges WHERE kind = 'reads_table'
+         AND src_id = (SELECT id FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'literalSql')`,
+    );
+    const card = parse<{ reads_config: { refs: Payload[]; total: number; truncated: boolean }; note?: string }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'literalSql' })) as CallToolResult,
+    );
+    assert.deepEqual(card.reads_config, {
+      refs: [{ key: 'pr_target', line: lineOf(CONFIG_TS, "'pr_target'") }],
+      total: 1,
+      truncated: false,
+    });
+    assert.equal(card.note, undefined);
+
+    const readers = parse<{ config_key: string; readers: Payload[] }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: 'review_mode' })) as CallToolResult,
+    );
+    assert.equal(readers.config_key, 'review_mode');
+    assert.deepEqual(
+      readers.readers.map((r) => ({ ...r })),
+      ['boundRead', 'boundListRead', 'templateConstRead'].map((qualified_name) => ({
+        qualified_name,
+        kind: 'function',
+        repo: 'app',
+        path: 'src/config.ts',
+        line: lineOf(CONFIG_TS, `function ${qualified_name}(`) + 1,
+      })),
+    );
+    const none = parse<{ readers: Payload[] }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: 'gone_key' })) as CallToolResult,
+    );
+    assert.deepEqual(none.readers, []);
+    const bad = (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', config_key: '' })) as CallToolResult;
+    assert.ok(bad.isError);
   });
 });

@@ -14,6 +14,7 @@ import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  configKeyReaders,
   fileRefKey,
   IMPACT_MAX_DEPTH,
   isTestPath,
@@ -603,7 +604,7 @@ function wrap(fn: Fn): Fn {
 type Payload = Record<string, unknown>;
 
 const LOGGED_ARGS: readonly string[] = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'];
-const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source'] };
+const TOOL_LOGGED_ARGS: Readonly<Record<string, readonly string[]>> = { world_model_symbol: ['impact', 'source', 'config_key'] };
 
 function treeNodeCount(node: Payload): number {
   const children = Array.isArray(node['children']) ? (node['children'] as Payload[]) : [];
@@ -614,7 +615,8 @@ function treeNodeCount(node: Payload): number {
 const RESULT_COUNTS: Record<string, (p: Payload) => number> = {
   world_model_get: (p) => (p['root'] && typeof p['root'] === 'object' ? treeNodeCount(p['root'] as Payload) : 0),
   world_model_search: (p) => (Array.isArray(p['results']) ? p['results'].length : 0),
-  world_model_symbol: (p) => (p['symbol'] && typeof p['symbol'] === 'object' ? 1 : 0),
+  world_model_symbol: (p) =>
+    p['symbol'] && typeof p['symbol'] === 'object' ? 1 : Array.isArray(p['readers']) ? p['readers'].length : 0,
   world_model_concepts: (p) => (Array.isArray(p['concepts']) ? p['concepts'].length : 0) + (p['derived'] != null ? 1 : 0),
   world_model_concept_get: () => 1,
   world_model_concept_upsert: (p) => (typeof p['id'] === 'number' ? 1 : 0),
@@ -879,7 +881,7 @@ export function worldModelTools(
     {
       name: 'world_model_symbol',
       description:
-        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, tests and bundled_by (generated bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, or qualified_name plus optional path. " +
+        "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (bundles inlining its file), up to 50 refs each, each list's total its full count. Pass id from a world_model_search hit, qualified_name plus optional path, or a config_key. " +
         "note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file changed since the index (rescan). impact returns levels[] by depth, each ref with via 'call' or 'table:<name>', and levels[].total, up to 200 refs (truncated).",
       inputSchema: {
         type: 'object',
@@ -893,6 +895,11 @@ export function worldModelTools(
           path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
           qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
           name: { type: 'string', description: 'Alias of qualified_name; qualified_name wins when both are given.' },
+          config_key: {
+            type: 'string',
+            description:
+              "A plugin_config key, e.g. 'verification_timeout_s'. Returns {config_key, readers: [{qualified_name, kind, repo, path, line}]}: the symbols whose SELECT reads it, instead of a card.",
+          },
           impact: {
             type: ['boolean', 'integer'],
             description: `Transitive inbound callers and readers of tables a walked symbol writes. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers and test modules importing any walked symbol go to impact.tests and are not walked past.`,
@@ -1080,6 +1087,18 @@ export function worldModelTools(
       'world_model_symbol',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
       logged(db, 'world_model_symbol', wrap(async (args) => {
+        const configKey = args['config_key'];
+        if (configKey !== undefined && configKey !== null) {
+          if (typeof configKey !== 'string' || !configKey) return err('config_key must be a non-empty string');
+          const resolved = resolveRepo(args['repo']);
+          const allRepos = resolved.warning !== undefined;
+          const repos = allRepos ? resolved.available_repos : [resolved.name];
+          return ok({
+            config_key: configKey,
+            readers: configKeyReaders(db, repos, configKey),
+            ...(allRepos ? { repo_source: 'all' } : sourceOf(resolved)),
+          });
+        }
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         let source: { repo_source?: RepoSource } = {};
