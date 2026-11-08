@@ -329,6 +329,69 @@ describe('issue_close: review evidence for closed tasks', () => {
     db.close();
   });
 
+  const recordLegacyIntegrated = (db: TrajectoryDB, issueId: number, taskId: number, reviewed: string, next: string, at: string, fromNode = 'hook:integrate'): void => {
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, 'task_integrated', 'integrated', ?, ?)`,
+      [issueId, fromNode, JSON.stringify({ task_id: taskId, reviewed_sha: reviewed, commit_sha: next, base: 'dev', run_id: 1 }), at],
+    );
+    db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [next, taskId]);
+  };
+
+  it('GH 2546: a legacy hook:integrate row with no review_anchor_at carries the reviewed SHA anchor, so issue_close closes', async () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'closed', { commit: 'aaaaaaa' });
+    recordVerificationPass(db, issue, t, 'aaaaaaa', iso(-3 * HOUR));
+    recordVerdict(db, t, 'pass', iso(-2 * HOUR));
+    recordLegacyIntegrated(db, issue, t, 'aaaaaaa', 'bbbbbbb', iso(-HOUR));
+    assert.equal(taskHasPassingReview(db, t), true);
+    const close = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issue) });
+    assert.ok(!close.isError, JSON.stringify(parse(close)));
+    assert.equal(issueStatus(db, issue), 'closed');
+    db.close();
+  });
+
+  it('GH 2546: a chain of legacy rows A→B, B→C carries the pass on A to C', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    const t = seedTask(db, issue, 'closed', { commit: 'aaaaaaa' });
+    recordVerificationPass(db, issue, t, 'aaaaaaa', iso(-4 * HOUR));
+    recordVerdict(db, t, 'pass', iso(-3 * HOUR));
+    recordLegacyIntegrated(db, issue, t, 'aaaaaaa', 'bbbbbbb', iso(-2 * HOUR));
+    recordLegacyIntegrated(db, issue, t, 'bbbbbbb', 'ccccccc', iso(-HOUR));
+    assert.equal(taskHasPassingReview(db, t), true);
+    db.close();
+  });
+
+  it('GH 2546: a legacy row stays fail-closed for another author, an unanchored reviewed SHA, a newer fail and an early pass', async () => {
+    const legacyTask = (fromNode = 'hook:integrate', anchorSha = 'aaaaaaa', passAt = iso(-2 * HOUR)): { db: TrajectoryDB; issue: number; t: number } => {
+      const db = tempDB();
+      const issue = seedIssue(db);
+      const t = seedTask(db, issue, 'closed', { commit: 'aaaaaaa' });
+      recordVerificationPass(db, issue, t, anchorSha, iso(-3 * HOUR));
+      recordVerdict(db, t, 'pass', passAt);
+      recordLegacyIntegrated(db, issue, t, 'aaaaaaa', 'bbbbbbb', iso(-HOUR), fromNode);
+      return { db, issue, t };
+    };
+    const cases: Array<[string, () => { db: TrajectoryDB; issue: number; t: number }]> = [
+      ['another author', () => legacyTask('hook:other')],
+      ['an unanchored reviewed SHA', () => legacyTask('hook:integrate', 'fffffff')],
+      ['a pass before the reviewed SHA bro_verification_pass', () => legacyTask('hook:integrate', 'aaaaaaa', iso(-4 * HOUR))],
+      ['a newer fail', () => {
+        const c = legacyTask();
+        recordVerdict(c.db, c.t, 'fail', iso(-HOUR / 2));
+        return c;
+      }],
+    ];
+    for (const [name, build] of cases) {
+      const { db, issue, t } = build();
+      assert.equal(taskHasPassingReview(db, t), false, name);
+      const close = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issue) });
+      assert.equal(parse(close)['error'], 'tasks_without_review', name);
+      db.close();
+    }
+  });
+
   const gateSource = (gate: string): string =>
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'hooks', `${gate}.ts`), 'utf8');
 
