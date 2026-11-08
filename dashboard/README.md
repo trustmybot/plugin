@@ -32,7 +32,7 @@ Or run `/tmb:dashboard` in a Claude Code session: it starts the same server in t
 | Endpoint | Returns |
 |---|---|
 | `/api/summary` | open/closed issue counts, tasks by status, running agent count, the 10 most recent runs |
-| `/api/issues` | every issue with its task progress |
+| `/api/issues` | `{ issues, label_taxonomy }`: every issue with its task progress, and the label taxonomy |
 | `/api/issues/:id` | the issue, its discussions and its tasks (404 when unknown) |
 | `/api/tasks` | the most recent 1000 tasks |
 | `/api/tasks/:id` | `{ task, issue, validations, findings, verifications, agent_runs }`: the task (spec, `files`, `verification` and `completion_report` parsed from their JSON columns), its issue's `id` and `objective`, its review verdicts and findings, its verification runs newest first (each with `commands` in ordinal order: `ordinal`, `command`, `exit_code`, `elapsed_s`, `output_tail`) and its agent runs with tokens. A JSON column that does not parse is `null`, with the raw text under `<column>_raw`. 404 `task not found` when unknown |
@@ -64,7 +64,7 @@ The world-model endpoints answer `available: false` with empty arrays (HTTP 200)
 
 The concept endpoints answer `available: false` (HTTP 200) on a DB below schema v45 or without the concept tables, and 404 JSON for an unknown id. They call the trajectory server's `searchConcepts`, `getConcept` and `derivedChain` in-process over the read-only connection, so they never write or migrate the DB.
 
-`/api/issues/:id` also returns `label_taxonomy` (`classification` and `priority` lists from `plugin_config`) and `milestones` (names known for the issue's repo) for the edit form.
+`/api/issues` and `/api/issues/:id` return `label_taxonomy`: the `classification` and `priority` lists from `plugin_config` (`issue_classification_labels`, `issue_priority_labels`; else the issues tool's generic defaults) and the `area` list (`issue_area_labels`, else `[]`). Label colors come from a label's role and position in it, and the edit form offers its lists. `/api/issues/:id` also returns `milestones` (names known for the issue's repo) for the edit form.
 
 ## Writes
 

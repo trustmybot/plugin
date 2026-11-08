@@ -1,6 +1,6 @@
 import { CheckIcon, CommentIcon, IssueClosedIcon, IssueOpenedIcon, TasklistIcon } from '@primer/octicons-react';
 import { lazy, Suspense } from 'react';
-import type { Row } from '../../api.ts';
+import type { LabelTaxonomy, Row } from '../../api.ts';
 import { EntityList, type ListChip, type ListSort, type ListTab } from '../../shared/list/EntityList.tsx';
 import { ListRow } from '../../shared/list/ListRow.tsx';
 import { RemoteIssueLink, remoteIssue } from '../../shared/remote.tsx';
@@ -29,7 +29,7 @@ const TABS: ListTab[] = [
 const matches = (issue: Row, needle: string) =>
   !needle || `#${String(issue['id'])} ${String(issue['objective'] ?? '')} ${parseLabels(issue['labels']).join(' ')}`.toLowerCase().includes(needle);
 
-function IssueRow({ issue }: { issue: Row }) {
+function IssueRow({ issue, taxonomy }: { issue: Row; taxonomy: LabelTaxonomy }) {
   const open = issue['status'] === 'open';
   const StateIcon = open ? IssueOpenedIcon : IssueClosedIcon;
   const remote = remoteIssue(issue);
@@ -41,7 +41,7 @@ function IssueRow({ issue }: { issue: Row }) {
       title={String(issue['objective'] ?? '')}
       adornments={parseLabels(issue['labels']).map((l) => (
         <span key={l} className="mr-1 inline-block align-middle">
-          <IssueLabel name={l} />
+          <IssueLabel name={l} taxonomy={taxonomy} />
         </span>
       ))}
       meta={
@@ -76,11 +76,13 @@ function IssueRow({ issue }: { issue: Row }) {
 
 export function IssueList({
   rows,
+  taxonomy,
   state,
   label = null,
   milestone = null,
 }: {
   rows: Row[];
+  taxonomy: LabelTaxonomy;
   state: IssueState;
   label?: string | null;
   milestone?: string | null;
@@ -102,7 +104,7 @@ export function IssueList({
         tabs={TABS}
         sorts={SORTS}
         matches={matches}
-        renderRow={(r) => <IssueRow issue={r} />}
+        renderRow={(r) => <IssueRow issue={r} taxonomy={taxonomy} />}
         chips={chips}
         tab={state}
         path="issues"
