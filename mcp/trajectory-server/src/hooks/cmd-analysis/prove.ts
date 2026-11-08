@@ -85,6 +85,9 @@ const PY_JSON_NAMES = new Set(['load', 'loads', 'dump', 'dumps', 'JSONDecoder', 
 const PY_SAFE_STREAMS = new Set(['sys.argv', 'sys.stdin', 'sys.stdout', 'sys.stderr', 'os.environ']);
 /** Calls that neither store an argument nor return it or a container holding it, so a stream passed to one cannot escape (GH 2490). */
 const PY_SINKS = new Set(['print', 'len', 'str', 'repr', 'sorted', 'dict', 'list', 'tuple', 'set', 'json.dumps', 'json.dump', 'json.load']);
+/** The streams whose elements are strings, so unpacking one binds only strings or a fresh list (GH 2490). */
+const PY_UNPACKED = new Set(['os.environ', 'sys.argv', 'sys.stdin']);
+const PY_UNPACK = new Set(['pattern_list', 'tuple_pattern', 'list_pattern']);
 const publicName = (p: string): boolean => /^[A-Za-z][A-Za-z0-9_]*$/.test(p);
 
 /** Whether `q` is a name the table lets past a safe module (`re.sub`, `datetime.datetime.now`). */
@@ -159,6 +162,8 @@ const JS_SAFE_ROOT_CALL = /^(console|JSON|Math)\./;
 const JS_SAFE_VALUE = /^process\.(argv|env|stdout|stderr|version|versions|platform|arch)(\.|$)/;
 /** The objects of JS_SAFE_VALUE, judged where they are used so none escapes into a name the proof takes for a local (GH 2490). */
 const JS_ESCAPE = /^process\.(argv|env|stdout|stderr|versions)$/;
+/** The objects of JS_ESCAPE whose values are strings, so destructuring one binds only strings or a fresh copy (GH 2490). */
+const JS_UNPACKED = /^process\.(argv|env)$/;
 const JS_COMPARE = new Set(['==', '!=', '===', '!==', '<', '>', '<=', '>=', 'in', 'instanceof']);
 /** Calls that neither store an argument nor return it or a container holding it; `Object.assign` only past its first argument (GH 2490). */
 const JS_SINKS = new Set(['JSON.stringify', 'Object.keys', 'Object.values', 'Object.entries', 'Object.assign']);
@@ -546,7 +551,7 @@ class PyProof extends Proof {
     const b = this.binds.resolve(name);
     if (b?.kind === 'import') {
       if (!this.safeValue(b.q) && !this.safeCall(b.q)) this.fail();
-      else if (PY_SAFE_STREAMS.has(b.q) && !this.contained(node)) this.fail();
+      else if (PY_SAFE_STREAMS.has(b.q) && !this.contained(node, PY_UNPACKED.has(b.q))) this.fail();
     } else if (b && b.kind !== 'local' && b.kind !== 'def') this.fail();
     else if (!b && PY_BUILTINS.has(name) && (!PY_SAFE_BUILTINS.has(name) || name === 'open')) this.fail();
   }
@@ -557,7 +562,7 @@ class PyProof extends Proof {
     const q = this.qualified(root, parts);
     if (q !== undefined) {
       if (!this.safeValue(q) && !this.safeCall(q)) this.fail();
-      else if (PY_SAFE_STREAMS.has(q) && !this.contained(node)) this.fail();
+      else if (PY_SAFE_STREAMS.has(q) && !this.contained(node, PY_UNPACKED.has(q))) this.fail();
       return;
     }
     this.visit(root);
@@ -568,9 +573,11 @@ class PyProof extends Proof {
    * takes for a local (GH 2490): the direct base of an attribute or
    * subscript, or, through parentheses, `await`, `or` / `and`, the branches
    * of `a if c else b` and assignments to a plain name, an alias binding, a
-   * for iterable, a splat, a comparison operand or a PY_SINKS argument.
+   * for iterable, a splat, a comparison operand or a PY_SINKS argument. An
+   * iterable stream (`iterable`, PY_UNPACKED) is also the whole right side of
+   * an unpacking statement, whose targets bind its elements or a fresh list.
    */
-  private contained(node: Node): boolean {
+  private contained(node: Node, iterable: boolean): boolean {
     const base = node.parent;
     if ((base?.type === 'attribute' && same(field(base, 'object'), node)) || (base?.type === 'subscript' && same(field(base, 'value'), node))) return true;
     for (let at = node, up = base; up; at = up, up = up.parent) {
@@ -586,7 +593,10 @@ class PyProof extends Proof {
         case 'assignment':
         case 'named_expression': {
           const assign = up.type === 'assignment';
-          if (!same(field(up, assign ? 'right' : 'value'), at) || field(up, assign ? 'left' : 'name')?.type !== 'identifier') return false;
+          if (!same(field(up, assign ? 'right' : 'value'), at)) return false;
+          const left = field(up, assign ? 'left' : 'name')?.type ?? '';
+          if (assign && iterable && PY_UNPACK.has(left)) return up.parent?.type === 'expression_statement';
+          if (left !== 'identifier') return false;
           continue;
         }
         case 'expression_statement':
@@ -614,10 +624,16 @@ class PyProof extends Proof {
    * keyword argument like a positional one. A callback
    * (`default=`, `key=`, or a `**` splat that may pass one) is called with
    * what the call reads from its first argument, so with one only a later
-   * argument (`fp=sys.stdout`) is a sink.
+   * argument (`fp=sys.stdout`) is a sink. So is the one argument of a
+   * string literal's `join` (`" ".join(sys.argv)`).
    */
   private sink(call: Node, args: Node, arg: Node): boolean {
     const fn = field(call, 'function');
+    const object = fn?.type === 'attribute' ? field(fn, 'object') : null;
+    if ((object?.type === 'string' || object?.type === 'concatenated_string') && field(fn!, 'attribute')?.text === 'join') {
+      const list = noComments(args);
+      return list.length === 1 && same(list[0], arg);
+    }
     let q: string | undefined;
     if (fn?.type === 'identifier') {
       const b = this.binds.resolve(fn.text);
@@ -963,7 +979,7 @@ class JsProof extends Proof {
     const b = this.binds.resolve(node.text);
     if (b?.kind === 'import' && b.json !== true) this.fail();
     else if (b?.kind === 'alias' && !(b.q.includes('.') ? this.safeMember(b.q) : JS_SAFE_GLOBALS.has(b.q))) this.fail();
-    else if (b?.kind === 'alias' && JS_ESCAPE.test(b.q) && !this.contained(node)) this.fail();
+    else if (b?.kind === 'alias' && JS_ESCAPE.test(b.q) && !this.contained(node, JS_UNPACKED.test(b.q))) this.fail();
     else if (b?.kind === 'mixed') this.fail();
     else if (!b && !JS_SAFE_GLOBALS.has(node.text)) this.fail();
   }
@@ -980,7 +996,7 @@ class JsProof extends Proof {
     if (q !== undefined) {
       if (root.type === 'call_expression') this.visit(root);
       if (!this.safeMember(q)) this.fail();
-      else if (JS_ESCAPE.test(q) && !this.contained(node)) this.fail();
+      else if (JS_ESCAPE.test(q) && !this.contained(node, JS_UNPACKED.test(q))) this.fail();
       return;
     }
     this.visit(root);
@@ -992,9 +1008,11 @@ class JsProof extends Proof {
    * subscript, or, through parentheses, `await`, a sequence's last value,
    * the branches of `c ? a : b`, `||` / `&&` / `??` and assignments to a
    * plain name, an alias binding, a for iterable, a spread, a comparison
-   * operand or a JS_SINKS / `console.*` argument.
+   * operand or a JS_SINKS / `console.*` argument. process.env and
+   * process.argv (`iterable`) are also the whole value of a destructuring
+   * declaration, whose targets bind strings or a fresh copy.
    */
-  private contained(node: Node): boolean {
+  private contained(node: Node, iterable: boolean): boolean {
     const base = node.parent;
     if ((base?.type === 'member_expression' || base?.type === 'subscript_expression') && same(field(base, 'object'), node)) return true;
     for (let at = node, up = base; up; at = up, up = up.parent) {
@@ -1023,8 +1041,10 @@ class JsProof extends Proof {
         case 'expression_statement':
         case 'spread_element':
           return true;
-        case 'variable_declarator':
-          return same(field(up, 'value'), at) && field(up, 'name')?.type === 'identifier';
+        case 'variable_declarator': {
+          const name = field(up, 'name')?.type;
+          return same(field(up, 'value'), at) && (name === 'identifier' || (iterable && (name === 'object_pattern' || name === 'array_pattern')));
+        }
         case 'assignment_pattern':
         case 'object_assignment_pattern': {
           const left = field(up, 'left');
