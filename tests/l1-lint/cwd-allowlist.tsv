@@ -1,4 +1,4 @@
-# no-cwd-reads.sh exemptions, tab-separated: <path from the plugin root>	<substring of the line>	<category>	<reason>
+# no-cwd-reads.test.mjs exemptions, tab-separated: <path from the plugin root>	<substring of the line>	<category>	<reason>
 # Categories: self-location, canonicalize, join-base (the dir a command runs in, joined to its relative paths),
 # anchored-cd (the command runs in a dir the code chose: a cd, git -C or a cwd option the lint cannot see),
 # fallback (used only when the DB, the caller or CLAUDE_PROJECT_DIR names nothing), test-harness,
