@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Standalone scan invoker: runs scan_run outside the MCP server, for the
-// server's connect-time startup catch-up and for manual runs.
+// trajectory server's connect-time catch-up (startup-catchup.ts) and for
+// manual runs.
 //
 // Reads the same scan_run logic as the MCP tool, so pruning / summary
 // preservation behave identically. The DB is checked before any tool module
@@ -21,7 +22,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const TAG = '[post-close-rescan]';
+const TAG = '[run-scan]';
 
 function fail(code, message) {
   console.error(`${TAG} ${message}`);

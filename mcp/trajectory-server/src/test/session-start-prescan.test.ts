@@ -1,8 +1,9 @@
 /**
  * session-start-prescan (GH 1692): the output is valid JSON with a string
  * additionalContext, cache-friendly ordering (stable lines before volatile
- * ones), the cold-session auto-scan launch and its bypass env, the warm /
- * stale / cold world-model banner (cold = empty wm_directories), the Top-level
+ * ones), a cold world model printing the startup catch-up note and spawning
+ * no scan, the warm / stale / cold world-model banner (cold = empty
+ * wm_directories), the Top-level
  * dirs and Stacks detected lines, the Trajectory DB data-contract banner, the
  * duplicate-plugin line, the version-skew line, the pre-1.1.0 user-wide hooks
  * line (alone and next to mcp-health-check), the Tooling line naming a missing
@@ -18,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
+import { COLD_NOTE } from '../hooks/session-start-prescan.js';
 import { contextOf, GIT_ENV, HOOKS_JS, jsonValues, lines, makeSandbox, noCmdPath, PLUGIN_ROOT, runGate, type Sandbox, without } from './hook-sandbox.js';
 
 const GATE = 'session-start-prescan';
@@ -111,12 +113,13 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     return sleep(100);
   }
 
-  async function waitFor(path: string, ms: number): Promise<boolean> {
-    for (let waited = 0; waited < ms; waited += 100) {
-      if (existsSync(path) && readFileSync(path, 'utf8') !== '') return true;
-      await sleep(100);
+  function scanRows(path: string): number {
+    const d = new DatabaseSync(path);
+    try {
+      return Number((d.prepare("SELECT count(*) AS n FROM audit WHERE event_type = 'deep_scan_completed'").get() as { n: number }).n);
+    } finally {
+      d.close();
     }
-    return existsSync(path);
   }
 
   /** The prescan from <cwd> with the base env plus <extra>; the fake install root's bundle when <fake>. */
@@ -124,8 +127,8 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     return runGate(GATE, { cwd: opts.cwd ?? ws, env: { ...(opts.env ?? base), ...extra }, hooksJs: opts.fake ? fakeHooksJs : HOOKS_JS });
   }
   const wsEnv = (dbPath: string, extra: NodeJS.ProcessEnv = {}) => ({ CLAUDE_PROJECT_DIR: ws, TRAJECTORY_DB_PATH: dbPath, ...extra });
-  const runHook = () => hook(wsEnv(db, { TMB_SKIP_AUTO_PRESCAN: '1' })).stdout;
-  const doctorLine = (extra: NodeJS.ProcessEnv = {}) => lineStarting(contextOf(hook(wsEnv(schemaDb, { TMB_SKIP_AUTO_PRESCAN: '1', ...extra })).stdout), 'Trajectory DB:');
+  const runHook = () => hook(wsEnv(db)).stdout;
+  const doctorLine = (extra: NodeJS.ProcessEnv = {}) => lineStarting(contextOf(hook(wsEnv(schemaDb, { ...extra })).stdout), 'Trajectory DB:');
 
   before(() => {
     sb = makeSandbox(GATE);
@@ -147,11 +150,9 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     writeFileSync(join(fakeRoot, '.claude-plugin/plugin.json'), '{"name":"tmb"}\n');
     fakeHooksJs = join(dist, 'hooks.js');
     copyFileSync(HOOKS_JS, fakeHooksJs);
-    writeFileSync(join(dist, 'run-scan.js'), '');
-    writeFileSync(
-      join(fakeRoot, 'scripts/maintenance/run-scan-initial.mjs'),
-      "#!/usr/bin/env node\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.INVOCATION_FLAG, process.env.TRAJECTORY_DB_PATH ?? '<unset>');\n",
-    );
+    const invoker = "#!/usr/bin/env node\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.INVOCATION_FLAG, process.env.TRAJECTORY_DB_PATH ?? '<unset>');\n";
+    writeFileSync(join(dist, 'run-scan.js'), invoker);
+    writeFileSync(join(fakeRoot, 'scripts/maintenance/run-scan.mjs'), invoker);
 
     resetDb();
     out = runHook();
@@ -208,50 +209,36 @@ describe('session-start-prescan: the SessionStart inventory', () => {
 
   describe('cold session', () => {
     let coldCtx = '';
-    let skipCtx = '';
     let wsCtx = '';
     let wsRoot = '';
     let nonRepo = '';
-    const wsHook = () => contextOf(hook({ CLAUDE_PROJECT_DIR: wsRoot, TRAJECTORY_DB_PATH: db, TMB_SKIP_AUTO_PRESCAN: '1' }, { cwd: nonRepo }).stdout);
+    const wsHook = () => contextOf(hook({ CLAUDE_PROJECT_DIR: wsRoot, TRAJECTORY_DB_PATH: db }, { cwd: nonRepo }).stdout);
 
-    it('cold + invoker present: context says scan started', async () => {
+    it('cold: the banner reads cold and the note points at the startup catch-up', async () => {
       await killFixtureNode();
       rmSync(flag, { force: true });
-      coldCtx = contextOf(hook(wsEnv(db, { INVOCATION_FLAG: flag, TMB_SKIP_AUTO_PRESCAN: '0' }), { fake: true }).stdout);
-      assert.ok(coldCtx.includes('scan is running in the background'), 'cold context mentions background scan');
-    });
-
-    it('cold + invoker present: scan process was invoked', async () => {
-      assert.ok(await waitFor(flag, 5000), `fake invoker called (flag at ${flag})`);
-    });
-
-    it('cold + invoker present: no Human-directed /scan instruction', () => {
+      coldCtx = contextOf(hook(wsEnv(db, { INVOCATION_FLAG: flag }), { fake: true }).stdout);
+      assert.ok(coldCtx.includes('World model:       cold'), 'cold banner when no scan row exists');
+      assert.ok(coldCtx.includes(COLD_NOTE), 'cold note names the startup catch-up');
+      assert.ok(!coldCtx.includes('scan is running in the background'), 'no background scan message');
       assert.ok(!coldCtx.includes('tell the Human to run /scan'), 'no manual scan instruction');
     });
 
-    it('cold + invoker present: the invoker gets the resolved DB as TRAJECTORY_DB_PATH (GH 1639)', async () => {
+    it('cold: spawns nothing (no invoker call, no scan.lock, no new deep_scan_completed row)', async () => {
       await killFixtureNode();
       rmSync(flag, { force: true });
       const projectDb = join(ws, '.claude/tmb/trajectory.db');
       mkdirSync(dirname(projectDb), { recursive: true });
       copyFileSync(db, projectDb);
+      const before = scanRows(projectDb);
       const env = without(base, 'TRAJECTORY_DB_PATH', 'CLAUDE_PLUGIN_ROOT');
-      hook({ CLAUDE_PROJECT_DIR: ws, TMB_FORBID_LIVE_SYNC: '1', INVOCATION_FLAG: flag, TMB_SKIP_AUTO_PRESCAN: '0' }, { fake: true, env });
-      await waitFor(flag, 5000);
-      assert.equal(existsSync(flag) ? readFileSync(flag, 'utf8') : '<not run>', projectDb, 'invoker received the project DB path');
-      await killFixtureNode();
+      const c = contextOf(hook({ CLAUDE_PROJECT_DIR: ws, TMB_FORBID_LIVE_SYNC: '1', INVOCATION_FLAG: flag }, { fake: true, env }).stdout);
+      assert.ok(c.includes(COLD_NOTE), 'cold note printed');
+      await sleep(1000);
+      assert.ok(!existsSync(flag), 'no scan invoker was called');
+      assert.ok(!existsSync(join(dirname(projectDb), 'scan.lock')), 'no scan.lock beside the project DB');
+      assert.equal(scanRows(projectDb), before, 'no new deep_scan_completed row');
       rmSync(join(ws, '.claude'), { recursive: true, force: true });
-    });
-
-    it('cold + TMB_SKIP_AUTO_PRESCAN=1: warns cold, no invocation, no background scan message', async () => {
-      await killFixtureNode();
-      rmSync(flag, { force: true });
-      skipCtx = contextOf(hook(wsEnv(db, { TMB_SKIP_AUTO_PRESCAN: '1' }), { fake: true }).stdout);
-      assert.ok(skipCtx.includes('cold'), 'skip context mentions cold');
-      assert.ok(skipCtx.includes('World model:       cold'), 'cold banner when no scan row exists');
-      await sleep(200);
-      assert.ok(!existsSync(flag), 'invoker not called with TMB_SKIP_AUTO_PRESCAN=1');
-      assert.ok(!skipCtx.includes('scan is running in the background'), 'no background scan message when bypassed');
     });
 
     it('cold workspace: source files are summed across registered repos on one line', async () => {
@@ -265,7 +252,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
         );
         insert(db, "INSERT INTO repos (name, path, last_scanned_at) VALUES (?, ?, '2026-01-01T00:00:00Z')", name, join(wsRoot, name));
       }
-      wsCtx = contextOf(hook({ CLAUDE_PROJECT_DIR: wsRoot, TRAJECTORY_DB_PATH: db, TMB_SKIP_AUTO_PRESCAN: '1' }, { cwd: wsRoot }).stdout);
+      wsCtx = contextOf(hook({ CLAUDE_PROJECT_DIR: wsRoot, TRAJECTORY_DB_PATH: db }, { cwd: wsRoot }).stdout);
       assert.ok(wsCtx.includes('cold (no scan yet; 5 source files)'), 'workspace sum of 2 + 3 files');
     });
 
@@ -298,18 +285,18 @@ describe('session-start-prescan: the SessionStart inventory', () => {
       assert.equal(lineAfter(wsCtx, 'World model:').slice(0, 14), 'Trajectory DB:', 'World model row is a single line');
     });
 
-    it('cold empty tree: a single 0 source files and no auto-scan', async () => {
+    it('cold empty tree: a single 0 source files and no cold note', async () => {
       await killFixtureNode();
       resetDb();
       const emptyRepo = join(sb.dir, 'empty-repo');
       initRepo(emptyRepo, []);
       rmSync(flag, { force: true });
-      const c = contextOf(hook({ CLAUDE_PROJECT_DIR: emptyRepo, TRAJECTORY_DB_PATH: db, INVOCATION_FLAG: flag, TMB_SKIP_AUTO_PRESCAN: '0' }, { cwd: emptyRepo, fake: true }).stdout);
+      const c = contextOf(hook({ CLAUDE_PROJECT_DIR: emptyRepo, TRAJECTORY_DB_PATH: db, INVOCATION_FLAG: flag }, { cwd: emptyRepo, fake: true }).stdout);
       assert.ok(c.includes('cold (no scan yet; 0 source files)'), 'zero tracked files');
       assert.equal(count(c, '0 source files'), 1, '0 source files appears exactly once');
       assert.equal(lineStarting(c, 'World model:'), 'World model:       cold (no scan yet; 0 source files)', 'no doubled 0 in the World model row');
       assert.equal(lineAfter(c, 'World model:').slice(0, 14), 'Trajectory DB:', 'World model row is a single line');
-      assert.ok(!c.includes('scan is running in the background'), 'no auto-scan message on an empty tree');
+      assert.ok(!c.includes(COLD_NOTE), 'no cold note on an empty tree');
       await sleep(300);
       assert.ok(!existsSync(flag), 'invoker not called for an empty tree');
       resetDb();
@@ -320,7 +307,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     let warmCtx = '';
     let staleCtx = '';
 
-    it('scan row + repos but an empty wm_directories reads cold and fires the auto-scan', async () => {
+    it('scan row + repos but an empty wm_directories reads cold and spawns nothing', async () => {
       await killFixtureNode();
       rmSync(flag, { force: true });
       sql(
@@ -329,11 +316,15 @@ describe('session-start-prescan: the SessionStart inventory', () => {
          INSERT INTO audit (event_type) VALUES ('deep_scan_completed');`,
       );
       insert(db, "INSERT INTO repos (name, path, file_count, last_scanned_at) VALUES ('fixture', ?, 42, strftime('%Y-%m-%dT%H:%M:%fZ','now','-3 hours'))", ws);
-      const c = contextOf(hook(wsEnv(db, { INVOCATION_FLAG: flag, TMB_SKIP_AUTO_PRESCAN: '0' }), { fake: true }).stdout);
+      const before = scanRows(db);
+      const c = contextOf(hook(wsEnv(db, { INVOCATION_FLAG: flag }), { fake: true }).stdout);
       assert.ok(c.includes('World model:       cold'), 'empty graph reads cold');
       assert.ok(!c.includes('warm'), 'empty graph never reads warm');
-      assert.ok(c.includes('scan is running in the background'), 'empty graph fires the auto-scan');
-      assert.ok(await waitFor(flag, 5000), 'auto-scan invoker called for an empty graph');
+      assert.ok(c.includes(COLD_NOTE), 'empty graph prints the cold note');
+      await sleep(1000);
+      assert.ok(!existsSync(flag), 'no scan invoker was called for an empty graph');
+      assert.ok(!existsSync(join(dirname(db), 'scan.lock')), 'no scan.lock beside the DB');
+      assert.equal(scanRows(db), before, 'no new deep_scan_completed row');
     });
 
     it('warm: context shows warm world model with file count and age, no scan or cold note', async () => {
@@ -366,7 +357,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
 
     it('the line sits right after the World model line', () => {
       makeSchemaDb();
-      const c = contextOf(hook(wsEnv(schemaDb, { TMB_SKIP_AUTO_PRESCAN: '1' })).stdout);
+      const c = contextOf(hook(wsEnv(schemaDb)).stdout);
       assert.ok(lineAfter(c, 'World model:').includes('Trajectory DB:'), 'Trajectory DB line follows World model');
     });
 
@@ -401,7 +392,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
 
     it('a DB the contracts cannot read reports unchecked, never healthy', () => {
       resetDb();
-      const line = lineStarting(contextOf(hook(wsEnv(db, { TMB_SKIP_AUTO_PRESCAN: '1' })).stdout), 'Trajectory DB:');
+      const line = lineStarting(contextOf(hook(wsEnv(db)).stdout), 'Trajectory DB:');
       assert.ok(!line.includes('healthy'), 'no healthy banner on read errors');
       assert.ok(line.includes('unchecked'), 'read errors leave contracts unchecked');
     });
@@ -413,7 +404,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     let dupErr = '';
     const entry = (scope: string, v: string) => JSON.stringify({ scope, projectPath: ws, installPath: `/cache/${v}`, version: v });
     function dupLine(): string {
-      const r = hook(wsEnv(schemaDb, { TMB_SKIP_AUTO_PRESCAN: '1', HOME: dupHome }));
+      const r = hook(wsEnv(schemaDb, { HOME: dupHome }));
       dupErr = r.stderr;
       return lineStarting(contextOf(r.stdout), 'Plugin:');
     }
@@ -477,7 +468,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
       mkdirSync(join(skewRoot, '.claude-plugin'), { recursive: true });
       mkdirSync(join(sb.dir, 'skew-cache/trustmybot-dev/tmb/1.0.1'), { recursive: true });
       writeFileSync(join(skewRoot, '.claude-plugin/plugin.json'), '{"name":"tmb","version":"1.0.0"}\n');
-      const c = contextOf(hook(wsEnv(schemaDb, { CLAUDE_PLUGIN_ROOT: skewRoot, TMB_SKIP_AUTO_PRESCAN: '1', HOME: dupHome })).stdout);
+      const c = contextOf(hook(wsEnv(schemaDb, { CLAUDE_PLUGIN_ROOT: skewRoot, HOME: dupHome })).stdout);
       assert.equal(lineStarting(c, 'newer plugin version'), 'newer plugin version 1.0.1 is installed but 1.0.0 is still running — fully quit and relaunch Claude Code to apply', 'skew line');
       assert.ok(!IN_SESSION_CMD.test(c), 'prescan output names no /plugin, /reload-plugins or /mcp');
     });
@@ -489,7 +480,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
     let legacyErr = '';
     const entry = (project: string, v: string) => JSON.stringify({ scope: 'local', projectPath: project, installPath: `/cache/${v}`, version: v });
     function legacyRun(): string {
-      const r = hook(wsEnv(schemaDb, { TMB_SKIP_AUTO_PRESCAN: '1' }));
+      const r = hook(wsEnv(schemaDb));
       legacyErr = r.stderr;
       return r.stdout;
     }
@@ -581,7 +572,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
       lineStarting(
         contextOf(
           hook(
-            { TRAJECTORY_DB_PATH: schemaDb, TMB_SKIP_AUTO_PRESCAN: '1', TMB_INSTALLED_JSON: join(sb.dir, 'none.json'), CLAUDE_PLUGIN_ROOT: personaPlugin, CLAUDE_PROJECT_DIR: project },
+            { TRAJECTORY_DB_PATH: schemaDb, TMB_INSTALLED_JSON: join(sb.dir, 'none.json'), CLAUDE_PLUGIN_ROOT: personaPlugin, CLAUDE_PROJECT_DIR: project },
             { cwd: project },
           ).stdout,
         ),
@@ -616,7 +607,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
 
     it('jq off PATH: the Tooling line, as valid JSON', () => {
       const nojq = noCmdPath(join(sb.dir, 'nojq'), 'jq', base.PATH ?? '');
-      const r = hook({ PATH: nojq, TRAJECTORY_DB_PATH: db, TMB_SKIP_AUTO_PRESCAN: '1' });
+      const r = hook({ PATH: nojq, TRAJECTORY_DB_PATH: db });
       const v = JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string; hookEventName: string } };
       assert.equal(v.hookSpecificOutput.additionalContext, 'Tooling: jq not found — every TMB gate will deny until it is installed', 'the one Tooling line');
       assert.equal(v.hookSpecificOutput.hookEventName, 'SessionStart', 'a SessionStart output');

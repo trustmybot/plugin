@@ -6,9 +6,5 @@
     "command": "git commit -m \"✨ feat: keep it\"",
     "description": "corpus"
   },
-  "corpus_expect": {
-    "C": "does not match",
-    "en_US.UTF-8": "allow",
-    "UTF-8": "does not match"
-  }
+  "corpus_expect": "does not match"
 }

@@ -937,7 +937,7 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
       execFileSync('git', ['add', '-A'], { cwd: root });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
       await scan(db, holder, ws);
-      assert.equal(EXTRACTOR_VERSION, 14);
+      assert.equal(EXTRACTOR_VERSION, 15);
       db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
       db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
       const out = await scan(db, holder, ws);
@@ -1685,9 +1685,13 @@ describe('member calls bind only by receiver type (GH 1838)', () => {
   });
 
   it('new, a parameter annotation, a class field, a parameter property and a static receiver each bind to WritePaths.join', () => {
-    for (const src of ['viaNew', 'viaParam', 'viaStatic', 'Holder.run', 'Owner.run']) {
+    for (const src of ['viaNew', 'viaParam', 'Holder.run', 'Owner.run']) {
       assert.deepEqual(callees(src), [['join', 'WritePaths.join']], src);
     }
+    assert.deepEqual(callees('viaStatic'), [
+      ['WritePaths', 'WritePaths'],
+      ['join', 'WritePaths.join'],
+    ]);
   });
 
   it('a receiver typed two ways in one file binds neither; this.m() still binds to the same-file method', () => {
@@ -1776,8 +1780,8 @@ describe('member calls skip named-import and sourced-file binding (GH 2472)', ()
     assert.deepEqual(callees('typed'), [['join', 'src/write-paths.ts:WritePaths.join']]);
   });
 
-  it('the extractor version is 14', () => {
-    assert.equal(EXTRACTOR_VERSION, 14);
+  it('the extractor version is 15', () => {
+    assert.equal(EXTRACTOR_VERSION, 15);
   });
 });
 

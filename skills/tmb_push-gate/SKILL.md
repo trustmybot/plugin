@@ -14,6 +14,8 @@ The verdict row is always authored by code-reviewer itself — via `validation_r
 
 The spawn prompt carries the anchors only; the reviewer reads the spec, the task's decision and intent rows, the issue's newest decision and intent, the completion report and open findings from `task_brief`, and asks for the other discussion bodies with `response_format: 'detailed'` when it needs them. Context it cannot read there goes in `bro_atomic_close`'s `spawn_note` (300 characters max), which `task_brief` returns; a spawn gate denies a prompt carrying more than 300 characters of prose beyond the anchors.
 
+Pass your `session_id` to `bro_atomic_close`, then spawn code-reviewer with `reviewer_spawn.prompt`, `.effort` and `.subagent_type` exactly as returned; when it returns `reviewer_spawn_unavailable` instead, build the anchors by hand as in the example below.
+
 **Clean spawn prompt example:**
 ```
 task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin repo_path=<repo path> attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>

@@ -54,8 +54,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
    - V1 — files match the spec's `## Files`
    - V2 — re-run the spec's `## Verification` commands inside the worktree
    - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`). The post-close hook (`post-task-close-rescan`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
-
+8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`).
 ### Server-enforced privileges (Layer 1)
 
 Bro is the only agent allowed to call:
@@ -82,7 +81,6 @@ Bro is the only agent allowed to call:
 | `no-worktree-branch-create` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
 | `cleanup-worktree-on-task-close` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once code-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
-| `post-task-close-rescan` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
 
 ### Universal rules
 

@@ -183,7 +183,7 @@ describe('db-path-rule: one trajectory-DB location rule across the hooks, and fa
     });
 
     it(`[${mode}] session-start-prescan reads the workspace DB`, () => {
-      const out = runWs(mode, 'session-start-prescan', '{}', { TMB_SKIP_AUTO_PRESCAN: '1' }).stdout;
+      const out = runWs(mode, 'session-start-prescan', '{}').stdout;
       const context = String(JSON.parse(out).hookSpecificOutput?.additionalContext ?? '');
       assert.ok(context.includes('Open issues:       3'), 'issue count from the workspace DB');
     });
