@@ -17,7 +17,8 @@
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt } from './lib/db.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import { ISSUE_FAIL_LIMIT, REWORK_FAIL_LIMIT, SWE_RUN_LIMIT, SWE_SPAWN_SQL } from '../task-rework.js';
 
@@ -79,19 +80,12 @@ export function denyReason(taskId: string, state: ReworkState, tripped: string[]
   const since = state.waivedAt === null ? '' : ` since the Human's last waiver at ${state.waivedAt}`;
   return (
     `BLOCKED: task ${taskId} is at the rework limit${since}: ${tripped.join('; ')}. ` +
-    'A further swe run would repeat an approach that keeps failing. Stop and report the task to the Human with its findings; ' +
-    `only the Human lifts this limit, by typing \`waive task ${taskId}\`. No agent action lifts it.`
+    'A further swe run would repeat an approach that keeps failing; report the task to the Human with its findings. ' +
+    `Only the Human lifts this limit, by typing \`waive task ${taskId}\`. No agent action lifts it.`
   );
 }
 
-export function denyPreToolUse(reason: string): GateResult {
-  return {
-    stdout: `${jqCompact({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
-    })}\n`,
-    code: 0,
-  };
-}
+export const denyPreToolUse: (reason: string, fix: DenyFix) => GateResult = denyResult;
 
 export function denyUnreadable(gate: string, env: NodeJS.ProcessEnv): GateResult {
   return { stdout: `${denyDbUnavailable(gate, env)}\n`, code: 0 };
@@ -106,7 +100,7 @@ export function reworkLimitVerdict(gate: string, db: string, taskId: string, env
   if (state === null) return ALLOW;
   const tripped = trippedLimits(state);
   if (tripped.length === 0) return ALLOW;
-  return denyPreToolUse(denyReason(taskId, state, tripped));
+  return denyPreToolUse(denyReason(taskId, state, tripped), 'policy');
 }
 
 export const reworkLimit: SyncGate = (payload, env) => {

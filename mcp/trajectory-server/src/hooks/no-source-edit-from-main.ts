@@ -32,11 +32,12 @@ import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { harnessTmp, NEVER_JUDGED } from './containment-guard.js';
-import { CAP_REASON, isCapLine, isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
+import { CAP_FIX, CAP_REASON, isCapLine, isPromptSurfacePath, payloadCwd, writePaths } from './cmd-analysis/index.js';
 import { pathCanonical } from './lib/agent-context.js';
 import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, realdir, stripTrailingNewlines } from './lib/db.js';
 import { isDir } from './lib/git.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult as deny } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { installRoot, pluginName, posixBasename, posixDirname, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { repoGitRoot, repoNameForRoot } from './lib/repo.js';
 import { agentRole } from './lib/role.js';
@@ -78,10 +79,8 @@ function field(input: string, ...paths: string[][]): string {
   return capture(jqAlternatives(input, paths));
 }
 
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
-}
+const SWE_TASK_FIX: DenyFix = { allowed: 'task_create_batch for the change, then the same edit from swe in the task worktree' };
+const PROMPT_TASK_FIX: DenyFix = { allowed: 'task_create_batch with prompt_bearing=1, then the same edit from swe in the task worktree' };
 
 function dbDenied(env: NodeJS.ProcessEnv): GateResult {
   return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
@@ -189,11 +188,11 @@ async function bashRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
   const proj = capture(projectRoot(env));
   const roots = [proj, proj === '' ? '' : realdir(proj)];
   const lines = capture((await writePaths(command, { cwd: payloadCwd(input, env), env })).join('\n')).split('\n');
-  if (lines.some(isCapLine)) return deny(CAP_REASON);
+  if (lines.some(isCapLine)) return deny(CAP_REASON, CAP_FIX);
   for (const line of lines) {
     const path = judgedPath(line);
     if (path === null || path === '') continue;
-    if (await isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots))) return deny(BASH_REASON);
+    if (await isPromptSurfacePath(path, '', env) && !inWorktreeDir(projectRelative(path, roots))) return deny(BASH_REASON, PROMPT_TASK_FIX);
   }
   return ALLOW;
 }
@@ -217,10 +216,10 @@ async function editRule(input: string, env: NodeJS.ProcessEnv): Promise<GateResu
     }
   }
 
-  if (isEnforcementSurface(target) && await targetIsPluginSourceRepo(target, input, env)) return deny(SURFACE_REASON);
+  if (isEnforcementSurface(target) && await targetIsPluginSourceRepo(target, input, env)) return deny(SURFACE_REASON, SWE_TASK_FIX);
   if (allowlisted(target)) return ALLOW;
   if (agentRole(input) === 'swe') return ALLOW;
-  return deny(sourceReason(env));
+  return deny(sourceReason(env), SWE_TASK_FIX);
 }
 
 export const noSourceEditFromMain: Gate = async (payload, env) => {

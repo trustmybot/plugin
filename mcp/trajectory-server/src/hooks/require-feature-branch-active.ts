@@ -28,7 +28,8 @@ function resolveRepo(db: string, taskId: string, repo: string, env: NodeJS.Proce
     const abs = found.split('\n')[0] || `${workspaceRoot}/${repo}`;
     if (isDir(`${abs}/.git`)) return abs;
     return denyPreToolUse(
-      `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo=${repo} does not point to a git repo at ${abs}. Verify the path is correct.`,
+      `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo=${repo} does not point to a git repo at ${abs}; the repos row needs its path checked.`,
+      'policy',
     );
   }
   const single = gateRead(db, 'SELECT CASE WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END;', env);
@@ -36,7 +37,8 @@ function resolveRepo(db: string, taskId: string, repo: string, env: NodeJS.Proce
   const abs = single || workspaceRoot;
   if (isDir(`${abs}/.git`)) return abs;
   return denyPreToolUse(
-    `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.`,
+    `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. A multi-repo workspace needs the task's repo set so it maps to a repos row.`,
+    { allowed: `task_create with repo=<name> for task ${taskId}'s work, then the same spawn` },
   );
 }
 
@@ -58,6 +60,7 @@ export const requireFeatureBranchActive: Gate = async (payload, env) => {
   const base = cutField(row, 3) || '<base>';
   const baseRef = await gitOk(repoAbs, ['remote', 'get-url', 'origin'], env) ? `origin/${base}` : base;
   return denyPreToolUse(
-    `BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first — bro pre-creates it ("git -C ${repoAbs} branch ${expected} ${baseRef}") and stays on ${base}; SWE's worktree owns the branch.`,
+    `BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first — bro pre-creates it and stays on ${base}; SWE's worktree owns the branch.`,
+    { allowed: `git -C ${repoAbs} branch ${expected} ${baseRef}, then the same spawn` },
   );
 };

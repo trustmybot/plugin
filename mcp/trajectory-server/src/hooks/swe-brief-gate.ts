@@ -21,6 +21,7 @@ import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { agentTranscript } from './lib/agent-context.js';
 import { auditAppend, dbWrite, nowIso } from './lib/audit.js';
 import { dbPath, haveSqlite, sqlInt, sqliteRo, sqlQuote, taskIdFromTranscript } from './lib/db.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqAlternatives, jqCompact, jqIndex, jqLiteralNumbers, jqMap, jqNumberLiteral } from './lib/jq.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
@@ -55,7 +56,11 @@ export function rawOrEmpty(input: string, path: readonly string[]): string {
 }
 
 export function denyReason(taskId: string, toolName: string): string {
-  return `BLOCKED: SWE must call task_brief(agent='swe', task_id=${taskId}) before ${toolName || 'this tool'}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=${taskId})`;
+  return `BLOCKED: SWE must call task_brief(agent='swe', task_id=${taskId}) before ${toolName || 'this tool'}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call.`;
+}
+
+export function denyFix(taskId: string): DenyFix {
+  return { allowed: `task_brief(agent='swe', task_id=${taskId})` };
 }
 
 /** The `jq -cn '{task_id:$t, agent_id:$g, observed_at:$o, consumed:0}'` object of a resumed swe. */
@@ -137,8 +142,5 @@ export const sweBriefGate: SyncGate = (payload, env): GateResult => {
   );
   if (Number(sentinel || '0') > 0) return ALLOW;
 
-  return {
-    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: denyReason(taskId, toolName) } })}\n`,
-    code: 0,
-  };
+  return denyResult(denyReason(taskId, toolName), denyFix(taskId));
 };

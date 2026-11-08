@@ -8,7 +8,7 @@
  */
 import type { Parser } from 'web-tree-sitter';
 import { gitOk, gitOut, cdPwd, isDir } from '../lib/git.js';
-import { jqCompact } from '../lib/jq.js';
+import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
@@ -145,7 +145,8 @@ export async function stmtRepoRoot(dir: string, cwd: string, env: NodeJS.Process
 export function denyAmbiguousGitTarget(stmt: string, unresolved = false): string {
   const what = stmt || 'git';
   const reason = unresolved
-    ? `BLOCKED: ambiguous_git_target: \`${what}\` runs in a directory that comes through a variable, \`cd -\` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path: git -C <path> or cd <path> && …`
-    : `BLOCKED: ambiguous_git_target: \`${what}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …`;
-  return `${jqCompact({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`;
+    ? `BLOCKED: ambiguous_git_target: \`${what}\` runs in a directory that comes through a variable, \`cd -\` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path.`
+    : `BLOCKED: ambiguous_git_target: \`${what}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Name the checkout's literal path.`;
+  const allowed = what === 'git' || what.startsWith('git ') ? `git -C <path>${what.slice(3)}` : `cd <path> && ${what}`;
+  return `${denyJson(reason, { allowed })}\n`;
 }

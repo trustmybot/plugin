@@ -9,7 +9,8 @@
  * untouched. Bypass: TMB_SKIP_CODE_REVIEWER_SPAWN_NOTE=1.
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
-import { jqAlternatives, jqCompact } from './lib/jq.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
+import { jqAlternatives } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import { SPAWN_NOTE_MAX_CHARS } from '../success-criteria.js';
 
@@ -29,19 +30,16 @@ export function denyReason(proseChars: number): string {
   return (
     `BLOCKED: the code-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors ` +
     `(${ANCHORS.map((a) => `${a}=`).join(', ')}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, ` +
-    "discussions and swe's completion report from task_brief. Store the remaining context as spawn_note " +
-    `(at most ${SPAWN_NOTE_MAX_CHARS} chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors ` +
-    `and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose.`
+    "discussions and swe's completion report from task_brief, and bro_atomic_close's spawn_note carries the rest."
   );
 }
 
+const SPAWN_NOTE_FIX: DenyFix = {
+  allowed: `bro_atomic_close(..., spawn_note='<at most ${SPAWN_NOTE_MAX_CHARS} chars>'), then the same spawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose`,
+};
+
 function deny(reason: string): GateResult {
-  return {
-    stdout: `${jqCompact({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
-    })}\n`,
-    code: 0,
-  };
+  return denyResult(reason, SPAWN_NOTE_FIX);
 }
 
 export const codeReviewerSpawnNote: SyncGate = (payload, env) => {

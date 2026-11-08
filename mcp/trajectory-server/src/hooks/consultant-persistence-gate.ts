@@ -9,8 +9,9 @@
  * a machine without them where the .sh let every stop through (decision 703).
  */
 import { ALLOW, type GateResult } from './gate.js';
-import { dbPath, dbUnavailableReason, GATE_READ_ERROR, gateRead, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
-import { jqAlternatives, jqCompact, jqFieldOr } from './lib/jq.js';
+import { DB_RETRY_FIX, dbPath, dbUnavailableReason, GATE_READ_ERROR, gateRead, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { blockResult, type DenyFix } from './lib/deny.js';
+import { jqAlternatives, jqFieldOr } from './lib/jq.js';
 import { commandSubstitution } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
 
@@ -18,10 +19,12 @@ export const GATE_NAME = 'consultant-persistence-gate';
 
 const BACKBONE_ROLES: ReadonlySet<string> = new Set(['bro', 'swe', 'code-reviewer']);
 
-const block = (reason: string): GateResult => ({ stdout: `${jqCompact({ decision: 'block', reason })}\n`, code: 0 });
+export function recoveryMessage(): string {
+  return 'Consultant persistence gate: you must persist your analysis before returning.';
+}
 
-export function recoveryMessage(agent: string, issueId: string): string {
-  return `Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='${agent}', issue_id=${issueId}, author='${agent}', kind='analysis', body=<your analysis>) then return.`;
+export function recoveryFix(agent: string, issueId: string): DenyFix {
+  return { allowed: `discussion_append(agent='${agent}', issue_id=${issueId}, author='${agent}', kind='analysis', body=<your analysis>), then return` };
 }
 
 /** The stopping agent's role: agent_type, else subagent_type, else tool_input.subagent_type, normalized. */
@@ -38,7 +41,7 @@ export function consultantPersistenceGate(payload: string, env: NodeJS.ProcessEn
   if (agent === '' || BACKBONE_ROLES.has(agent)) return ALLOW;
   const db = dbPath(env);
   if (db === null || db === '' || !haveSqlite(env)) return ALLOW;
-  const unavailable = (): GateResult => block(dbUnavailableReason(GATE_NAME, env));
+  const unavailable = (): GateResult => blockResult(dbUnavailableReason(GATE_NAME, env), DB_RETRY_FIX);
   const safeAgent = sqlQuote(agent);
 
   const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
@@ -53,5 +56,5 @@ export function consultantPersistenceGate(payload: string, env: NodeJS.ProcessEn
   const discussions = gateRead(db, `SELECT COUNT(*) FROM discussions WHERE author='${safeAgent}' AND issue_id=${issueId};`, env);
   if (discussions === GATE_READ_ERROR) return unavailable();
   if (/^[0-9]+$/.test(discussions) && Number(discussions) >= 1) return ALLOW;
-  return block(recoveryMessage(agent, issueId));
+  return blockResult(recoveryMessage(), recoveryFix(agent, issueId));
 }

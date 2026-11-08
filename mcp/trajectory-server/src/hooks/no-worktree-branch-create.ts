@@ -12,24 +12,30 @@
  * (the .sh allows).
  */
 import { ALLOW, type Gate } from './gate.js';
-import { PARSE_REASON } from './git-guards.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { cmdStatements, gitSubcommand, type Statement } from './cmd-analysis/index.js';
 import { dbPath, dbState, denyDbUnavailable } from './lib/db.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
-import { denyResult, statementRows } from './lib/statement-rows.js';
+import { statementRows } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'no-worktree-branch-create';
 
 const CREATES_BRANCH = [' -b ', ' -B ', ' --create-branch '];
 
 const BRANCH_CREATE_REASON =
-  'BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.';
+  'BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.';
 const DETACH_REASON =
-  "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
+  "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). A plain worktree add on the named branch lets commits advance it naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
+const WORKTREE_ADD_FIX: DenyFix = { allowed: 'git branch <task.branch_id> HEAD && git worktree add <path> <task.branch_id>' };
 
-const REASONS = { 'branch-create': BRANCH_CREATE_REASON, detach: DETACH_REASON, parse: PARSE_REASON } as const;
+const REASONS: Readonly<Record<Violation, readonly [string, DenyFix]>> = {
+  'branch-create': [BRANCH_CREATE_REASON, WORKTREE_ADD_FIX],
+  detach: [DETACH_REASON, { allowed: 'git worktree add <path> <branch>' }],
+  parse: [PARSE_REASON, PARSE_FIX],
+};
 
-type Violation = keyof typeof REASONS;
+type Violation = 'branch-create' | 'detach' | 'parse';
 
 function violationOf(statements: readonly Statement[], env: NodeJS.ProcessEnv): Violation | null {
   for (const { stmt } of statementRows(statements)) {
@@ -56,5 +62,5 @@ export const noWorktreeBranchCreate: Gate = async (payload, env) => {
   const state = dbState(env);
   if (state === 'unresolved') return ALLOW;
   if (state === 'error') return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
-  return denyResult(REASONS[violation]);
+  return denyResult(...REASONS[violation]);
 };
