@@ -4,7 +4,7 @@
 
 ## Pre-state
 
-`onboarding-named` fixture. `setup-l5.sh` seeds:
+`onboarding-named` fixture. `setup-l5.ts` seeds:
 - a `repos` row for the scratch project (name = its directory name)
 - open milestones `v0.1.0`, `v0.2.0`, `v0.3.0` on that repo
 - `issues(objective='Add count subcommand to todo CLI', milestone='v0.1.0', labels=["Feature","Priority: Medium"])`

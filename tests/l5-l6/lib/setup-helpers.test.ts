@@ -1,17 +1,17 @@
 // node:test suite for setup-helpers.ts: PLUGIN_ROOT, setupArgs' usage exit, writeFile, gitCommit
-// (with and without tolerateFailure), sql with bound params and FK constraints off, and every
-// rows/**/setup-l5.ts run against a scratch project seeded the way run-l5.ts seeds it.
+// (with and without tolerateFailure), sql with bound params and FK constraints off, withDb, query,
+// ensureSchema, 13-roundtable's standalone seed-agents.ts, and every rows/**/setup-l5.ts run
+// against a scratch project seeded the way run-l5.ts seeds it.
 // Run: node --experimental-strip-types --experimental-sqlite --test tests/l5-l6/lib/setup-helpers.test.ts
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { after, describe, test } from 'node:test';
 import { L5_DOGFOOD_DIR, l5SeedDb, l5SetupScratchProject, PLUGIN_ROOT as FLOW_PLUGIN_ROOT } from './flow-helpers.ts';
-import { git, gitCommit, PLUGIN_ROOT, sql, writeFile } from './setup-helpers.ts';
+import { ensureSchema, git, gitCommit, PLUGIN_ROOT, query, sql, trajectoryDbPath, withDb, writeFile } from './setup-helpers.ts';
 
 const NO_SQLITE3 = spawnSync('sqlite3', ['-version']).status !== 0 && 'sqlite3 not installed';
 const ROWS = join(L5_DOGFOOD_DIR, 'rows');
@@ -42,15 +42,6 @@ function gitOut(project: string, ...args: string[]): string {
 
 function lastSubject(project: string): string {
   return gitOut(project, 'log', '-1', '--format=%s');
-}
-
-function query(project: string, sqlText: string, params: string[] = []): Record<string, unknown>[] {
-  const db = new DatabaseSync(join(project, '.claude', 'tmb', 'trajectory.db'));
-  try {
-    return db.prepare(sqlText).all(...params) as Record<string, unknown>[];
-  } finally {
-    db.close();
-  }
 }
 
 function runSetup(script: string, args: string[]) {
@@ -111,7 +102,58 @@ describe('setup helpers', () => {
       [{ id: 1, parent_id: 99, name: "it's $PROJECT" }],
     );
   });
+
+  test('withDb runs on one FK-off connection; query returns bound SELECT rows', () => {
+    const project = tempDir();
+    writeFile(project, '.claude/tmb/.keep', '');
+    sql(project, 'CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT); CREATE TABLE u (t_id INTEGER REFERENCES t(id));');
+    withDb(project, (db) => {
+      db.prepare('INSERT INTO t (v) VALUES (?)').run('a');
+      db.exec('INSERT INTO u (t_id) VALUES (last_insert_rowid()); INSERT INTO u (t_id) VALUES (42);');
+    });
+    assert.deepEqual(query(project, 'SELECT t_id FROM u ORDER BY rowid').map((r) => r.t_id), [1, 42]);
+    assert.deepEqual(query(project, 'SELECT v FROM t WHERE id = ?', [1]).map((r) => ({ ...r })), [{ v: 'a' }]);
+  });
+
+  test('ensureSchema loads schema.sql into a missing DB only', () => {
+    const project = tempDir();
+    assert.equal(ensureSchema(project), true);
+    assert.ok(existsSync(trajectoryDbPath(project)));
+    assert.equal(query(project, "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'milestones'")[0].n, 1);
+    sql(project, "INSERT INTO repos (name, path) VALUES ('keep', '/k')");
+    assert.equal(ensureSchema(project), false);
+    assert.equal(query(project, "SELECT COUNT(*) AS n FROM repos WHERE name = 'keep'")[0].n, 1);
+  });
 });
+
+describe('13-roundtable seed-agents.ts standalone', { skip: NO_SQLITE3 }, () => {
+  test('seeds the panel files and agents rows; exits 2 without a project', () => {
+    const project = scratchProject();
+    assert.equal(l5SeedDb(project, 'onboarding-named', { env: baseEnv }), 0);
+    const script = join(ROWS, '13', '13-roundtable', 'seed-agents.ts');
+    const r = runSetup(script, [project, PLUGIN_ROOT]);
+    assert.equal(r.status, 0, r.stderr);
+    assertRoundtablePanel(project);
+    const usage = runSetup(script, []);
+    assert.equal(usage.status, 2);
+    assert.match(usage.stderr, /^usage: seed-agents\.ts <project_dir>/);
+  });
+});
+
+function assertRoundtablePanel(project: string): void {
+  assert.deepEqual(readFileSync(join(project, '.claude', 'agents', 'cto.md')), readFileSync(join(PLUGIN_ROOT, 'templates', 'agents', 'cto.md')));
+  assert.deepEqual(
+    readFileSync(join(project, '.claude', 'agents', 'data-engineer.md')),
+    readFileSync(join(ROWS, '13', '13-roundtable', 'data-engineer.md')),
+  );
+  assert.deepEqual(
+    query(project, "SELECT name, file_path FROM agents WHERE name IN ('cto', 'data-engineer') ORDER BY name").map((r) => ({ ...r })),
+    [
+      { name: 'cto', file_path: 'project:.claude/agents/cto.md' },
+      { name: 'data-engineer', file_path: 'project:.claude/agents/data-engineer.md' },
+    ],
+  );
+}
 
 type Check = (project: string, rowDir: string) => void;
 
@@ -168,6 +210,96 @@ const ROW_EFFECTS: Record<string, Check> = {
       readFileSync(join(p, '.claude', 'agents', 'architect.md')),
       readFileSync(join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md')),
     ),
+  '03-multirepo-onboard-scan': (p) => {
+    assert.deepEqual(
+      query(p, "SELECT name, path, protected_branches FROM repos WHERE name IN ('repo-a', 'repo-b') ORDER BY name").map((r) => ({ ...r })),
+      [
+        { name: 'repo-a', path: join(p, 'repo-a'), protected_branches: '["main"]' },
+        { name: 'repo-b', path: join(p, 'repo-b'), protected_branches: '["main"]' },
+      ],
+    );
+    assert.equal(gitOut(join(p, 'repo-b'), 'remote', 'get-url', 'origin'), 'git@gitlab.com:acme/repo-b.git');
+    assert.equal(lastSubject(join(p, 'repo-a')), 'init');
+  },
+  '04-cheatcode-install-plugins': (p) => {
+    assert.deepEqual(JSON.parse(readFileSync(join(p, '.tmb-cheatcode-fixture.json'), 'utf8')).map((c: { name: string }) => c.name), ['feature-dev', 'code-review']);
+    assert.deepEqual(JSON.parse(readFileSync(join(p, '.tmb-cheatcode-vet-fixture.json'), 'utf8')).contents, ['README.md', 'LICENSE', '.claude-plugin', 'hooks']);
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(p, '.tmb-cheatcode-install-fixture.json'), 'utf8')).attachments.map((a: { target: string }) => a.target),
+      ['swe', 'code-reviewer'],
+    );
+  },
+  '05.04-multirepo-commit': (p) => {
+    assert.deepEqual(
+      query(p, "SELECT name, path, protected_branches FROM repos WHERE name IN ('api', 'app') ORDER BY name").map((r) => ({ ...r })),
+      [
+        { name: 'api', path: realpathSync(join(p, 'api')), protected_branches: '["main"]' },
+        { name: 'app', path: realpathSync(join(p, 'app')), protected_branches: null },
+      ],
+    );
+    assert.equal(lastSubject(join(p, 'api')), 'seed: api initial');
+    assert.equal(gitOut(join(p, 'app'), 'ls-files'), 'README.md\nsrc/index.ts');
+  },
+  '06.02-codebase-memory-verify-on-drift': (p) => {
+    assert.equal(query(p, "SELECT value_json FROM plugin_config WHERE key = 'last_verified_sha'")[0].value_json, JSON.stringify(gitOut(p, 'rev-parse', 'HEAD')));
+    assert.equal(query(p, "SELECT COUNT(*) AS n FROM audit WHERE summary = 'setup: seeded stale world model'")[0].n, 1);
+    assert.equal(query(p, 'SELECT path FROM repos WHERE name = ?', [basename(realpathSync(p))])[0].path, realpathSync(p));
+    assert.equal(lastSubject(p), 'v1');
+    assert.equal(readFileSync(join(p, 'src', 'foo.py'), 'utf8'), "def foo(): return 'v2-modified'\n");
+    assert.equal(gitOut(p, 'status', '--porcelain'), 'M README.md\n M src/foo.py');
+  },
+  '08-push-gate': (p) => {
+    const sha = gitOut(p, 'rev-parse', 'feat/seed-todo');
+    const [task] = query(p, "SELECT id, status, commit_sha, repo, files, verification FROM tasks WHERE branch_id = 'feat/seed-todo'");
+    assert.deepEqual(
+      { ...task, id: undefined },
+      { id: undefined, status: 'needs_validation', commit_sha: sha, repo: basename(p), files: '["todo.py"]', verification: '["python3 todo.py | grep -x todo >/dev/null"]' },
+    );
+    assert.deepEqual(
+      query(p, 'SELECT c.command FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = ? AND r.commit_sha = ?', [task.id, sha]).map((r) => r.command),
+      ['python3 todo.py | grep -x todo >/dev/null'],
+    );
+    assert.equal(gitOut(p, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+  },
+  '09-cheatcode-uninstall-plugins': (p) => {
+    assert.deepEqual(query(p, 'SELECT id, name, installed_at GLOB ? AS shaped FROM cheatcodes WHERE id IN (101, 102) ORDER BY id', ['[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z']).map((r) => ({ ...r })), [
+      { id: 101, name: 'feature-dev', shaped: 1 },
+      { id: 102, name: 'code-review', shaped: 1 },
+    ]);
+    assert.deepEqual(query(p, 'SELECT cheatcode_id, target FROM cheatcode_attachments WHERE cheatcode_id IN (101, 102) ORDER BY cheatcode_id').map((r) => ({ ...r })), [
+      { cheatcode_id: 101, target: 'swe' },
+      { cheatcode_id: 102, target: 'code-reviewer' },
+    ]);
+    assert.deepEqual(
+      query(p, "SELECT json_extract(content_json, '$.cheatcode_id') AS id FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id").map((r) => r.id),
+      [101, 102],
+    );
+    assert.deepEqual(JSON.parse(readFileSync(join(p, '.tmb-cheatcode-uninstall-fixture.json'), 'utf8')), { removed: true, error: null });
+  },
+  '10-architectural-change': (p) => {
+    assert.equal(lastSubject(p), 'feat: initial todo CLI with JSON storage');
+    assert.match(readFileSync(join(p, 'src', 'cli.py'), 'utf8'), /^DATA_FILE = "tasks\.json"$/m);
+  },
+  '11-concerns-protocol': (p) => {
+    assert.equal(lastSubject(p), 'feat+test: seed cli + exact-equality test');
+    assert.equal(gitOut(p, 'ls-files', 'src', 'tests'), 'src/cli.py\ntests/test_cli.py');
+  },
+  '13-roundtable': (p) => {
+    assertRoundtablePanel(p);
+    assert.equal(lastSubject(p), 'feat: todo CLI');
+    assert.equal(query(p, "SELECT COUNT(*) AS n FROM issues WHERE objective = 'TODO CLI storage choice' AND status = 'open'")[0].n, 1);
+  },
+  '20-containment-recovery': (p) => {
+    assert.equal(lastSubject(p), 'feat: todo CLI core (row 20 substrate)');
+    assert.equal(gitOut(p, 'status', '--porcelain'), '');
+  },
+  '21-move-milestone': (p) => {
+    assert.deepEqual(query(p, 'SELECT name FROM milestones WHERE repo = ? ORDER BY name', [basename(p)]).map((r) => r.name), ['v0.1.0', 'v0.2.0', 'v0.3.0']);
+    assert.deepEqual(
+      query(p, "SELECT repo, milestone, labels FROM issues WHERE objective = 'Add count subcommand to todo CLI'").map((r) => ({ ...r })),
+      [{ repo: basename(p), milestone: 'v0.1.0', labels: '["Feature","Priority: Medium"]' }],
+    );
+  },
   '22-onboard-persona': (p) => {
     assert.deepEqual(readFileSync(join(p, 'CLAUDE.md')), readFileSync(join(p, '.claude', 'tmb', '_l5_claude_md_seed.md')));
     assert.match(readFileSync(join(p, 'CLAUDE.md'), 'utf8'), /^# todo-cli\n/);

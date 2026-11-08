@@ -1,5 +1,5 @@
 -- 08-push-gate — at least one passing code-reviewer validation_attempt exists
--- on some task. Both L5 (where setup-l5.sh pre-seeds feat/seed-todo) and L6
+-- on some task. Both L5 (where setup-l5.ts pre-seeds feat/seed-todo) and L6
 -- chain (where bro pushes a task organically created by step 05's SWE work)
 -- satisfy: bro ran the push gate, code-reviewer signed off on a real task.
 -- Branch-name-agnostic so the assertion does not depend on which
