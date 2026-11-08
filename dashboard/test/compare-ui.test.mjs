@@ -498,6 +498,14 @@ describe('paired-bar change pills (GH 2545)', () => {
   });
   const TASKS = '&p1=tasks:1-2&p2=tasks:3-';
   const unescape = (s) => s.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#x27;', "'").replaceAll('&amp;', '&');
+  const stripTags = (s) => {
+    let prev;
+    do {
+      prev = s;
+      s = s.replace(/<svg.*?<\/svg>/gs, '').replace(/<[^>]+>/g, '');
+    } while (s !== prev);
+    return unescape(s);
+  };
   const pages = () => ({
     cost: mod.page(`#/insights/cost?range=30d${TASKS}`, mod.comparison(priced, 'tasks:1-2', 'tasks:3-')),
     time: mod.page(`#/insights/time?range=30d${TASKS}`, mod.comparison(db, 'tasks:1-2', 'tasks:3-')),
@@ -526,7 +534,7 @@ describe('paired-bar change pills (GH 2545)', () => {
       const pills = [...html.matchAll(/<foreignObject[^>]*width="([\d.]+)"[^>]*>(.*?)<\/foreignObject>/gs)];
       assert.ok(pills.length > 0, section);
       for (const [, width, inner] of pills) {
-        const text = unescape(inner.replace(/<svg.*?<\/svg>/gs, '').replace(/<[^>]+>/g, ''));
+        const text = stripTags(inner);
         assert.ok(text.length > 0, `${section}: ${inner}`);
         const need = mod.textWidth(text) + 2 * LABEL_PAD_X + 2 * LABEL_BORDER + LABEL_ICON + LABEL_ICON_GAP;
         assert.ok(Number(width) >= need, `${section} "${text}": ${width} < ${need}`);
