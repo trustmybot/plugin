@@ -6,5 +6,6 @@ import { IssueList } from './issues/IssueList.tsx';
 export function IssuesView() {
   const q = useApi<Row[]>('issues');
   const state = useHashParam('state') === 'closed' ? 'closed' : 'open';
-  return <Loading q={q}>{(rows) => <IssueList rows={rows} state={state} />}</Loading>;
+  const label = useHashParam('label') || null;
+  return <Loading q={q}>{(rows) => <IssueList rows={rows} state={state} label={label} />}</Loading>;
 }
