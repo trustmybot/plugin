@@ -1,4 +1,4 @@
-// L1 lint: every SQL the hook read helpers run is read-only. tmb_gate_read, tmb_sqlite_ro and tmb_db_read_budget (scripts/hooks/lib/query-task.sh) read a WAL DB nobody holds open without -readonly, so the SQL itself is what keeps a hook read from writing. Checked: every call site of tmb_gate_read and tmb_sqlite_ro in scripts/**/*.sh — each statement of the SQL argument (after whitespace and comments) starts with SELECT, WITH (without INSERT/UPDATE/DELETE/REPLACE; the replace() scalar function is a read), or a read-only PRAGMA: `journal_mode` or `user_version` without `=`, or `table_info(...)`; dot-commands are rejected. The SQL must be a literal: a bare variable cannot be checked and is flagged (the one exemption: tmb_sqlite_ro handing its own argument on in query-task.sh). The `sql` of every contract in DATA_CONTRACTS (committed mcp/trajectory-server/dist/data-contracts.js, the source of scripts/hooks/lib/data-contracts.json) is checked the same way; an unreadable module fails. No hook calls `sqlite3 -readonly` itself outside lib/query-task.sh. Every run self-tests fixtures/gate-read-sql-readonly/: good.sh is clean and every call site in bad.sh is flagged.
+// L1 lint: every SQL the hook read helpers run is read-only. The hook read helpers (gateRead, sqliteRo and dbReadBudget in mcp/trajectory-server/src/hooks/lib/db.ts) read a WAL DB nobody holds open without -readonly, so the SQL itself is what keeps a hook read from writing. Checked: every call site of the shell names tmb_gate_read and tmb_sqlite_ro in scripts/**/*.sh — each statement of the SQL argument (after whitespace and comments) starts with SELECT, WITH (without INSERT/UPDATE/DELETE/REPLACE; the replace() scalar function is a read), or a read-only PRAGMA: `journal_mode` or `user_version` without `=`, or `table_info(...)`; dot-commands are rejected. The SQL must be a literal: a bare variable cannot be checked and is flagged. The `sql` of every contract in DATA_CONTRACTS (built mcp/trajectory-server/dist/data-contracts.js, the source of scripts/hooks/lib/data-contracts.json) is checked the same way; an unreadable module fails. No shell file under scripts/hooks/ calls `sqlite3 -readonly` itself. Every run self-tests fixtures/gate-read-sql-readonly/: good.sh is clean and every call site in bad.sh is flagged.
 import { strict as assert } from 'node:assert';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -53,16 +53,14 @@ export function scan(base, files, contracts = []) {
   for (const file of files) {
     const src = readFileSync(join(base, file), 'utf8').replace(/^([ \t]*#[^\n]*)$/gm, (c) => ' '.repeat(c.length));
     const slashed = `/${file}`;
-    const helper = slashed.endsWith('/scripts/hooks/lib/query-task.sh');
-    if (slashed.includes('/scripts/hooks/') && !helper) {
+    if (slashed.includes('/scripts/hooks/')) {
       for (const m of src.matchAll(/\bsqlite3\b[^\n]*?[ \t]-readonly\b/g)) {
-        out.push(`${file}:${lineAt(src, m.index)}: sqlite3 -readonly outside lib/query-task.sh (read through tmb_gate_read / tmb_sqlite_ro)`);
+        out.push(`${file}:${lineAt(src, m.index)}: sqlite3 -readonly in a hook script (read through gateRead / sqliteRo in mcp/trajectory-server/src/hooks/lib/db.ts)`);
       }
     }
     for (const m of src.matchAll(CALL_SITE)) {
       const fn = m[1];
       const arg = m[3] ?? '';
-      if (helper && fn === 'tmb_gate_read' && arg === '"${2:-}"') continue;
       let why;
       const quoted = /^"([\s\S]*)"$/.exec(arg) ?? /^'([\s\S]*)'$/.exec(arg);
       if (quoted) {

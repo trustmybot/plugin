@@ -7,7 +7,7 @@
 //   --root <dir>  read and write the txt and doc under <dir> instead of this checkout (lint self-tests)
 // With neither --txt nor --doc it does both.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -58,7 +58,10 @@ if (doTxt) {
   try { have = readFileSync(TXT, 'utf8'); } catch { have = ''; }
   if (have !== want) {
     if (check) stale.push(relative(ROOT, TXT));
-    else writeFileSync(TXT, want);
+    else {
+      mkdirSync(dirname(TXT), { recursive: true });
+      writeFileSync(TXT, want);
+    }
   }
 }
 if (doDoc) {

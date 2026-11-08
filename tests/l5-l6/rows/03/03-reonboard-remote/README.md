@@ -13,7 +13,7 @@
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `/onboard\n\nDon't ask questions.` |
-| → | bro | `roundtable-slash-detect.sh` doesn't match. The onboard slash command handler routes to bro. Bro calls `onboard_state_get` → reads `first_run=false` → calls `onboard_get_questions(shape='remote' or default)` → would render AUQ. Test ends here. |
+| → | bro | The `roundtable-slash-detect` hook (`mcp/trajectory-server/src/hooks/roundtable-slash-detect.ts`) doesn't match. The onboard slash command handler routes to bro. Bro calls `onboard_state_get` → reads `first_run=false` → calls `onboard_get_questions(shape='remote' or default)` → would render AUQ. Test ends here. |
 
 ## Pass criteria
 
