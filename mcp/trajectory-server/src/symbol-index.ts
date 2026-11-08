@@ -376,6 +376,8 @@ class Resolver {
       const real = cands.filter((c) => !outsideConceptLane(c.path));
       if (real.length === 1) return { dst: real[0]!.id, how: 'exact' };
       const pick =
+        real.find((c) => c.path.endsWith('.sql')) ??
+        real[0] ??
         cands.find((c) => c.path.endsWith('.sql') && !isTestPath(c.path)) ??
         cands.find((c) => !isTestPath(c.path)) ??
         cands[0];

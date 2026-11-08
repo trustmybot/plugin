@@ -2287,6 +2287,10 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
       'src/other.sql': 'CREATE TABLE pairs (id INTEGER PRIMARY KEY);\n',
       'src/test/schema.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\nCREATE TABLE lonely (id INTEGER PRIMARY KEY);\n',
       'fixtures/items.sql': 'CREATE TABLE items (id INTEGER PRIMARY KEY);\n',
+      'fixtures/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/a/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/b/schema.sql': 'CREATE TABLE dups (id INTEGER PRIMARY KEY);\n',
+      'src/dups.ts': reader('readDups', 'dups'),
       'src/items.ts': reader('readItems', 'items'),
       'src/pairs.ts': reader('readPairs', 'pairs'),
       'src/lonely.ts': reader('readLonely', 'lonely'),
@@ -2306,6 +2310,12 @@ describe('table edges resolve exact when one non-test definition exists (GH 2523
   it('two non-test definitions, or only test definitions, keep the pick by name', () => {
     assert.deepEqual({ ...tableEdge('readPairs') }, { path: 'src/other.sql', resolution: 'name' });
     assert.deepEqual({ ...tableEdge('readLonely') }, { path: 'src/test/schema.sql', resolution: 'name' });
+  });
+
+  it('two real definitions plus a fixtures copy pick a real definition by name (GH 2527)', () => {
+    const edge = tableEdge('readDups')!;
+    assert.equal(edge.resolution, 'name');
+    assert.ok(['src/a/schema.sql', 'src/b/schema.sql'].includes(edge.path!), `bound to ${edge.path}`);
   });
 
   it('a card whose only table edge resolves exact carries no found-by-name note', async () => {
