@@ -60,7 +60,7 @@ import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from 
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
-import { briefLocations } from '../brief-locations.js';
+import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
@@ -359,7 +359,7 @@ const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
 const BRIEF_RESPONSE_FORMAT_HINT =
   "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
 const BRIEF_SECTION_HINTS = {
-  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it',
+  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
   scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
@@ -1467,8 +1467,9 @@ export function compositeTools(
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
         "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
-        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
+        'concepts {items, truncated} lists up to 5 non-retired L2 concepts whose steps anchor to files[] or locations (id, name, kind, status, status_reason, flagged for suspect/broken, framed body, matched anchors), verified first; at most 3000 chars, null when locations is. ' +
         'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
         type: 'object',
@@ -2245,6 +2246,8 @@ export function compositeTools(
             stop && stop.stop_cause !== null
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
+          const taskFiles = parseTaskFiles(task.files);
+          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2257,13 +2260,14 @@ export function compositeTools(
             worktree_path: worktreePath,
             effort: task.effort,
             spec_body: task.spec_body,
-            files: parseTaskFiles(task.files),
+            files: taskFiles,
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations: briefLocations(db, repo, task.spec_body ?? '', parseTaskFiles(task.files)),
+            locations,
+            concepts: briefConcepts(db, repo, taskFiles, locations),
           };
         };
 
