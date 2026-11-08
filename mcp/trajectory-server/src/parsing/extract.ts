@@ -421,6 +421,11 @@ const annotatedType = (node: Node): string | undefined => {
   return t?.type === 'type_identifier' ? t.text : undefined;
 };
 
+// A long receiver expression is clipped with a trailing ellipsis so the edge
+// stays a member call yet can match no `${type}.${method}` name.
+const memberHint = (receiver: string): string =>
+  receiver.length < 40 || /^[\w$]+$/.test(receiver) ? receiver : `${receiver.slice(0, 39)}…`;
+
 // Receiver text to its declared or constructed class, per file, ignoring
 // scope; a receiver seen with two different types is dropped.
 function receiverTypes(root: Node): Map<string, string> {
@@ -528,7 +533,7 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
           t === 'call_expression' ? 'calls' : 'instantiates',
           callee,
           node.startPosition.row + 1,
-          receiver && receiver.length < 40 ? receiver : null,
+          receiver === undefined ? null : memberHint(receiver),
         );
       }
     } else if (t === 'import_statement') {

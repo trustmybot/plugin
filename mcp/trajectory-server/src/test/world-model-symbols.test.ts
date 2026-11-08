@@ -1602,6 +1602,21 @@ describe('member calls bind only by receiver type (GH 1838)', () => {
         '}',
         '',
       ].join('\n'),
+      'src/chain.ts': [
+        'export function join(): string {',
+        "  return '';",
+        '}',
+        'export function chained(lines: string[]): string {',
+        "  return lines.map((line) => line.trim()).filter(Boolean).join('/');",
+        '}',
+        'export class Deep {',
+        '  private alpha = { beta: { gamma: { delta: [] as string[] } } };',
+        '  run(): string {',
+        "    return this.alpha.beta.gamma.delta.slice(0, 10).join('/');",
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
     };
     for (const [p, body] of Object.entries(files)) {
       mkdirSync(join(root, p, '..'), { recursive: true });
@@ -1637,6 +1652,21 @@ describe('member calls bind only by receiver type (GH 1838)', () => {
     assert.deepEqual(callees('first'), [['join', null]]);
     assert.deepEqual(callees('second'), [['test', null]]);
     assert.deepEqual(callees('Self.run'), [['helper', 'Self.helper']]);
+  });
+
+  it('a member call on a receiver of 40+ characters stays a member call, bound neither by bare name nor to a same-file function', () => {
+    const joins = (src: string) => callees(src).filter(([name]) => name === 'join');
+    assert.deepEqual(joins('chained'), [['join', null]]);
+    assert.deepEqual(joins('Deep.run'), [['join', null]]);
+  });
+
+  it('extraction keeps a non-null hint on a member call with a long chained receiver', async () => {
+    const parsers = await loadParsers();
+    const src = 'export function f(lines: string[]): string {\n  return lines.map((line) => line.trim()).filter(Boolean).join("/");\n}\n';
+    const edge = extractFile(parsers, 'src/a.ts', 'typescript', src).edges.find((e) => e.kind === 'calls' && e.dst_name === 'join');
+    assert.ok(edge);
+    assert.notEqual(edge.hint, null);
+    assert.equal(edge.hint!.endsWith('…'), true);
   });
 
   it('the extractor version is 10', () => {
