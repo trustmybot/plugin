@@ -19,6 +19,7 @@ import {
   efficiencyApiPath,
   exploreApiPath,
   insightHash,
+  OWN_WINDOW_SECTIONS,
   isLegacyExploreHash,
   parseInsightParams,
   writeInsightParams,
@@ -26,6 +27,7 @@ import {
   type InsightParams,
   type Section,
 } from './params.ts';
+import { ChangeImpactSection, useChangeImpact, type ChangeImpactProps } from './change-impact.tsx';
 import { CompareExploreSection, ExploreSection } from './explore.tsx';
 import {
   CompareCostSection,
@@ -122,6 +124,7 @@ interface SectionQueries {
   exploreCmp?: Query<ExploreComparison> | undefined;
   efficiency?: Query<Efficiency> | undefined;
   efficiencyCmp?: Query<EfficiencyComparison> | undefined;
+  changeImpact?: ChangeImpactProps | undefined;
 }
 
 function SectionView({ data, params, explore, efficiency }: { data: Insights; params: InsightParams } & SectionQueries) {
@@ -148,9 +151,12 @@ function CompareSectionView({ exploreCmp, efficiencyCmp, ...props }: { cmp: Comp
   }
 }
 
-export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, efficiencyCmp, cmp }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
+const NO_CHANGE_IMPACT: ChangeImpactProps = { list: { error: null }, source: '', selected: null, onSource: () => {}, onSelect: () => {} };
+
+export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, efficiencyCmp, cmp, changeImpact }: { params: InsightParams; q: Query<Insights>; cmp?: Query<Comparison> } & SectionQueries) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   const compare = comparing(params) && cmp ? params.compare : null;
+  const own = OWN_WINDOW_SECTIONS.has(params.section);
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[12rem_minmax(0,1fr)]">
       <NavList label="Insights sections" items={items} current={params.section} className="max-md:hidden" />
@@ -158,8 +164,10 @@ export function InsightsLayout({ params, q, explore, exploreCmp, efficiency, eff
         <div className="md:hidden">
           <Select label="Section" value={params.section} options={SECTIONS} onChange={(v) => writeInsightParams({ ...params, section: v as Section })} />
         </div>
-        <FilterBar params={params} data={q.data} cmp={compare ? cmp?.data : undefined} />
-        {compare && cmp ? (
+        {!own && <FilterBar params={params} data={q.data} cmp={compare ? cmp?.data : undefined} />}
+        {own ? (
+          <ChangeImpactSection {...(changeImpact ?? NO_CHANGE_IMPACT)} />
+        ) : compare && cmp ? (
           <Loading q={cmp}>
             {(data) => <CompareSectionView cmp={data} params={params} compare={compare} exploreCmp={exploreCmp} efficiencyCmp={efficiencyCmp} />}
           </Loading>
@@ -197,11 +205,17 @@ function EfficiencyView({ params, q, cmp }: { params: InsightParams; q: Query<In
   return <InsightsLayout params={params} q={q} efficiency={{ data, error: res.error }} />;
 }
 
+function ChangeImpactView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
+  return <InsightsLayout params={params} q={q} changeImpact={useChangeImpact()} />;
+}
+
 export function InsightsView() {
   const params = useInsightParams();
   const on = comparing(params);
-  const q = useApi<Insights>(apiPath(params), { keepPrevious: true, enabled: !on });
+  const own = OWN_WINDOW_SECTIONS.has(params.section);
+  const q = useApi<Insights>(apiPath(params), { keepPrevious: true, enabled: !on && !own });
   const cmp = useApi<Comparison>(compareApiPath(params), { keepPrevious: true, enabled: on });
+  if (own) return <ChangeImpactView params={params} q={q} />;
   if (params.section === 'explore') return <ExploreView params={params} q={q} cmp={on ? cmp : undefined} />;
   if (params.section === 'efficiency') return <EfficiencyView params={params} q={q} cmp={on ? cmp : undefined} />;
   return <InsightsLayout params={params} q={q} cmp={on ? cmp : undefined} />;

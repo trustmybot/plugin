@@ -8,6 +8,7 @@ export const SECTIONS = [
   ['efficiency', 'Efficiency'],
   ['throughput', 'Throughput'],
   ['explore', 'Explore'],
+  ['change-impact', 'Change impact'],
 ] as const;
 export type Section = (typeof SECTIONS)[number][0];
 
@@ -357,6 +358,17 @@ export function efficiencyApiPath(p: InsightParams): string {
   if (!comparing(p)) return `insights/efficiency?${query.toString()}`;
   query.delete('range');
   return `insights/efficiency/compare?${query.toString()}${compareQuery(p.compare)}`.replace('?&', '?');
+}
+
+// Change impact sets its own windows, so no Period or filter reaches it.
+export const OWN_WINDOW_SECTIONS: ReadonlySet<Section> = new Set(['change-impact']);
+
+export function changeImpactApiPath(source: string, id?: string): string {
+  const query = new URLSearchParams();
+  if (source) query.set('source', source);
+  if (id !== undefined) query.set('id', id);
+  const qs = query.toString();
+  return qs ? `insights/change-impact?${qs}` : 'insights/change-impact';
 }
 
 export function exploreApiPath(p: InsightParams): string {
