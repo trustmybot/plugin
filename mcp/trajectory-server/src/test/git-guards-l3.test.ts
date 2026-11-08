@@ -590,6 +590,20 @@ describe('git-guards l3: target dir from the command, heredocs are data (GH 1196
     hasNot(out, 'shared workflow base', 'never the protected-branch rule the agent did not break');
   });
 
+  it("GH 2536: the ambiguous-target deny quotes the command as written, its allowed form keeping the quoted literals", () => {
+    const reason = (out: string): string => JSON.parse(out.split('\n').find((l) => l.startsWith('{')) ?? '{}').hookSpecificOutput?.permissionDecisionReason;
+    assert.equal(
+      reason(run('swe', repo, "git commit -m 'fix: thing'")),
+      "BLOCKED: ambiguous_git_target: `git commit -m 'fix: thing'` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Name the checkout's literal path. Allowed form: git -C <path> commit -m 'fix: thing'",
+    );
+    assert.equal(
+      reason(run('swe', repo, `cd $D && git -c user.name='A B' commit -m "x y"`)),
+      "BLOCKED: ambiguous_git_target: `git -c user.name='A B' commit -m \"x y\"` runs in a directory that comes through a variable, `cd -` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path. Allowed form: git -C <path> commit -m \"x y\"",
+    );
+    assert.match(reason(run('swe', repo, "FOO=1 git commit -m 'a  b' 2>&1")), /`git commit -m 'a {2}b' 2>&1` .* Allowed form: git -C <path> commit -m 'a {2}b' 2>&1$/);
+    assert.match(reason(run(undefined, repo, "git push origin 'fix/thing'", 'git-push-guard')), / Allowed form: git -C <path> push origin 'fix\/thing'$/);
+  });
+
   it("GH 2510: SWE bare 'git commit' with the payload cwd inside its linked worktree: judged there, allowed", () => {
     const out = run('swe', wt, 'git commit -q -m x');
     hasNot(out, 'ambiguous_git_target', 'git proves the cwd is a linked worktree: one checkout');
