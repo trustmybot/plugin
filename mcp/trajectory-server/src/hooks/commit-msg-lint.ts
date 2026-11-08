@@ -11,8 +11,8 @@
  */
 import { ALLOW, type Gate } from './gate.js';
 import { gitCommitMessage } from './cmd-analysis/commit-message.js';
-import { PARSE_REASON } from './git-guards.js';
-import { jqCompact } from './lib/jq.js';
+import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
+import { denyResult } from './lib/deny.js';
 import { awkSpace, grepMultibyte, grepSpace, jqPath, jqRawOr, preToolContext } from './lib/lint-shell.js';
 import { ctypeUtf8 } from './lib/project-env.js';
 
@@ -23,10 +23,6 @@ const SKIPPED_MODES = [' --amend', ' --no-edit', ' --fixup', ' --squash', ' --me
 const AWK_FIELD_SEP = /[ \t\n]+/;
 const BUILT_MESSAGE = /\$\(|`/;
 
-function parseDeny(): string {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: PARSE_REASON } };
-  return `${jqCompact(decision)}\n`;
-}
 
 /** `awk '{print $1}'` and `awk '{$1=""; sub(/^[[:space:]]+/, ""); print}'` of one line. */
 function splitSubject(line: string, env: NodeJS.ProcessEnv): { prefix: string; rest: string } {
@@ -57,7 +53,7 @@ export const commitMsgLint: Gate = async (payload, env) => {
   if (!command.includes('commit')) return ALLOW;
 
   const commit = await gitCommitMessage(command, env);
-  if (!commit.ok) return BUILT_MESSAGE.test(command) ? ALLOW : { stdout: parseDeny(), code: 0 };
+  if (!commit.ok) return BUILT_MESSAGE.test(command) ? ALLOW : denyResult(PARSE_REASON, PARSE_FIX);
   if (commit.subcommand === '') return ALLOW;
   const padded = ` ${commit.subcommand} `;
   if (SKIPPED_MODES.some((mode) => padded.includes(mode))) return ALLOW;

@@ -11,20 +11,25 @@
  * through node:sqlite (decision 703).
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
-import { denyJson } from './agent-arg-matches-caller.js';
-import { dbPath, haveSqlite, sqlQuote, sqliteRo } from './lib/db.js';
+import { DB_RETRY_FIX, dbPath, haveSqlite, sqlQuote, sqliteRo } from './lib/db.js';
+import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
 
 export const GATE_NAME = 'cheatcode-install-approval';
 
 export const NO_SOURCE_URL_REASON =
-  'BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.';
+  'BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified.';
+export const NO_SOURCE_URL_FIX: DenyFix = { allowed: 'cheatcode_install(candidate={name,kind,source_url})' };
 export const UNVERIFIABLE_REASON =
   'BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.';
 
 export function notApprovedReason(name: string, url: string): string {
-  return `BLOCKED: no human-approval record for cheatcode '${name || url}' (${url}). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.`;
+  return `BLOCKED: no human-approval record for cheatcode '${name || url}' (${url}). Installs are human-approved, never silent.`;
 }
+
+export const NOT_APPROVED_FIX: DenyFix = {
+  allowed: "cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install",
+};
 
 export function approvalSql(url: string): string {
   return `
@@ -35,20 +40,16 @@ export function approvalSql(url: string): string {
 `;
 }
 
-function deny(reason: string): GateResult {
-  return { stdout: denyJson(reason), code: 0 };
-}
-
 export const cheatcodeInstallApproval: SyncGate = (payload, env): GateResult => {
   const input = jqInput(payload);
   if (!jqCapture(input, ['tool_name'], true).includes('cheatcode_install')) return ALLOW;
   const url = jqCapture(input, ['tool_input', 'candidate', 'source_url'], true);
   const name = jqCapture(input, ['tool_input', 'candidate', 'name'], true);
-  if (url === '') return deny(NO_SOURCE_URL_REASON);
+  if (url === '') return denyResult(NO_SOURCE_URL_REASON, NO_SOURCE_URL_FIX);
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
-  if (db === null || !haveSqlite(env)) return deny(UNVERIFIABLE_REASON);
+  if (db === null || !haveSqlite(env)) return denyResult(UNVERIFIABLE_REASON, DB_RETRY_FIX);
   const approved = sqliteRo(db, approvalSql(url), env);
   if (/^[0-9]+$/.test(approved) && Number(approved) > 0) return ALLOW;
-  return deny(notApprovedReason(name, url));
+  return denyResult(notApprovedReason(name, url), NOT_APPROVED_FIX);
 };

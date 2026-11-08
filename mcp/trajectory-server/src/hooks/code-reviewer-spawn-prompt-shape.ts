@@ -15,6 +15,7 @@
 import { ALLOW, type SyncGate } from './gate.js';
 import { ANCHORS } from './code-reviewer-spawn-note.js';
 import { isCodeReviewerSpawn, spawnDeny, spawnField } from './code-reviewer-no-worktree.js';
+import type { DenyFix } from './lib/deny.js';
 import { grepAlnum, grepMultibyte } from './lib/lint-shell.js';
 
 export const GATE_NAME = 'code-reviewer-spawn-prompt-shape';
@@ -29,9 +30,15 @@ export function missingAnchorsReason(missing: readonly string[]): string {
   return (
     `BLOCKED: code-reviewer spawn prompt missing required anchors:${missing.map((a) => ` ${a}`).join('')}.\n\n` +
     `Per tmb_push-gate, the prompt MUST contain ${ANCHOR_LIST}, each as name=value, so code-reviewer can load context ` +
-    'independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.'
+    'independently and author its validation_record verdict. Do not pre-summarize findings.'
   );
 }
+
+export function missingAnchorsFix(missing: readonly string[]): DenyFix {
+  return { allowed: `the same spawn with${missing.map((a) => ` ${a}=<value>`).join('')} in its prompt, plus only a one-line context summary` };
+}
+
+export const RUBBER_STAMP_FIX: DenyFix = { allowed: 'the same spawn with only the bare anchors and a one-line context summary in its prompt' };
 
 export function rubberStampReason(phrase: string): string {
   return (
@@ -74,7 +81,7 @@ export const codeReviewerSpawnPromptShape: SyncGate = (payload, env) => {
   const prompt = spawnField(payload, 'tool_input', 'prompt');
   const multibyte = grepMultibyte(env);
   const missing = missingAnchors(prompt, multibyte);
-  if (missing.length > 0) return spawnDeny(missingAnchorsReason(missing));
+  if (missing.length > 0) return spawnDeny(missingAnchorsReason(missing), missingAnchorsFix(missing));
   const phrase = rubberStampPhrase(prompt, multibyte);
-  return phrase === null ? ALLOW : spawnDeny(rubberStampReason(phrase));
+  return phrase === null ? ALLOW : spawnDeny(rubberStampReason(phrase), RUBBER_STAMP_FIX);
 };

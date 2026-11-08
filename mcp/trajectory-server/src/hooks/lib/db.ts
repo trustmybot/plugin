@@ -8,7 +8,8 @@
  */
 import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { claudeProjectDir, homeDir, pluginName, posixBasename, posixDirname, shellPwd, TMB_DB_FILENAME, TMB_STATE_HOST_DIR } from './project-env.js';
-import { jqAlternatives, jqCompact, jqContentStrings } from './jq.js';
+import { type DenyFix, denyJson } from './deny.js';
+import { jqAlternatives, jqContentStrings } from './jq.js';
 import { agentRole } from './role.js';
 import { haveSqlite, sqliteBackend, sqliteRun } from './sqlite-shell.js';
 
@@ -276,15 +277,12 @@ export function dbUnavailableReason(hook = '', env: NodeJS.ProcessEnv = process.
   return `BLOCKED: trajectory DB unavailable — ${hook || 'hook'} could not read ${db} (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.`;
 }
 
+/** A DB read error is infrastructure, not policy: the call goes through once the DB reads. */
+export const DB_RETRY_FIX: DenyFix = { allowed: 'the same call again, once the trajectory DB reads' };
+
 /** tmb_deny_db_unavailable <hook>: the PreToolUse deny JSON for a DB read error. */
 export function denyDbUnavailable(hook = '', env: NodeJS.ProcessEnv = process.env): string {
-  return jqCompact({
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: stripTrailingNewlines(dbUnavailableReason(hook || 'hook', env)),
-    },
-  });
+  return denyJson(dbUnavailableReason(hook || 'hook', env), DB_RETRY_FIX);
 }
 
 /**

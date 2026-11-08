@@ -50,25 +50,25 @@
   "deny-cd-into-repo.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-gh-no-remote-rows.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-glab-empty-url.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'glab auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'glab auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
     }
   },
   "deny-non-bash-tool.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
     }
   },
   "diverge-no-jq.json": {

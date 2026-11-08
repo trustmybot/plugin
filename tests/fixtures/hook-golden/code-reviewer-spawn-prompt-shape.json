@@ -26,7 +26,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> commit_sha=<value> branch_id=<value> repo=<value> repo_path=<value> attempt_n=<value> subagent_session_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -49,7 +49,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> commit_sha=<value> branch_id=<value> repo=<value> repo_path=<value> attempt_n=<value> subagent_session_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -72,7 +72,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: repo.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: repo.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with repo=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -95,7 +95,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -141,7 +141,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"trust the prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"trust the prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself. Allowed form: the same spawn with only the bare anchors and a one-line context summary in its prompt\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -164,7 +164,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself. Allowed form: the same spawn with only the bare anchors and a one-line context summary in its prompt\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -187,7 +187,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"prior verdict\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself. Allowed form: the same spawn with only the bare anchors and a one-line context summary in its prompt\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -210,7 +210,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"fast-track if\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"fast-track if\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself. Allowed form: the same spawn with only the bare anchors and a one-line context summary in its prompt\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -233,7 +233,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with commit_sha=<value> branch_id=<value> repo=<value> repo_path=<value> attempt_n=<value> subagent_session_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -277,7 +277,7 @@
     "en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -321,7 +321,7 @@
     "en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \\\"rubber.stamp\\\").\\n\\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself. Allowed form: the same spawn with only the bare anchors and a one-line context summary in its prompt\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -390,7 +390,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: code-reviewer spawn prompt missing required anchors: task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id.\\n\\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings. Allowed form: the same spawn with task_id=<value> commit_sha=<value> branch_id=<value> repo=<value> repo_path=<value> attempt_n=<value> subagent_session_id=<value> in its prompt, plus only a one-line context summary\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

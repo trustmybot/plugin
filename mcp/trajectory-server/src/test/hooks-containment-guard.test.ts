@@ -23,9 +23,11 @@ import {
   containmentGuard,
   containmentGuardWith,
   NEVER_JUDGED,
+  NEVER_JUDGED_FIX,
   UNJUDGED_PHRASE,
   type WritePathsFn,
 } from '../hooks/containment-guard.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { findGate } from '../hooks/registry.js';
 import { unjudgedDeny } from '../hooks/router/records.js';
 
@@ -33,11 +35,10 @@ const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const FAKE_UID = 4242424;
 
-const PARSE_TEXT = 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.';
-const COMPUTED_TEXT =
-  'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.';
-const UNPROVEN_TEXT =
-  'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file; for eval, run each command directly instead of through eval.';
+const neverJudged = (variable: string): string => fixedReason(NEVER_JUDGED[variable], NEVER_JUDGED_FIX[variable]);
+const PARSE_TEXT = neverJudged('$(parse)');
+const COMPUTED_TEXT = neverJudged('$(computed)');
+const UNPROVEN_TEXT = neverJudged('$(unproven)');
 
 function reason(stdout: string): string | null {
   if (stdout === '') return null;

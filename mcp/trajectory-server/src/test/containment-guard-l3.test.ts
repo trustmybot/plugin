@@ -670,7 +670,7 @@ describe('containment-guard l3', () => {
   });
 
   const ALIAS_WHY =
-    "is written through an aliased or stored write builtin the guard can't resolve; call open() (or the write method) directly with a literal path";
+    "is written through an aliased or stored write builtin the guard can't resolve. Allowed form: open() (or the write method) called directly with a literal path";
 
   it('GH 1676: a write through an aliased or held write builtin gets its own reason', () => {
     let OUT = run(WT, 'swe', 'Bash', bashCmd(`python3 -c "o=open; o('/etc/tmb-cg','w')"`));

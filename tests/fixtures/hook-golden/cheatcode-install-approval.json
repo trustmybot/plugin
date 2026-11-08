@@ -30,7 +30,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -57,7 +57,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'https://x.test/nameless' (https://x.test/nameless). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'https://x.test/nameless' (https://x.test/nameless). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -84,7 +84,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Allowed form: cheatcode_install(candidate={name,kind,source_url})\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -165,7 +165,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent. Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -192,7 +192,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -246,7 +246,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'approved-skill' (https://x.test/approved). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -273,7 +273,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) — failing closed. Installs are human-approved, never silent. Allowed form: the same call again, once the trajectory DB reads\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -300,7 +300,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode 'other' (https://x.test/other). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -327,7 +327,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode '1.0' (1.0). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no human-approval record for cheatcode '1.0' (1.0). Installs are human-approved, never silent. Allowed form: cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then the same cheatcode_install\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -354,7 +354,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Allowed form: cheatcode_install(candidate={name,kind,source_url})\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

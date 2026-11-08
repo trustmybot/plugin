@@ -132,7 +132,7 @@ describe('stay-on-base-guard l3', () => {
     it('DENY ambiguous_git_target: bare switch to an open-task branch while worktrees exist', () => {
       const out = run('git checkout feat/open-task', repo);
       has(out, 'ambiguous_git_target', 'no dir and several checkouts: the real reason');
-      has(out, 'git -C <path> or cd <path>', 'the deny carries the remedy');
+      has(out, 'Allowed form: git -C <path> checkout feat/open-task', 'the deny carries the remedy');
     });
 
     it("DENY: 'git -C <main> checkout <open-task-branch>' while worktrees exist", () =>
@@ -419,7 +419,7 @@ describe('require-feature-branch-active l3', () => {
       const out = run(ws, spawn('swe', 'task_id=11 You are SWE.'), wsDb);
       deny(out, 'multi-repo with no task.repo and no .git at workspace root must block');
       has(out, 'tasks.repo IS NULL', 'block message must explain the unresolved-repo cause');
-      has(out, 'task_create repo', "block message must suggest setting the task's repo");
+      has(out, 'Allowed form: task_create with repo=<name>', "block message must suggest setting the task's repo");
       hasNot(out, 'tmb_default_repo', 'block message must NOT mention the retired tmb_default_repo key');
     });
   });

@@ -14,11 +14,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
-import { briefSurface, denyReason, rawOrEmpty, resumeJson, sweBriefGate } from '../hooks/swe-brief-gate.js';
+import { briefSurface, denyFix, denyReason as denyText, rawOrEmpty, resumeJson, sweBriefGate } from '../hooks/swe-brief-gate.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { bindSql, joinedFields, readTwo, sweSpawnBind } from '../hooks/swe-spawn-bind.js';
 import { rollbackSql, sweSpawnRollback, toolUseId } from '../hooks/swe-spawn-rollback.js';
 import { hintReason, postTaskCreateSpawnHint, readTabFields, taskList, taskRows } from '../hooks/post-task-create-spawn-hint.js';
 import { buildSandbox } from './hooks-swe-run-parity.suite.js';
+
+const denyReason = (taskId: string, tool: string): string => fixedReason(denyText(taskId, tool), denyFix(taskId));
 
 const ALLOWED = { stdout: '', code: 0 };
 const GATES = ['swe-brief-gate', 'swe-spawn-bind', 'swe-spawn-rollback', 'post-task-create-spawn-hint'];

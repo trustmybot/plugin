@@ -4,5 +4,5 @@
   "tool_input": {
     "agent": "bro"
   },
-  "corpus_expect": "the caller is a swe subagent; pass agent='swe'."
+  "corpus_expect": "the caller is a swe subagent. Allowed form: the same"
 }

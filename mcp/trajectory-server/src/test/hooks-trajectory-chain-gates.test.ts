@@ -18,14 +18,22 @@ import { reviewerIdentityObserve } from '../hooks/reviewer-identity-observe.js';
 import {
   approvalSql,
   cheatcodeInstallApproval,
-  NO_SOURCE_URL_REASON,
-  notApprovedReason,
-  UNVERIFIABLE_REASON,
+  NO_SOURCE_URL_FIX,
+  NO_SOURCE_URL_REASON as NO_SOURCE_URL_TEXT,
+  NOT_APPROVED_FIX,
+  notApprovedReason as notApprovedText,
+  UNVERIFIABLE_REASON as UNVERIFIABLE_TEXT,
 } from '../hooks/cheatcode-install-approval.js';
+import { DB_RETRY_FIX } from '../hooks/lib/db.js';
+import { fixedReason } from '../hooks/lib/deny.js';
 import { buildSandbox } from './hooks-trajectory-chain-parity.suite.js';
 
+const NO_SOURCE_URL_REASON = fixedReason(NO_SOURCE_URL_TEXT, NO_SOURCE_URL_FIX);
+const UNVERIFIABLE_REASON = fixedReason(UNVERIFIABLE_TEXT, DB_RETRY_FIX);
+const notApprovedReason = (name: string, url: string): string => fixedReason(notApprovedText(name, url), NOT_APPROVED_FIX);
+
 const ALLOWED = { stdout: '', code: 0 };
-const C = { LC_ALL: 'C' };
+const C ={ LC_ALL: 'C' };
 const UTF8 = { LC_ALL: 'en_US.UTF-8' };
 
 function denyReason(stdout: string): string {
@@ -141,7 +149,7 @@ describe('the gates against a sandbox', () => {
       const r = agentArgMatchesCaller(call({ agent: 'swe', task_id: 42 }), env());
       assert.equal(
         denyReason(r.stdout),
-        "BLOCKED: task_get called with agent='swe' but the caller is the main session (bro); pass agent='bro'.",
+        "BLOCKED: task_get called with agent='swe' but the caller is the main session (bro). Allowed form: the same task_get call with agent='bro'",
       );
       const rows = auditRows(projectDb(), 'agent_arg_mismatch');
       assert.equal(rows.length, 1);
@@ -151,7 +159,7 @@ describe('the gates against a sandbox', () => {
     });
     it('names a subagent caller and files a task-less mismatch on the system issue', () => {
       const r = agentArgMatchesCaller(call({ agent: 'bro' }, { agent_type: 'tmb:swe' }), env());
-      assert.equal(denyReason(r.stdout), "BLOCKED: task_get called with agent='bro' but the caller is a swe subagent; pass agent='swe'.");
+      assert.equal(denyReason(r.stdout), "BLOCKED: task_get called with agent='bro' but the caller is a swe subagent. Allowed form: the same task_get call with agent='swe'");
       const rows = auditRows(projectDb(), 'agent_arg_mismatch');
       assert.equal(rows.at(-1)?.issue_id, -1);
       assert.equal(rows.at(-1)?.content_json, '{"tool":"task_get","given":"bro","actual":"swe","task_id":null}');
@@ -171,7 +179,7 @@ describe('the gates against a sandbox', () => {
     });
     it('still denies with no DB to record in', () => {
       const r = agentArgMatchesCaller(call({ agent: 'swe' }), env({ TRAJECTORY_DB_PATH: join(s, 'none.db'), CLAUDE_PROJECT_DIR: join(s, 'bare') }));
-      assert.match(denyReason(r.stdout), /pass agent='bro'/);
+      assert.match(denyReason(r.stdout), /call with agent='bro'$/);
     });
   });
 

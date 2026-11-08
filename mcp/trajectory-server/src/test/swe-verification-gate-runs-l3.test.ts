@@ -357,7 +357,7 @@ describe('swe-verification-gate runs l3', () => {
     const chainIn = JSON.stringify({ ...JSON.parse(done(95)), hook_event_name: 'PreToolUse', session_id: 'main-1', tool_use_id: 'tu-chain-1' });
     const routed = runHook(w, chainIn, { gate: 'PreToolUse', env: { CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } }).stdout;
     has(routed, DENY, 'denied');
-    has(reasonOf(routed), "pass agent='bro'", 'by agent-arg-matches-caller');
+    has(reasonOf(routed), "call with agent='bro'", 'by agent-arg-matches-caller');
     assert.equal(runsOf(w, 95), '0', 'no verification run recorded');
     hook(w, chainIn);
     assert.equal(runsOf(w, 95), '1', 'the gate alone would have recorded one');

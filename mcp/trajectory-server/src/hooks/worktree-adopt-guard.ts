@@ -15,7 +15,7 @@
 import { realpathSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { gitRun, isDir } from './lib/git.js';
-import { jqCompact } from './lib/jq.js';
+import { denyResult as deny } from './lib/deny.js';
 import { claudeProjectDir } from './lib/project-env.js';
 
 export const GATE_NAME = 'worktree-adopt-guard';
@@ -26,11 +26,6 @@ interface Payload {
   tool_name?: unknown;
   cwd?: unknown;
   tool_input?: { adopt_worktree?: unknown } | null;
-}
-
-function deny(reason: string): GateResult {
-  const decision = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}\n`, code: 0 };
 }
 
 function realpath(path: string): string | null {
@@ -71,7 +66,7 @@ export const worktreeAdoptGuard: Gate = async (raw, env): Promise<GateResult> =>
   try {
     payload = JSON.parse(raw) as Payload;
   } catch {
-    return deny('BLOCKED: worktree-adopt-guard could not read the hook payload, so it cannot tell which worktree this session may adopt.');
+    return deny('BLOCKED: worktree-adopt-guard could not read the hook payload, so it cannot tell which worktree this session may adopt.', 'policy');
   }
   const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : '';
   const tool = ADOPT_TOOLS.find((t) => toolName.endsWith(`trajectory-server__${t}`));
@@ -85,7 +80,8 @@ export const worktreeAdoptGuard: Gate = async (raw, env): Promise<GateResult> =>
     if (top === null) return ALLOW;
     return deny(
       `BLOCKED: this session runs in the linked worktree '${top}', so its task adopts that worktree instead of a new ` +
-        `<repo>/.claude/worktrees/<slug>. Call ${tool} again with adopt_worktree: '${top}'.`,
+        `<repo>/.claude/worktrees/<slug>.`,
+      { allowed: `the same ${tool} call with adopt_worktree: '${top}'` },
     );
   }
 
@@ -94,13 +90,13 @@ export const worktreeAdoptGuard: Gate = async (raw, env): Promise<GateResult> =>
   if (top !== null && real === top) return ALLOW;
   if (top !== null) {
     return deny(
-      `BLOCKED: adopt_worktree '${asked}' is not this session's worktree. A session adopts only the linked worktree ` +
-        `it runs in: pass adopt_worktree: '${top}'.`,
+      `BLOCKED: adopt_worktree '${asked}' is not this session's worktree. A session adopts only the linked worktree it runs in.`,
+      { allowed: `the same ${tool} call with adopt_worktree: '${top}'` },
     );
   }
   return deny(
     `BLOCKED: adopt_worktree '${asked}' is refused: this session's root '${root}' is not in a linked git worktree ` +
-      `(a main checkout or no git repo), so no worktree may be adopted from it. Call ${tool} without adopt_worktree; ` +
-      `it creates <repo>/.claude/worktrees/<slug>.`,
+      '(a main checkout or no git repo), so no worktree may be adopted from it.',
+    { allowed: `the same ${tool} call without adopt_worktree, which creates <repo>/.claude/worktrees/<slug>` },
   );
 };
