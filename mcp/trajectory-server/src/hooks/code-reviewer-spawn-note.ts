@@ -35,7 +35,7 @@ export function denyReason(proseChars: number): string {
 }
 
 const SPAWN_NOTE_FIX: DenyFix = {
-  allowed: `bro_atomic_close(..., spawn_note='<at most ${SPAWN_NOTE_MAX_CHARS} chars>'), then the same spawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose`,
+  allowed: 'the same spawn with reviewer_spawn.prompt exactly as bro_atomic_close returned it (anchors only); to add a note after close, task_reopen(spawn_note=...)',
 };
 
 function deny(reason: string): GateResult {

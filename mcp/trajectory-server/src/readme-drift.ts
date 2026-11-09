@@ -212,7 +212,7 @@ export function readmeDrift(
   const refs = referencedFiles(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
   const pathspecs = refs.map((r) => `:(literal)${r}`);
   const touched =
-    refs.length === 0 ? '' : git(history.root, ['log', '--diff-filter=a', '--format=%H', range, '--', ...pathspecs]);
+    refs.length === 0 ? '' : git(history.root, ['log', '--diff-filter=CDMRTUXB', '--format=%H', range, '--', ...pathspecs]);
   if (touched === null) return null;
   const commits_behind = new Set(lines(touched)).size;
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };

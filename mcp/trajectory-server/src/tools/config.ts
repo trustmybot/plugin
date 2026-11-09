@@ -233,6 +233,33 @@ export function computeEffort(
   return { effort: base, reason: 'default' };
 }
 
+export const WORKFLOW_MODE_KEY = 'workflow_mode';
+export const WORKFLOW_MODES = ['truest', 'agile'] as const;
+export type WorkflowMode = (typeof WORKFLOW_MODES)[number];
+
+export function isWorkflowMode(value: unknown): value is WorkflowMode {
+  return typeof value === 'string' && (WORKFLOW_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * The project's workflow mode (GH 2225). Unset reads as truest; so does a
+ * stored value that is unparseable or not a known mode.
+ */
+export function readWorkflowMode(db: Pick<TrajectoryDB, 'get'>): WorkflowMode {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = ?`, [WORKFLOW_MODE_KEY]);
+  if (!row) return 'truest';
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (isWorkflowMode(value)) return value;
+  } catch {
+    // An unparseable stored value reads as the default.
+  }
+  return 'truest';
+}
+
+/** Keys config_set refuses: only the Human sets them, through /onboard. */
+const HUMAN_ONLY_CONFIG_KEYS: ReadonlySet<string> = new Set([WORKFLOW_MODE_KEY]);
+
 export const ISSUE_AREA_LABELS_KEY = 'issue_area_labels';
 export const ISSUE_AREA_PATHS_KEY = 'issue_area_paths';
 
@@ -283,6 +310,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
   if (key === DOWNSTREAM_CONTEXT_AB_KEY && !isEmptyObject(value) && !isDownstreamContextAbConfig(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be {} (off) or an object {"label": non-empty string, "target": positive integer, "tools_shipped_at": ISO timestamp}, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === WORKFLOW_MODE_KEY && !isWorkflowMode(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${WORKFLOW_MODES.join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
@@ -464,6 +496,11 @@ export function configTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     config_set: requireRoles('config_set', ['bro'], wrapHandler(async (args) => {
       const key = args['key'];
+      if (typeof key === 'string' && HUMAN_ONLY_CONFIG_KEYS.has(key)) {
+        return err(
+          `human_only_config_key: config key ${JSON.stringify(key)} is set by the Human through /onboard, not config_set.`,
+        );
+      }
       setConfigValues(db, [{ key: key as string, value: args['value'] }], normalizeAgent(args['agent']));
       return ok({ key });
     })),

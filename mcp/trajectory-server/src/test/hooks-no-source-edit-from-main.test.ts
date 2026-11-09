@@ -90,7 +90,9 @@ describe('no-source-edit-from-main compares scratch roots canonically (GH 1796)'
   });
 
   it('still denies main-checkout source and a climb out of scratch', async () => {
-    assert.ok((await decide(join(checkout, 'src/x.ts'))).includes(SOURCE_DENY));
+    const source = await decide(join(checkout, 'src/x.ts'));
+    assert.ok(source.includes(SOURCE_DENY));
+    assert.ok(source.includes('For an emergency hotfix the Human relaunches Claude Code with TMB_ALLOW_SOURCE_EDIT=1; ask the Human.'), source);
     assert.ok((await decide(`${checkout}/.claude/tmb/scratch/../../../src/x.ts`)).includes(SOURCE_DENY));
     assert.ok((await decide(join(s, 'scratchlink/../src/x.ts'))).includes(SOURCE_DENY));
   });

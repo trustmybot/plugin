@@ -74,7 +74,7 @@ export const noRemoteAuthGuard: Gate = async (payload, env) => {
   if (remotes === '') return ALLOW;
   if (hasRemoteUrl(remotes) !== 'false') return ALLOW;
   return denyResult(
-    `BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`,
-    'policy',
+    `BLOCKED: no remote URL is configured, so TMB runs locally and an interactive '${tool} auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard.`,
+    { allowed: 'continue the task locally, with no auth login, remote or push step' },
   );
 };

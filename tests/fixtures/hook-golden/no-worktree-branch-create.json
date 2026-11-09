@@ -50,13 +50,13 @@
   "deny-create-branch-long.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: git branch <task.branch_id> HEAD && git worktree add <path> <task.branch_id>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: bro: git branch <task.branch_id> HEAD, then git worktree add <path> <task.branch_id>; swe: git worktree add <path> <task.branch_id> on the branch bro created, or report the missing branch to bro\"}}\n"
     }
   },
   "deny-dash-b.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: git branch <task.branch_id> HEAD && git worktree add <path> <task.branch_id>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: bro: git branch <task.branch_id> HEAD, then git worktree add <path> <task.branch_id>; swe: git worktree add <path> <task.branch_id> on the branch bro created, or report the missing branch to bro\"}}\n"
     }
   },
   "deny-db-unavailable.json": {
@@ -80,7 +80,7 @@
   "deny-second-statement.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: git branch <task.branch_id> HEAD && git worktree add <path> <task.branch_id>\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1. Allowed form: bro: git branch <task.branch_id> HEAD, then git worktree add <path> <task.branch_id>; swe: git worktree add <path> <task.branch_id> on the branch bro created, or report the missing branch to bro\"}}\n"
     }
   },
   "diverge-no-jq.json": {

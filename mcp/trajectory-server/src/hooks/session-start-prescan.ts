@@ -36,7 +36,7 @@ import { localeCollates } from './lib/scope-fence.js';
 export const GATE_NAME = 'session-start-prescan';
 
 export const NO_JQ_LINE =
-  '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found — every TMB gate will deny until it is installed"}}\n';
+  '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found, so the session inventory is skipped; gates still run. Tell the Human to install jq for the inventory."}}\n';
 
 const SUBDIR_STACKS_MAX = 3;
 const TOPLEVEL_MAX = 10;
