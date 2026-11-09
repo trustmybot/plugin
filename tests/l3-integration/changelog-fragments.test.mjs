@@ -6,15 +6,16 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { changelogCurrent } from '../l1-lint/changelog-current.test.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const LIB = join(ROOT, 'scripts/maintenance/lib/changelog-fragments.ts');
 const BUMP = join(ROOT, 'scripts/maintenance/bump-version.ts');
+const IMPACT_LIB = join(ROOT, 'scripts/maintenance/lib/measured-impact.ts');
 const FIXTURE = join(ROOT, 'tests/l3-integration/hooks/fixtures/changelog-fragments');
 const TMP = mkdtempSync(join(tmpdir(), 'tmb-changelog-fragments-'));
 after(() => rmSync(TMP, { recursive: true, force: true }));
@@ -215,6 +216,7 @@ function bumpRepo(name) {
   mkdirSync(join(dir, 'scripts/maintenance/lib'), { recursive: true });
   copyFileSync(BUMP, join(dir, 'scripts/maintenance/bump-version.ts'));
   copyFileSync(LIB, join(dir, 'scripts/maintenance/lib/changelog-fragments.ts'));
+  copyFileSync(IMPACT_LIB, join(dir, 'scripts/maintenance/lib/measured-impact.ts'));
   return dir;
 }
 
@@ -256,6 +258,7 @@ test('--dry-run prints the expected section and changes nothing', () => {
   const r = bump(b, '--dry-run', '--date', '2026-10-12', '1.1.0');
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, EXPECTED_BLOCK, 'dry-run block');
+  assert.doesNotMatch(r.stdout, /Measured impact/, 'no Measured impact section without --impact-db');
   assert.equal(snapshot(b), before, 'dry-run leaves every file unchanged');
 });
 
@@ -356,6 +359,161 @@ test('bump-version leaves the Metric: line out of CHANGELOG.md, entry text byte-
   const changelog = readFileSync(join(b, 'CHANGELOG.md'), 'utf8');
   assert.equal(changelog, `# Changelog\n\nAll notable changes.\n\n${EXPECTED_BLOCK}## v1.0.0 — 2026-01-01\n\n### Added\n- **First release** (GH 1): hello.\n`);
   assert.doesNotMatch(changelog, /Metric:/);
+});
+
+// --- bump-version.ts --impact-db --------------------------------------------
+
+const NINE_DECLARED = '### Fixed\n- **Nine** (GH 9): first fragment in Fixed.\n\nMetric: swe_rework_ratio lower\n';
+const IMPACT_JSON = {
+  source: 'plugin_version',
+  id: '123',
+  metrics: [
+    { id: 'swe_rework_ratio', ratio_of_medians: 0.8, ratio_ci: [0.65, 0.95], verdict: 'improved' },
+    { id: 'tokens_per_task', ratio_of_medians: 1.1, ratio_ci: [0.9, 1.3], verdict: 'no_change' },
+  ],
+  declared: [{ metric: 'swe_rework_ratio', direction: 'lower', outcome: 'as_declared' }],
+};
+
+/** A fake dist/change-impact/cli.js that logs its argv to <log> and prints <stdout> / <stderr> with <status>. */
+function stubCli(dir, log, { stdout = '', stderr = '', status = 0 } = {}) {
+  write(
+    join(dir, 'mcp/trajectory-server/dist/change-impact/cli.js'),
+    `require('node:fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n` +
+      `process.stdout.write(${JSON.stringify(stdout)});\nprocess.stderr.write(${JSON.stringify(stderr)});\nprocess.exitCode = ${status};\n`,
+  );
+}
+
+/** measuredImpactBullets(<impacts>) from lib/measured-impact.ts, run under --experimental-strip-types. */
+function measuredImpactBullets(impacts) {
+  const code = `import { measuredImpactBullets } from ${JSON.stringify(pathToFileURL(IMPACT_LIB).href)};
+process.stdout.write(JSON.stringify(measuredImpactBullets(JSON.parse(process.env.IMPACTS))));`;
+  const r = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e', code], {
+    env: { ...process.env, IMPACTS: JSON.stringify(impacts) },
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+/** A bump repo with ORDER_A whose 9-nine.md declares a metric, committed with a `(#123)` subject. */
+function impactRepo(name, nine = NINE_DECLARED, subject = '✨ feat: nine (#123)') {
+  const b = bumpRepo(name);
+  addFragments(b, ...ORDER_A.filter((f) => f !== '9-nine.md'));
+  write(join(b, 'changelog.d/9-nine.md'), nine);
+  commitAll(b, subject);
+  return b;
+}
+
+const AS_DECLARED = '- #123 `swe_rework_ratio`, expected lower: as declared (median ratio 0.80, 95% CI 0.65–0.95)';
+
+test('--impact-db appends a Measured impact section, last, with the declared bullet and its ratio (GH 2600)', () => {
+  const b = impactRepo('impact-ok');
+  const log = join(TMP, 'impact-ok.log');
+  stubCli(b, log, { stdout: JSON.stringify(IMPACT_JSON) });
+  const dry = bump(b, '--dry-run', '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.equal(dry.status, 0, dry.stderr);
+  const expectedBlock = `${EXPECTED_BLOCK}### Measured impact\n${AS_DECLARED}\n\n`;
+  assert.equal(dry.stdout, expectedBlock, 'dry-run prints the section after every other one');
+  assert.deepEqual(JSON.parse(readFileSync(log, 'utf8').trim()), ['--db', join(realpathSync(TMP), 'some.db'), '--source', 'plugin_version', '--id', '123'], 'CLI argv, db resolved from the cwd');
+
+  const r = bump(b, '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  const changelog = readFileSync(join(b, 'CHANGELOG.md'), 'utf8');
+  assert.equal(changelog, `# Changelog\n\nAll notable changes.\n\n${expectedBlock}## v1.0.0 — 2026-01-01\n\n### Added\n- **First release** (GH 1): hello.\n`);
+  assert.doesNotMatch(changelog, /Metric:/, 'the Metric: line still stays out');
+});
+
+test('--impact-db renders each outcome, sorts by PR then metric, and omits the ratio when there is not enough data', () => {
+  const ratio = (id, verdict) => ({ id, ratio_of_medians: 1.5, ratio_ci: [1.25, 1.75], verdict });
+  assert.deepEqual(
+    measuredImpactBullets([
+      {
+        pr: 20,
+        declared: [
+          { metric: 'tokens_per_task', direction: 'lower', outcome: 'wrong_way' },
+          { metric: 'review_fail_rate', direction: 'lower', outcome: 'not_moved' },
+        ],
+        metrics: [ratio('tokens_per_task', 'regressed'), ratio('review_fail_rate', 'no_change')],
+      },
+      {
+        pr: 3,
+        declared: [
+          { metric: 'verification_pass_rate', direction: 'higher', outcome: 'not_enough_data' },
+          { metric: 'swe_rework_ratio', direction: 'lower', outcome: 'as_declared' },
+        ],
+        metrics: [ratio('verification_pass_rate', 'not_enough_data')],
+      },
+    ]),
+    [
+      '- #3 `swe_rework_ratio`, expected lower: as declared',
+      '- #3 `verification_pass_rate`, expected higher: not enough data',
+      '- #20 `review_fail_rate`, expected lower: did not move (median ratio 1.50, 95% CI 1.25–1.75)',
+      '- #20 `tokens_per_task`, expected lower: moved the wrong way (median ratio 1.50, 95% CI 1.25–1.75)',
+    ],
+  );
+});
+
+test('--impact-db with no declared metric adds no section and never spawns the CLI', () => {
+  const b = bumpRepo('impact-none');
+  addFragments(b, ...ORDER_A);
+  commitAll(b, '✨ feat: plain (#124)');
+  const log = join(TMP, 'impact-none.log');
+  stubCli(b, log, { stdout: JSON.stringify(IMPACT_JSON) });
+  const r = bump(b, '--dry-run', '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, EXPECTED_BLOCK);
+  assert.throws(() => statSync(log), 'CLI never spawned');
+});
+
+test('--impact-db skips a declaring fragment whose adding commit has no (#N), naming it on stderr', () => {
+  const b = impactRepo('impact-no-pr', NINE_DECLARED, '✨ feat: nine, no PR');
+  const log = join(TMP, 'impact-no-pr.log');
+  stubCli(b, log, { stdout: JSON.stringify(IMPACT_JSON) });
+  const r = bump(b, '--dry-run', '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, EXPECTED_BLOCK);
+  assert.equal(r.stderr.split('\n').filter(Boolean).length, 1);
+  assert.match(r.stderr, /changelog\.d\/9-nine\.md/);
+  assert.throws(() => statSync(log), 'CLI never spawned');
+});
+
+test('--impact-db: an unknown change reads not enough data, with no ratio', () => {
+  const b = impactRepo('impact-unknown');
+  stubCli(b, join(TMP, 'impact-unknown.log'), { stderr: 'unknown change plugin_version:123\n', status: 1 });
+  const r = bump(b, '--dry-run', '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `${EXPECTED_BLOCK}### Measured impact\n- #123 \`swe_rework_ratio\`, expected lower: not enough data\n\n`);
+});
+
+test('--impact-db: a missing CLI or another CLI failure exits non-zero and changes nothing', () => {
+  const missing = impactRepo('impact-missing');
+  const before = snapshot(missing);
+  const r = bump(missing, '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+  assert.notEqual(r.status, 0, 'missing CLI → non-zero');
+  assert.match(r.stderr, /dist\/change-impact\/cli\.js/);
+  assert.equal(snapshot(missing), before, 'nothing changed');
+
+  for (const [name, stub] of [
+    ['impact-fail', { stderr: 'database is locked\n', status: 1 }],
+    ['impact-garbage', { stdout: 'not json' }],
+  ]) {
+    const b = impactRepo(name);
+    stubCli(b, join(TMP, `${name}.log`), stub);
+    const prior = snapshot(b);
+    const out = bump(b, '--impact-db', 'some.db', '--date', '2026-10-12', '1.1.0');
+    assert.notEqual(out.status, 0, `${name} → non-zero`);
+    assert.match(out.stderr, /#123/);
+    assert.equal(snapshot(b), prior, `${name}: nothing changed`);
+  }
+});
+
+test('--version-only ignores --impact-db', () => {
+  const b = impactRepo('impact-version-only');
+  const before = readFileSync(join(b, 'CHANGELOG.md'), 'utf8');
+  const r = bump(b, '--version-only', '--impact-db', 'some.db', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(readFileSync(join(b, 'CHANGELOG.md'), 'utf8'), before);
+  assert.match(readFileSync(join(b, 'package.json'), 'utf8'), /"version": "1\.1\.0"/);
 });
 
 test('versions are matched literally, never as regex patterns', () => {
