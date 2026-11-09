@@ -363,10 +363,11 @@ export function efficiencyApiPath(p: InsightParams): string {
 // Change impact sets its own windows, so no Period or filter reaches it.
 export const OWN_WINDOW_SECTIONS: ReadonlySet<Section> = new Set(['change-impact']);
 
-export function changeImpactApiPath(source: string, id?: string): string {
+export function changeImpactApiPath(source: string, id?: string, repo?: string | null): string {
   const query = new URLSearchParams();
   if (source) query.set('source', source);
   if (id !== undefined) query.set('id', id);
+  if (id !== undefined && repo) query.set('repo', repo);
   const qs = query.toString();
   return qs ? `insights/change-impact?${qs}` : 'insights/change-impact';
 }
