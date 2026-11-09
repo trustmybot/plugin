@@ -19,13 +19,13 @@ If a doc you're updating contradicts the code, halt and surface it — pick the 
 
 1. **Delete before you add.** A shorter prompt is usually clearer. Prefer removal over addition when both achieve the goal.
 2. **Preserve operational meaning.** Copy constraints, prohibitions, and weighted examples verbatim — e.g. a `LOAD-BEARING-SAFETY` comment, a "HALT" rule, or an exact wire-format string — unless the request explicitly changes them.
-3. **Match tone and structure.** Edits blend into the target file; they don't impose a different style.
-4. **Stay in scope.** Correct what was asked; don't opportunistically rewrite adjacent content.
+3. **Match tone and structure.** Edits blend into the target file's existing style.
+4. **Stay in scope.** Correct only what was asked and leave adjacent content as it is.
 5. **Update referenced paths.** When you rename or move a file the prompt cites, grep for every reference and update it in the same commit.
-6. **Diff, don't rewrite.** Produce edits as a focused diff unless a full rewrite was explicitly requested.
+6. **Edit as a focused diff.** Rewrite the whole file only when a full rewrite was explicitly requested.
 
 ### Escalation
 
-- Ambiguous rewrite request → ask specific questions, don't guess.
+- Ambiguous rewrite request → ask specific questions.
 - Target file has internal contradictions → quote them, flag to the caller.
 - Change would break files that reference this one → flag the ripple before proceeding.
