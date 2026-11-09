@@ -357,6 +357,42 @@ describe('syncIssueCreate', () => {
     assert.equal(result.reason, 'verify_failed');
   });
 
+  async function readBackFailure(stderr: string) {
+    const spawnFn = makeSpawnFn([
+      { status: 0, stdout: 'https://github.com/owner/repo/issues/42\n', stderr: '' },
+      { status: 1, stdout: '', stderr },
+    ]);
+    const result = await syncIssueCreate({
+      issueId: 1,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+    });
+    assert.ok(isSyncFailure(result));
+    assert.equal(result.reason, 'verify_failed');
+    return result.message ?? '';
+  }
+
+  it('read-back non-zero exit keeps the first non-empty stderr line (GH 2778)', async () => {
+    const message = await readBackFailure('\n  HTTP 401: Bad credentials\nmore');
+    assert.ok(
+      message.endsWith('read_back_non_zero_exit: HTTP 401: Bad credentials'),
+      `unexpected message: ${message}`,
+    );
+  });
+
+  it('read-back non-zero exit with empty stderr keeps the bare reason (GH 2778)', async () => {
+    const message = await readBackFailure(' \n\t\n');
+    assert.ok(message.endsWith(': read_back_non_zero_exit'), `unexpected message: ${message}`);
+  });
+
+  it('read-back non-zero exit cuts a long stderr line to 200 characters (GH 2778)', async () => {
+    const message = await readBackFailure('x'.repeat(250));
+    assert.ok(message.endsWith(`read_back_non_zero_exit: ${'x'.repeat(200)}`), `unexpected message: ${message}`);
+    assert.ok(!message.includes('x'.repeat(201)));
+  });
+
   it('syncIssueCreate writes logs to TMB_SYNC_LOG_DIR, not ~/.claude/ (log-isolation, #314)', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-sync-'));
     const savedLogDir = process.env.TMB_SYNC_LOG_DIR;
