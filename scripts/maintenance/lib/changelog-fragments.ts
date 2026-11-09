@@ -103,6 +103,11 @@ export function fragmentValidate(path: string): string[] {
   if (!SECTIONS.some((s) => first === `### ${s}`)) {
     problems.push(`${path}: first line must be one of: ${SECTIONS.map((s) => `### ${s}`).join(', ')} (got "${first}")`);
   }
+  lines(readFileSync(path, 'utf8')).forEach((line, i) => {
+    if (i > 0 && line.startsWith('### ')) {
+      problems.push(`${path}:${i + 1}: a second section line "${line}"; one section per fragment, so split it into two fragments (changelog.d/README.md)`);
+    }
+  });
   const body = fragmentBody(path);
   if (body.length === 0) return [...problems, `${path}: no entry text after the section line`];
   if (!(body[0] ?? '').startsWith('- ')) problems.push(`${path}: the entry must start with "- " (one bullet)`);
