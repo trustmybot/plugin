@@ -1,2 +1,0 @@
-### Fixed
-- **`/dashboard` starts inside the Bash sandbox** (GH 2601): the sandbox blocks binding to loopback by default, so every start failed with `listen EPERM`. `/onboard`'s sandbox step now also sets `sandbox.network.allowLocalBinding: true` (kept as you set it if already there, and removed on **No** only when TMB added it), and `/dashboard` starts the server sandboxed. Only on `listen EPERM` does it re-run once outside the sandbox and point you at `/onboard` to keep the next start inside.
