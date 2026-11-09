@@ -322,6 +322,108 @@ export function gates(db: DatabaseSync): Row {
   };
 }
 
+const GATE_BOARD_RECENT_DAYS = 14;
+
+export type GateState = 'ready' | 'blocked' | 'pending';
+
+export interface GateTask {
+  id: number;
+  title: string;
+  status: string;
+  commit_sha: string | null;
+  verification: { id: number; exit_code: number | null; timed_out: boolean; commit_sha: string | null; matches_commit: boolean } | null;
+  verdict: { id: number; verdict: string; attempt_n: number } | null;
+  open_findings: number;
+}
+
+export interface GateBranch {
+  branch_id: string;
+  state: GateState;
+  updated_at: string;
+  tasks: GateTask[];
+}
+
+function gateTask(r: Row): GateTask {
+  const commit = (r['commit_sha'] as string | null) ?? null;
+  const verifiedCommit = (r['v_commit_sha'] as string | null) ?? null;
+  return {
+    id: Number(r['id']),
+    title: String(r['title'] ?? ''),
+    status: String(r['status']),
+    commit_sha: commit,
+    verification:
+      r['v_id'] === null
+        ? null
+        : {
+            id: Number(r['v_id']),
+            exit_code: r['v_exit_code'] === null ? null : Number(r['v_exit_code']),
+            timed_out: Number(r['v_timed_out']) === 1,
+            commit_sha: verifiedCommit,
+            matches_commit: commit !== null && verifiedCommit === commit,
+          },
+    verdict: r['a_id'] === null ? null : { id: Number(r['a_id']), verdict: String(r['a_verdict']), attempt_n: Number(r['a_attempt_n']) },
+    open_findings: Number(r['open_findings'] ?? 0),
+  };
+}
+
+const verificationFailed = (t: GateTask) =>
+  t.verification !== null && (t.verification.timed_out || (t.verification.exit_code !== null && t.verification.exit_code !== 0));
+
+const taskBlocked = (t: GateTask) =>
+  verificationFailed(t) || t.verdict?.verdict === 'fail' || t.verdict?.verdict === 'escalate' || t.open_findings > 0;
+
+const taskReady = (t: GateTask) =>
+  t.verification !== null &&
+  t.verification.matches_commit &&
+  t.verification.exit_code === 0 &&
+  !t.verification.timed_out &&
+  t.verdict?.verdict === 'pass' &&
+  t.open_findings === 0;
+
+export function gateState(tasks: GateTask[]): GateState {
+  if (tasks.some(taskBlocked)) return 'blocked';
+  const open = tasks.filter((t) => t.status !== 'closed');
+  const gated = open.length > 0 ? open : tasks;
+  return gated.length > 0 && gated.every(taskReady) ? 'ready' : 'pending';
+}
+
+export function gateBoard(db: DatabaseSync): GateBranch[] {
+  const branches = all(
+    db,
+    `SELECT branch_id, MAX(updated_at) AS updated_at
+       FROM tasks
+      GROUP BY branch_id
+     HAVING SUM(status <> 'closed') > 0
+         OR julianday(MAX(updated_at)) >= julianday('now', ?)
+      ORDER BY MAX(updated_at) DESC, branch_id
+      LIMIT ?`,
+    `-${GATE_BOARD_RECENT_DAYS} days`,
+    RECENT_LIMIT,
+  );
+  if (branches.length === 0) return [];
+  const ids = branches.map((b) => String(b['branch_id']));
+  const rows = all(
+    db,
+    `SELECT t.id, t.branch_id, t.title, t.status, t.commit_sha,
+            v.id AS v_id, v.exit_code AS v_exit_code, v.timed_out AS v_timed_out, v.commit_sha AS v_commit_sha,
+            a.id AS a_id, a.verdict AS a_verdict, a.attempt_n AS a_attempt_n,
+            (SELECT COUNT(*) FROM review_findings f
+              WHERE f.task_id = t.id AND f.status = 'open' AND f.severity = 'blocking') AS open_findings
+       FROM tasks t
+       LEFT JOIN verification_runs v ON v.id = (SELECT MAX(id) FROM verification_runs WHERE task_id = t.id)
+       LEFT JOIN validation_attempts a ON a.id = (SELECT MAX(id) FROM validation_attempts WHERE task_id = t.id)
+      WHERE t.branch_id IN (SELECT value FROM json_each(?))
+      ORDER BY t.id`,
+    JSON.stringify(ids),
+  );
+  const byBranch = new Map<string, GateTask[]>(ids.map((id) => [id, []]));
+  for (const r of rows) byBranch.get(String(r['branch_id']))!.push(gateTask(r));
+  return branches.map((b) => {
+    const tasks = byBranch.get(String(b['branch_id']))!;
+    return { branch_id: String(b['branch_id']), state: gateState(tasks), updated_at: String(b['updated_at']), tasks };
+  });
+}
+
 export function audit(db: DatabaseSync, limit: number): Row[] {
   return all(
     db,
@@ -393,6 +495,9 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
   const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
   const target = repo ?? repos[0];
   if (target === undefined) return { available: true, repos, nodes: [] };
+  const cols = columnsOf(db, 'wm_directories');
+  const behind = cols.has('commits_behind') ? 'd.commits_behind' : 'NULL';
+  const deadRefs = cols.has('dead_refs') ? 'd.dead_refs' : 'NULL';
   const nodes = all(
     db,
     `WITH RECURSIVE sub(id, path, lvl) AS (
@@ -402,7 +507,8 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
          FROM wm_directories c JOIN sub s ON c.parent_path = s.path
         WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
      )
-     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
+     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count,
+            ${behind} AS commits_behind, ${deadRefs} AS dead_refs
        FROM wm_directories d
       WHERE d.id IN (SELECT id FROM sub)
       ORDER BY d.path`,
@@ -411,7 +517,26 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
     target,
     depth,
   );
-  return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n['summary']) })) };
+  return {
+    available: true,
+    repos,
+    nodes: nodes.map((n) => ({
+      ...n,
+      summary: summaryLine(n['summary']),
+      commits_behind: n['commits_behind'] === null ? null : Number(n['commits_behind']),
+      dead_refs: parseDeadRefs(n['dead_refs']),
+    })),
+  };
+}
+
+function parseDeadRefs(raw: unknown): string[] | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 const GRAPH_KINDS = ['calls', 'imports', 'runs', 'sources', 'instantiates'];
@@ -785,7 +910,7 @@ interface ModelPrice {
   cache_creation: number;
 }
 
-const PRICE_FIELDS = ['input', 'output', 'cache_read', 'cache_creation'] as const;
+export const PRICE_FIELDS = ['input', 'output', 'cache_read', 'cache_creation'] as const;
 
 // plugin_config.model_prices (USD per 1M tokens) as in the trajectory server's
 // readModelPrices: an entry counts only with all four fields numeric.

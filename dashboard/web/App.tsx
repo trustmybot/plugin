@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   FileDirectoryIcon,
+  GearIcon,
   GraphIcon,
   HomeIcon,
   IssueOpenedIcon,
@@ -21,6 +22,7 @@ import { IssueView } from './views/IssueView.tsx';
 import { OverviewView } from './views/OverviewView.tsx';
 import { ProjectMapView } from './views/ProjectMapView.tsx';
 import { RunsView } from './views/RunsView.tsx';
+import { SettingsView } from './views/settings/SettingsView.tsx';
 import { TasksView } from './views/TasksView.tsx';
 import { TaskView } from './views/tasks/TaskView.tsx';
 
@@ -34,6 +36,7 @@ export const TABS: readonly NavTab[] = [
   ['runs', 'Runs & Gates', PlayIcon],
   ['audit', 'Audit', LogIcon],
   ['map', 'Project Map', FileDirectoryIcon],
+  ['settings', 'Settings', GearIcon],
 ];
 
 const pageName = (key: HelpKey) => (key === 'issue' || key === 'task' ? DETAIL_PAGE[key] : TABS.find(([k]) => k === key)![1]);
@@ -90,6 +93,7 @@ function TabView({ tab }: { tab: string }) {
       );
     case 'audit': return <AuditView />;
     case 'map': return <ProjectMapView />;
+    case 'settings': return <SettingsView />;
     default: return <OverviewView />;
   }
 }

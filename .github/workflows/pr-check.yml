@@ -1,14 +1,18 @@
 name: pr-check
 on:
-  # L1 lints and strict tsc (via build:payload) on every PR into dev, rc or main (GH 2064).
+  # L1 lints and strict tsc (via build:payload) plus the dashboard tests on every PR into dev, rc or main (GH 2064).
+  # They also run on merge_group, so dev can use a merge queue (GH 2820).
+  # The full L1-L4 sweep runs only in release-gate.yml at rc (GH 2805).
   pull_request:
     branches: [dev, rc, main]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-check-${{ github.event.pull_request.number }}
+  group: pr-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

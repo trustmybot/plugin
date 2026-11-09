@@ -1,4 +1,4 @@
-// The L1 symbol index (ADR 0001, GH 1680): wm_symbols and wm_edges, written by
+// The L1 symbol index (GH 1680): wm_symbols and wm_edges, written by
 // scan_run and read by world_model_search and world_model_symbol. A file is
 // re-parsed only when its symbols_md5 differs from content_md5 salted with
 // EXTRACTOR_VERSION, so a version bump re-parses every file once. A file
@@ -10,7 +10,7 @@
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
 // rows (parsing/hooks.ts), and a pass re-resolves the non-exact edges of
-// unchanged files that name a symbol this pass inserted or deleted (ADR 0002). A
+// unchanged files that name a symbol this pass inserted or deleted (GH 1680). A
 // generated bundle with a sibling source map gets a 'module' row of its own,
 // re-read only when the map changes, with a 'bundles' edge to each in-repo
 // source the map lists (GH 2284). A manifest, task file or CI file the env
@@ -170,7 +170,7 @@ const NAME_ONLY_JSON = JSON.stringify([...NAME_ONLY_EDGES]);
 
 export { isTestPath };
 
-// The concept lane (ADR 0002): test and fixture paths never anchor a concept
+// The concept lane (GH 1680): test and fixture paths never anchor a concept
 // step or join a derived chain.
 export function outsideConceptLane(path: string): boolean {
   return isTestPath(path) || /(^|\/)(__)?fixtures(__)?\//.test(path);
