@@ -1,0 +1,2 @@
+### Changed
+- **A change_impact ref can name its repo** (GH 2613): `change` takes an optional `repo` (and the change-impact CLI a `--repo <name>`) that picks the change of that repo. A lookup whose id matches changes in more than one repo now fails with an `ambiguous change` error naming every matching repo instead of silently returning the first; an unknown repo fails with `unknown change ... in repo <name>`. A ref whose id matches one change works as before.

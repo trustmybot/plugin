@@ -253,9 +253,16 @@ export function computeChangeImpact(
     const source = checkSource(opts.change.source);
     const id = opts.change.id;
     if (typeof id !== 'string' || id.length === 0) throw new Error('change.id must be a non-empty string');
+    const repo = opts.change.repo;
+    if (repo !== undefined && (typeof repo !== 'string' || repo.length === 0)) throw new Error('change.repo must be a non-empty string');
     const provider = PROVIDERS.find((p) => p.source === source)!;
-    const event = provider.list(ctx).find((e) => e.id === id);
-    if (!event) throw new Error(`unknown change ${source}:${id}`);
+    const matches = provider.list(ctx).filter((e) => e.id === id && (repo === undefined || e.repo === repo));
+    if (matches.length === 0) throw new Error(`unknown change ${source}:${id}${repo === undefined ? '' : ` in repo ${repo}`}`);
+    if (matches.length > 1) {
+      const repos = [...new Set(matches.map((e) => e.repo ?? '(none)'))].join(', ');
+      throw new Error(`ambiguous change ${source}:${id} matches repos ${repos}; pass change.repo`);
+    }
+    const event = matches[0]!;
     return impactOf(ctx, provider, event, windowDays, maxSamples, opts.metric, opts.series === true);
   }
   const filter = opts.source === undefined ? undefined : checkSource(opts.source);

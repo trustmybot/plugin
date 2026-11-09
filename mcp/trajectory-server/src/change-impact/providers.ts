@@ -31,9 +31,10 @@ export type ChangeSource = (typeof CHANGE_SOURCES)[number];
 export interface ChangeRef {
   source: ChangeSource;
   id: string;
+  repo?: string;
 }
 
-export interface ChangeEvent extends ChangeRef {
+export interface ChangeEvent extends Omit<ChangeRef, 'repo'> {
   label: string;
   at: string;
   kind: string;

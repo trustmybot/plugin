@@ -1,9 +1,10 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import {
@@ -434,6 +435,76 @@ describe('change impact — config and ids (SC5)', () => {
     assert.equal(list.changes.filter((c) => c.source === 'agent_surface').length, 0);
     const v = computeChangeImpact(db, ctx, { change: { source: 'plugin_version', id: '1.0.0' } });
     assert.equal(v.id, '1.0.0');
+  });
+});
+
+describe('change impact — a ref names its repo (GH 2613)', () => {
+  function twoRepos(path?: string): TrajectoryDB {
+    const db = tempDB({ path });
+    for (const name of ['alpha-app', 'beta-app']) {
+      const r = tempRepo('trunk');
+      r.commit(`docs: ${name} rules (#12)`, T0, 'CLAUDE.md');
+      r.g('remote', 'add', 'origin', `https://example.invalid/acme/${name}.git`);
+      db.run("INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'trunk')", [name, r.dir]);
+    }
+    return db;
+  }
+
+  it('an id two repos share is ambiguous without a repo and names both (SC1)', () => {
+    const db = twoRepos();
+    assert.throws(
+      () => computeChangeImpact(db, undefined, { change: { source: 'agent_surface', id: '12' } }),
+      (e: Error) => /ambiguous change agent_surface:12/.test(e.message) && e.message.includes('alpha-app') && e.message.includes('beta-app'),
+    );
+  });
+
+  it('a repo picks that repo\'s change (SC2)', () => {
+    const db = twoRepos();
+    for (const repo of ['alpha-app', 'beta-app']) {
+      const r = computeChangeImpact(db, undefined, { change: { source: 'agent_surface', id: '12', repo } });
+      assert.equal(r.repo, repo);
+      assert.equal(r.id, '12');
+    }
+  });
+
+  it('an unknown repo for a known id is unknown and names the repo (SC3)', () => {
+    const db = twoRepos();
+    assert.throws(
+      () => computeChangeImpact(db, undefined, { change: { source: 'agent_surface', id: '12', repo: 'gamma-app' } }),
+      /^Error: unknown change agent_surface:12 in repo gamma-app$/,
+    );
+  });
+
+  it('the tool schema lists change.repo as optional and the parser passes it through or rejects a non-string (SC4)', async () => {
+    const db = twoRepos();
+    const { definitions, handlers } = changeImpactTools(db);
+    const change = (definitions[0]!.inputSchema.properties as Record<string, { properties: Record<string, { type: string }>; required: string[] }>)['change']!;
+    assert.equal(change.properties['repo']!.type, 'string');
+    assert.ok(!change.required.includes('repo'));
+    const tool = handlers['change_impact']!;
+    const picked = parse(await tool({ agent: 'bro', change: { source: 'agent_surface', id: '12', repo: 'beta-app' } })) as ChangeImpact;
+    assert.equal(picked.repo, 'beta-app');
+    const bad = (await tool({ agent: 'bro', change: { source: 'agent_surface', id: '12', repo: 7 } })) as { isError?: boolean };
+    assert.equal(bad.isError, true);
+    assert.equal((parse(bad) as { error: string }).error, 'change.repo must be a string');
+    const ambiguous = (await tool({ agent: 'bro', change: { source: 'agent_surface', id: '12' } })) as { isError?: boolean };
+    assert.equal(ambiguous.isError, true);
+  });
+
+  it('the CLI passes --repo through (SC4)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-cli-'));
+    dirs.push(dir);
+    const path = join(dir, 'trajectory.db');
+    twoRepos(path).close();
+    const cli = fileURLToPath(new URL('../change-impact/cli.js', import.meta.url));
+    const run = (...extra: string[]) =>
+      spawnSync(process.execPath, ['--experimental-sqlite', cli, '--db', path, '--source', 'agent_surface', '--id', '12', ...extra], { encoding: 'utf8' });
+    const picked = run('--repo', 'alpha-app');
+    assert.equal(picked.status, 0, picked.stderr);
+    assert.equal((JSON.parse(picked.stdout) as ChangeImpact).repo, 'alpha-app');
+    const ambiguous = run();
+    assert.equal(ambiguous.status, 1);
+    assert.match(ambiguous.stderr, /ambiguous change agent_surface:12/);
   });
 });
 
