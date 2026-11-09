@@ -1,6 +1,6 @@
 # 05.03-codebase-memory-cold-start
 
-**Source:** L5 `10-codebase-memory-cold-start` (renumbered per reconciliation table). Rewritten under ADR 0002 to test the world-model substrate (now the `wm_` tables in the trajectory DB).
+**Source:** L5 `10-codebase-memory-cold-start` (renumbered per reconciliation table). Rewritten to test the world-model substrate (now the `wm_` tables in the trajectory DB).
 
 **Scenario:** Existing repo with files but the world model is cold (no `deep_scan_completed` audit row) → bro receives the world-model-cold gate from `task_create_batch`. In test mode there's no Human to ask, so bro must self-fire `scan_run` to populate the world-model tables, then continue planning.
 

@@ -1,5 +1,5 @@
-// The L2 concept layer (ADR 0002, GH 1680): agent-written, ordered runs of
-// steps over the L1 symbol index, each step anchored by the ADR 0001 key and
+// The L2 concept layer (GH 1680): agent-written, ordered runs of
+// steps over the L1 symbol index, each step anchored by the symbol key and
 // re-checked against the current index after every scan. Read in-process by
 // the world_model_concept* tools and the dashboard. Adapted from the GH 1680
 // MVP's conceptUpsert / refreshConcepts / evalClaim.
