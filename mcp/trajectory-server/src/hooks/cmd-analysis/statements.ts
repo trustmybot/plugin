@@ -6,10 +6,11 @@
  * assignment-only statements come out as `=<dir-token>` records, every dir
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
- * \022<dir>\022<word>… mark, and a loop's statements sit between a `{` and a
- * `}` record (GH 1944), with a last `!` record when those frames do not
- * balance. With `assign`, a dir token may also list, each after an ALT, the
- * other dirs a loop's back-edge can bring its statement to (GH 1977): a
+ * \022<dir>\022<word>… mark, and a last `!` record marks loop frames that do
+ * not balance. With `frame` (by default `assign`), a loop's statements sit
+ * between a `{` and a `}` record (GH 1944, GH 2065), and a dir token may also
+ * list, each after an ALT, the other dirs a loop's back-edge can bring its
+ * statement to (GH 1977): a
  * frame's statements run in every dir the frame can end a pass in, re-encoded
  * until those stop growing, and after its `}` the dir is the frame's entry
  * dirs plus those. A frame still growing after MAX_GROWTH runs, or a frame
@@ -46,6 +47,21 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 const BRACED = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
 /** A redirect whose target is a literal word or an fd duplication (GH 2404): it expands nothing, so it cannot reassign a variable. */
 const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-Za-z0-9_./,:@%+-]+(?=[ \t]|$)/g;
+/** A statement cut at `(` whose last word may name a function: no `=`, so no array assignment. */
+const FN_HEAD = /(^|[ \t])[^ \t=]+[ \t]*$/;
+/** Command words that may call a function the scan cannot pin (GH 2630). */
+const DYN_CALLS = new Set(['eval', 'trap', 'alias', 'add-zsh-hook']);
+/** Builtins that call a function or command an option names (GH 2630): mapfile / readarray -C, compgen / complete -F and -C. */
+const CB_FLAGS = new Map<string, RegExp>([
+  ['mapfile', /C/],
+  ['readarray', /C/],
+  ['compgen', /[CF]/],
+  ['complete', /[CF]/],
+]);
+/** Functions the shell itself calls by name (GH 2630): bash and zsh command-not-found handlers and zsh hook functions and traps. */
+const HOOK_FN = /^(command_not_found_handler?|chpwd|precmd|preexec|periodic|zshexit|zshaddhistory|zsh_directory_name|TRAP[A-Z0-9]+)$/;
+/** A zsh hook array, whose entries name functions the shell calls (GH 2630). */
+const HOOK_ARRAY = /(^|[^A-Za-z0-9_])(chpwd|precmd|preexec|periodic|zshexit|zshaddhistory|zsh_directory_name)_functions([^A-Za-z0-9_]|$)/;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 
 export interface Record {
@@ -53,6 +69,8 @@ export interface Record {
   stmt: string;
   /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable in either mode (GH 2377, GH 2381). */
   tail?: boolean;
+  /** Without `assign`, a git statement cut where an unquoted $( ) or backtick starts: `word` when a blank comes before it, `glued` when it joins the last word (GH 2634). */
+  cut?: 'word' | 'glued';
 }
 
 function norm(p: string): string {
@@ -129,26 +147,79 @@ function gitEmptyWords(w: readonly string[], wq: readonly boolean[], first: numb
   return kept;
 }
 
-/** Per loop frame, by its order of opening: the dirs its back-edge adds, the runs that added some, the frames that grew this run, and those that hit MAX_GROWTH. */
+/** `export -f`, `declare` / `typeset` with `-f` and `-x`, or `set -a` / `-o allexport`: functions reach the environment of what runs next. */
+function fnexport(name: string, args: readonly string[]): boolean {
+  const flags = args.filter((a) => /^-[A-Za-z]/.test(a)).join('');
+  if (name === 'export') return flags.includes('f');
+  if (name === 'declare' || name === 'typeset') return flags.includes('f') && flags.includes('x');
+  if (name === 'set') return flags.includes('a') || args.includes('allexport');
+  return false;
+}
+
+/** A builtin that may call a function an option names: a flag cluster holding its callback option, or a word the shell fills in, which may be one. */
+function cbcall(name: string, args: readonly string[]): boolean {
+  const flag = CB_FLAGS.get(name);
+  if (flag === undefined) return false;
+  return args.some((a) => /[$`]/.test(a) || ENCODED.test(a) || (a.startsWith('-') && flag.test(a)));
+}
+
+/**
+ * Per loop or function frame, by its order of opening: the dirs its back-edge
+ * or its calls add, the runs that added some, the frames that grew this run,
+ * and those that hit MAX_GROWTH or whose call dirs cannot be pinned. Across
+ * runs too: the frames each function name opened, and whether a command
+ * `fnword` cannot pin may call any of them.
+ */
 interface Frames {
   ext: string[][];
   runs: number[];
   grew: Set<number>;
   lost: Set<number>;
+  fnames: Map<string, number[]>;
+  dyn: boolean;
 }
 
-export function statementsEnc(buf: string, base: string, home: string, assign: boolean, charge: Charge = NO_CHARGE): Record[] {
-  const frames: Frames = { ext: [], runs: [], grew: new Set(), lost: new Set() };
+/**
+ * How scan frames compound commands: not at all, loops (`true`), or loops
+ * and function calls (`'calls'`, GH 2630): a function body's statements also
+ * run in each dir a call to it starts in, and a `{ }` body's end dirs follow
+ * the call. `'escaped'` is `'calls'` for an eval body, whose functions outlive
+ * the scan, so each one it defines runs in an unpinned dir.
+ */
+export type Framing = boolean | 'calls' | 'escaped';
+
+export function statementsEnc(buf: string, base: string, home: string, assign: boolean, charge: Charge = NO_CHARGE, frame: Framing = assign): Record[] {
+  const frames: Frames = { ext: [], runs: [], grew: new Set(), lost: new Set(), fnames: new Map(), dyn: false };
   for (;;) {
     frames.grew.clear();
     charge(buf.length);
-    const records = scan(buf, base, home, assign, frames, charge);
+    const records = scan(buf, base, home, assign, frame, frames, charge);
     if (frames.grew.size === 0) return records;
     for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
   }
 }
 
-function scan(buf: string, base: string, home: string, assign: boolean, frames: Frames, charge: Charge): Record[] {
+/**
+ * A function definition this run: its body `{ }`, `( )` or one scan does not
+ * model (`x`), whether a statement in it changed the dir outside a subshell
+ * of it, the subshell and quote depth it opened at, the dirs before it, its
+ * entry dirs without and with its call dirs, and the dirs its `{ }` body can
+ * return in.
+ */
+interface FnDef {
+  kind: 'u' | 'p' | 'x';
+  open: boolean;
+  moved: boolean;
+  sp: number;
+  qsp: number;
+  pre: { cur: string; why: string; alts: string[] };
+  entry: string[];
+  entered: { cur: string; alts: string[] };
+  exits: string[];
+}
+
+function scan(buf: string, base: string, home: string, assign: boolean, frame: Framing, frames: Frames, charge: Charge): Record[] {
+  const calls = frame === 'calls' || frame === 'escaped';
   const records: Record[] = [];
   let old = '-';
   let cwhy = '';
@@ -195,20 +266,27 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   const sstack: boolean[] = [];
   const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string, args = false) => {
+  const emit = (dir: string, text: string, args = false, cut?: Record['cut']) => {
     charge(dir.length);
-    records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
+    records.push({ dir, stmt: text, ...(args ? { tail: true } : {}), ...(cut ? { cut } : {}) });
   };
-  const loops: Array<'f' | 'w' | 'o' | 'b' | 'g'> = [];
+  const loops: Array<'f' | 'w' | 'o' | 'b' | 'g' | 'u'> = [];
   const fids: number[] = [];
   const fent: Array<{ cur: string; why: string; alts: string[] }> = [];
   let nf = 0;
   let unbal = false;
+  /** The name of a function whose header was read and whose body has not opened yet. */
+  let fpend: string | null = null;
+  /** The flush reads a statement cut at `(` that may be a function header. */
+  let fhead = false;
+  const defs: FnDef[] = [];
+  const fnstack: number[] = [];
+  const called = new Set<string>();
   /** Per word of the statement being flushed: it held a QM, so it is never a reserved word. */
   let wq: boolean[] = [];
 
   /**
-   * With `assign`, frames a loop's statements: `{` from its while / until or
+   * With `frame`, frames a loop's statements: `{` from its while / until or
    * from the `do` or `{` that ends a for / select header, and `}` at the done
    * or `}` that closes it. A `do` no header waits for, or a `done` / `}` that
    * does not close the innermost frame, marks the command unbalanced. A
@@ -230,7 +308,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         fopen();
       }
     } else if (k === '{') {
-      if (top === 'f') {
+      if (fpend !== null) {
+        loops.push('u');
+        fnopen('u');
+      } else if (top === 'f') {
         loops[loops.length - 1] = 'b';
         fopen();
       } else loops.push('g');
@@ -240,7 +321,10 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         fclose();
       } else unbal = true;
     } else if (k === '}') {
-      if (top === 'b') {
+      if (top === 'u') {
+        loops.pop();
+        fnclose();
+      } else if (top === 'b') {
         loops.pop();
         fclose();
       } else if (top === 'g') loops.pop();
@@ -280,6 +364,148 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     cwhy = e.why;
     bound();
     emit(LOOP_CLOSE, 'done');
+  }
+
+  /** A new frame's id, with no dirs added yet. */
+  function falloc(): number {
+    const fo = nf++;
+    frames.ext[fo] ??= [];
+    frames.runs[fo] ??= 0;
+    return fo;
+  }
+
+  /** A frame whose call dirs cannot be pinned: from the next run on its statements run in `-`. */
+  function flost(fo: number): void {
+    if (frames.lost.has(fo)) return;
+    frames.lost.add(fo);
+    frames.grew.add(fo);
+  }
+
+  /** The pending function's name, now bound to frame `fo`. */
+  function fname(fo: number): string {
+    const name = fpend!;
+    fpend = null;
+    const fos = frames.fnames.get(name);
+    if (!fos) frames.fnames.set(name, [fo]);
+    else if (!fos.includes(fo)) fos.push(fo);
+    return name;
+  }
+
+  /**
+   * A function body's `{` or `(` (GH 2630): its statements also run in every
+   * dir a call to it started in on an earlier run. Unpinned (`-`) in an eval
+   * body, after a command `fnword` cannot pin, or when a call to the
+   * name came before this definition.
+   */
+  function fnopen(kind: 'u' | 'p'): void {
+    const fo = falloc();
+    const name = fname(fo);
+    if (frame === 'escaped' || frames.dyn || called.has(name) || HOOK_FN.test(name)) flost(fo);
+    const entry = cur === '-' && cwhy !== '' ? [...alts] : [cur, ...alts];
+    const def: FnDef = { kind, open: true, moved: false, sp, qsp, pre: { cur, why: cwhy, alts }, entry, entered: { cur, alts }, exits: [] };
+    defs[fo] = def;
+    fnstack.push(fo);
+    alts = [...alts];
+    for (const t of frames.ext[fo]) altadd(alts, t, cur, cwhy);
+    if (frames.lost.has(fo)) lose();
+    bound();
+    def.entered = { cur, alts };
+  }
+
+  /**
+   * A function body's close: a `{ }` body that moved may return in any dir it
+   * ends or runs `return` in, one that never did in the dir it was called in;
+   * the definition itself runs nothing, so the dir is the one before it.
+   */
+  function fnclose(): void {
+    const def = defs[fnstack.pop()!];
+    def.open = false;
+    const { entered } = def;
+    if (cur !== entered.cur || alts.length !== entered.alts.length || alts.some((t) => !entered.alts.includes(t))) def.moved = true;
+    def.exits = def.kind === 'u' && def.moved ? [...new Set([...def.exits, cur, ...alts])] : [];
+    cur = def.pre.cur;
+    cwhy = def.pre.why;
+    alts = def.pre.alts;
+  }
+
+  /** A function body that is no `{ }` or `( )`: its statements and every call to it run in `-`. */
+  function fnodef(): void {
+    const fo = falloc();
+    fname(fo);
+    defs[fo] = { kind: 'x', open: false, moved: true, sp, qsp, pre: { cur, why: cwhy, alts }, entry: [], entered: { cur, alts }, exits: [] };
+    lose();
+  }
+
+  /**
+   * A call to `name`: each function frame of that name also runs in the
+   * call's dirs, and after it the dir is the call's or any its `{ }` body
+   * returns in. A call to a frame still open (recursion), not yet defined
+   * this run, or with an unmodeled body leaves `-`.
+   */
+  function fncall(name: string): void {
+    called.add(name);
+    const fos = frames.fnames.get(name);
+    if (!fos) return;
+    const here = [cur, ...alts];
+    const ends: string[] = [];
+    let blind = false;
+    for (const fo of fos) {
+      const def = defs[fo];
+      if (def === undefined || def.open || def.kind === 'x') {
+        if (def?.kind !== 'x') flost(fo);
+        blind = true;
+        continue;
+      }
+      for (const t of here) {
+        if (def.entry.includes(t) || frames.ext[fo].includes(t) || frames.runs[fo] >= MAX_GROWTH) continue;
+        frames.ext[fo].push(t);
+        frames.grew.add(fo);
+      }
+      if (def.kind === 'u') ends.push(...def.exits);
+    }
+    old = '-';
+    owhy = '';
+    oalts = [];
+    if (blind) return lose();
+    if (ends.length === 0) return;
+    alts = [...alts];
+    for (const t of ends) altadd(alts, t, cur, cwhy);
+    bound();
+  }
+
+  /** A command `fnword` cannot pin may call any function, so every one runs in `-`, and so does what follows in this shell (`here`) once there are any. */
+  function fndyn(here = true): void {
+    if (!frames.dyn) {
+      frames.dyn = true;
+      for (const fos of frames.fnames.values()) for (const fo of fos) flost(fo);
+    }
+    if (here && frames.fnames.size > 0) {
+      lose();
+      old = '-';
+      owhy = '';
+      oalts = [];
+    }
+  }
+
+  /**
+   * The command word of a statement under `calls`: a function call, a
+   * `return` from the innermost body, or a word that may call any function:
+   * an eval, a trap, an alias, a word from a variable, a builtin's callback
+   * option, or a function export, which a `bash -c` body or a script can call
+   * in a dir this scan never sees.
+   */
+  function fnword(w: readonly string[], first: number): void {
+    let name = w[first];
+    if (name === 'coproc') name = w.slice(first + 1).find((x) => x !== '') ?? '';
+    if (DYN_CALLS.has(name) || /[$`]/.test(name) || ENCODED.test(name)) return fndyn();
+    if (cbcall(name, w.slice(first + 1))) return fndyn();
+    if (fnexport(name, w.slice(first + 1))) return fndyn(false);
+    if (name === 'return' && fnstack.length > 0) {
+      const def = defs[fnstack[fnstack.length - 1]];
+      for (const t of [cur, ...alts]) if (!def.exits.includes(t)) def.exits.push(t);
+      return;
+    }
+    if (name !== '') fncall(name);
   }
 
   /** The dir becomes `-`, which no why resolves. */
@@ -575,9 +801,19 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         first++;
         continue;
       }
+      if (fpend !== null && (w[first] !== '{' || wq[first])) fnodef();
+      if (calls && fpend === null && w[first] === 'function' && !wq[first]) {
+        let k = first + 1;
+        while (k < n && w[k] === '') k++;
+        if (k < n) {
+          fpend = w[k];
+          first = k + 1;
+          continue;
+        }
+      }
       if (w[first] === 'while') sawwhile = true;
       if (KEYWORD.test(w[first])) {
-        if (assign && !wq[first]) loopkw(w[first]);
+        if (frame && !wq[first]) loopkw(w[first]);
         plain = false;
         first++;
         continue;
@@ -606,9 +842,15 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       }
       break;
     }
+    if (calls && w.some((x) => HOOK_ARRAY.test(x))) fndyn();
+    if (fhead && fpend === null && first < n && w.slice(first + 1).every((x) => x === '')) {
+      fpend = w[first];
+      vend(true);
+      return;
+    }
     if (first >= n) {
       let ok = plain;
-      if (vtop && plain && !args) for (const a of aw) if (!assignword(a, !csure)) ok = false;
+      if (vtop && plain && !args) for (const a of aw) if (fnstack.length > 0 || !assignword(a, !csure)) ok = false;
       if (assign && asg !== '') {
         emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg, args);
         if (!chained && !args) {
@@ -622,19 +864,20 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
     let a0 = w[first];
     if (!args) owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
-    if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
-    else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
+    if (frame && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
+    else if (frame && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === 'export') {
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (!ASSIGNMENT.test(w[k])) ok = false;
-        else if (vtop && !args && !assignword(w[k], !csure)) ok = false;
+        else if (vtop && !args && (fnstack.length > 0 || !assignword(w[k], !csure))) ok = false;
       }
     } else if (ok) {
       ok = VPLAIN.test(a0);
     }
     const kept = !assign && a0 === 'git' ? gitEmptyWords(w, wq, first) : new Set<number>();
+    const gitCut: Record['cut'] = sub && a0 === 'git' ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
     let out = a0;
     for (let k = first + 1; k < n; k++) {
       if (w[k] !== '') out += ' ' + w[k];
@@ -645,6 +888,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       a0 = '';
     }
     lastout = out;
+    const at = { cur, alts };
     let d = cur;
     let da = alts;
     const o = oalts.length > 0 ? '-' : old;
@@ -713,7 +957,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
         break;
       }
     }
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
+    if (calls && !args) fnword(w, first);
+    if (cur !== at.cur || alts !== at.alts) for (const fo of fnstack) if (defs[fo].sp === sp && defs[fo].qsp === qsp) defs[fo].moved = true;
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, gitCut);
     if (!chained && !args) {
       old = '-';
       owhy = '';
@@ -806,8 +1052,21 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       continue;
     }
     if (c === '(') {
-      vkill = true;
       const last = stmt.slice(-1);
+      if (calls && last !== '$' && last !== '<' && last !== '>' && FN_HEAD.test(stmt)) {
+        let j = i + 1;
+        while (buf[j] === ' ' || buf[j] === '\t') j++;
+        if (buf[j] === ')') {
+          fhead = true;
+          flush();
+          fhead = false;
+          if (fpend !== null) {
+            i = j;
+            continue;
+          }
+        }
+      }
+      vkill = true;
       if (last === '$' || last === '<' || last === '>') {
         if (assign && last === '$') stmt = stmt + ENC[8] + ENC[9] + forsrc(i);
         else stmt = stmt.slice(0, -1);
@@ -816,11 +1075,14 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       flush(!assign && last === '$');
       push();
       sstack[sp] = last === '$' && owns;
+      if (fpend !== null) fnopen('p');
       continue;
     }
     if (c === ')') {
       flush();
       if (sp === 0) vok = false;
+      const top = fnstack.length > 0 ? defs[fnstack[fnstack.length - 1]] : undefined;
+      if (top?.kind === 'p' && top.sp === sp) fnclose();
       const closes = sp > 0 && sstack[sp];
       pop();
       tail = closes;

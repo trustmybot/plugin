@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
-import { statementsEnc, type Record } from './statements.js';
+import { ALT, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
 export type Statement = Record & { readonly src?: string };
@@ -130,24 +130,31 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
   }
 }
 
-/** _tmb_cmd_statements_enc <cmd> <base> <depth> without assign; null when the command or a body in it does not parse. */
-function listing(parser: Parser, cmd: string, base: string, depth: number, home: string): Statement[] | null {
+/**
+ * _tmb_cmd_statements_enc <cmd> <base> <depth> without assign, loops and
+ * function calls framed (GH 2065, GH 2630): a statement a loop's back-edge or
+ * a call can bring to more dirs is listed once per dir. Null when the command
+ * or a body in it does not parse. An `eval` body is `escaped`: the functions
+ * it defines outlive it, so their statements run in `-`.
+ */
+function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
   const encoded = encode(parser, cmd);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
-  const records = statementsEnc(encoded.text, base, home, false)
-    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt) }))
+  const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
+    .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
+    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), ...(record.cut ? { cut: record.cut } : {}) }))
     .filter((record) => record.stmt !== '');
   let srcs: Array<string | undefined> | undefined;
   const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
-  for (const [k, { dir, stmt }] of records.entries()) {
+  for (const [k, { dir, stmt, cut }] of records.entries()) {
     const body = depth < MAX_DEPTH && !dir.startsWith('=') ? inner(stmt) : '';
     if (body === '') {
-      out.push(withSource({ dir, stmt }, () => srcAt(k)));
+      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}) }, () => srcAt(k)));
       continue;
     }
-    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home);
+    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home, readWords(stmt)[0] === 'eval');
     if (nested === null) return null;
     out.push(...nested);
   }
@@ -192,7 +199,8 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
     let dir = entry.dir;
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
     else if (dir === '@') dir = state ??= await cwdState(cwd, env);
-    statements.push(withSource({ dir, stmt: entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_') }, () => entry.src));
+    const stmt = entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_');
+    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}) }, () => entry.src));
   }
   return { ok: true, statements };
 }
@@ -205,27 +213,90 @@ export function gitSubcommand(stmt: string): string {
   return k < w.length ? w.slice(k).join(' ') : '';
 }
 
+const VALUE_OPTIONS = ['-C', '-c', '--git-dir', '--work-tree', '--namespace'];
+const VALUE_JOINED = /^--(git-dir|work-tree|namespace)=/;
+/** A word bash may turn into other words (a parameter, command or arithmetic expansion, a brace or glob pattern), or a redirect, which leaves git's words. */
+const NOT_LITERAL = /[$`*?[{]|^[0-9]*[<>]|^&>/;
+/** The same for a value-taking option's argument, where a parameter, command or arithmetic expansion cannot move the subcommand. */
+const NOT_LITERAL_VALUE = /[*?[]|(^|[^$]){|^[0-9]*[<>]|^&>/;
+
+type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src'>>);
+
+/**
+ * git's subcommand in <statement> and the words after it, as gitSubcommand
+ * gives them, or undefined when it is unknown (GH 2634): the subcommand word,
+ * or an option word before it that is no value-taking option's argument,
+ * holds an expansion, a brace or glob pattern, or is a redirect; an
+ * argument of `-C` / `-c` / `--git-dir` / `--work-tree` / `--namespace`
+ * (or the `=value` of the last three) only when it is a pattern or a
+ * redirect. Where an unquoted $( ) or backtick cut the statement inside that
+ * span, the words are read from its `src`, read only then, and a `src` that
+ * is missing or does not line up leaves it unknown.
+ */
+export function gitSubcommandOf(statement: SubcommandInput): string | undefined {
+  const { stmt, cut } = typeof statement === 'string' ? { stmt: statement, cut: undefined } : statement;
+  let w = readWords(stmt);
+  if (w[0] !== 'git') return '';
+  let k = subcommandAt(w);
+  if (cut !== undefined && typeof statement !== 'string') {
+    const at = cut === 'glued' ? w.length - 1 : w.length;
+    if (k >= at) {
+      const src = statement.src;
+      const words = src === undefined ? null : sourceWords(src);
+      if (words === null || words[0]?.text !== 'git' || words.findIndex((word) => word.sub) !== at) return undefined;
+      w = words.map((word) => word.text);
+      k = subcommandAt(w);
+    }
+  }
+  return spanLiteral(w) ? (k < w.length ? w.slice(k).join(' ') : '') : undefined;
+}
+
+/** Whether git's words up to its subcommand are literal, each value-taking option's argument judged by NOT_LITERAL_VALUE. */
+function spanLiteral(w: readonly string[]): boolean {
+  let k = 1;
+  while (k < w.length) {
+    const word = w[k];
+    if (VALUE_OPTIONS.includes(word)) {
+      if (k + 1 < w.length && NOT_LITERAL_VALUE.test(w[k + 1])) return false;
+      k += 2;
+    } else if (VALUE_JOINED.test(word)) {
+      if (NOT_LITERAL_VALUE.test(word.replace(VALUE_JOINED, ''))) return false;
+      k += 1;
+    } else if (word.startsWith('-')) {
+      if (NOT_LITERAL.test(word)) return false;
+      k += 1;
+    } else break;
+  }
+  return k >= w.length || !NOT_LITERAL.test(w[k]);
+}
+
+/** Whether git's subcommand in <statement> is unknown: gitSubcommandOf gives undefined (GH 2634). */
+export function gitSubcommandUnknown(statement: SubcommandInput): boolean {
+  return gitSubcommandOf(statement) === undefined;
+}
+
 /** The index of git's subcommand in a git statement's words: past git's own options. */
 function subcommandAt(w: readonly string[]): number {
   let k = 1;
   while (k < w.length) {
     const word = w[k];
-    if (['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(word)) k += 2;
+    if (VALUE_OPTIONS.includes(word)) k += 2;
     else if (word.startsWith('-')) k += 1;
     else break;
   }
   return k;
 }
 
-/** Where each word of the first line of shell source `src` starts, with its unquoted text; null at an unclosed quote or substitution. */
-function sourceWords(src: string): Array<{ start: number; text: string }> | null {
-  const words: Array<{ start: number; text: string }> = [];
+/** Where each word of the first line of shell source `src` starts, with its unquoted text and whether an unquoted $( ) or backtick is in it; null at an unclosed quote or substitution. */
+function sourceWords(src: string): Array<{ start: number; text: string; sub: boolean }> | null {
+  const words: Array<{ start: number; text: string; sub: boolean }> = [];
   let i = 0;
   for (;;) {
     while (src[i] === ' ' || src[i] === '\t') i++;
     if (i >= src.length || src[i] === '\n') return words;
     const start = i;
     let text = '';
+    let sub = false;
     while (i < src.length && !/[ \t\n]/.test(src[i])) {
       const c = src[i];
       if (c === "'") {
@@ -248,18 +319,39 @@ function sourceWords(src: string): Array<{ start: number; text: string }> | null
         let depth = 0;
         let j = i + 1;
         for (; j < src.length; j++) {
-          if (src[j] === '(') depth++;
-          else if (src[j] === ')' && --depth === 0) break;
+          const d = src[j];
+          if (d === '\\') {
+            j++;
+          } else if (d === "'") {
+            j = src.indexOf("'", j + 1);
+            if (j < 0) return null;
+          } else if (d === '"') {
+            for (j++; j < src.length && src[j] !== '"'; j++) {
+              if (src[j] === '\\') j++;
+            }
+          } else if (d === '(') {
+            depth++;
+          } else if (d === ')' && --depth === 0) {
+            break;
+          }
         }
         if (j >= src.length) return null;
         text += src.slice(i, j + 1);
+        sub = true;
+        i = j + 1;
+      } else if (c === '`') {
+        let j = i + 1;
+        for (; j < src.length && src[j] !== '`'; j++) if (src[j] === '\\') j++;
+        if (j >= src.length) return null;
+        text += src.slice(i, j + 1);
+        sub = true;
         i = j + 1;
       } else {
         text += c;
         i++;
       }
     }
-    words.push({ start, text });
+    words.push({ start, text, sub });
   }
 }
 

@@ -8,9 +8,8 @@
  * swe-verification-gate's is 3627 s, so its group's router timeout is the
  * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
  * the router (bash-output-trim, swe-downstream-context) never had a registration; it takes the 4 s of
- * the lightest advisory one, and reviewer-downstream-context, which runs git, the 6 s of a git-reading one.
- * wm-read-before-provision, born in the router and writing an audit row through lib/audit.ts, takes the 6 s of a
- * DB-writing one, which covers the 3.5 s write run budget plus the 1 s margin hook-timeout-budget asserts.
+ * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
+ * needs, and reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one.
  * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
  * repo's lint commands on the edited file (GH 2570).
  */
@@ -30,7 +29,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'no-source-edit-from-main': 6,
   'no-prose-in-scratch': 6,
   'worktree-adopt-guard': 6,
-  'wm-read-before-provision': 6,
+  'wm-read-before-provision': 5,
   'swe-scope-fence': 6,
   'naming-lint': 4,
   'code-quality-lint': 4,
@@ -55,6 +54,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'attribution-footer': 16,
   'clean-merged-branch': 11,
   'close-issue-on-merge': 16,
+  'ref-move-reindex': 6,
   'swe-spawn-bind': 6,
   'swe-spawn-rollback': 6,
   'bro-turn-usage': 6,

@@ -8,6 +8,7 @@ export const SECTIONS = [
   ['efficiency', 'Efficiency'],
   ['throughput', 'Throughput'],
   ['explore', 'Explore'],
+  ['change-impact', 'Change impact'],
 ] as const;
 export type Section = (typeof SECTIONS)[number][0];
 
@@ -358,6 +359,27 @@ export function efficiencyApiPath(p: InsightParams): string {
   query.delete('range');
   return `insights/efficiency/compare?${query.toString()}${compareQuery(p.compare)}`.replace('?&', '?');
 }
+
+// Change impact sets its own windows, so no Period or filter reaches it.
+export const OWN_WINDOW_SECTIONS: ReadonlySet<Section> = new Set(['change-impact']);
+
+export function changeImpactApiPath(source: string, id?: string, repo?: string | null): string {
+  const query = new URLSearchParams();
+  if (source) query.set('source', source);
+  if (id !== undefined) query.set('id', id);
+  if (id !== undefined && repo) query.set('repo', repo);
+  const qs = query.toString();
+  return qs ? `insights/change-impact?${qs}` : 'insights/change-impact';
+}
+
+export type ChangeSide = 'before' | 'after';
+export const CHANGE_SIDES: Record<ChangeSide, string> = { before: 'Before', after: 'After' };
+export const CHANGE_METRIC = 'Metric';
+export const CHANGE_MARKER = 'change';
+export const CHANGE_SERIES_SUBTITLE = 'Median per UTC day, before and after the change';
+export const CHANGE_SERIES_EMPTY = 'No samples in this window.';
+export const CHANGE_SERIES_COLUMNS = ['Day', 'Side', 'Samples', 'Median'];
+export const changePointText = (day: string, side: ChangeSide, median: string, n: number) => `${day} ${side}: median ${median} (n ${n})`;
 
 export function exploreApiPath(p: InsightParams): string {
   const query = filterQuery(p);

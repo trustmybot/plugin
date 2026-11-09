@@ -15,7 +15,8 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readBlobSync } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh, freshnessFields, isStale, type Freshness } from '../world-model/freshness.js';
+import { ensureFresh, fetchTargetIfDue, freshnessBlock, freshnessFields, isStale, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
+import { needsReview, type NeedsReview } from '../world-model/needs-review.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -1152,7 +1153,7 @@ export function worldModelTools(
         'truncated:true past 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. unmerged_work: closed-task branch tips not in the target. ' +
         'checkout_behind_upstream: commits the checkout trails origin/<target> at last fetch (may explain missing files, shifted lines); absent if current. ' +
         'last_scan {at, source, ok, errors}: newest scan_run (ok false if a stage failed), else null. ' +
-        'Reads reindex to the target first: indexed_commit, target_commit; stale:true (+files[].stale) while another session reindexes.',
+        'Reads reindex to the target first: indexed_commit, target_commit; stale:true (+files[].stale) while another session reindexes. freshness: the index-freshness block. needs_review: flagged concepts and changed READMEs, if any.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1212,7 +1213,7 @@ export function worldModelTools(
     {
       name: 'world_model_search',
       description:
-        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a hit has stale: true while its file awaits reindex. Without embeddings it falls back to keyword with warning 'semantic_unavailable'.",
+        "Search dir summaries + file purposes for 'where does X live', cheaper than world_model_get. keyword is FTS5, semantic is embedding cosine. Hits are tagged kind 'dir'|'file'|'symbol'; a hit has stale: true while its file awaits reindex. Without embeddings it falls back to keyword with warning 'semantic_unavailable'. freshness: the index-freshness block. needs_review: flagged concepts and changed READMEs, if any.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1245,7 +1246,7 @@ export function worldModelTools(
       description:
         "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table, reads_config, tests and bundled_by (up to 50 refs each, full-count totals). Pass id from world_model_search, qualified_name (+ optional path) or config_key. " +
         "note: by-name resolution, lists may be incomplete. symbol.stale: its file awaits reindex; indexed_commit/target_commit: the card's and the read's commit. impact: levels[] by depth, refs via call or table:<name>, levels[].total, up to 200 refs (truncated). " +
-        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag).",
+        "index_error: the newest scan's symbol-index error for its repo, if any (lists may lag). freshness: the index-freshness block. needs_review: flagged concepts and changed READMEs, if any.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1343,25 +1344,36 @@ export function worldModelTools(
   const resolveRepo = (arg: unknown): ResolvedWorldModelRepo => resolveWorldModelRepo(db, arg, cwd);
   const sourceOf = (r: ResolvedWorldModelRepo): { repo_source?: RepoSource } =>
     r.repo_source ? { repo_source: r.repo_source } : {};
-  // Bring the repo's index to its target before answering (GH 2584). A
-  // failure answers from the index as it is.
-  const freshen = async (repo: string): Promise<Freshness | null> => {
-    const graph = repo ? (graphHolder?.ensureGraph() ?? null) : null;
-    if (!graph) return null;
-    try {
-      return await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger: 'read' });
-    } catch (e) {
-      serverLog({ event: 'wm_freshness_error', repo, error: (e as Error).message });
-      return null;
-    }
-  };
-  const freshenAll = async (repos: readonly string[]): Promise<Map<string, Freshness>> => {
+  // Fetch each repo's target when its window is due, all at once, then bring
+  // each index to its target before answering (GH 2584). A failure answers
+  // from the index as it is.
+  const freshenAll = async (repos: readonly string[], agent: unknown): Promise<Map<string, Freshness>> => {
     const byRepo = new Map<string, Freshness>();
-    for (const repo of repos) {
-      const f = await freshen(repo);
-      if (f) byRepo.set(repo, f);
+    const graph = graphHolder?.ensureGraph() ?? null;
+    if (!graph) return byRepo;
+    const named = repos.filter((repo) => repo);
+    const fetched = await Promise.all(named.map((repo) => fetchTargetIfDue(db, repo, { agent })));
+    for (const [i, repo] of named.entries()) {
+      try {
+        const trigger = fetched[i] === 'moved' ? 'fetch' : 'read';
+        byRepo.set(repo, await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger }));
+      } catch (e) {
+        serverLog({ event: 'wm_freshness_error', repo, error: (e as Error).message });
+      }
     }
     return byRepo;
+  };
+  const freshen = async (repo: string, agent: unknown): Promise<Freshness | null> =>
+    (await freshenAll([repo], agent)).get(repo) ?? null;
+  // The freshness block (decision 2487) every world_model_get, _search and
+  // _symbol answer carries, with several repos the first by name, plus the
+  // needs_review list of every repo the answer covers (GH 2584). The block is
+  // read first, so its needs_review_count includes the READMEs a bro answer
+  // delivers and clears.
+  const blockOf = (repo: string | readonly string[] | null, agent: unknown): { freshness: FreshnessBlock | null } & NeedsReview => {
+    const repos = repo === null ? [] : typeof repo === 'string' ? [repo] : [...repo].sort();
+    const freshness = freshnessBlock(db, repo === null ? null : (repos[0] ?? null));
+    return { freshness, ...needsReview(db, repos, agent) };
   };
 
   const handlers: Record<string, Fn> = {
@@ -1375,7 +1387,7 @@ export function worldModelTools(
         const last_scan = lastScan(db);
         const resolved = resolveRepo(args['repo']);
         if (resolved.warning) {
-          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos, last_scan });
+          return ok({ repo: '', root: null, warning: resolved.warning, available_repos: resolved.available_repos, last_scan, ...blockOf(resolved.available_repos, args['agent']) });
         }
         const repo = resolved.name;
         const source = sourceOf(resolved);
@@ -1393,19 +1405,19 @@ export function worldModelTools(
 
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
+          return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
         }
 
-        const fr = await freshen(repo);
+        const fr = await freshen(repo, args['agent']);
         if (graph.directoryCount(repo) === 0) {
-          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
+          return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
         }
 
         const rows: DirRow[] = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path, depth, { nodeCounter, covers: coveringRunners(db, repo) });
         if (!tree) {
-          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag, last_scan });
+          return ok({ repo, ...source, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo, args['agent']) });
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
@@ -1427,6 +1439,7 @@ export function worldModelTools(
           unmerged_work: unmerged.unmerged_work,
           ...lag,
           last_scan,
+          ...blockOf(repo, args['agent']),
         });
       })),
     ),
@@ -1486,8 +1499,8 @@ export function worldModelTools(
         if (resolved.warning) {
           const scope = { repo_source: 'all' as const, repos_searched: resolved.available_repos };
           const graph = graphHolder?.ensureGraph() ?? null;
-          if (!graph) return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
-          const fresh = await freshenAll(resolved.available_repos);
+          if (!graph) return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...blockOf(resolved.available_repos, args['agent']) });
+          const fresh = await freshenAll(resolved.available_repos, args['agent']);
           const rankings: WorldModelRanking[] = [];
           for (const repo of resolved.available_repos) rankings.push(await rankWorldModel(db, graph, repo, query, mode, k));
           const top = rankings
@@ -1508,6 +1521,7 @@ export function worldModelTools(
             ...(warning ? { warning } : {}),
             mode,
             match,
+            ...blockOf(resolved.available_repos, args['agent']),
           });
         }
         const repo = resolved.name;
@@ -1516,10 +1530,10 @@ export function worldModelTools(
         const lag = checkoutLag(db, repo);
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag });
+          return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag, ...blockOf(repo, args['agent']) });
         }
 
-        const fr = await freshen(repo);
+        const fr = await freshen(repo, args['agent']);
         const { ranked, match, poolFull, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
         const results = resultsOf(ranked.slice(0, k), fr ? new Map([[repo, fr]]) : new Map());
         const total_matched = ranked.length;
@@ -1535,6 +1549,7 @@ export function worldModelTools(
           mode,
           match,
           ...lag,
+          ...blockOf(repo, args['agent']),
         });
       })),
     ),
@@ -1553,6 +1568,7 @@ export function worldModelTools(
             config_key: configKey,
             readers: configKeyReaders(db, repos, configKey),
             ...(allRepos ? { repo_source: 'all' } : sourceOf(resolved)),
+            ...blockOf(repos, args['agent']),
           });
         }
         const id = args['id'];
@@ -1562,7 +1578,7 @@ export function worldModelTools(
         if (typeof id === 'number') {
           const before = symbolById(db, id);
           if (!before) return err(`symbol ${id} not found`);
-          fresh = await freshenAll([before.repo]);
+          fresh = await freshenAll([before.repo], args['agent']);
           symbol = symbolById(db, id) ?? symbolsByName(db, before.repo, before.qualified_name, before.path)[0] ?? null;
           if (!symbol) return err(`symbol ${id} not found: ${before.qualified_name} left ${before.path} at the target commit`);
         } else {
@@ -1575,7 +1591,7 @@ export function worldModelTools(
           source = allRepos ? { repo_source: 'all' } : sourceOf(resolved);
           const pathArg = args['path'];
           const path = typeof pathArg === 'string' && pathArg ? pathArg : undefined;
-          fresh = await freshenAll(allRepos ? resolved.available_repos : [repo]);
+          fresh = await freshenAll(allRepos ? resolved.available_repos : [repo], args['agent']);
           const matches = allRepos
             ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
             : symbolsByName(db, repo, name, path);
@@ -1602,6 +1618,7 @@ export function worldModelTools(
               })),
               ...(allRepos ? {} : checkoutLag(db, repo)),
               ...(allRepos ? {} : indexErrorOf(lastScan(db), repo)),
+              ...blockOf(allRepos ? resolved.available_repos : repo, args['agent']),
             });
           }
           symbol = definitions[0] ?? matches[0]!;
@@ -1628,6 +1645,7 @@ export function worldModelTools(
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
           ...checkoutLag(db, symbol.repo),
           ...indexErrorOf(lastScan(db), symbol.repo),
+          ...blockOf(symbol.repo, args['agent']),
         });
       })),
     ),

@@ -22,6 +22,7 @@ export const REPO_FK_CHILDREN: ReadonlyArray<readonly [string, string]> = [
   ['discussions', 'UPDATE discussions SET repo = ? WHERE repo = ?'],
   ['agent_runs', 'UPDATE agent_runs SET repo = ? WHERE repo = ?'],
   ['repo_env', 'UPDATE repo_env SET repo = ? WHERE repo = ?'],
+  ['wm_freshness', 'UPDATE wm_freshness SET repo = ? WHERE repo = ?'],
 ];
 
 export type RepoRenameRefusal = 'repo_same' | 'repo_not_found' | 'repo_exists' | 'rename_in_progress';

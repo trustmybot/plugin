@@ -14,10 +14,16 @@
 // migrates the live DB (GH 1639). The project root is the argument, else
 // CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never the working
 // directory, which may be a worktree or a subdirectory. Neither → exit 2.
-// The source is scan_run's audit `source`: bro_auto_post_close by default,
+// The source is scan_run's audit `source`: bro_auto_initial by default,
 // startup_catchup from the server's connect-time catch-up, which on a warm DB
 // reindexes each known repo to its target commit instead of walking the
-// workspace (GH 2584).
+// workspace (GH 2584). The invoker then waits for the daily shadow compare
+// scan_run started in the background before it closes the DB.
+//
+// Hook mode: run-scan.mjs <project-root> hook <repo> [--fetch], spawned by the
+// ref-move-reindex PostToolUse hook, reindexes only <repo> with trigger 'hook'
+// and runs no scan_run; --fetch first fetches origin/<target branch>. A lock
+// another process holds makes it exit; the next read catches up.
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -42,7 +48,12 @@ async function main() {
   if (dbPath === ':memory:' || !existsSync(dbPath)) {
     fail(2, `no trajectory DB at ${dbPath}; nothing scanned`);
   }
-  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools } = await import(
+  const source = process.argv[3] || 'bro_auto_initial';
+  const hookRepo = source === 'hook' ? process.argv[4] : undefined;
+  if (source === 'hook' && !hookRepo) {
+    fail(2, 'hook mode needs a repo: run-scan.mjs <project-root> hook <repo> [--fetch]; nothing scanned');
+  }
+  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools, reindexOnRefMove, shadowCompareIdle } = await import(
     '../../mcp/trajectory-server/dist/run-scan.js'
   );
 
@@ -53,6 +64,20 @@ async function main() {
     fail(1, `cannot open the trajectory DB at ${dbPath}: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  if (hookRepo) {
+    try {
+      const fresh = await reindexOnRefMove(db, new WorldModelGraph(db), hookRepo, {
+        dbPath,
+        fetch: process.argv.slice(5).includes('--fetch'),
+      });
+      const at = fresh?.indexed_commit?.slice(0, 12) ?? 'none';
+      console.error(`${TAG} OK — ${hookRepo}@${at} (${fresh?.mode ?? 'current'})`);
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
   try {
     // scan_run expects a GraphHolder (since #1089). This one-shot invoker runs
     // a single scan and exits, so wrap the graph as an inert holder.
@@ -60,7 +85,7 @@ async function main() {
     const result = await tools.handlers.scan_run({
       agent: 'bro',
       session_dir: projectRoot,
-      source: process.argv[3] || 'bro_auto_post_close',
+      source,
     });
     if (result.isError) {
       console.error(`${TAG} scan_run error: ${result.content?.[0]?.text ?? '?'}`);
@@ -78,6 +103,7 @@ async function main() {
         `${summary.dirs_upserted} dirs upserted, ${summary.dirs_retired ?? 0} retired`,
     );
   } finally {
+    await shadowCompareIdle();
     db.close();
   }
 }

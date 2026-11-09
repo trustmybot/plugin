@@ -20,6 +20,19 @@ const BLANK = /^[ \t\n\v\f\r]*$/;
 const HAS_FIELD = /[^ \t\n]/;
 const HASH_ID = /(^|[^&A-Za-z0-9])#[0-9]+/;
 
+/** The change-impact METRICS registry ids (mcp/trajectory-server/src/change-impact/metrics.ts); a test keeps the two equal. */
+export const METRIC_IDS: readonly string[] = [
+  'swe_rework_ratio',
+  'tokens_per_task',
+  'reworks_per_task',
+  'review_fail_rate',
+  'verification_pass_rate',
+  'hook_block_tokens_per_run',
+  'bro_tokens_per_session',
+];
+export const METRIC_LINE = /^Metric: ([a-z][a-z0-9_]{0,47}) (lower|higher)$/;
+const METRIC_LIKE = /^[ \t]*metric[ \t]*:/i;
+
 export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -88,9 +101,36 @@ export function trimBlank(input: string[]): string[] {
   return input.slice(start, end);
 }
 
-/** Body: every line after the section line, leading and trailing blank lines dropped. */
+/** Body: every line after the section line, leading and trailing blank lines dropped, without a final `Metric:` line. */
 export function fragmentBody(path: string): string[] {
-  return trimBlank(lines(readFileSync(path, 'utf8')).slice(1));
+  const body = trimBlank(lines(readFileSync(path, 'utf8')).slice(1));
+  return METRIC_LINE.test(body.at(-1) ?? '') ? trimBlank(body.slice(0, -1)) : body;
+}
+
+/** The fragment's final `Metric:` line as {metric, direction}, or null when it declares none. */
+export function fragmentMetric(path: string): { metric: string; direction: 'lower' | 'higher' } | null {
+  const m = METRIC_LINE.exec(trimBlank(lines(readFileSync(path, 'utf8')).slice(1)).at(-1) ?? '');
+  return m ? { metric: m[1] ?? '', direction: m[2] as 'lower' | 'higher' } : null;
+}
+
+function metricProblems(path: string, raw: string[]): string[] {
+  let last = raw.length - 1;
+  while (last > 0 && BLANK.test(raw[last] ?? '')) last--;
+  const metricAt = raw.flatMap((line, i) => (i > 0 && METRIC_LIKE.test(line) ? [i] : []));
+  return metricAt.flatMap((i) => {
+    const where = `${path}:${i + 1}`;
+    if (i !== last) {
+      return [
+        metricAt.length > 1
+          ? `${where}: a second Metric: line; a fragment declares at most one, as its last line`
+          : `${where}: the Metric: line must be the last line of the entry`,
+      ];
+    }
+    const m = METRIC_LINE.exec(raw[i] ?? '');
+    if (!m) return [`${where}: the Metric: line must be exactly "Metric: <metric id> lower|higher" (got "${raw[i]}")`];
+    if (!METRIC_IDS.includes(m[1] ?? '')) return [`${where}: unknown metric "${m[1]}"; one of ${METRIC_IDS.join(', ')}`];
+    return [];
+  });
 }
 
 /** One line per problem; empty when the fragment is well formed. */
@@ -103,6 +143,13 @@ export function fragmentValidate(path: string): string[] {
   if (!SECTIONS.some((s) => first === `### ${s}`)) {
     problems.push(`${path}: first line must be one of: ${SECTIONS.map((s) => `### ${s}`).join(', ')} (got "${first}")`);
   }
+  const raw = lines(readFileSync(path, 'utf8'));
+  raw.forEach((line, i) => {
+    if (i > 0 && line.startsWith('### ')) {
+      problems.push(`${path}:${i + 1}: a second section line "${line}"; one section per fragment, so split it into two fragments (changelog.d/README.md)`);
+    }
+  });
+  problems.push(...metricProblems(path, raw));
   const body = fragmentBody(path);
   if (body.length === 0) return [...problems, `${path}: no entry text after the section line`];
   if (!(body[0] ?? '').startsWith('- ')) problems.push(`${path}: the entry must start with "- " (one bullet)`);

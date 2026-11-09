@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_CLASSIFICATION_LABELS, DEFAULT_PRIORITY_LABELS } from '../../mcp/trajectory-server/src/tools/issues.ts';
 import { releaseAt, type Release } from './releases.ts';
 
 type Row = Record<string, unknown>;
@@ -109,10 +110,10 @@ const ISSUE_PRS_SQL = `(SELECT json_group_array(json_object('number', x.number, 
                      WHERE p.repo = i.repo AND c.issue_number = i.gh_iid
                      ORDER BY p.number) x)`;
 
-export function issues(db: DatabaseSync): Row[] {
+export function issues(db: DatabaseSync): { issues: Row[]; label_taxonomy: LabelTaxonomy } {
   const remotes = webRemotes(db);
   const prs = prTablesAvailable(db) ? ISSUE_PRS_SQL : `'[]'`;
-  return all(
+  const rows = all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
             i.created_at, i.updated_at, i.closed_at, i.labels,
@@ -125,6 +126,7 @@ export function issues(db: DatabaseSync): Row[] {
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`,
   ).map((i) => ({ ...i, remote_web_url: issueWebUrl(remotes, i) }));
+  return { issues: rows, label_taxonomy: effectiveLabelTaxonomy(db) };
 }
 
 export function schemaVersion(db: DatabaseSync): number | null {
@@ -148,16 +150,27 @@ function configStringList(db: DatabaseSync, key: string): string[] | null {
   }
 }
 
+export interface LabelTaxonomy {
+  classification: string[];
+  priority: string[];
+  area: string[];
+}
+
+export function effectiveLabelTaxonomy(db: DatabaseSync): LabelTaxonomy {
+  return {
+    classification: configStringList(db, 'issue_classification_labels') ?? [...DEFAULT_CLASSIFICATION_LABELS],
+    priority: configStringList(db, 'issue_priority_labels') ?? [...DEFAULT_PRIORITY_LABELS],
+    area: configStringList(db, 'issue_area_labels') ?? [],
+  };
+}
+
 export function issueDetail(db: DatabaseSync, id: number): Row | null {
   const issue = one(db, `SELECT * FROM issues WHERE id = ?`, id);
   if (!issue) return null;
   const repo = issue['repo'] === null ? null : String(issue['repo']);
   return {
     issue: { ...issue, remote_web_url: issueWebUrl(webRemotes(db), issue) },
-    label_taxonomy: {
-      classification: configStringList(db, 'issue_classification_labels'),
-      priority: configStringList(db, 'issue_priority_labels'),
-    },
+    label_taxonomy: effectiveLabelTaxonomy(db),
     milestones: all(
       db,
       `SELECT DISTINCT name FROM milestones WHERE repo IS ? OR ? IS NULL ORDER BY name`,

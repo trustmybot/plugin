@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 63`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 66`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -17,7 +17,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.test.mjs` fails when they drift. The prose around them is hand-written.
 
-The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (since GH 1833, the commits since then that change a file the README references other than by adding it) and `dead_refs` (a JSON array of paths the README names that are missing on disk); all three are `NULL` for structural rows and non-git roots. Since v44 (GH 1680) the L1 symbol layer adds `wm_symbols` (one row per top-level definition or file module, unique by `(repo, path, kind, qualified_name)`), `wm_edges` (calls, imports, table reads and writes between symbols; `dst_id` goes `NULL` when the target symbol is deleted), the `wm_symbols_fts` index, and `wm_files.symbols_md5` (the stamp `content_md5 || ':' || EXTRACTOR_VERSION` the file's symbols were last parsed at, `NULL` until then). See `docs/architecture/WORLD_MODEL.md`.
+The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (since GH 1833, the commits since then that change a file the README references other than by adding it) and `dead_refs` (a JSON array of paths the README names that are missing on disk); all three are `NULL` for structural rows and non-git roots. Since v44 (GH 1680) the L1 symbol layer adds `wm_symbols` (one row per top-level definition or file module, unique by `(repo, path, kind, qualified_name)`), `wm_edges` (calls, imports, table reads and writes between symbols; `dst_id` goes `NULL` when the target symbol is deleted), the `wm_symbols_fts` index, and `wm_files.symbols_md5` (the stamp `content_md5 || ':' || EXTRACTOR_VERSION` the file's symbols were last parsed at, `NULL` until then). Since v63 (GH 2584) `wm_freshness` keeps one row per repo (FK to `repos(name)`, cascading on delete and rename): the resolved target ref and commit and the state of the newest reindex, which the `freshness` block of the world-model tools and the dashboard read. Since v64 (GH 2584) `wm_directories.readme_review_pending` is 1 while a reindex-changed README summary waits for bro's review; a world-model answer to bro that lists the dir sets it back to 0. See `docs/architecture/WORLD_MODEL.md`.
 
 The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the cheatcodes acquired via the install pipeline (`origin='marketplace'` from a registered marketplace ref, `origin='external'` from a raw repo URL). Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 63`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 66`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -36,6 +36,7 @@ _Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/g
 erDiagram
     repos ||--o{ repo_remotes : "repo (CASCADE)"
     repos ||--o{ repo_env : "repo (CASCADE)"
+    repos |o--o| wm_freshness : "repo (CASCADE)"
     repos ||--o{ milestones : "repo (RESTRICT)"
     repos |o--o{ issues : "repo (RESTRICT)"
     milestones |o--o{ issues : "milestone, repo (RESTRICT)"
@@ -116,6 +117,21 @@ erDiagram
         TEXT updated_at "NOT NULL"
     }
 
+    wm_freshness {
+        TEXT repo PK,FK "→ repos.name CASCADE"
+        TEXT target_ref
+        TEXT target_commit
+        TEXT target_fetched_at
+        TEXT reindex_state "NOT NULL; CHECK idle|running|failed"
+        TEXT reindex_mode "CHECK incremental|full"
+        TEXT reindex_trigger "CHECK read|spawn|startup|scan|hook|fetch"
+        TEXT reindex_started_at
+        TEXT reindex_finished_at
+        INTEGER reindex_elapsed_ms
+        TEXT reindex_outcome "CHECK ok|error"
+        TEXT updated_at "NOT NULL"
+    }
+
     milestones {
         TEXT name PK "NOT NULL"
         TEXT repo PK,FK "NOT NULL; → repos.name RESTRICT"
@@ -187,6 +203,7 @@ erDiagram
         TEXT repo FK "→ repos.name RESTRICT"
         TEXT created_at "NOT NULL"
         TEXT reviewer_agent_id
+        TEXT reviewed_sha
     }
 
     verification_runs {
@@ -426,6 +443,7 @@ erDiagram
         TEXT summary_sha
         INTEGER commits_behind
         TEXT dead_refs
+        INTEGER readme_review_pending "NOT NULL"
     }
 
     wm_files {
@@ -579,6 +597,23 @@ Table constraints:
 
 - UNIQUE `(repo, package_path, ecosystem)`
 
+### `wm_freshness`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `repo` | TEXT | nullable |  | PK; FK → `repos.name` ON DELETE CASCADE |
+| `target_ref` | TEXT | nullable |  |  |
+| `target_commit` | TEXT | nullable |  |  |
+| `target_fetched_at` | TEXT | nullable |  |  |
+| `reindex_state` | TEXT | NOT NULL | `'idle'` | CHECK `reindex_state IN ('idle','running','failed')` |
+| `reindex_mode` | TEXT | nullable |  | CHECK `reindex_mode IN ('incremental','full')` |
+| `reindex_trigger` | TEXT | nullable |  | CHECK `reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')` |
+| `reindex_started_at` | TEXT | nullable |  |  |
+| `reindex_finished_at` | TEXT | nullable |  |  |
+| `reindex_elapsed_ms` | INTEGER | nullable |  |  |
+| `reindex_outcome` | TEXT | nullable |  | CHECK `reindex_outcome IN ('ok','error')` |
+| `updated_at` | TEXT | NOT NULL |  |  |
+
 ### `milestones`
 
 | Column | Type | Null | Default | Constraints |
@@ -669,6 +704,7 @@ Table constraints:
 | `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
 | `created_at` | TEXT | NOT NULL |  |  |
 | `reviewer_agent_id` | TEXT | nullable |  |  |
+| `reviewed_sha` | TEXT | nullable |  |  |
 
 Table constraints:
 
@@ -987,6 +1023,7 @@ Table constraints:
 | `summary_sha` | TEXT | nullable |  |  |
 | `commits_behind` | INTEGER | nullable |  |  |
 | `dead_refs` | TEXT | nullable |  |  |
+| `readme_review_pending` | INTEGER | NOT NULL | `0` |  |
 
 Table constraints:
 
@@ -1124,6 +1161,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 |---|---|---|---|
 | `repo_remotes` | `repo` | `repos(name)` | CASCADE |
 | `repo_env` | `repo` | `repos(name)` | CASCADE |
+| `wm_freshness` | `repo` | `repos(name)` | CASCADE |
 | `milestones` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
@@ -1282,7 +1320,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 - `validation_attempts` → `tasks.id`: every code-reviewer verdict belongs to one task.
 - `agent_runs` → `tasks.id` / `issues.id`: per-task and per-issue resource tracking.
 - `verification_runs` → `tasks.id` and `verification_run_commands` → `verification_runs.id` (`ON DELETE CASCADE`): a task's recorded verification runs, and each run's commands, go with it.
-- `lint_runs` → `tasks.id` and `lint_run_results` → `lint_runs.id` (`ON DELETE CASCADE`, v63, GH 2570): a task's recorded close-lint runs, and each run's lint results, go with it.
+- `lint_runs` → `tasks.id` and `lint_run_results` → `lint_runs.id` (`ON DELETE CASCADE`, v66, GH 2570): a task's recorded close-lint runs, and each run's lint results, go with it.
 - `review_findings` → `tasks.id` (`ON DELETE CASCADE`, v47, GH 1737): a task's review findings go with it; `attempt_n` names the `validation_attempts` row that raised the finding, with no FK.
 - `repo` on `issues`, `tasks`, `audit`, `discussions`, `validation_attempts`, `agent_runs` → `repos.name` (`ON DELETE RESTRICT`): populated at write time — `audit` and `discussions` from the parent issue's repo (an explicit `repo` wins; NULL for the system issue `-1`), `validation_attempts` from the task's repo else its issue's, `agent_runs` from the task's repo. `pr_review_runs.repo` holds the remote's host slug, not a `repos.name`, and carries no FK.
 - `milestones.repo` → `repos.name` and `issues.(milestone, repo)` → `milestones.(name, repo)` (`ON DELETE RESTRICT`): a milestone belongs to one repo, and an issue's milestone is scoped to the issue's repo; the composite FK is nullable, so an issue need not carry a milestone.
@@ -1320,7 +1358,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `pr_closes` | The issue numbers a PR closes (its same-repo `closingIssuesReferences`), keyed `(pr_id, issue_number)`, `ON DELETE CASCADE` with its `prs` row; `syncRemotePrs` replaces a PR's rows on every sync of that PR. `issue_number` matches `issues.gh_iid` in the same repo. |
 | `verification_runs` | One row per run of a task's typed `verification[]` (schema v36, GH 1294). The writers are the `swe-verification-gate` hook (`source = 'gate'`) and bro's `cli.js integrate` (`src/cli/integrate.ts`, `source = 'manual'`, `commit_sha` = the rebased SHA), the gate through `mcp/trajectory-server/src/hooks/lib/verification-runs.ts` and `integrate.ts` with the same SQL: the row when the run starts (`commit_sha` = the worktree HEAD, `budget_s`), then `finished_at`, `exit_code` and `timed_out` when it ends — each its own transaction, so a run killed mid-way keeps its partial record; `finished_at` and `exit_code` are NULL only while a run is in progress, or until the next run start of any task finishes a row unfinished past its own `budget_s` + 60 s as `exit_code = 137`, `timed_out = 0` (its writer was killed; GH 1814). The gate allows a close without running anything when a passing run for the same task and worktree HEAD, with command rows equal to the current `verification[]`, finished within the hour (`idx_verification_runs_task_commit`). `bro_atomic_close` reads the same match, with no age limit, for the closing commit and refuses with `verification_run_missing` when neither such a run nor a `verification_gate_waived` row exists (GH 1672). `task_brief.verification_run` returns a task's latest run and `validation_history` attaches the latest run started by each attempt, so bro and code-reviewer read the result instead of re-running it. |
 | `verification_run_commands` | One row per command of a verification run, in `verification[]` order (`ordinal` from 1), written after the command ends: `exit_code` (124 on the command the budget ran out on), `elapsed_s`, and `output_tail` (the last 20 lines, capped at 4000 characters). Review finding probes are recorded after the `verification[]` lines as `[probe <id>] <probe_cmd>`. |
-| `lint_runs` | One row per run of a task's close lints (schema v63, GH 2570): the repo's `.config/tmb/close-lints.json` lints plus the built-in diff checks, at `commit_sha` against `base_sha` (the merge-base it was linted on). `source` is `gate` (`swe-verification-gate`) or `integrate` (`cli.js integrate` after a rebase). `fingerprint` is `lintFingerprint` (`mcp/trajectory-server/src/hooks/lib/lint-fingerprint.ts`): `v1:` + a sha256 over the sorted (path, blob oid) pairs `git ls-tree -r` lists at `commit_sha` for the config's `fingerprint_inputs` globs plus `close-lints.json` itself, then `BUILTIN_LINTS_VERSION`. Writes go through `mcp/trajectory-server/src/hooks/lib/lint-runs.ts` as verification runs do: the row at the start, a `lint_run_results` row per lint, then `finished_at` and `exit_code`; both are NULL only while a run is in progress, or until the next run start finishes a row unfinished for more than an hour as `exit_code = 137`. A run with no lints is a row with `exit_code = 0` and no results. `latestLintRun` reads a task's finished run for a commit with the latest `started_at` (`idx_lint_runs_task_commit`), since a sweep can stamp an older run finished after a newer one. No hook or tool writes or reads it yet. |
+| `lint_runs` | One row per run of a task's close lints (schema v66, GH 2570): the repo's `.config/tmb/close-lints.json` lints plus the built-in diff checks, at `commit_sha` against `base_sha` (the merge-base it was linted on). `source` is `gate` (`swe-verification-gate`) or `integrate` (`cli.js integrate` after a rebase). `fingerprint` is `lintFingerprint` (`mcp/trajectory-server/src/hooks/lib/lint-fingerprint.ts`): `v1:` + a sha256 over the sorted (path, blob oid) pairs `git ls-tree -r` lists at `commit_sha` for the config's `fingerprint_inputs` globs plus `close-lints.json` itself, then `BUILTIN_LINTS_VERSION`. Writes go through `mcp/trajectory-server/src/hooks/lib/lint-runs.ts` as verification runs do: the row at the start, a `lint_run_results` row per lint, then `finished_at` and `exit_code`; both are NULL only while a run is in progress, or until the next run start finishes a row unfinished for more than an hour as `exit_code = 137`. A run with no lints is a row with `exit_code = 0` and no results. `latestLintRun` reads a task's finished run for a commit with the latest `started_at` (`idx_lint_runs_task_commit`), since a sweep can stamp an older run finished after a newer one. No hook or tool writes or reads it yet. |
 | `lint_run_results` | One row per lint of a lint run, in `close-lints.json` order (`ordinal` from 1): the lint's `name`, `exit_code`, `elapsed_s` and `output_tail` (capped at 4000 characters, as `verification_run_commands` is). |
 | `review_findings` | One row per finding a code-reviewer verdict raises (schema v47, GH 1737). `validation_record` writes them from its `findings[]` with ids `F<task>-<n>` and `status = 'open'`; re-recording the same attempt replaces its still-open rows and never reuses an id. Since v57 (GH 1955) each row has a `severity` (`blocking`, the default, `nit` or `pre_existing`) and an optional bug `class`: a `fail` needs at least one `blocking` finding, an `escalate` at least one finding, and a `pass` may record only `nit` and `pre_existing` ones. The MCP-unavailable code-reviewer path, `cli.js validation-record-fallback` (`mcp/trajectory-server/src/cli/`), writes them by the same rules from its findings JSON argument. `task_retry` copies the failed task's `open` `blocking` rows, with their severity and class, onto the new task as `F<new_task>-<n>` with `attempt_n` 0 and one `review_findings_carried` audit row. `task_reopen`'s `wontfix[]` (bro only) sets an `open` row to `wontfix` with `resolved_at`, one `review_finding_wontfix` audit row each. `swe-verification-gate` runs every `blocking` non-`wontfix` row's `probe_cmd` after `verification[]` on every close attempt (every non-`wontfix` row on a DB below v57): a passing probe moves an `open` row to `fixed` with `resolved_at`, and any failing probe denies the close, naming a failing `fixed` row as a regression. `bro_atomic_close` only counts a verification run whose commands cover the current probes. `task_brief.open_findings` lists the `open` `blocking` rows with their severity and class. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |

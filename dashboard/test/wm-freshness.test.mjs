@@ -31,6 +31,8 @@ const WM_FRESHNESS = `CREATE TABLE wm_freshness (
 function seedPlain(path) {
   const db = new DatabaseSync(path);
   db.exec(readFileSync(SCHEMA, 'utf8'));
+  db.exec('DROP TABLE wm_freshness');
+  db.exec('ALTER TABLE repos DROP COLUMN indexed_commit');
   db.prepare("INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin')").run();
   db.prepare(
     "INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, file_count) VALUES ('plugin', '', NULL, 'root', 'readme', 1)",
@@ -164,6 +166,15 @@ describe('world-model freshness with wm_freshness', () => {
     for (const [path, f] of await all()) assert.deepEqual(f, block(), path);
   });
 
+  test('a README pending review adds to needs_review_count', async () => {
+    try {
+      db.prepare(`UPDATE wm_directories SET readme_review_pending = 1 WHERE repo = 'plugin' AND path = ''`).run();
+      for (const [path, f] of await all()) assert.deepEqual(f, block({ needs_review_count: 2 }), path);
+    } finally {
+      db.prepare(`UPDATE wm_directories SET readme_review_pending = 0 WHERE repo = 'plugin'`).run();
+    }
+  });
+
   test('a moved target, a running reindex or no indexed commit is stale', async () => {
     try {
       db.prepare(`UPDATE wm_freshness SET target_commit = ? WHERE repo = 'plugin'`).run(OTHER);
@@ -235,5 +246,31 @@ describe('world-model freshness with wm_freshness', () => {
       lock.close();
     }
     assert.deepEqual(dump(), before);
+  });
+});
+
+describe('world-model freshness on a v63 DB without readme_review_pending', () => {
+  const { tmp, dbPath, db } = fixture('fresh-v63', (path) => {
+    const seeded = seedFresh(path);
+    seeded.exec('ALTER TABLE wm_directories DROP COLUMN readme_review_pending');
+    return seeded;
+  });
+  let server;
+  before(async () => {
+    db.close();
+    server = await startServer(dbPath);
+  });
+  after(async () => {
+    await server?.stop();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('every endpoint still carries the block, counting concepts only', async () => {
+    for (const path of [...ENDPOINTS, 'world-model/status']) {
+      const { body } = await getJson(server, path);
+      const f = path === 'world-model/status' ? body.repos.find((r) => r.repo === 'plugin').freshness : body.freshness;
+      assert.equal(f?.needs_review_count, 1, path);
+      assert.equal(f.indexed_commit, SHA, path);
+    }
   });
 });

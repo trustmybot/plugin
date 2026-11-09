@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 63;
+export const TARGET_SCHEMA_VERSION = 66;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -843,8 +843,14 @@ function runMigrations(
   if (fromVersion < 61 && toVersion >= 61) migrateV60toV61(db);
   // v61→v62: repos.indexed_commit, the commit the world model was built from (GH 2584)
   if (fromVersion < 62 && toVersion >= 62) migrateV61toV62(db);
-  // v62→v63: lint_runs and lint_run_results, the close-lint record (GH 2570)
+  // v62→v63: wm_freshness, each repo's target and newest reindex state (GH 2584)
   if (fromVersion < 63 && toVersion >= 63) migrateV62toV63(db);
+  // v63→v64: wm_directories.readme_review_pending, a changed README for bro (GH 2584)
+  if (fromVersion < 64 && toVersion >= 64) migrateV63toV64(db);
+  // v64→v65: validation_attempts.reviewed_sha, the commit each review covered (GH 2684)
+  if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
+  // v65→v66: lint_runs and lint_run_results, the close-lint record (GH 2570)
+  if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3403,13 +3409,85 @@ function migrateV61toV62(db: DatabaseSync): void {
   }
 }
 
-// v62→v63: the close-lint record (GH 2570). Adds lint_runs(task → tasks ON
+const WM_FRESHNESS_DDL =`CREATE TABLE IF NOT EXISTS wm_freshness (
+    repo                TEXT    PRIMARY KEY REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    target_ref          TEXT,
+    target_commit       TEXT,
+    target_fetched_at   TEXT,
+    reindex_state       TEXT    NOT NULL DEFAULT 'idle' CHECK (reindex_state IN ('idle','running','failed')),
+    reindex_mode        TEXT    CHECK (reindex_mode IN ('incremental','full')),
+    reindex_trigger     TEXT    CHECK (reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')),
+    reindex_started_at  TEXT,
+    reindex_finished_at TEXT,
+    reindex_elapsed_ms  INTEGER,
+    reindex_outcome     TEXT    CHECK (reindex_outcome IN ('ok','error')),
+    updated_at          TEXT    NOT NULL
+)`;
+
+// v62→v63: wm_freshness (GH 2584), one row per repo with its resolved target
+// and the state of its newest reindex. Existing repos get no row, which reads
+// as state 'idle' until their next reindex writes one.
+function migrateV62toV63(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    db.exec(WM_FRESHNESS_DDL);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v63→v64: wm_directories.readme_review_pending (GH 2584), set when a reindex
+// changes a README-sourced summary and cleared once a world-model read lists
+// it to bro. Existing rows start at 0.
+function migrateV63toV64(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'wm_directories') && !hasColumn(db, 'wm_directories', 'readme_review_pending')) {
+      db.exec('ALTER TABLE wm_directories ADD COLUMN readme_review_pending INTEGER NOT NULL DEFAULT 0');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v64→v65: validation_attempts.reviewed_sha (GH 2684), the commit the
+// reviewer's spawn named. Existing rows keep NULL.
+function migrateV64toV65(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'reviewed_sha')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN reviewed_sha TEXT');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v65→v66: the close-lint record (GH 2570). Adds lint_runs(task → tasks ON
 // DELETE CASCADE, commit_sha, base_sha, fingerprint, source gate|integrate,
 // started_at, finished_at, exit_code, created_at) with an index on (task_id,
 // commit_sha, finished_at), and lint_run_results(run → lint_runs ON DELETE
 // CASCADE, ordinal, name, exit_code, elapsed_s, output_tail, PK(run_id,
 // ordinal)). New tables only; no backfill. A re-run is a no-op.
-function migrateV62toV63(db: DatabaseSync): void {
+function migrateV65toV66(db: DatabaseSync): void {
   if (!tableExists(db, 'tasks')) return;
   beginImmediate(db);
   try {

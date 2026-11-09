@@ -144,12 +144,22 @@ describe('world-model checkout lag (GH 1966)', () => {
       const search = parse(await tools['world_model_search']!({ agent: 'bro', repo: 'app', query: 'quokka' }));
       assert.equal(search['warning'], 'world-model-unavailable');
       assert.equal(search['upstream'], 'origin/main');
-      const scanned = parse(
-        await worldModelTools(empty, GraphHolder.fixed(new WorldModelGraph(empty))).handlers['world_model_get']!({
-          agent: 'bro',
-          repo: 'app',
-        }),
-      );
+      // An unresolvable target keeps the read from building the index, so the
+      // graph stays empty.
+      const savedTarget = process.env['TMB_WM_INDEX_TARGET'];
+      process.env['TMB_WM_INDEX_TARGET'] = 'refs/heads/no-such-branch';
+      let scanned: Payload;
+      try {
+        scanned = parse(
+          await worldModelTools(empty, GraphHolder.fixed(new WorldModelGraph(empty))).handlers['world_model_get']!({
+            agent: 'bro',
+            repo: 'app',
+          }),
+        );
+      } finally {
+        if (savedTarget === undefined) delete process.env['TMB_WM_INDEX_TARGET'];
+        else process.env['TMB_WM_INDEX_TARGET'] = savedTarget;
+      }
       assert.equal(scanned['warning'], 'world-model-empty');
       assert.equal(scanned['checkout_behind_upstream'], 2);
     } finally {

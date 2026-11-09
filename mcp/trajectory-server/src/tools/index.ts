@@ -14,6 +14,7 @@ import { reportTools } from './reports.js';
 import { configTools } from './config.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
+import { changeImpactTools } from './change-impact.js';
 import { roundtableTools } from './roundtable.js';
 import { prMonitorTools } from './pr_monitor.js';
 import { compositeTools } from './composites.js';
@@ -71,6 +72,7 @@ export function registerTools(
   const config = configTools(db);
   const branchReport = branchReportMdTools(db);
   const stats = statsTools(db);
+  const changeImpact = changeImpactTools(db);
   const roundtable = roundtableTools(db);
   const prMonitor = prMonitorTools(db);
   const composites = compositeTools(db, dbPath, graphHolder);
@@ -97,6 +99,7 @@ export function registerTools(
     ...config.definitions,
     ...branchReport.definitions,
     ...stats.definitions,
+    ...changeImpact.definitions,
     ...roundtable.definitions,
     ...prMonitor.definitions,
     ...composites.definitions,
@@ -124,6 +127,7 @@ export function registerTools(
     ...config.handlers,
     ...branchReport.handlers,
     ...stats.handlers,
+    ...changeImpact.handlers,
     ...roundtable.handlers,
     ...prMonitor.handlers,
     ...composites.handlers,

@@ -57,7 +57,7 @@ export interface IssueToolOptions {
 
 // Generic, project-agnostic default. A project (incl. TMB itself) overrides
 // these via config_set issue_classification_labels / issue_priority_labels.
-const DEFAULT_CLASSIFICATION_LABELS: readonly string[] = [
+export const DEFAULT_CLASSIFICATION_LABELS: readonly string[] = [
   'Bug',
   'Feature',
   'Improvement',
@@ -65,7 +65,7 @@ const DEFAULT_CLASSIFICATION_LABELS: readonly string[] = [
   'Test',
   'Chore',
 ];
-const DEFAULT_PRIORITY_LABELS: readonly string[] = [
+export const DEFAULT_PRIORITY_LABELS: readonly string[] = [
   'Priority: Urgent',
   'Priority: High',
   'Priority: Medium',

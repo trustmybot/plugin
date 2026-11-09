@@ -51,9 +51,12 @@ const DISCUSSIONS = [
   ['human', 'note', 'A longer note that is long enough to be shown as a full comment card instead of a compact timeline event.'],
 ];
 
-function seed(path) {
+function seed(path, config = {}) {
   const db = new DatabaseSync(path);
   db.exec(readFileSync(SCHEMA, 'utf8'));
+  db.exec("DELETE FROM plugin_config WHERE key IN ('issue_classification_labels', 'issue_priority_labels', 'issue_area_labels')");
+  const setConfig = db.prepare('INSERT INTO plugin_config (key, value_json) VALUES (?, ?)');
+  for (const [key, value] of Object.entries(config)) setConfig.run(key, JSON.stringify(value));
   const now = new Date().toISOString();
   const issue = Number(
     db
@@ -122,12 +125,14 @@ async function loadViews() {
         import { statusTable } from './web/views/issues/LabelStats.tsx';
         import { DataTableView } from './web/views/insights/ChartCard.tsx';
         export { issues as issuesQuery } from './server/queries.ts';
+        export { DEFAULT_CLASSIFICATION_LABELS, DEFAULT_PRIORITY_LABELS } from '../mcp/trajectory-server/src/tools/issues.ts';
+        export { issueLabelVariant } from './web/views/issues/labels.tsx';
         const provide = (el) => createElement(QueryClientProvider, { client: new QueryClient() }, el);
         const wrap = (el) => renderToStaticMarkup(provide(el));
-        export const list = (rows, state) => wrap(createElement(IssueList, { rows, state }));
-        export async function labelList(rows, state, label, milestone = null, q = '') {
+        export const list = (listing, state) => wrap(createElement(IssueList, { rows: listing.issues, taxonomy: listing.label_taxonomy, state }));
+        export async function labelList(listing, state, label, milestone = null, q = '') {
           globalThis.window = q ? { location: { hash: '#/issues?q=' + encodeURIComponent(q) } } : undefined;
-          const { prelude } = await prerenderToNodeStream(provide(createElement(IssueList, { rows, state, label, milestone })));
+          const { prelude } = await prerenderToNodeStream(provide(createElement(IssueList, { rows: listing.issues, taxonomy: listing.label_taxonomy, state, label, milestone })));
           globalThis.window = undefined;
           let html = '';
           for await (const chunk of prelude) html += chunk;
@@ -166,7 +171,7 @@ describe('dashboard issues', () => {
   });
 
   test('/api/issues returns labels and discussion_count', async () => {
-    const rows = await get('issues');
+    const { issues: rows } = await get('issues');
     const seeded = rows.find((r) => r.id === id);
     assert.ok(seeded.discussion_count > 0);
     assert.equal(seeded.discussion_count, DISCUSSIONS.length);
@@ -177,7 +182,7 @@ describe('dashboard issues', () => {
   });
 
   test('/api/issues lists each issue\'s closing PRs, [] when none link and on a DB without the prs table', async () => {
-    const rows = await get('issues');
+    const { issues: rows } = await get('issues');
     const feature = rows.find((r) => r.objective === 'Closed dashboard feature');
     assert.deepEqual(JSON.parse(feature.prs), [
       { number: 100, created_at: '2026-01-01T00:00:00.000Z', merged_at: '2026-01-01T02:00:00.000Z' },
@@ -191,10 +196,72 @@ describe('dashboard issues', () => {
     seed(oldPath);
     const old = new DatabaseSync(oldPath);
     old.exec('DROP TABLE pr_closes; DROP TABLE prs;');
-    const oldRows = views.issuesQuery(old);
+    const oldRows = views.issuesQuery(old).issues;
     old.close();
     assert.ok(oldRows.length > 0);
     assert.ok(oldRows.every((r) => r.prs === '[]'));
+  });
+
+  test('/api/issues and /api/issues/:id return the generic default label taxonomy when no config is set', async () => {
+    const expected = {
+      classification: [...views.DEFAULT_CLASSIFICATION_LABELS],
+      priority: [...views.DEFAULT_PRIORITY_LABELS],
+      area: [],
+    };
+    assert.deepEqual((await get('issues')).label_taxonomy, expected);
+    assert.deepEqual((await get(`issues/${id}`)).label_taxonomy, expected);
+  });
+
+  test('with the generic default, label colors match the built-in label names', async () => {
+    const { label_taxonomy: taxonomy } = await get('issues');
+    const variants = Object.fromEntries(
+      ['Bug', 'Feature', 'Improvement', 'Docs', 'Priority: Urgent', 'Priority: High', 'Priority: Low', 'Area: Dashboard'].map((l) => [l, views.issueLabelVariant(l, taxonomy)]),
+    );
+    assert.deepEqual(variants, {
+      Bug: 'danger',
+      Feature: 'accent',
+      Improvement: 'success',
+      Docs: 'attention',
+      'Priority: Urgent': 'severe',
+      'Priority: High': 'attention',
+      'Priority: Low': 'secondary',
+      'Area: Dashboard': 'secondary',
+    });
+    const html = views.list(await get('issues'), 'open');
+    assert.match(html, /bg-\(--bgColor-accent-muted\)">Feature<\/span>/);
+  });
+
+  test('a project taxonomy from config colors its own labels by role and position', async () => {
+    const customPath = join(tmp, 'custom-labels.db');
+    seed(customPath, {
+      issue_classification_labels: ['kind/bug', 'kind/feat'],
+      issue_priority_labels: ['prio/p0', 'prio/p1'],
+      issue_area_labels: ['team/core'],
+    });
+    const custom = await startServer(customPath);
+    try {
+      const listing = await (await fetch(`${custom.url}api/issues`)).json();
+      const detail = await (await fetch(`${custom.url}api/issues/${id}`)).json();
+      const expected = { classification: ['kind/bug', 'kind/feat'], priority: ['prio/p0', 'prio/p1'], area: ['team/core'] };
+      assert.deepEqual(listing.label_taxonomy, expected);
+      assert.deepEqual(detail.label_taxonomy, expected);
+      const variants = Object.fromEntries(
+        ['kind/bug', 'kind/feat', 'prio/p0', 'prio/p1', 'team/core', 'Area: X', 'Bug'].map((l) => [l, views.issueLabelVariant(l, listing.label_taxonomy)]),
+      );
+      assert.deepEqual(variants, {
+        'kind/bug': 'danger',
+        'kind/feat': 'accent',
+        'prio/p0': 'severe',
+        'prio/p1': 'attention',
+        'team/core': 'done',
+        'Area: X': 'secondary',
+        Bug: 'secondary',
+      });
+      const html = views.list(listing, 'open');
+      assert.match(html, /bg-\(--bgColor-neutral-muted\)">Feature<\/span>/);
+    } finally {
+      await custom.stop();
+    }
   });
 
   test('an open issue row shows the IssueOpened octicon, its title link and its labels', async () => {
@@ -215,8 +282,8 @@ describe('dashboard issues', () => {
   });
 
   test('milestone= filters the list and its tab counts, and combines with label= and search', async () => {
-    const rows = await get('issues');
-    const html = await views.labelList(rows, 'open', null, 'v1.2.0');
+    const listing = await get('issues');
+    const html = await views.labelList(listing, 'open', null, 'v1.2.0');
     assert.match(html, />1 Open</);
     assert.match(html, />1 Closed</);
     assert.ok(html.includes('Open dashboard bug'));
@@ -224,18 +291,18 @@ describe('dashboard issues', () => {
     assert.ok(!html.includes('GitHub-style issues'));
     assert.match(html, /Milestone: v1\.2\.0<\/span><a href="#\/issues" aria-label="Remove milestone filter"/);
     assert.ok(!html.includes('data-label-stats'), 'no label stats panel without a label');
-    const closed = await views.labelList(rows, 'closed', null, 'v1.2.0');
+    const closed = await views.labelList(listing, 'closed', null, 'v1.2.0');
     assert.ok(closed.includes('Closed dashboard bug'));
     assert.ok(!closed.includes('Closed dashboard feature'));
-    const both = await views.labelList(rows, 'open', 'Bug', 'v1.2.0');
+    const both = await views.labelList(listing, 'open', 'Bug', 'v1.2.0');
     assert.match(both, />1 Open</);
     assert.match(both, /aria-label="Remove label filter"/);
     assert.match(both, /aria-label="Remove milestone filter"/);
-    assert.match(await views.labelList(rows, 'open', 'Feature', 'v1.2.0'), /No Open Issues/);
-    const searched = await views.labelList(rows, 'open', null, 'v1.2.0', 'bug');
+    assert.match(await views.labelList(listing, 'open', 'Feature', 'v1.2.0'), /No Open Issues/);
+    const searched = await views.labelList(listing, 'open', null, 'v1.2.0', 'bug');
     assert.match(searched, />1 Open</);
     assert.match(searched, />1 Closed</);
-    const missed = await views.labelList(rows, 'open', null, 'v1.2.0', 'tags');
+    const missed = await views.labelList(listing, 'open', null, 'v1.2.0', 'tags');
     assert.match(missed, />0 Open</);
     assert.match(missed, /No Results Matched Your Search/);
   });
@@ -252,11 +319,11 @@ describe('dashboard issues', () => {
   });
 
   test('the Milestone menu lists each milestone newest first with its count, then No milestone, the active one checked', async () => {
-    const rows = await get('issues');
+    const listing = await get('issues');
     const menu = (html) => /<div [^>]*role="menu" aria-label="Filter by milestone"[^>]*>(.*?)<\/div>/.exec(html)?.[1] ?? '';
     const options = (html) =>
       [...menu(html).matchAll(/aria-checked="(true|false)".*?<span class="min-w-0 flex-1 truncate">([^<]*)<\/span>(?:<span [^>]*>(\d+)<\/span>)?/g)].map((m) => [m[2], m[3] ?? null, m[1]]);
-    const all = await views.labelList(rows, 'open', null);
+    const all = await views.labelList(listing, 'open', null);
     assert.match(all, /aria-haspopup="menu"[^>]*>.*?Milestone<\/span>/);
     assert.deepEqual(options(all), [
       ['All milestones', null, 'true'],
@@ -264,7 +331,7 @@ describe('dashboard issues', () => {
       ['v1.1.0', '1', 'false'],
       ['No milestone', '5', 'false'],
     ]);
-    const active = await views.labelList(rows, 'open', null, 'v1.1.0');
+    const active = await views.labelList(listing, 'open', null, 'v1.1.0');
     assert.deepEqual(options(active).map(([name, , checked]) => [name, checked]), [
       ['All milestones', 'false'],
       ['v1.2.0', 'false'],
@@ -280,18 +347,18 @@ describe('dashboard issues', () => {
   });
 
   test('label= filters the list to that exact label and renders the Label stats panel', async () => {
-    const rows = await get('issues');
-    const html = await views.labelList(rows, 'open', AREA);
+    const listing = await get('issues');
+    const html = await views.labelList(listing, 'open', AREA);
     assert.match(html, /<details open=""[^>]*data-label-stats=""/);
     assert.match(html, />3 Open</);
     assert.match(html, />3 Closed</);
     assert.ok(!html.includes('Unlabelled issue'));
     assert.match(html, /aria-label="Remove label filter"/);
     assert.match(html, /Label: Area: Dashboard/);
-    const closed = await views.labelList(rows, 'closed', AREA);
+    const closed = await views.labelList(listing, 'closed', AREA);
     assert.ok(closed.includes('Closed dashboard bug'));
     assert.ok(!closed.includes('Closed workflow issue'), 'a different Area: label does not match');
-    const partial = await views.labelList(rows, 'open', 'Area');
+    const partial = await views.labelList(listing, 'open', 'Area');
     assert.match(partial, /No Open Issues/, 'matching is exact, not a substring');
   });
 
@@ -310,22 +377,22 @@ describe('dashboard issues', () => {
   });
 
   test('the close-time tiles show median, mean and closed count, and — under 3 closed', async () => {
-    const rows = await get('issues');
+    const listing = await get('issues');
     const tiles = (html) => [...html.matchAll(/<dt[^>]*>(Median|Mean|Closed)<\/dt><dd[^>]*>([^<]*)<\/dd>/g)].map((m) => [m[1], m[2]]);
-    assert.deepEqual(tiles(await views.labelList(rows, 'open', AREA)), [['Median', '20 h'], ['Mean', '30 h'], ['Closed', '3']]);
-    const few = await views.labelList(rows, 'open', 'Bug');
+    assert.deepEqual(tiles(await views.labelList(listing, 'open', AREA)), [['Median', '20 h'], ['Mean', '30 h'], ['Closed', '3']]);
+    const few = await views.labelList(listing, 'open', 'Bug');
     assert.deepEqual(tiles(few), [['Median', '—'], ['Mean', '—'], ['Closed', '1']]);
     assert.match(few, /fewer than 3 closed/);
   });
 
   test('the PR merge tiles show median and mean over the label\'s merged PRs, a shared PR counted once, and — under 3', async () => {
-    const rows = await get('issues');
+    const listing = await get('issues');
     const tiles = (html) => [...html.matchAll(/<dt[^>]*>(PR merge median|PR merge mean)<\/dt><dd[^>]*>([^<]*)<\/dd><dd[^>]*>([^<]*)<\/dd>/g)].map((m) => [m[1], m[2], m[3]]);
-    assert.deepEqual(tiles(await views.labelList(rows, 'open', AREA)), [
+    assert.deepEqual(tiles(await views.labelList(listing, 'open', AREA)), [
       ['PR merge median', '4.0 h', '3 merged PRs'],
       ['PR merge mean', '6.0 h', '3 merged PRs'],
     ]);
-    assert.deepEqual(tiles(await views.labelList(rows, 'open', 'Bug')), [
+    assert.deepEqual(tiles(await views.labelList(listing, 'open', 'Bug')), [
       ['PR merge median', '—', '1 merged PR, fewer than 3'],
       ['PR merge mean', '—', '1 merged PR, fewer than 3'],
     ]);

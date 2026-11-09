@@ -28,7 +28,18 @@ import {
 } from '../symbol-index.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
-import { catchUpRepos, indexStamp, recordReindex, triggerOfSource } from '../world-model/freshness.js';
+import {
+  catchUpRepos,
+  indexStamp,
+  markReindexFailed,
+  markReindexFinish,
+  markReindexStart,
+  mismatchPending,
+  recordReindex,
+  triggerOfSource,
+  type ReindexRun,
+} from '../world-model/freshness.js';
+import { startShadowCompare } from '../world-model/shadow-compare.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes, type Remote } from '../repos/remotes.js';
@@ -65,7 +76,6 @@ function wrap(fn: Fn): Fn {
 // and remediated by running scan).
 const VALID_SCAN_SOURCES = new Set([
   'user_manual',
-  'bro_auto_post_close',
   'bro_auto_initial',
   'startup_catchup',
 ]);
@@ -390,17 +400,20 @@ interface FilePlan {
 }
 
 // Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is,
-// unless its purpose_source is still 'none' (then it is re-extracted, written
-// only when that finds a purpose); a changed or new file is re-extracted from
+// except a new non-empty last_commit_sha is written onto it, and a
+// purpose_source still 'none' is re-extracted (written only when that finds a
+// purpose); a changed or new file is re-extracted from
 // its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
 // from the indexed commit's blobs; a scoped reindex re-extracts only the files
-// whose content changed.
-async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<FilePlan> {
+// whose content changed. For a repo in `reparse` every stored row is ignored,
+// swe purposes included, so each row is rewritten from the walk as a clean
+// rebuild writes it.
+async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse: ReadonlySet<string> = new Set()): Promise<FilePlan> {
   const repoNames = new Set(out.repos.map((r) => r.name));
   const existing = new Map<string, FileNode>();
-  for (const r of out.repos) {
+  for (const r of out.repos.filter((x) => !reparse.has(x.name))) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
   const headOf = async (repo: string, rel: string): Promise<string> =>
@@ -416,17 +429,15 @@ async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, s
       continue;
     }
     if (prev && prev.content_md5 === md5) {
+      const sha = f.last_commit_sha ?? '';
+      let node = sha !== '' && sha !== prev.last_commit_sha ? { ...prev, last_commit_sha: sha, updated_at: now } : prev;
       if (!scope && prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
         const extracted = extractPurpose(f.path, await headOf(f.repo, f.path));
         plan.extracted++;
-        if (extracted.source !== 'none') {
-          const node = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
-          plan.nodes.push(node);
-          plan.writes.push(node);
-          continue;
-        }
+        if (extracted.source !== 'none') node = { ...node, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
       }
-      plan.nodes.push(prev);
+      plan.nodes.push(node);
+      if (node !== prev) plan.writes.push(node);
       continue;
     }
     const facts = {
@@ -644,8 +655,15 @@ export function persistedFiles<F extends { repo: string; path: string }>(files: 
   return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
 }
 
-// Persist repos[] and the world model (wm_directories + wm_files), each in its
-// own transaction, then bring each scanned repo's symbol index up to date.
+// Persist repos[], the world model (wm_directories + wm_files) and each
+// scanned repo's symbols, purposes, concepts and indexed_commit stamp (GH
+// 2584): every git read and parse is planned first, then all of it is written
+// in one synchronous transaction with no await, so a reader on another
+// connection sees the old snapshot or the new one, never a mix. A stage that
+// fails is recorded in errors and the rest commits; a throw rolls it all back.
+// `run` given, each repo's wm_freshness row is finished in that transaction.
+// A repo with a shadow-compare mismatch pending is reparsed in full, since the
+// scan's full wm_reindex row clears it.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
@@ -655,6 +673,7 @@ async function persistScan(
   graph: WorldModelGraph | null,
   out: ScanOutput,
   sessionDir: string,
+  run?: ReindexRun,
 ): Promise<{
   repos_discovered: number;
   repos_upserted: number;
@@ -670,7 +689,7 @@ async function persistScan(
   symbols: SymbolIndexStats & { error?: string };
   rename_candidates: RenameCandidate[];
   errors: ScanError[];
-  parsed_by_repo: Map<string, number>;
+  indexed_by_repo: Map<string, RepoIndexed>;
 }> {
   const now = nowISO();
   const normSession = sessionDir.replace(/\/+$/, '');
@@ -701,6 +720,21 @@ async function persistScan(
   let dirs_retired = 0;
   const retired: Array<{ name: string; path: string }> = [];
   const repos_stale_kept: StaleRepoKept[] = [];
+  let graphStats = emptyGraphStats();
+  const symbols = emptySymbolStats();
+  const errors: ScanError[] = [];
+  const indexed_by_repo = new Map<string, RepoIndexed>();
+  const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
+
+  const reparse = new Set(persisted.repos.filter((r) => mismatchPending(db, r.name)).map((r) => r.name));
+  const graphPlan = graph ? await planGraph(graph, persisted, now, undefined, reparse) : null;
+  const repoPlans = new Map<string, RepoIndexPlan>();
+  if (graphPlan) {
+    for (const r of persisted.repos) {
+      const planned = plannedFiles(db, r.name, graphPlan.files, reparse.has(r.name));
+      repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned));
+    }
+  }
 
   db.transaction(() => {
     for (const r of persisted.repos) {
@@ -756,20 +790,20 @@ async function persistScan(
         repo: c.old,
       });
     }
-  });
 
-  const graphStats = graph ? await persistGraph(graph, persisted, now, retired) : emptyGraphStats();
-  dirs_retired += graphStats.dirs_retired;
-
-  const symbols = emptySymbolStats();
-  const errors: ScanError[] = [];
-  const parsed_by_repo = new Map<string, number>();
-  if (graph) {
-    for (const r of persisted.repos) {
-      const files = out.files.filter((f) => f.repo === r.name);
-      parsed_by_repo.set(r.name, await indexRepoAtCommit(db, r, files, out.contents?.get(r.name), symbols, errors));
+    if (!graph || !graphPlan) return;
+    graphStats = applyGraph(graph, persisted, now, graphPlan, retired);
+    reindexHooks.afterGraph?.();
+    for (const r of persisted.repos) indexed_by_repo.set(r.name, applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors));
+    if (run) {
+      for (const r of persisted.repos) {
+        const target = r.commit ? { ref: r.target_ref ?? null, commit: r.commit } : undefined;
+        markReindexFinish(db, r.name, run, !errors.some((e) => e.repo === r.name), target);
+      }
     }
-  }
+    reindexHooks.afterIndex?.();
+  });
+  dirs_retired += graphStats.dirs_retired;
 
   return {
     repos_discovered: out.repos.length,
@@ -781,7 +815,7 @@ async function persistScan(
     symbols,
     rename_candidates,
     errors,
-    parsed_by_repo,
+    indexed_by_repo,
   };
 }
 
@@ -811,20 +845,7 @@ function emptySymbolStats(): SymbolIndexStats & { error?: string } {
   return { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
 }
 
-// The wm_files and wm_directories rows of out's repos, with README drift, in
-// one transaction; retired repos lose theirs. With a scope only the changed
-// files and the scoped directories are rewritten, and rows of paths the commit
-// no longer has are dropped.
-async function persistGraph(
-  graph: WorldModelGraph,
-  out: ScanOutput,
-  now: string,
-  retired: ReadonlyArray<{ name: string }> = [],
-): Promise<GraphStats> {
-  return applyGraph(graph, out, now, await planGraph(graph, out, now), retired);
-}
-
-// What persistGraph writes, read from git first so applyGraph runs no await.
+// What applyGraph writes, read from git first so applyGraph runs no await.
 interface GraphPlan {
   files: FilePlan;
   dirMap: Map<string, DirEntry>;
@@ -833,13 +854,17 @@ interface GraphPlan {
   scope?: ReindexScope;
 }
 
-async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<GraphPlan> {
-  const files = await planFiles(graph, out, now, scope);
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse?: ReadonlySet<string>): Promise<GraphPlan> {
+  const files = await planFiles(graph, out, now, scope, reparse);
   const dirMap = deriveDirectoryEntries(out);
   const readmes = await readReadmes(out, dirMap, scope);
   return { files, dirMap, readmes, drift: planReadmeDrift(out, dirMap, readmes), scope };
 }
 
+// The wm_files and wm_directories rows of out's repos, with README drift;
+// retired repos lose theirs. With a scope only the changed files and the
+// scoped directories are rewritten, and rows of paths the commit no longer
+// has are dropped.
 function applyGraph(
   graph: WorldModelGraph,
   out: ScanOutput,
@@ -876,25 +901,10 @@ function applyGraph(
   return stats;
 }
 
-// One repo's symbols, symbol purposes and concepts brought up to its commit,
-// then repos.indexed_commit stamped. Files are read from `content` (the
-// commit's blobs); a repo git gave no commit is read from disk and not
-// stamped. A stage that throws is recorded and the rest still run.
-async function indexRepoAtCommit(
-  db: TrajectoryDB,
-  r: ScanRepo,
-  files: ScanFile[],
-  content: CommitContent | undefined,
-  symbols: SymbolIndexStats & { error?: string },
-  errors: ScanError[],
-): Promise<number> {
-  return applyRepoIndex(db, r, await planRepoIndex(db, r, files, content), symbols, errors);
-}
-
 // A repo's wm_files rows as they stand once applyGraph has run `plan`: its
 // planned nodes, each keeping the stored symbols_md5 (upsertFile leaves it),
-// NULL for a new row.
-function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<IndexedFile & { purpose_source: string }> {
+// NULL for a new row or when `reparse` drops every stamp.
+function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan, reparse = false): Array<IndexedFile & { purpose_source: string }> {
   const stored = new Map(
     db
       .all<{ path: string; symbols_md5: string | null }>(`SELECT path, symbols_md5 FROM wm_files WHERE repo = ?`, [repo])
@@ -908,7 +918,7 @@ function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<Ind
         path,
         content_md5: n.content_md5,
         size_bytes: n.size_bytes,
-        symbols_md5: stored.get(path) ?? null,
+        symbols_md5: reparse ? null : stored.get(path) ?? null,
         purpose_source: n.purpose_source,
       };
     });
@@ -956,17 +966,27 @@ async function planRepoIndex(
   return plan;
 }
 
-// Synchronous: every git read is in `plan`, so a caller can run this inside
-// one db.transaction with no await in it.
+interface RepoIndexed {
+  parsed: number;
+  concepts_flagged: number;
+}
+
+// One repo's symbols, symbol purposes and concepts brought up to its commit,
+// then repos.indexed_commit stamped; a repo git gave no commit was read from
+// disk and is not stamped. A stage that throws is recorded and the rest still
+// run. Synchronous: every git read is in `plan`, so a caller can run this
+// inside one db.transaction with no await in it. Returns the files parsed and
+// concepts_flagged, the concepts whose status refreshConcepts changed.
 function applyRepoIndex(
   db: TrajectoryDB,
   r: ScanRepo,
   plan: RepoIndexPlan,
   symbols: SymbolIndexStats & { error?: string },
   errors: ScanError[],
-): number {
+): RepoIndexed {
   const paths = plan.scope?.changed;
   let parsed = 0;
+  let concepts_flagged = 0;
   try {
     if (!plan.symbols) throw plan.symbolsError;
     const repoStats = applyRepoSymbols(db, plan.symbols);
@@ -983,7 +1003,7 @@ function applyRepoIndex(
     recordScanError(errors, 'symbol_purpose', r.name, e);
   }
   try {
-    refreshConcepts(db, r.name);
+    concepts_flagged = refreshConcepts(db, r.name).changed;
   } catch (e) {
     recordScanError(errors, 'concept_refresh', r.name, e);
   }
@@ -995,32 +1015,40 @@ function applyRepoIndex(
   if (r.commit) {
     db.run(`UPDATE repos SET indexed_commit = ?, indexed_stamp = ? WHERE name = ?`, [r.commit, indexStamp(), r.name]);
   }
-  return parsed;
+  return { parsed, concepts_flagged };
 }
 
 export interface RepoReindexStats {
   files_parsed: number;
   dirs_touched: number;
+  concepts_flagged: number;
   errors: ScanError[];
 }
 
-// Test seams inside the incremental reindex's transaction: afterGraph once the
-// wm_files and wm_directories rows are written, afterIndex once the symbols,
-// concepts and indexed_commit stamp are. Both run synchronously in it.
+// Test seams inside the reindex and full scan transactions: afterGraph once
+// the wm_files and wm_directories rows are written, afterIndex once the
+// symbols, concepts and indexed_commit stamp are. Both run synchronously in it.
 export const reindexHooks: { afterGraph?: () => void; afterIndex?: () => void } = {};
 
 // One repo's world model brought to out's commit (GH 2584): a full rebuild
 // without a `scope`, the incremental reindex with one. out holds that one
-// repo, already registered in repos. The incremental reindex reads and parses
-// every blob first, then writes files, dirs, symbols with the relink and
-// orphan marking, purposes, concepts and the indexed_commit stamp in one
-// synchronous transaction, or nothing: a stage that fails rolls it back. No
-// await runs inside it, so no other write on this connection joins it.
+// repo, already registered in repos. Every blob is read and parsed first, then
+// files, dirs, symbols with the relink and orphan marking, purposes, concepts
+// and the indexed_commit stamp are written in one synchronous transaction. No
+// await runs inside it, so no other write on this connection joins it. In the
+// incremental reindex a stage that fails rolls it all back; the full rebuild
+// records the stage's error and commits the rest, as scan_run does. onApply
+// runs inside the transaction with the stage errors, once the stamp is written.
+// opts.reparse ignores the stored wm_files rows and symbols_md5 stamps, so
+// every file row is rewritten from the walk and every file parsed again: the
+// rebuild a shadow-compare mismatch forces cannot trust them.
 export async function persistRepoReindex(
   db: TrajectoryDB,
   graph: WorldModelGraph,
   out: ScanOutput,
   scope?: ReindexScope,
+  onApply?: (errors: ScanError[]) => void,
+  opts: { reparse?: boolean } = {},
 ): Promise<RepoReindexStats> {
   const now = nowISO();
   const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
@@ -1032,32 +1060,29 @@ export async function persistRepoReindex(
   };
   const symbols = emptySymbolStats();
   const errors: ScanError[] = [];
+  let concepts_flagged = 0;
   const stats = (graphStats: GraphStats): RepoReindexStats => ({
     files_parsed: symbols.files_parsed + symbols.files_failed,
     dirs_touched: graphStats.dirs_upserted,
+    concepts_flagged,
     errors,
   });
-  if (!scope) {
-    stampCounts();
-    const graphStats = await persistGraph(graph, persisted, now);
-    for (const r of out.repos) await indexRepoAtCommit(db, r, repoFiles(r), out.contents?.get(r.name), symbols, errors);
-    return stats(graphStats);
-  }
-  const graphPlan = await planGraph(graph, persisted, now, scope);
+  const graphPlan = await planGraph(graph, persisted, now, scope, new Set(opts.reparse ? out.repos.map((r) => r.name) : []));
   const repoPlans = new Map<string, RepoIndexPlan>();
   for (const r of out.repos) {
-    const planned = plannedFiles(db, r.name, graphPlan.files);
+    const planned = plannedFiles(db, r.name, graphPlan.files, opts.reparse === true);
     repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned, scope));
   }
   return db.transaction(() => {
     stampCounts();
     const graphStats = applyGraph(graph, persisted, now, graphPlan);
     reindexHooks.afterGraph?.();
-    for (const r of out.repos) applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors);
+    for (const r of out.repos) concepts_flagged += applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors).concepts_flagged;
     reindexHooks.afterIndex?.();
-    if (errors.length > 0) {
+    if (scope && errors.length > 0) {
       throw new Error(`incremental reindex failed: ${errors.map((e) => `${e.stage}: ${e.error}`).join('; ')}`);
     }
+    onApply?.(errors);
     return stats(graphStats);
   });
 }
@@ -1090,9 +1115,9 @@ export function scanTools(
           },
           source: {
             type: 'string',
-            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
+            enum: ['user_manual', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace. Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_initial = bro hit the registry-cold gate, and run-scan.mjs\'s default; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
@@ -1134,10 +1159,12 @@ export function scanTools(
 
         // startup_catchup on a warm DB brings each known repo to its target
         // (git-range scope, full-repo only when the stamp needs it) and runs no
-        // workspace discovery (GH 2584).
+        // workspace discovery (GH 2584). Then the daily shadow compare of at
+        // most one repo starts in the background, not awaited.
         if (source === 'startup_catchup' && graph && db.get(`SELECT 1 FROM repos LIMIT 1`)) {
           const results = await catchUpRepos(db, graph, { dbPath, trigger: 'startup_catchup' });
-          return ok({ source, repos: results });
+          const shadowCompare = startShadowCompare(db);
+          return ok({ source, repos: results, shadow_compare: shadowCompare });
         }
 
         // #339: lock file prevents concurrent scans. Lock lives beside the DB.
@@ -1166,11 +1193,24 @@ export function scanTools(
           const indexedBefore = new Map(
             db.all<{ name: string; indexed_commit: string | null }>(`SELECT name, indexed_commit FROM repos`).map((r) => [r.name, r.indexed_commit]),
           );
-          const { parsed_by_repo, ...stats } = await persistScan(db, graph, out, sessionDir);
-          const scanMs = Date.now() - started;
           const trigger = triggerOfSource(source);
+          const run: ReindexRun = { mode: 'full', trigger, startedMs: started };
+          // A repo new to this scan gets its wm_freshness row with its repos
+          // row, in persistScan's transaction.
+          const running = graph ? out.repos.filter((r) => indexedBefore.has(r.name)).map((r) => r.name) : [];
+          for (const name of running) markReindexStart(db, name, run);
+          let persistedScan: Awaited<ReturnType<typeof persistScan>>;
+          try {
+            persistedScan = await persistScan(db, graph, out, sessionDir, graph ? run : undefined);
+          } catch (e) {
+            for (const name of running) markReindexFailed(db, name, run);
+            throw e;
+          }
+          const { indexed_by_repo, ...stats } = persistedScan;
+          const scanMs = Date.now() - started;
           for (const r of out.repos) {
-            if (!graph || !r.commit || !parsed_by_repo.has(r.name)) continue;
+            const indexed = indexed_by_repo.get(r.name);
+            if (!graph || !r.commit || !indexed) continue;
             const dirs = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [r.name]);
             recordReindex(db, {
               repo: r.name,
@@ -1180,8 +1220,9 @@ export function scanTools(
               from_commit: indexedBefore.get(r.name) ?? '',
               to_commit: r.commit,
               files_diffed: r.file_count,
-              files_parsed: parsed_by_repo.get(r.name) ?? 0,
+              files_parsed: indexed.parsed,
               dirs_touched: dirs?.n ?? 0,
+              concepts_flagged: indexed.concepts_flagged,
               ms: scanMs,
             });
           }

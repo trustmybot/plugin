@@ -35,7 +35,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh } from '../world-model/freshness.js';
+import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
@@ -227,6 +227,16 @@ function scopeUnchecked(e: unknown): ScopeCheck {
     checked: false,
     reason: (e as Error).message.split('\n')[0] || 'git diff failed',
   };
+}
+
+// The guard briefLocations opens with: an indexed repo gets non-null locations and concepts.
+function repoIndexed(db: TrajectoryDB, repo: string): boolean {
+  if (!repo) return false;
+  const row = db.get<{ n: number }>(
+    `SELECT EXISTS (SELECT 1 FROM wm_files WHERE repo = ?) OR EXISTS (SELECT 1 FROM wm_symbols WHERE repo = ?) AS n`,
+    [repo, repo],
+  );
+  return Number(row?.n ?? 0) !== 0;
 }
 
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
@@ -841,6 +851,10 @@ type TaskBranchOutcome =
   | { kind: 'base_unresolved' }
   | { kind: 'diverged'; ref: string; baseRef: string }
   | { kind: 'git_failed'; what: string; error: unknown };
+
+function baseIsBranch(base: string, branchId: string): boolean {
+  return [branchId, `origin/${branchId}`, `refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`].includes(base);
+}
 
 // The task branch policy task_provision, task_retry and task_reopen share: a
 // missing ref is cut from resolveCutBase(base) (created); an existing local or
@@ -1509,7 +1523,7 @@ export function compositeTools(
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
         "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
-        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
         'A swe call opens its swe agent_runs row when none is open. response_format_hint flags a concise trim.',
       inputSchema: {
@@ -1541,7 +1555,7 @@ export function compositeTools(
     const target = baseRef ? revParseCommit(repoPath, baseRef) : null;
     if (!graph || !repo || !target) return;
     try {
-      await ensureFresh(db, graph, repo, { dbPath, trigger: 'spawn', target, wait: true });
+      await ensureFresh(db, graph, repo, { dbPath, trigger: 'spawn', target, targetRef: baseRef, wait: true });
     } catch (e) {
       serverLog({ event: 'wm_spawn_reindex_error', repo, error: (e as Error).message });
     }
@@ -1733,6 +1747,13 @@ export function compositeTools(
           repoPath,
           (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
         );
+        if (baseIsBranch(base, branchId)) {
+          return err(
+            `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
+              `would block every commit on it. Pass a different base, e.g. the PR target. ` +
+              `No branch, worktree or task row was created.`,
+          );
+        }
 
         // Branch policy (ensureTaskBranch): a new ref is created from the base
         // ('created'); an existing ref at or behind the base tip is reused; a
@@ -2245,7 +2266,8 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
-        const isSwe = normalizeAgent(args['agent'] as string | undefined) === 'swe';
+        const caller = normalizeAgent(args['agent'] as string | undefined);
+        const isSwe = caller === 'swe';
         const section = args['section'] ?? (isSwe ? 'core' : 'all');
         if (!isBriefSection(section)) {
           return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
@@ -2257,6 +2279,7 @@ export function compositeTools(
           );
         }
         const concise = responseFormat === 'concise';
+        const leanReviewerCore = concise && caller === 'code-reviewer';
         let trimmed = false;
         const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
@@ -2342,7 +2365,13 @@ export function compositeTools(
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
           const taskFiles = parseTaskFiles(task.files);
-          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+          let worldModel: Record<string, unknown> = {};
+          if (leanReviewerCore) {
+            trimmed ||= repoIndexed(db, repo);
+          } else {
+            const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+            worldModel = { locations, concepts: briefConcepts(db, repo, taskFiles, locations) };
+          }
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2361,8 +2390,7 @@ export function compositeTools(
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations,
-            concepts: briefConcepts(db, repo, taskFiles, locations),
+            ...worldModel,
           };
         };
 
@@ -2514,6 +2542,7 @@ export function compositeTools(
             : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
+          ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),
         };
         return ok(trimmed ? { ...brief, response_format_hint: BRIEF_RESPONSE_FORMAT_HINT } : brief);
       }),

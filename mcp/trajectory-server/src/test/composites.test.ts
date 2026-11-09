@@ -1,7 +1,7 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2422,7 +2422,7 @@ describe('task_brief sections (GH 1743)', () => {
   const CORE_KEYS = [
     'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'worktree_path', 'effort',
     'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
-    'concepts',
+    'concepts', 'freshness',
   ];
   const ALL_KEYS = [
     ...CORE_KEYS, 'verification', 'verification_run', 'scope', 'scope_world_model', 'world_model_warning', 'task_discussions',
@@ -2484,15 +2484,50 @@ describe('task_brief sections (GH 1743)', () => {
   it('bro and code-reviewer calls with no section return the full brief', async () => {
     const db = tempDB();
     const id = seed(db);
-    for (const agent of ['bro', 'code-reviewer']) {
-      assert.deepEqual(keys(await brief(db, { agent, task_id: id })), [...ALL_KEYS].sort(), agent);
-    }
+    assert.deepEqual(keys(await brief(db, { agent: 'bro', task_id: id })), [...ALL_KEYS].sort(), 'bro');
+    const lean = ALL_KEYS.filter((k) => k !== 'locations' && k !== 'concepts').sort();
+    assert.deepEqual(keys(await brief(db, { agent: 'code-reviewer', task_id: id })), lean, 'code-reviewer');
     db.run(
       `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (1, 'swe', 'note', 'n', datetime('now'))`,
     );
     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, supersedes)
             VALUES (1, 'bro', 'decision', 'B2', datetime('now', '+1 second'), (SELECT MIN(id) FROM discussions))`);
     assert.ok(keys(await brief(db, { agent: 'bro', task_id: id })).includes('task_discussions_omitted'));
+    db.close();
+  });
+
+  it('a concise code-reviewer brief omits locations and concepts; detailed keeps them; bro and swe keep them', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: 'Edit `src/a.ts` and `run()`.', files: ['src/a.ts'], verification: ['true'] });
+    db.run(`INSERT INTO wm_files (repo, path, dir, purpose, updated_at) VALUES ('app', 'src/a.ts', 'src', 'a', datetime('now'))`);
+    db.run(
+      `INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash, exported)
+       VALUES ('app', 'src/a.ts', 'function', 'run', 1, 5, 'h', 1)`,
+    );
+    const lean = ALL_KEYS.filter((k) => k !== 'locations' && k !== 'concepts').sort();
+    for (const args of [{}, { response_format: 'concise' }]) {
+      const b = parse(await brief(db, { agent: 'code-reviewer', task_id: id, ...args }));
+      const { response_format_hint, ...rest } = b;
+      assert.deepEqual(Object.keys(rest).sort(), lean, JSON.stringify(args));
+      assert.equal(typeof response_format_hint, 'string', 'the trim is flagged when locations would be non-null');
+    }
+
+    const detailed = parse(await brief(db, { agent: 'code-reviewer', task_id: id, response_format: 'detailed' }));
+    assert.ok('locations' in detailed && 'concepts' in detailed);
+    assert.notEqual(detailed['locations'], null);
+
+    for (const agent of ['bro', 'swe']) {
+      const b = parse(await brief(db, { agent, task_id: id }));
+      assert.ok('locations' in b && 'concepts' in b, agent);
+      assert.notEqual(b['locations'], null, agent);
+    }
+    db.close();
+  });
+
+  it('a concise code-reviewer brief carries no hint when the repo has no world model', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    assert.equal('response_format_hint' in parse(await brief(db, { agent: 'code-reviewer', task_id: id })), false);
     db.close();
   });
 
@@ -2615,6 +2650,62 @@ describe('task_provision (#157)', () => {
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+
+  describe('base equal to branch_id (GH 2499)', () => {
+    const provisionOn = (branch_id: string, base: string) => ({
+      agent: 'bro', issue_id: 1, branch_id, base, decision_body: 'Chosen approach: base check; trade-off none.',
+      task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+    });
+
+    for (const base of ['feat/self', 'origin/feat/self', 'refs/heads/feat/self']) {
+      it(`refuses base='${base}' naming both values and creates no branch, worktree, task or decision row`, async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+          const head = git(repoRoot, 'rev-parse', 'HEAD');
+          git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/self', head);
+          const db = tempDB();
+          seedIssue(db, repoRoot);
+          const worktreesBefore = git(repoRoot, 'worktree', 'list', '--porcelain');
+          const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+          const r = await call(composites.handlers, 'task_provision', provisionOn('feat/self', base));
+          assert.equal(r.isError, true, JSON.stringify(parse(r)));
+          const message = String(parse(r)['error']);
+          assert.match(message, /base '(origin\/|refs\/heads\/)?feat\/self' is the task's own branch_id 'feat\/self'/);
+          assert.match(message, /Pass a different base, e.g\. the PR target\./);
+          assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/self'), 'no local branch ref');
+          assert.equal(git(repoRoot, 'worktree', 'list', '--porcelain'), worktreesBefore, 'no worktree');
+          assert.equal(existsSync(join(repoRoot, '.claude', 'worktrees', 'self')), false, 'no worktree dir');
+          assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+          assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM discussions WHERE kind = 'decision'`)!.c, 0, 'no decision row');
+          db.close();
+        } finally {
+          rmSync(ws, { recursive: true, force: true });
+        }
+      });
+    }
+
+    it("stacks on another task's branch: base='feat/lower' provisions feat/upper cut at feat/lower", async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const lower = await call(composites.handlers, 'task_provision', provisionOn('feat/lower', 'main'));
+        assert.ok(!lower.isError, JSON.stringify(parse(lower)));
+        const upper = await call(composites.handlers, 'task_provision', provisionOn('feat/upper', 'feat/lower'));
+        assert.ok(!upper.isError, JSON.stringify(parse(upper)));
+        assert.equal(
+          git(repoRoot, 'rev-parse', 'refs/heads/feat/upper'),
+          git(repoRoot, 'rev-parse', 'refs/heads/feat/lower'),
+        );
+        const row = db.get<{ parent_branch_id: string }>('SELECT parent_branch_id FROM tasks WHERE id = ?', [parse(upper)['task_id']]);
+        assert.equal(row!.parent_branch_id, 'feat/lower');
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
   });
 
   it('waive_spec_shape writes one per-task spec_shape_gate_waived row in the require-task-spec shape; none without it; a short reason writes nothing', async () => {

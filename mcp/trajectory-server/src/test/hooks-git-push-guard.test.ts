@@ -93,8 +93,13 @@ describe('git-push-guard: GH 1927 misparsed heredocs fail closed', () => {
   });
 
   it('an unparseable command that never names push is allowed untouched', async () => {
-    const r = await gitPushGuard(payload(`W=${dir}; cat <<E"M"\nx\nEM\ngit -C $W status`, dir), env);
+    const r = await gitPushGuard(payload(`cat <<E"M"\nx\nEM\ngit -C ${dir} status`, dir), env);
     assert.deepEqual(r, { stdout: '', code: 0 });
+  });
+
+  it('an unparseable command whose git words hold an expansion gets the parse deny (GH 2634)', async () => {
+    const r = await gitPushGuard(payload(`W=${dir}; cat <<E"M"\nx\nEM\ngit -C $W $sub`, dir), env);
+    assert.equal(reason(r.stdout), PARSE_REASON);
   });
 });
 

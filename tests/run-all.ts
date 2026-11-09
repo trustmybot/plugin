@@ -170,6 +170,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
     lint('L1 lint: version sync (4 manifests agree)', 'version-sync.test.mjs'),
     lint('L1 lint: changelog top section current', 'changelog-current.test.mjs'),
+    lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs'),
     lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs'),
@@ -204,6 +205,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: no stale framing prose', 'stale-framing-prose.test.mjs'),
     lint('L1 lint: no hardcoded plugin name', 'no-hardcoded-plugin-name.test.mjs'),
     lint('L1 lint: CI workflow file refs exist', 'ci-workflow-refs-exist.test.mjs'),
+    lint('L1 lint: workflow-run scripts build before importing dist', 'workflow-scripts-no-dist.test.mjs'),
     lint('L1 lint: no bare role compare in hooks', 'no-bare-role-compare.test.mjs'),
     lint('L1 lint: symlink targets all resolve', 'symlink-targets.test.mjs'),
     lint('L1 lint: hooks.json commands executable', 'hooks-executable.test.mjs'),
@@ -233,6 +235,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: per-file L1 lint runner (file-lint.ts)', 'file-lint.test.mjs'),
     lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
+    lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
   ];
 }
 
@@ -418,12 +421,17 @@ async function run(l1Only: boolean, runTmp: string): Promise<number> {
     return missing.length === 0;
   });
   await runStep('L1 bench: measurement harness selftest', ['node', '--test', join(HERE, 'benchmarks', 'selftest.test.mjs')], l1Env);
+  const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
+  const equivalenceTest = join('dist', 'test', 'wm-equivalence.test.js');
+  await runStep('L1 world model: incremental reindex equals a clean rebuild (wm-equivalence.test.js)', ['wm_equivalence'], l1Env, async () => {
+    if (!(await runArgv(['bun', 'run', 'build'], l1Env, serverDir))) return false;
+    return await runArgv(['node', '--experimental-sqlite', '--test', equivalenceTest], { ...l1Env, ...forbidLive }, serverDir);
+  });
   liveCliCheck('L1');
   if (l1Only) return fail ? 1 : 0;
 
   const afterL1 = postL1Env(base);
   const l2Env = { ...afterL1, ...forbidLive };
-  const serverDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server');
   await runStep('L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs)', ['l2_unit'], l2Env, async () => {
     if (!(await runArgv(['bun', 'run', 'build'], l2Env, serverDir))) return false;
     const testDir = join(serverDir, 'dist', 'test');

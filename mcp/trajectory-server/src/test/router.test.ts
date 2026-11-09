@@ -555,7 +555,7 @@ describe('router events: groups, table and dedupe keys (GH 1692 R3)', () => {
     assert.deepEqual(names('PostToolUse', mcp('bro_atomic_close')), ['post-atomic-close-readme', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('task_create_batch')), ['post-task-create-spawn-hint', 'task-overrun-alert', 'liveness-alert']);
     assert.deepEqual(names('PostToolUse', mcp('issue_list')), ['task-overrun-alert', 'liveness-alert']);
-    assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge']);
+    assert.deepEqual(names('PostToolUse', 'Bash'), ['bash-output-trim', 'attribution-footer', 'clean-merged-branch', 'close-issue-on-merge', 'ref-move-reindex']);
     assert.deepEqual(names('PostToolUse', 'Agent'), ['swe-spawn-bind']);
     assert.deepEqual(names('PermissionDenied', 'Agent'), ['swe-spawn-rollback']);
     assert.deepEqual(names('PostToolUse', 'Read'), []);
@@ -1387,16 +1387,16 @@ describe('bash-output-trim through the router (GH 2193)', () => {
     const d = await decide('PostToolUse', postBash('git log --oneline'), env(), {
       findGate: (name) => (name === 'bash-output-trim' ? findGate(name) : () => ({ stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `from ${name}` } })}\n`, code: 0 })),
     });
-    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow'], ['ref-move-reindex', 'allow']]);
     const out = (JSON.parse(d.stdout) as Trimmed).hookSpecificOutput;
-    assert.equal(out.additionalContext, 'from attribution-footer\n\nfrom clean-merged-branch\n\nfrom close-issue-on-merge');
+    assert.equal(out.additionalContext, 'from attribution-footer\n\nfrom clean-merged-branch\n\nfrom close-issue-on-merge\n\nfrom ref-move-reindex');
     assert.match(out.updatedToolOutput.stdout, /^0000000 commit subject number 0\n[^]*\[bash-output-trim: cut \d+ lines [^]*\n0000299 commit subject number 299$/);
     assert.deepEqual({ ...out.updatedToolOutput, stdout: '' }, { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false });
   });
 
   it('the real Bash group runs every gate and answers with the trimmed output', async () => {
     const d = await decide('PostToolUse', postBash('git log'), env());
-    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow']]);
+    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['bash-output-trim', 'allow'], ['attribution-footer', 'allow'], ['clean-merged-branch', 'allow'], ['close-issue-on-merge', 'allow'], ['ref-move-reindex', 'allow']]);
     assert.ok((JSON.parse(d.stdout) as Trimmed).hookSpecificOutput.updatedToolOutput.stdout.length < longLog.length);
   });
 

@@ -82,6 +82,32 @@ CREATE TABLE IF NOT EXISTS repo_env (
     UNIQUE (repo, package_path, ecosystem)
 );
 
+-- wm_freshness (schema v63, GH 2584): one row per repo saying how fresh its
+-- world model is. target_ref / target_commit: the ref and commit the newest
+-- read, spawn or scan resolved as the repo's target, rewritten only when they
+-- change; target_fetched_at stays NULL until the periodic fetch lands. The
+-- reindex_* columns describe the newest reindex: state 'running' from its
+-- start, then 'idle' with outcome 'ok' (written in the transaction that stamps
+-- repos.indexed_commit) or 'failed' with outcome 'error'. trigger is
+-- read | spawn | startup | scan | hook | fetch; hook is the ref-move
+-- PostToolUse hook's reindex. Timestamps are ISO-8601 UTC.
+-- A 'running' row whose locks are gone at server start becomes 'failed'. The
+-- freshness block of world_model_*, task_brief and the dashboard reads it.
+CREATE TABLE IF NOT EXISTS wm_freshness (
+    repo                TEXT    PRIMARY KEY REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    target_ref          TEXT,
+    target_commit       TEXT,
+    target_fetched_at   TEXT,
+    reindex_state       TEXT    NOT NULL DEFAULT 'idle' CHECK (reindex_state IN ('idle','running','failed')),
+    reindex_mode        TEXT    CHECK (reindex_mode IN ('incremental','full')),
+    reindex_trigger     TEXT    CHECK (reindex_trigger IN ('read','spawn','startup','scan','hook','fetch')),
+    reindex_started_at  TEXT,
+    reindex_finished_at TEXT,
+    reindex_elapsed_ms  INTEGER,
+    reindex_outcome     TEXT    CHECK (reindex_outcome IN ('ok','error')),
+    updated_at          TEXT    NOT NULL
+);
+
 -- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
 -- is an FK into this table. PK is (name, repo) so the same milestone name can
 -- exist independently per repo.
@@ -220,6 +246,12 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- (subagent_session_id stays the Claude Code session). NULL until
     -- validation_record writes it, and for honor-system rows.
     reviewer_agent_id   TEXT,
+    -- reviewed_sha (v65 GH 2684): the commit_sha= anchor of the code-reviewer
+    -- spawn record-reviewer-spawn observed for the row's task and attempt. NULL
+    -- when no spawn was observed: honor-system rows and rows from before v65.
+    -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
+    -- to the nearest comma.
+    reviewed_sha        TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -257,7 +289,7 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
--- lint_runs (v63, GH 2570): one row per run of a task's close lints, the
+-- lint_runs (v66, GH 2570): one row per run of a task's close lints, the
 -- repo's .config/tmb/close-lints.json plus the built-in diff checks, at the
 -- task's commit_sha on base_sha (the merge-base it was linted against).
 -- fingerprint is lintFingerprint over the fingerprint_inputs blobs at
@@ -416,7 +448,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 63, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 66, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -792,7 +824,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     touching the README, commits_behind (GH 1833) counts later commits that
 --     change, other than by adding, a file the README references, dead_refs
 --     is a JSON array of repo-relative paths the README names that no longer
---     exist. All three NULL otherwise.
+--     exist. All three NULL otherwise. readme_review_pending (GH 2584) is 1
+--     once a reindex changed the README-sourced summary of an existing
+--     README row, until a world-model read lists the dir to bro.
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
@@ -854,6 +888,7 @@ CREATE TABLE IF NOT EXISTS wm_directories (
     summary_sha        TEXT,
     commits_behind     INTEGER,
     dead_refs          TEXT,
+    readme_review_pending INTEGER NOT NULL DEFAULT 0,
     UNIQUE (repo, path)
 );
 

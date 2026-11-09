@@ -212,7 +212,7 @@ describe('Codex runtime manager', () => {
       assert.equal(created.project_root, realpathSync(project));
       assert.equal(created.plugin_name, plugin.name);
       assert.equal(created.plugin_version, plugin.version);
-      assert.equal(created.schema_version, 63);
+      assert.equal(created.schema_version, 66);
       assert.equal(created.graph_available, true);
       assert.equal(created.graph_status, 'ready');
       assert.equal(created.graph_db, created.trajectory_db);
@@ -1147,6 +1147,51 @@ describe('Codex tool surface', () => {
           1,
         );
       });
+    } finally {
+      runtimeManager.close();
+    }
+  });
+
+  it('audits the forced issue_sync=off only when it changes the stored value (GH 2619)', async () => {
+    const project = gitProject();
+    const runtimeManager = manager();
+    const registry = createCodexToolRegistry(runtimeManager);
+    const syncAudits = async () =>
+      runtimeManager.withRuntime(project, ({ db }) =>
+        db.all<{ from_node: string; summary: string; content_json: string; issue_id: number }>(
+          `SELECT from_node, summary, content_json, issue_id FROM audit
+           WHERE event_type = 'config_changed' AND json_extract(content_json, '$.key') = 'issue_sync'
+           ORDER BY id`,
+        ),
+      );
+    const create = async (objective: string) => {
+      const created = await registry.call('planning_issue_create', {
+        project_root: project,
+        objective,
+        classification: 'Docs',
+        priority: 'Low',
+      });
+      assert.notEqual(created.isError, true);
+    };
+    try {
+      await create('Seeded off stays unaudited');
+      assert.deepEqual(await syncAudits(), []);
+
+      await runtimeManager.withRuntime(project, ({ db }) => {
+        db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+      });
+      await create('Forced off is audited');
+      const rows = await syncAudits();
+      assert.equal(rows.length, 1);
+      assert.deepEqual({ ...rows[0] }, {
+        from_node: 'bro',
+        summary: 'Config changed: issue_sync',
+        content_json: JSON.stringify({ key: 'issue_sync' }),
+        issue_id: -1,
+      });
+
+      await create('Already off adds no row');
+      assert.equal((await syncAudits()).length, 1);
     } finally {
       runtimeManager.close();
     }

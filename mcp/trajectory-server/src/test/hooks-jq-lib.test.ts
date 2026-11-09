@@ -49,6 +49,12 @@ describe('lib/jq.ts key order', () => {
     assert.equal(jqCompact(jsonStream('{"2":1,"1":2}').values[0]), '{"2":1,"1":2}');
   });
 
+  it('jsonStream skips a UTF-8 BOM at the start only, as jq does (GH 2112)', () => {
+    assert.deepEqual(jsonStream('﻿{"a":1}'), { values: [{ a: 1 }], complete: true });
+    assert.deepEqual(jsonStream('{"a":1}\n﻿{"b":2}'), { values: [{ a: 1 }], complete: false });
+    assert.equal(jsonStream('﻿﻿{"a":1}').complete, false);
+  });
+
   it('jq -r indents an object in input order', () => {
     const input = '{"o":{"b":[],"2":{},"1":[1,{"3":1,"2":2}]}}';
     const literal = '{\n  "b": [],\n  "2": {},\n  "1": [\n    1,\n    {\n      "3": 1,\n      "2": 2\n    }\n  ]\n}';

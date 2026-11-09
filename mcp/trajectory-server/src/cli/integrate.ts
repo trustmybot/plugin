@@ -78,7 +78,8 @@ import { keysInOrder } from '../hooks/lib/jq-key-order.js';
 import { jsonStream } from '../hooks/lib/jq.js';
 import { commandSubstitution, posixDirname } from '../hooks/lib/project-env.js';
 import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.js';
-import { joinToolchainPath, parseBudget, shellLength, shellTail, toolchainDirs } from '../hooks/swe-verification-gate.js';
+import { runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
+import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
@@ -86,7 +87,6 @@ import type { CliIo } from './fallback-db.js';
 
 const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
-const DEFAULT_TAIL_CHARS = 4000;
 const TIMED_OUT_CODE = 124;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
@@ -231,7 +231,12 @@ SELECT changes();`,
 
   private finish(rc: number, timedOut: 0 | 1): boolean {
     for (let attempt = 1; attempt <= FINISH_ATTEMPTS; attempt += 1) {
-      if (this.record(`UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`).ok) {
+      const s = runFinishSql('integrate', this.runId, rc, timedOut);
+      if (s.code !== 0) {
+        this.io.err(`${s.error}\n`);
+        return false;
+      }
+      if (this.record(s.sql).ok) {
         this.runOpen = false;
         return true;
       }
@@ -241,12 +246,12 @@ SELECT changes();`,
   }
 
   private recordCommand(ordinal: number, command: string, rc: number, elapsed: number, output: string): boolean {
-    const rawCap = this.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-    const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-    const tail = shellLength(output, this.env) > cap ? shellTail(output, cap, this.env) : output;
-    return this.record(
-      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`,
-    ).ok;
+    const s = runCommandSql('integrate', this.runId, ordinal, command, rc, String(elapsed), output, this.env);
+    if (s.code !== 0) {
+      this.io.err(`${s.error}\n`);
+      return false;
+    }
+    return this.record(s.sql).ok;
   }
 
   /** Finishes a run left open, kills its command and removes the temporary worktree; safe to call twice. */
@@ -473,14 +478,7 @@ SELECT changes();`,
       this.die(1, `worktree setup failed on ${newSha}; no verification run recorded, ${branch} unmoved`);
     }
 
-    const now = nowIso();
-    const started = this.record(
-      `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
- WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.taskId}, '${sqlQuote(newSha)}', 'manual', '${now}', ${timeoutS});
-SELECT last_insert_rowid();`,
-    );
+    const started = this.record(runStartSql(this.taskId, newSha, timeoutS, 'manual'));
     this.runId = started.ok ? commandSubstitution(started.stdout) : '';
     if (this.runId === '') this.die(4, `could not record a verification run for ${newSha}; ${branch} unmoved`);
     this.runOpen = true;

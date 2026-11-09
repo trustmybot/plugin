@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The world-model equivalence test replays the last first-parent commits.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -34,3 +37,33 @@ jobs:
 
       - name: L1 lints (build:payload runs first)
         run: node --experimental-strip-types tests/run-all.ts --l1-only
+
+  dashboard:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install deps
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
+
+      - name: Build
+        run: |
+          (cd mcp/trajectory-server && bun run build:tsc)
+          (cd dashboard && bun run build)
+
+      - name: Dashboard tests
+        run: node --test dashboard/test/*.test.mjs

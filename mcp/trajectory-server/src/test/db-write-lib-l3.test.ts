@@ -21,7 +21,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { after, before, describe, it } from 'node:test';
 import { auditAppend, auditSql, dbWrite, nowIso, type AuditRow } from '../hooks/lib/audit.js';
 import { dbReadBudget, gateRead, sqliteRo } from '../hooks/lib/db.js';
-import { reusableRun, runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
+import { reusableRun, runCommandSql, runFinishSql, runStartSql, type VerificationRunSource } from '../hooks/lib/verification-runs.js';
 import { childEnv, sqlExec, sqlRows } from './db-test-fixtures.js';
 import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
 import { sqliteLogWrapper, walDetach } from './wal-gate-cases.js';
@@ -367,7 +367,7 @@ INSERT INTO issues (id, objective, description, status, repo, created_at, update
     const CMDS = JSON.stringify(["echo it's ok", 'true']);
     let run = '';
     let run2 = '';
-    const start = (sha: string, budgetS: number, task = '4242') => write(runStartSql(task, sha, budgetS));
+    const start = (sha: string, budgetS: number, task = '4242', source: VerificationRunSource = 'gate') => write(runStartSql(task, sha, budgetS, source));
     const command = (runId: string, ordinal: number, cmd: string, rc: number, elapsed: string, output: string, extra: Record<string, string> = {}) => {
       const s = runCommandSql(CALLER, runId, ordinal, cmd, rc, elapsed, output, env(extra));
       assert.equal(s.code, 0, s.error);
@@ -413,10 +413,21 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
       run2 = start(SHA, 5).stdout.trim();
       command(run2, 1, 'sleep 9', 124, '5.0', '0123456789abcdefghij', { TMB_VERIFICATION_TAIL_CHARS: '10' });
       assert.equal(count(`SELECT output_tail FROM verification_run_commands WHERE run_id = ${run2};`), 'abcdefghij', 'last 10 characters kept');
+      command(run2, 2, 'echo', 0, '0.0', '0123456789abcdefghij', { TMB_VERIFICATION_TAIL_CHARS: '0', LC_ALL: 'C' });
+      assert.equal(count(`SELECT output_tail FROM verification_run_commands WHERE run_id = ${run2} AND ordinal = 2;`), '0123456789abcdefghij', 'TMB_VERIFICATION_TAIL_CHARS=0 means no cut');
       finish(run2, 124, 1);
       write(`DELETE FROM verification_runs WHERE id = ${run};`);
       assert.equal(reusable(SHA, JSON.stringify(['sleep 9'])), '', 'a timed-out run is not reusable');
       assert.equal(count(`SELECT COUNT(*) FROM verification_run_commands WHERE run_id = ${run};`), '0', 'deleting a run cascades to its commands');
+    });
+
+    it('start stamps the source it is given (GH 1405)', () => {
+      for (const source of ['gate', 'manual'] as const) {
+        const id = start(OTHER_SHA, 900, '4242', source).stdout.trim();
+        assert.match(id, /^[0-9]+$/, `start prints a numeric run id for ${source}`);
+        assert.equal(count(`SELECT source FROM verification_runs WHERE id = ${id};`), source, `the run row has source = '${source}'`);
+        sqlExec(DB, `DELETE FROM verification_runs WHERE id = ${id};`);
+      }
     });
 
     it('start finishes unfinished runs past budget_s + 60 s as exit 137 (GH 1814)', () => {

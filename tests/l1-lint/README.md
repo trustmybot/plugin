@@ -16,9 +16,12 @@ node --test tests/l1-lint/link-check.test.mjs
 | [`version-sync.test.mjs`](./version-sync.test.mjs) | Version drift across manifest/package files |
 | [`changelog-current.test.mjs`](./changelog-current.test.mjs) | CHANGELOG missing the current version; a malformed `changelog.d/` fragment; a feature branch that edits `CHANGELOG.md` alongside a fragment or (after the cut-over) at all, or cites a `GH <n>` with no fragment or entry |
 | [`dist-bundles.test.mjs`](./dist-bundles.test.mjs) | `dist/index.js`, `dist/codex.js` or `dist/run-scan.js` not an esbuild bundle (no `var __` prelude, or a relative `import`/`export ... from` line as plain `tsc` emits); every run self-tests `fixtures/dist-bundles/` |
+| [`build-tsc-bundles.test.mjs`](./build-tsc-bundles.test.mjs) | `mcp/trajectory-server`'s `build:tsc` not ending with `build:bundle`, so tests exec stale `dist/hooks.js`, `dist/cli.js` or `dist/index.js`, or `build` calling `build:bundle` a second time (GH 2694); every run self-tests the checker on drifted scripts |
 | [`tsc-noemit.test.mjs`](./tsc-noemit.test.mjs) | TypeScript type errors (no emit) |
 | [`release-payload-workflow.test.mjs`](./release-payload-workflow.test.mjs) | `.github/workflows/release-payload.yml` losing its safety shape: tag-only triggers and the ref_name refusal, top-level `permissions: {}`, unpinned actions, the concurrency group, `--check` after the first push, a force push other than `stable-build` (parsed with `ruby -ryaml`; every run self-tests `fixtures/release-payload-workflow/`) |
+| [`dev-build-l1-docs.test.mjs`](./dev-build-l1-docs.test.mjs) | `.github/workflows/dev-build.yml` losing its `l1` job (`tests/run-all.ts --l1-only` on push, `contents: read`, no `needs:`), or a `CONTRIBUTING.md` line naming `dev-build.yml` without mentioning L1 (GH 2651) |
 | [`ci-workflow-refs-exist.test.mjs`](./ci-workflow-refs-exist.test.mjs) | CI workflow references that don't resolve |
+| [`workflow-scripts-no-dist.test.mjs`](./workflow-scripts-no-dist.test.mjs) | A `.github/workflows/*.yml` run step executing a `scripts/` entry point (`node … scripts/<path>.(mjs\|js\|ts)`) whose static relative imports reach `trajectory-server/dist/` with no earlier `run build`, `run build:tsc` or `run build:payload` step in that job (GH 2610); every run self-tests a temp-dir fixture with and without the build step |
 
 ### Docs & doctrine parity
 | Script | Catches |

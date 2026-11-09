@@ -14,7 +14,7 @@ const ISSUE_AUTHOR = 'bro';
 
 export function IssuePage({ id, detail }: { id: string; detail: IssueDetail }) {
   const [editing, setEditing] = useState(false);
-  const { issue, discussions, tasks } = detail;
+  const { issue, discussions, tasks, label_taxonomy: taxonomy } = detail;
   const open = issue['status'] === 'open';
   const count = discussions.length;
   return (
@@ -47,7 +47,7 @@ export function IssuePage({ id, detail }: { id: string; detail: IssueDetail }) {
           <Timeline discussions={discussions} />
           <Composer id={id} open={open} updatedAt={String(issue['updated_at'])} />
         </div>
-        <Sidebar issue={issue} labels={parseLabels(issue['labels'])} tasks={tasks} />
+        <Sidebar issue={issue} labels={parseLabels(issue['labels'])} taxonomy={taxonomy} tasks={tasks} />
       </div>
     </div>
   );

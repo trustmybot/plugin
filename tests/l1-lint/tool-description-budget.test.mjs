@@ -1,4 +1,4 @@
-// L1 lint: the MCP server's tool descriptions, loaded from the built dist/ through registerTools, total at most TMB_TOOL_DESC_BUDGET bytes (default 21700: the post-diet total plus headroom); raise it only with a justification.
+// L1 lint: the MCP server's tool descriptions, loaded from the built dist/ through registerTools, total at most TMB_TOOL_DESC_BUDGET bytes (default 22050: the post-diet total plus headroom); raise it only with a justification.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
 const SERVER_DIST = join(SERVER, 'dist', 'index.js');
 const SERVER_SRC = join(SERVER, 'src');
-const BUDGET_BYTES = Number(process.env.TMB_TOOL_DESC_BUDGET || 21700); // trimmed for v1.2.0, GH 1403; +500 for the verification-path guard four task tools document, GH 2581; +200 for the indexed_commit/target_commit/stale fields three world-model tools document, GH 2584
+const BUDGET_BYTES = Number(process.env.TMB_TOOL_DESC_BUDGET || 22050); // trimmed for v1.2.0, GH 1403; +500 for the verification-path guard four task tools document, GH 2581; +200 for the indexed_commit/target_commit/stale fields three world-model tools document, GH 2584; +150 for the freshness block four tools document, GH 2584; +200 for the needs_review key three world-model tools document, GH 2584
 
 const LOADER = `
 import { TrajectoryDB } from './mcp/trajectory-server/dist/db.js';
