@@ -14,7 +14,7 @@
  */
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
-import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, type Statement, unquotedCommand } from './cmd-analysis/index.js';
+import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, type Statement } from './cmd-analysis/index.js';
 import { dbPath, dbState, denyDbUnavailable } from './lib/db.js';
 import { type DenyFix, denyResult } from './lib/deny.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -51,7 +51,7 @@ export const noWorktreeBranchCreate: Gate = async (payload, env) => {
   const input = jqInput(payload);
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (!unquotedCommand(command).includes('worktree') && !gitBesideExpansion(command)) return ALLOW;
+  if (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command)) return ALLOW;
 
   const listed = await cmdStatements(command, '/', env);
   const violation = listed.ok ? violationOf(listed.statements, env) : ([PARSE_REASON, PARSE_FIX] as const);

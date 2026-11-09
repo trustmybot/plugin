@@ -32,10 +32,10 @@ import {
   gitBesideExpansion,
   gitSubcommandOf,
   payloadCwd,
+  prefilterPasses,
   type Statement,
   stmtRepoRoot,
   stripLiterals,
-  unquotedCommand,
 } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug } from './lib/db.js';
 import { gitOk, gitOut, gitRun, isDir } from './lib/git.js';
@@ -66,12 +66,12 @@ const MALFORMED_REASON = "BLOCKED: this repo's protected_branches is malformed J
 
 /**
  * _cmd_needs_git_guard: a git, gh or glab word anywhere, as written or
- * unquoted, or a git word beside an expansion (GH 2641), the early exit before
+ * unquoted, a `$'…'` word (GH 2758), or a git word beside an expansion (GH 2641), the early exit before
  * any parse or DB read. Its letters and digits are ASCII in every locale, so a
  * word right after a non-ASCII letter is analysed, as the .sh does under LC_ALL=C.
  */
 export function needsGitGuard(command: string): boolean {
-  return NEEDS_GUARD.test(command) || NEEDS_GUARD.test(unquotedCommand(command)) || gitBesideExpansion(command);
+  return prefilterPasses(command, (text) => NEEDS_GUARD.test(text)) || gitBesideExpansion(command);
 }
 
 class Denied {
