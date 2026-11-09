@@ -74,7 +74,7 @@ The guard is a parser, not a jail; its invariant is that a write it cannot prove
 
 ### Tier 0 settings
 
-Only on an explicit yes does onboarding merge a sandbox block into the project's local settings: sandbox on, writes allowed to the project and the model cache, network allowed to GitHub, the npm registry and each HTTPS remote's host, and npm's and bun's caches moved from the home directory into the project so the write allowance never widens to the home directory. On macOS it also lets sandboxed Bash reach the system's certificate trust service, which `gh` and other Go tools need; Claude Code documents this as weakening network isolation, and the yes option says so.
+Only on an explicit yes does onboarding merge a sandbox block into the project's local settings: sandbox on, writes allowed to the project and the model cache, network allowed to GitHub, the npm registry and each HTTPS remote's host, and npm's and bun's caches moved from the home directory into the project so the write allowance never widens to the home directory. On macOS it also lets sandboxed Bash reach the system's certificate trust service, which `gh` and other Go tools need; Claude Code documents this as weakening network isolation, and the yes option says so. It also lets sandboxed Bash listen on loopback, so the dashboard starts inside the sandbox; that binds local ports only and opens no outbound host.
 
 The merge keeps every setting the user already has, and TMB never adds sandbox exclusions. What TMB added is recorded, and a later no removes exactly that, keeping any value the user changed since. Nothing goes to user-scope settings. MCP servers and hooks run outside the sandbox, so the model download needs no allowed host.
 

@@ -9,12 +9,15 @@
 //   { "sandbox": { "enabled": true,
 //                  "enableWeakerNetworkIsolation": true,            (macOS only)
 //                  "filesystem": { "allowWrite": [<project>, <model cache>] },
-//                  "network": { "allowedDomains": [<TMB's hosts>, <HTTPS remote hosts>] } },
+//                  "network": { "allowedDomains": [<TMB's hosts>, <HTTPS remote hosts>],
+//                               "allowLocalBinding": true } },
 //     "env": { "npm_config_cache": <plugin state dir>/cache/npm,
 //              "BUN_INSTALL_CACHE_DIR": <plugin state dir>/cache/bun } }
 //
 // into <project>/.claude/settings.local.json, keeping every other key and
-// every allowWrite path, domain and env value already there. It never writes
+// every allowWrite path, domain and env value already there.
+// allowLocalBinding lets sandboxed Bash listen on loopback, so /dashboard
+// starts inside the sandbox; it opens no outbound host. It never writes
 // `excludedCommands`. What it added is returned as a record (stored in
 // plugin_config.sandbox_settings) so answering no removes exactly that —
 // never a key, path, domain or env value the user set.
@@ -39,6 +42,8 @@ export interface SandboxRecord {
   readonly allowed_domains?: readonly string[];
   /** True when TMB set sandbox.enableWeakerNetworkIsolation (absent before). Missing in records written before GH 1549. */
   readonly weaker_network_isolation_set?: boolean;
+  /** True when TMB set sandbox.network.allowLocalBinding (absent before). Missing in records written before GH 2601. */
+  readonly allow_local_binding_set?: boolean;
   /** The top-level env entries TMB added (absent before), name → value. Missing in records written before GH 1549. */
   readonly env?: Readonly<Record<string, string>>;
 }
@@ -50,6 +55,7 @@ export interface SandboxWriteResult {
   readonly allowed_domains?: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
   readonly weaker_network_isolation?: boolean;
+  readonly allow_local_binding?: boolean;
   readonly record?: SandboxRecord;
   readonly gitignore_appended?: boolean;
   readonly reason?: string;
@@ -279,6 +285,9 @@ export function writeProjectSandbox(opts: {
   if (weakerSet) sandbox['enableWeakerNetworkIsolation'] = true;
   else if (!weaker && weakerOwnedBefore) delete sandbox['enableWeakerNetworkIsolation'];
 
+  const localBindingSet = network['allowLocalBinding'] === undefined || opts.previous?.allow_local_binding_set === true;
+  if (localBindingSet) network['allowLocalBinding'] = true;
+
   if (sandbox['enabled'] === undefined) sandbox['enabled'] = true;
   filesystem['allowWrite'] = [...existing, ...wanted.filter((p) => !existing.includes(p))];
   sandbox['filesystem'] = filesystem;
@@ -297,6 +306,7 @@ export function writeProjectSandbox(opts: {
     allow_write: added,
     allowed_domains: addedDomains,
     weaker_network_isolation_set: weakerSet,
+    allow_local_binding_set: localBindingSet,
     env: addedEnv,
   };
   serverLog({ event: 'onboard_sandbox_written', settingsPath: path, allowWrite: wanted, allowedDomains: wantedDomains, env: wantedEnv });
@@ -307,6 +317,7 @@ export function writeProjectSandbox(opts: {
     allowed_domains: wantedDomains,
     env: wantedEnv,
     weaker_network_isolation: sandbox['enableWeakerNetworkIsolation'] === true,
+    allow_local_binding: network['allowLocalBinding'] === true,
     record,
     gitignore_appended: write.gitignore_appended,
   };
@@ -343,6 +354,7 @@ export function removeProjectSandbox(opts: {
       if (kept.length > 0) network['allowedDomains'] = kept;
       else delete network['allowedDomains'];
     }
+    if (opts.record.allow_local_binding_set) delete network['allowLocalBinding'];
     if (Object.keys(network).length === 0) delete sandbox['network'];
   }
   if (opts.record.enabled_set) delete sandbox['enabled'];
