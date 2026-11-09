@@ -42,7 +42,7 @@ Agentic prompts add tool use, autonomy, and multi-turn state on top of the basic
 
 How the above lands in this repo:
 
-- **Personas hold 100% day-to-day behavior + pointers; procedures live in skills/commands.** `CLAUDE.md` says *what bro does every turn* and names `/onboard`, `/roundtable`, `/tmb:agent-create`, `tmb_planning` — it doesn't inline their ceremonies.
+- **Personas hold 100% day-to-day behavior + pointers; procedures live in skills/commands.** `CLAUDE.md` says *what bro does every turn* and names `/onboard`, `/tmb:agent-create`, `tmb_planning` — it doesn't inline their ceremonies.
 - **Order a persona like an onboarding doc.** Identity → team → verify context → route → the work flow → voice. A cold-start agent reads it in the sequence it acts.
 - **No citation noise in prompt files.** Issue numbers, PR URLs, "caught in X" — these load every turn and earn nothing. Citations belong in commits, MRs, and issues.
 - **Self-documenting and trimmed.** Tables for decision-routing; no duplication across sections; cut filler. If two sections say the same thing, merge them.
@@ -78,12 +78,7 @@ How the above lands in this repo:
 
 ## Deeper doctrine
 
-Two architecture docs formalize the principles above for TMB — required reading before you write load-bearing prompt logic:
-
-- **[`DETERMINISM.md`](DETERMINISM.md)** — the determinism-vs-judgment layering rule: *if a step can fail because the LLM forgot, misordered, or misunderstood it, it doesn't belong in a prompt.* Carries the compound-failure math (a 5-step procedure ≈ 77% adherence at 95%/step) and a boundary test for deciding what stays in prose vs. migrates to a deterministic mechanism. This is the rigorous form of principles 11–12 (decompose, budget the window).
-- **[`ENFORCEMENT.md`](ENFORCEMENT.md)** — the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**) and the coverage matrix. Prompts are the *softest* layer; anything load-bearing should sit higher. Its "positive prompts as the floor" section is the pink-elephant rationale behind principle 8.
-
-Together they explain *why* we keep personas lean and fix recurring failures structurally rather than with more prose.
+**[`ENFORCEMENT.md`](ENFORCEMENT.md)** formalizes the principles above for TMB — required reading before you write load-bearing prompt logic. It carries the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**), the rule that *a step the LLM can forget, misorder, or misunderstand does not belong in a prompt*, the boundary test and compound-failure math behind principles 11–12, the coverage matrix, and the grading rubric. Its "positive prompts as the floor" section is the pink-elephant rationale behind principle 8. It explains *why* we keep personas lean and fix recurring failures structurally rather than with more prose.
 
 ## Cache zones
 
