@@ -110,6 +110,17 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     assert.ok(reason.includes(`Target: ${join(wt, 'agents/é.md')}.`), reason);
   });
 
+  it('denies an Edit of a prompt-surface file and routes the swe to its report, not to task_create_batch (GH 2713)', async () => {
+    const r = await sweBoundary(payload('Edit', { file_path: join(wt, 'agents/a.md'), old_string: 'a', new_string: 'b' }), env);
+    const reason = decision(r.stdout)?.permissionDecisionReason ?? '';
+    assert.match(reason, /^BLOCKED: SWE may not edit prompt-surface files /);
+    assert.ok(
+      reason.includes('If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task.'),
+      reason,
+    );
+    assert.ok(!reason.includes('task_create_batch'), reason);
+  });
+
   it('lets a non-swe caller run the same unparseable command', async () => {
     const r = await sweBoundary(JSON.stringify({ tool_name: 'Bash', cwd: wt, tool_input: { command: UNPARSEABLE } }), env);
     assert.equal(r.stdout, '');

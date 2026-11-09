@@ -159,6 +159,12 @@ describe('code-reviewer-after-atomic-close', () => {
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notClosed('12', 'completed'));
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notClosed('14', 'needs_validation'));
   });
+  it('names tmb_planning section 6 and the verify-then-close steps bro runs today (GH 2713)', () => {
+    const reason = notClosedReason('13', 'running');
+    assert.ok(reason.includes('Per tmb_planning section 6 (Verify on SWE return + atomic close):\n'), reason);
+    assert.ok(reason.includes('  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls bro_atomic_close.\n'), reason);
+    assert.doesNotMatch(reason, /Step 5|V1|V2|V3/);
+  });
   it('allows a closed task, a missing row, no task_id and no DB', () => {
     assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(11)), env()), ALLOWED);
     assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(99)), env()), ALLOWED);
