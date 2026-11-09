@@ -21,10 +21,24 @@ import { DatabaseSync } from 'node:sqlite';
 import { CAP_FIX, CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
-import { GATE_NAME, PARSE_FIX, PARSE_REASON as PARSE_TEXT, sweBoundary } from '../hooks/swe-boundary.js';
+import { GATE_NAME, PARSE_FIX, PARSE_REASON as PARSE_TEXT, STASH_FIX, STASH_REASON as STASH_TEXT, sweBoundary } from '../hooks/swe-boundary.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 
 const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
+const STASH_REASON = fixedReason(STASH_TEXT, STASH_FIX);
+const STASH_WRITES = [
+  'git stash',
+  'git stash push -m x',
+  'git stash pop',
+  'git stash apply stash@{0}',
+  'git stash drop',
+  'git stash clear',
+  'git -C x stash save y',
+  'cd x && git stash pop',
+  'git stash $op',
+];
+const STASH_READS = ['git stash list', "git stash list --format='%H %gs'", 'git stash show -p stash@{1}'];
+const STASH_ROLES = ['tmb:swe', 'tmb:code-reviewer'];
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -158,6 +172,33 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
       const r = await sweBoundary(payload('Bash', { command: `echo ${'$('.repeat(depth)}x${')'.repeat(depth)}` }), env);
       assert.equal(r.code, 0);
       assert.equal(decision(r.stdout)?.permissionDecisionReason, fixedReason(CAP_REASON, CAP_FIX));
+    }
+  });
+
+  it('denies every git stash form but list and show for swe and code-reviewer with STASH_REASON (GH 2786)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of STASH_WRITES) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, STASH_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('admits git stash list and git stash show for swe and code-reviewer (GH 2786)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of STASH_READS) {
+        assert.deepEqual(await sweBoundary(payload('Bash', { command }, { agent_type }), env), { stdout: '', code: 0 }, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('admits bro on git stash pop, and code-reviewer on a non-stash, unparseable or over-cap command (GH 2786)', async () => {
+    const bro = JSON.stringify({ tool_name: 'Bash', cwd: wt, tool_input: { command: 'git stash pop' } });
+    assert.deepEqual(await sweBoundary(bro, env), { stdout: '', code: 0 });
+    const reviewer = { agent_type: 'tmb:code-reviewer' };
+    for (const command of ['git log -1', 'git push origin main', UNPARSEABLE, `echo ${'$('.repeat(5000)}x${')'.repeat(5000)}`]) {
+      assert.deepEqual(await sweBoundary(payload('Bash', { command }, reviewer), env), { stdout: '', code: 0 }, command.slice(0, 40));
     }
   });
 

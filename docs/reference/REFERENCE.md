@@ -106,7 +106,7 @@ Hook gates in TypeScript, one per `mcp/trajectory-server/src/hooks/<name>.ts` (a
 | `liveness-sentinel.ts` | Stop (`asyncRewake`, direct, not via the router) | Write the session's background task snapshot; under `CLAUDE_CODE_SESSION_ATTENDED=1`, poll every `TMB_LIVENESS_POLL_S` seconds while bro is idle and wake it with exit 2 and the report on stderr on a claimed finding. Exits 0 when its generation token is superseded, its parent changed or nothing of its session is left to watch. Reports only |
 | `git-guards.ts` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
 | `git-push-guard.ts` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |
-| `swe-boundary.ts` | PreToolUse Bash + Edit/Write | Keep SWE inside its worktree and assigned scope |
+| `swe-boundary.ts` | PreToolUse Bash + Edit/Write | Keep SWE inside its worktree and assigned scope; keep SWE and code-reviewer to read-only `git stash list` / `show` |
 | `no-worktree-branch-create.ts` | PreToolUse Bash | Bro creates branches; SWE can't `git worktree -b` |
 | `stay-on-base-guard.ts` | PreToolUse Bash | Block code edits / commits while sitting on the base branch |
 | `branch-up-to-date-with-remote.ts` | PreToolUse Bash | Block worktree create if branch behind origin |
