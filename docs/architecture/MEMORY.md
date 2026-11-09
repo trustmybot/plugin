@@ -56,4 +56,4 @@ Ask these of any change that adds context, a tool result, a prompt line or a sto
 | bro's short-session prompt | **In flight (GH 2193)** |
 | Limits and cursors on the other read tools | **In flight (GH 1958)** |
 | Tool description budget for the pinned tier | **Planned (GH 2134)** |
-| `issue_update_description` mirrors to the remote | **Planned (GH 2067)** |
+| `issue_update_description` mirrors to the remote (GH 2067) | Shipped |
