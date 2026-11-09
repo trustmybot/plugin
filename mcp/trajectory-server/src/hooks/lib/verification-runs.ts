@@ -3,7 +3,8 @@
  * of scripts/hooks/lib/verification-runs.sh: the SQL that starts a run (after
  * finishing every unfinished run past its own budget_s + 60 s as exit 137),
  * records one command with its output tail capped, finishes a run, and finds a
- * reusable passing run. The gate writes each through dbWrite.
+ * reusable passing run. The gate and `cli.js integrate` (GH 1405) write each
+ * through dbWrite; these builders are the only verification_runs writer.
  */
 import { nowIso, type SqlResult } from './audit.js';
 import { sqliteRo, sqlQuote } from './db.js';
@@ -27,12 +28,15 @@ function invalid(caller: string, message: string): SqlResult {
   return { code: 2, sql: '', error: `tmb_verification_run: ${caller}: ${message}` };
 }
 
-/** tmb_verification_run_start: the stale sweep, the gate run's INSERT, and the SELECT of its id. */
-export function runStartSql(taskId: string, sha: string, budgetS: number, now: string = nowIso()): string {
+/** Who started a run: the swe-verification-gate hook or `cli.js integrate`. */
+export type VerificationRunSource = 'gate' | 'manual';
+
+/** tmb_verification_run_start: the stale sweep, the run's INSERT, and the SELECT of its id. */
+export function runStartSql(taskId: string, sha: string, budgetS: number, source: VerificationRunSource, now: string = nowIso()): string {
   return `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
  WHERE finished_at IS NULL
    AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${taskId}, '${sqlQuote(sha)}', 'gate', '${now}', ${budgetS});
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${taskId}, '${sqlQuote(sha)}', '${source}', '${now}', ${budgetS});
 SELECT last_insert_rowid();`;
 }
 
