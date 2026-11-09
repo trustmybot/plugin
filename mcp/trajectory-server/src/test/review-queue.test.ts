@@ -55,13 +55,13 @@ function seedVerdict(db: TrajectoryDB, taskId: number, attemptN: number, verdict
 }
 
 async function queue(db: TrajectoryDB, agent = 'bro'): Promise<RawResult> {
-  return (await validationTools(db).handlers['review_queue']!({ agent })) as unknown as RawResult;
+  return (await validationTools(db).handlers['review_queue']({ agent })) as unknown as RawResult;
 }
 
 async function queued(db: TrajectoryDB): Promise<Queue> {
   const r = await queue(db);
   assert.ok(!r.isError, r.content[0]?.text);
-  return JSON.parse(r.content[0]!.text) as Queue;
+  return JSON.parse(r.content[0].text) as Queue;
 }
 
 describe('review_queue (GH 2225)', () => {
@@ -85,7 +85,7 @@ describe('review_queue (GH 2225)', () => {
       commit_shas: ['10'.padEnd(40, 'a'), '13'.padEnd(40, 'a')],
       files: ['src/a.ts', 'src/b.ts'],
     });
-    assert.deepEqual(q.groups[2]!.files, []);
+    assert.deepEqual(q.groups[2].files, []);
   });
 
   it('SC1: a task with NULL or unparseable files is its own group', () => {
@@ -96,7 +96,7 @@ describe('review_queue (GH 2225)', () => {
       { id: 4, branch_id: 'b4', issue_id: 1, commit_sha: null, files: null },
     ]);
     assert.deepEqual(groups.map((g) => g.task_ids), [[1], [2], [3], [4]]);
-    assert.deepEqual(groups[2]!.commit_shas, []);
+    assert.deepEqual(groups[2].commit_shas, []);
   });
 
   it('SC2: reviewed, waived and bypassed tasks are left out; other modes, statuses and authors are not trusted', async () => {
@@ -144,7 +144,7 @@ describe('review_queue (GH 2225)', () => {
 
     const q = await queued(db);
     assert.deepEqual(q.groups.map((g) => g.task_ids), [[1, 3], [2, 4, 5], [6]]);
-    assert.deepEqual(q.groups[1]!.files, ['lib', 'lib/x.ts', 'src/ab', 'src/ab/c.ts']);
+    assert.deepEqual(q.groups[1].files, ['lib', 'lib/x.ts', 'src/ab', 'src/ab/c.ts']);
   });
 
   it('SC3: a whole-repo entry (".", "./", "") overlaps every path', async () => {
@@ -166,7 +166,7 @@ describe('review_queue (GH 2225)', () => {
 
     const q = await queued(db);
     assert.deepEqual(q.groups.map((g) => g.task_ids), [[1, 2, 3, 5, 6, 7], [4]]);
-    assert.deepEqual(q.groups[0]!.files, ['.', 'docs/x.md', 'lib', 'other.ts', 'src/a.ts']);
+    assert.deepEqual(q.groups[0].files, ['.', 'docs/x.md', 'lib', 'other.ts', 'src/a.ts']);
   });
 
   it('SC4: any agent other than bro is refused', async () => {
@@ -177,6 +177,6 @@ describe('review_queue (GH 2225)', () => {
     }
     const bro = await queue(db);
     assert.ok(!bro.isError);
-    assert.deepEqual(JSON.parse(bro.content[0]!.text), { total: 0, groups: [] });
+    assert.deepEqual(JSON.parse(bro.content[0].text), { total: 0, groups: [] });
   });
 });

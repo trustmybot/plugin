@@ -134,15 +134,15 @@ export function groupByFileOverlap(tasks: readonly QueuedTask[]): ReviewQueueGro
   const parent = sorted.map((_, i) => i);
   const find = (i: number): number => {
     while (parent[i] !== i) {
-      parent[i] = parent[parent[i]!]!;
-      i = parent[i]!;
+      parent[i] = parent[parent[i]];
+      i = parent[i];
     }
     return i;
   };
   for (let i = 0; i < sorted.length; i++) {
     for (let j = i + 1; j < sorted.length; j++) {
       if (find(i) === find(j)) continue;
-      if (files[i]!.some((a) => files[j]!.some((b) => pathsOverlap(a, b)))) {
+      if (files[i].some((a) => files[j].some((b) => pathsOverlap(a, b)))) {
         const [ri, rj] = [find(i), find(j)];
         parent[Math.max(ri, rj)] = Math.min(ri, rj);
       }
@@ -159,11 +159,11 @@ export function groupByFileOverlap(tasks: readonly QueuedTask[]): ReviewQueueGro
       const members = byRoot.get(root)!;
       const uniq = <T>(xs: T[]): T[] => [...new Set(xs)];
       return {
-        task_ids: members.map((i) => sorted[i]!.id),
-        branch_ids: uniq(members.map((i) => sorted[i]!.branch_id)),
-        issue_ids: uniq(members.map((i) => sorted[i]!.issue_id)).sort((a, b) => a - b),
-        commit_shas: uniq(members.map((i) => sorted[i]!.commit_sha).filter((s): s is string => !!s)),
-        files: uniq(members.flatMap((i) => files[i]!)).sort(),
+        task_ids: members.map((i) => sorted[i].id),
+        branch_ids: uniq(members.map((i) => sorted[i].branch_id)),
+        issue_ids: uniq(members.map((i) => sorted[i].issue_id)).sort((a, b) => a - b),
+        commit_shas: uniq(members.map((i) => sorted[i].commit_sha).filter((s): s is string => !!s)),
+        files: uniq(members.flatMap((i) => files[i])).sort(),
       };
     });
 }
@@ -662,13 +662,13 @@ export function validationTools(db: TrajectoryDB): {
       });
     }),
 
-    review_queue: requireRoles('review_queue', ['bro'], wrapHandler(async () => {
+    review_queue: requireRoles('review_queue', ['bro'], wrapHandler(() => {
       const rows = db.all<{ id: number; branch_id: string; issue_id: number; commit_sha: string | null; files: string | null }>(
         `SELECT t.id, t.branch_id, t.issue_id, t.commit_sha, t.files FROM tasks t
           WHERE t.status = 'closed' AND t.workflow_mode = 'agile' AND NOT ${REVIEW_RECORDED_SQL}
           ORDER BY t.id`,
       );
-      return ok({ total: rows.length, groups: groupByFileOverlap(rows) });
+      return Promise.resolve(ok({ total: rows.length, groups: groupByFileOverlap(rows) }));
     })),
   };
 
