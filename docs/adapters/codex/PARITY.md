@@ -81,23 +81,8 @@ included in the response.
 
 ## MCP surface
 
-The complete allowlist is:
-
-1. `runtime_initialize`
-2. `project_inventory`
-3. `project_scan`
-4. `world_model_get`
-5. `world_model_search`
-6. `planning_label_taxonomy_get`
-7. `planning_label_taxonomy_set`
-8. `planning_issue_create`
-9. `planning_issue_get`
-10. `planning_issue_list`
-11. `planning_issue_resume`
-12. `planning_discussion_append`
-13. `planning_discussion_list`
-14. `agent_materialization_get`
-15. `agent_materialization_set`
+The complete allowlist and each tool's schema are in [`TOOLS.md`](./TOOLS.md);
+the registry itself is `mcp/trajectory-server/src/codex-tools.ts`.
 
 Closed schemas, deterministic identity-field rejection, fixed Bro arguments,
 canonical project routing, safe state paths, local-only Issue creation, and the
@@ -106,6 +91,8 @@ contract, reviewer behavior, and most Git boundaries are prompt instructions,
 not server gates.
 
 ## Capability declaration
+
+The capability fields this table still lacks are tracked in GH 1186.
 
 | Capability | Codex value | Current use and limitation |
 |---|---|---|
