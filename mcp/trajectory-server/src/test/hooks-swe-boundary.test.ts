@@ -21,11 +21,21 @@ import { DatabaseSync } from 'node:sqlite';
 import { CAP_FIX, CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
-import { GATE_NAME, PARSE_FIX, PARSE_REASON as PARSE_TEXT, STASH_FIX, STASH_REASON as STASH_TEXT, sweBoundary } from '../hooks/swe-boundary.js';
+import {
+  GATE_NAME,
+  PARSE_FIX,
+  PARSE_REASON as PARSE_TEXT,
+  STASH_FIX,
+  STASH_REASON as STASH_TEXT,
+  SUBCOMMAND_FIX,
+  SUBCOMMAND_REASON as SUBCOMMAND_TEXT,
+  sweBoundary,
+} from '../hooks/swe-boundary.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 
 const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const STASH_REASON = fixedReason(STASH_TEXT, STASH_FIX);
+const SUBCOMMAND_REASON = fixedReason(SUBCOMMAND_TEXT, SUBCOMMAND_FIX);
 const STASH_WRITES = [
   'git stash',
   'git stash push -m x',
@@ -36,8 +46,43 @@ const STASH_WRITES = [
   'git -C x stash save y',
   'cd x && git stash pop',
   'git stash $op',
+  'a=pop; git stash $a',
+  "git stash 'pop'",
+  "git stash $'pop'",
+  "git stash 'list'",
+  'git stash "show"',
+  'git stash l\\ist',
+  'git stash list$(echo x)',
+  'git STASH pop',
 ];
-const STASH_READS = ['git stash list', "git stash list --format='%H %gs'", 'git stash show -p stash@{1}'];
+const STASH_READS = [
+  'git stash list',
+  "git stash list --format='%H %gs'",
+  'git stash show -p',
+  'git stash show -p stash@{1}',
+  'git stash \\\n  list',
+  "git -C 'a b' stash list",
+  'git -C "$(git rev-parse --show-toplevel)" stash list',
+  'git -c core.quotepath=off stash show -p',
+];
+const UNREADABLE_SUBCOMMANDS = [
+  'p=stash; git $p pop',
+  "git 'stash' pop",
+  'git "stash" pop',
+  "git $'stash' pop",
+  'git st\\ash pop',
+  'git st\\\nash pop',
+  '\\git stash pop',
+  '/usr/bin/git stash pop',
+  'git $(echo stash) pop',
+  'git -c alias.s=stash s pop',
+  "git -c 'Alias.s=stash' s pop",
+  'git -c include.path=/tmp/x s pop',
+  'git -c $(echo alias.s=stash) s pop',
+  'git --config-env=alias.s=V s pop',
+  'git --config-env alias.s=V s pop',
+];
+const LITERAL_GIT = ['git status', 'git -C x log', 'git log -1', 'git -c user.name=$NAME log -1', 'git log --format=x $(cat f)'];
 const STASH_ROLES = ['tmb:swe', 'tmb:code-reviewer'];
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -188,6 +233,24 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
   it('admits git stash list and git stash show for swe and code-reviewer (GH 2786)', async () => {
     for (const agent_type of STASH_ROLES) {
       for (const command of STASH_READS) {
+        assert.deepEqual(await sweBoundary(payload('Bash', { command }, { agent_type }), env), { stdout: '', code: 0 }, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies a git statement whose subcommand it cannot read literally for swe and code-reviewer with SUBCOMMAND_REASON (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of UNREADABLE_SUBCOMMANDS) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, SUBCOMMAND_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('admits literal non-stash git commands for swe and code-reviewer (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of LITERAL_GIT) {
         assert.deepEqual(await sweBoundary(payload('Bash', { command }, { agent_type }), env), { stdout: '', code: 0 }, `${agent_type}: ${command}`);
       }
     }

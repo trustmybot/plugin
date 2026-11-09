@@ -13,8 +13,9 @@
  *   (f) Bash-written path outside files[]                  → note, once per path
  *   (g) Bash write target the guard cannot resolve         → deny unless prompt_bearing=1
  *   (h) Edit/Write after a recorded Bash deny on the path  → allow, audit hook_block_bypassed
- *   (i) Bash: git stash other than list/show, for swe and
- *       code-reviewer (GH 2786)                            → deny
+ *   (i) Bash: git stash other than a literal list/show, or a git
+ *       subcommand not read literally, for swe and
+ *       code-reviewer (GH 2786, GH 2837)                   → deny
  *
  * Deny messages, notes, audit rows and decisions are the .sh's, with two
  * exceptions, each stricter: a command tree-sitter-bash cannot parse is
@@ -34,12 +35,14 @@ import {
   cmdStatements,
   ghMutation,
   gitSubcommand,
+  gitSubcommandOf,
   isCapLine,
   isPromptSurfacePath,
   payloadCwd,
   writePaths,
   writeShapes,
   type GitStatements,
+  type Statement,
 } from './cmd-analysis/index.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
@@ -78,13 +81,127 @@ export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simple
 export const STASH_REASON =
   'BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session\'s work. Read-only `git stash list` and `git stash show` are allowed.';
 export const STASH_FIX: DenyFix = { allowed: 'a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside' };
+export const SUBCOMMAND_REASON =
+  "BLOCKED: swe-boundary cannot read git's subcommand literally: it comes from an expansion, a pattern, a redirect, a quote or backslash, a path-qualified git, or an alias a `-c` / `--config-env` option defines, so the guard cannot tell whether the statement writes the git stash. Spell out git and its subcommand literally.";
+export const SUBCOMMAND_FIX: DenyFix = { allowed: 'git [-C <path>] <subcommand> …, the subcommand unquoted, with no expansion and no -c alias.* / include.*' };
 const STASH_READS = new Set(['list', 'show']);
+const VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+const CONFIG_ENV = '--config-env=';
+const ALIASING_KEY = /^(alias|include|includeif)\./i;
+const EXPANDING = /[$`*?[{]/;
+const PATH_GIT = /^\S*\/git$/;
 
-/** Whether a statement runs `git stash` with a verb other than the read-only list and show. */
-function stashWrite(stmt: string): boolean {
-  const sub = gitSubcommand(stmt);
-  if (sub !== 'stash' && !sub.startsWith('stash ')) return false;
-  return !STASH_READS.has(sub.split(' ')[1] ?? '');
+type RawWord = { raw: string; text: string };
+
+/** The end of the `$( )` whose `(` is at <open> in <src>, -1 when it is not closed. */
+function substitutionEnd(src: string, open: number): number {
+  let depth = 0;
+  for (let j = open; j < src.length; j++) {
+    const c = src[j];
+    if (c === '\\') j++;
+    else if (c === "'") {
+      j = src.indexOf("'", j + 1);
+      if (j < 0) return -1;
+    } else if (c === '"' || c === '`') {
+      j = quoteEnd(src, j) - 1;
+      if (j < 0) return -1;
+    } else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return j + 1;
+  }
+  return -1;
+}
+
+/** The end of the double-quoted string or backtick substitution starting at <i> in <src>, -1 when it is not closed. */
+function quoteEnd(src: string, i: number): number {
+  const close = src[i];
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j];
+    if (c === '\\') j++;
+    else if (c === close) return j + 1;
+    else if (close === '"' && c === '$' && src[j + 1] === '(') {
+      j = substitutionEnd(src, j + 1) - 1;
+      if (j < 0) return -1;
+    }
+  }
+  return -1;
+}
+
+/** The words of shell source <src> as written (raw) and with quotes and escapes removed (text), substitutions whole; null at an unclosed quote or substitution. */
+function rawWords(src: string): RawWord[] | null {
+  const words: RawWord[] = [];
+  let i = 0;
+  for (;;) {
+    while (i < src.length && (/[ \t\n]/.test(src[i]) || src.startsWith('\\\n', i))) i += src[i] === '\\' ? 2 : 1;
+    if (i >= src.length) return words;
+    const start = i;
+    let text = '';
+    while (i < src.length && !/[ \t\n]/.test(src[i])) {
+      const c = src[i];
+      let end: number;
+      if (c === '\\') {
+        end = i + 2;
+        text += src[i + 1] === '\n' ? '' : (src[i + 1] ?? '');
+      } else if (c === "'") {
+        end = src.indexOf("'", i + 1) + 1;
+        text += src.slice(i + 1, end - 1);
+      } else if (c === '"') {
+        end = quoteEnd(src, i);
+        text += src.slice(i + 1, end - 1).replace(/\\(.)/gs, '$1');
+      } else {
+        end = c === '`' ? quoteEnd(src, i) : c === '$' && src[i + 1] === '(' ? substitutionEnd(src, i + 1) : i + 1;
+        text += src.slice(i, end);
+      }
+      if (end <= 0) return null;
+      i = end;
+    }
+    words.push({ raw: src.slice(start, i), text });
+  }
+}
+
+/** Whether the config key a `-c` / `--config-env` value sets is not literal or may define an alias. */
+function aliasing(value: string): boolean {
+  const key = value.split('=')[0];
+  return EXPANDING.test(key) || ALIASING_KEY.test(key);
+}
+
+/**
+ * The stash rule's verdict on one listed statement (GH 2786, GH 2837): null
+ * when it is no git command or one it proves leaves the stash alone, 'stash'
+ * when it runs `git stash` with anything but a literal `list` or `show`, and
+ * 'unreadable' when git's subcommand, read from the statement's own source,
+ * is not literal or may be an alias a git option before it defines.
+ */
+function stashVerdict(statement: Statement): 'stash' | 'unreadable' | null {
+  if (PATH_GIT.test(statement.stmt.split(/[ \t]/)[0] ?? '')) return 'unreadable';
+  const sub = gitSubcommandOf(statement);
+  if (sub === undefined) return 'unreadable';
+  if (sub === '') return null;
+  const words = statement.src === undefined ? null : rawWords(statement.src);
+  if (words === null || words[0]?.raw !== 'git') return 'unreadable';
+  let k = 1;
+  while (k < words.length) {
+    const word = words[k].text;
+    if (word === '--config-env') return 'unreadable';
+    if (word === '-c' && aliasing(words[k + 1]?.text ?? '')) return 'unreadable';
+    if (word.startsWith(CONFIG_ENV) && aliasing(word.slice(CONFIG_ENV.length))) return 'unreadable';
+    if (VALUE_OPTIONS.has(word)) k += 2;
+    else if (word.startsWith('-')) k += 1;
+    else break;
+  }
+  const [name, action] = sub.split(' ');
+  if (words[k]?.raw !== name) return 'unreadable';
+  if (name.toLowerCase() !== 'stash') return null;
+  return action !== undefined && STASH_READS.has(action) && words[k + 1]?.raw === action ? null : 'stash';
+}
+
+/** The stash rule's deny for the first listed statement it does not admit, else null. */
+function stashDeny(statements: readonly Statement[]): GateResult | null {
+  for (const statement of statements) {
+    const verdict = stashVerdict(statement);
+    if (verdict === 'unreadable') return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
+    if (verdict === 'stash') return deny(STASH_REASON, STASH_FIX);
+  }
+  return null;
 }
 
 function claudeMdReason(target: string): string {
@@ -220,7 +337,7 @@ class Boundary {
     const command = field(this.input, ['tool_input', 'command']);
     const listed = await statementsOrOverflow(command, payloadCwd(this.input, this.env), this.env);
     if (listed === 'overflow' || !listed.ok) return ALLOW;
-    return listed.statements.some(({ stmt }) => stashWrite(stmt)) ? deny(STASH_REASON, STASH_FIX) : ALLOW;
+    return stashDeny(listed.statements) ?? ALLOW;
   }
 
   async bash(): Promise<GateResult> {
@@ -232,7 +349,8 @@ class Boundary {
     const listed = await statementsOrOverflow(command, cwd, this.env);
     if (listed === 'overflow') return deny(CAP_REASON, CAP_FIX);
     if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
-    if (listed.statements.some(({ stmt }) => stashWrite(stmt))) return deny(STASH_REASON, STASH_FIX);
+    const stash = stashDeny(listed.statements);
+    if (stash) return stash;
     let push = false;
     let mutating = false;
     for (const { stmt } of listed.statements) {
