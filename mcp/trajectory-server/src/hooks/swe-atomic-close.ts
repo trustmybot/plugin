@@ -10,7 +10,9 @@
  * Decision matrix (swe only):
  *   running + checkpoint from this run  → status stays running, additionalContext
  *                                         to resume swe from task_brief.checkpoint
- *   pending|running + commits           → status completed + commit_sha, checkpoint
+ *   pending|running + live background   → status stays, swe_atomic_close_background_wait
+ *     command in the transcript           audit + additionalContext: swe's resumed turn closes it
+ *   pending|running + commits          → status completed + commit_sha, checkpoint
  *                                         cleared + swe_atomic_close_auto_completed audit
  *   pending|running + no commits        → additionalContext warning to bro
  *   any other status                    → metrics only
@@ -36,6 +38,7 @@ import type { Gate } from './gate.js';
 import { pluginVersion, jqCompare, jqIntText } from './bro-turn-usage.js';
 import { taskLocation } from './lib/agent-context.js';
 import { auditAppend, auditSql, dbWrite, nowIso } from './lib/audit.js';
+import { liveBackgroundIds } from './lib/background-wait.js';
 import { branchSlug, dbPath, haveSqlite, projectRoot, realdir, sqliteRo, sqlInt, sqlQuote, stateDir, stripTrailingNewlines, taskIdFromTranscript } from './lib/db.js';
 import { reviewerEffortFor } from './lib/effort.js';
 import { cdPwd, gitOk, gitOut, isDir } from './lib/git.js';
@@ -315,6 +318,15 @@ function write(db: string, sql: string, env: NodeJS.ProcessEnv, out: Out): boole
   return r.ok;
 }
 
+function transcriptLiveIds(path: string): string[] {
+  if (path === '') return [];
+  try {
+    return liveBackgroundIds(readFileSync(path, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
 function runRecorder(recorder: (payload: string, env: NodeJS.ProcessEnv) => unknown, payload: string, env: NodeJS.ProcessEnv): void {
   try {
     recorder(payload, env);
@@ -582,9 +594,29 @@ SELECT 1 FROM tasks
         )
       : '';
 
+  const liveIds = taskStatus === 'pending' || taskStatus === 'running' ? transcriptLiveIds(transcriptPath) : [];
+
   if (checkpointed === '1') {
     decision = 'checkpoint';
     context = `SWE for task #${taskId} handed back a checkpoint; the task stays running. Resume swe on it: a fresh spawn reads task_brief.checkpoint (done, left, files) and continues from there.`;
+  } else if (liveIds.length > 0) {
+    decision = 'awaiting-background';
+    const ids = liveIds.join(', ');
+    const r = auditAppend(
+      db,
+      {
+        issueId: safeIssueId,
+        branchId: branch,
+        fromNode: FROM_NODE,
+        eventType: 'swe_atomic_close_background_wait',
+        summary: `Task #${safeTaskId} stays ${taskStatus} on SubagentStop: swe waits on background ${ids}`,
+        contentJson: jqCompact({ task_id: jqNumber(safeTaskId), commit_sha: wtHead === '' ? null : wtHead, background_ids: liveIds }),
+      },
+      { caller: GATE_NAME, env },
+    );
+    out.stdout += r.stdout;
+    if (!r.ok) process.stderr.write(`${r.error}\n`);
+    context = `SWE for task #${taskId} ended its turn waiting on background command ${ids}; the task stays ${taskStatus}. Don't close or respawn it: swe resumes when that command finishes, and its resumed turn closes the task.`;
   } else if (taskStatus === 'pending' || taskStatus === 'running') {
     if (hasCommits) {
       decision = 'auto-completed';
