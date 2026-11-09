@@ -4,10 +4,11 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { CHANGE_SOURCES, computeChangeImpact, type ChangeSource } from '../../mcp/trajectory-server/src/change-impact/index.ts';
+import { Worker } from 'node:worker_threads';
+import { CHANGE_SOURCES, type ChangeImpactOptions, type ChangeSource } from '../../mcp/trajectory-server/src/change-impact/index.ts';
 import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
-import type { StatsReader } from '../../mcp/trajectory-server/src/tools/stats.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
+import type { ChangeImpactJob, ChangeImpactReply } from './change-impact-worker.ts';
 import { conceptsApi } from './concepts.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
 import { clampHistory, freshnessFor, withFreshness, worldModelStatus, type Freshness } from './freshness.ts';
@@ -28,9 +29,11 @@ const TOKEN_HEADER = 'x-tmb-token';
 const CHANGELOG = process.env['TMB_DASHBOARD_CHANGELOG'] || fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url));
 const RELEASES = loadReleases(CHANGELOG);
 const INTERNAL_ERROR = { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' };
+const CHANGE_IMPACT_WORKER = new URL('./change-impact-worker.mjs', import.meta.url);
 
 interface Ctx {
   db: DatabaseSync;
+  dbPath: string;
   writer: IssueWriter;
   token: string;
   host: string;
@@ -77,18 +80,16 @@ const CHANGE_IMPACT_MAX_LIMIT = 100;
 const UNKNOWN_CHANGE = /^unknown change /;
 const AMBIGUOUS_CHANGE = /^ambiguous change /;
 
-function statsReader(db: DatabaseSync): StatsReader {
-  return {
-    get<T>(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).get(...(params as never[])) as T | undefined;
-    },
-    all<T>(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).all(...(params as never[])) as T[];
-    },
-  };
+function runChangeImpact(job: ChangeImpactJob): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(CHANGE_IMPACT_WORKER, { workerData: job });
+    worker.once('message', (reply: ChangeImpactReply) => ('error' in reply ? reject(new Error(reply.error)) : resolve(reply.result)));
+    worker.once('error', reject);
+    worker.once('exit', (code) => reject(new Error(`change impact worker exited with code ${code} before replying`)));
+  });
 }
 
-function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; body: unknown } {
+async function changeImpact(dbPath: string, p: URLSearchParams): Promise<{ status: number; body: unknown }> {
   const source = p.get('source');
   const id = p.get('id');
   const repo = p.get('repo');
@@ -102,10 +103,12 @@ function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; b
   if (repo === '') return { status: 400, body: { error: 'repo must be non-empty' } };
   if (rawLimit !== null && !/^[1-9]\d*$/.test(rawLimit)) return { status: 400, body: { error: 'limit must be a positive integer' } };
   const limit = rawLimit === null ? CHANGE_IMPACT_LIMIT : Math.min(Number(rawLimit), CHANGE_IMPACT_MAX_LIMIT);
-  const reader = statsReader(db);
+  const opts: ChangeImpactOptions =
+    id !== null
+      ? { change: { source: source as ChangeSource, id, ...(repo === null ? {} : { repo }) }, series: true }
+      : { ...(source === null ? {} : { source: source as ChangeSource }), limit };
   try {
-    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id, ...(repo === null ? {} : { repo }) }, series: true }) };
-    return { status: 200, body: computeChangeImpact(reader, undefined, { ...(source === null ? {} : { source: source as ChangeSource }), limit }) };
+    return { status: 200, body: await runChangeImpact({ dbPath, opts }) };
   } catch (err) {
     if (err instanceof Error && UNKNOWN_CHANGE.test(err.message)) return { status: 404, body: { error: err.message } };
     if (err instanceof Error && AMBIGUOUS_CHANGE.test(err.message)) return { status: 400, body: { error: err.message } };
@@ -133,7 +136,7 @@ function sendGraph(
   res.end(withFreshness(graph.body, freshness()));
 }
 
-async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
+async function handleApi(db: DatabaseSync, dbPath: string, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const [resource, id] = parts;
   const concepts = conceptsApi(db, url);
@@ -180,7 +183,7 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
     return 'error' in query ? sendJson(res, 400, query) : sendJson(res, 200, await efficiencyCompare(db, query.filter, query.p1, query.p2));
   }
   if (parts.length === 2 && resource === 'insights' && id === 'change-impact') {
-    const result = changeImpact(db, url.searchParams);
+    const result = await changeImpact(dbPath, url.searchParams);
     return sendJson(res, result.status, result.body);
   }
   if (parts.length === 2 && resource === 'insights' && id === 'compare') {
@@ -307,7 +310,7 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
       res.writeHead(405, { allow: 'GET, HEAD, POST' }).end();
       return;
     }
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, req, url, res);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, ctx.dbPath, req, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err) {
     console.error('dashboard request failed:', err);
@@ -319,7 +322,7 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
 function main(): void {
   const dbPath = resolveClaudeDbPath();
   const db = openDb(dbPath);
-  const ctx: Ctx = { db, writer: new IssueWriter(dbPath, db), token: randomBytes(32).toString('hex'), host: '' };
+  const ctx: Ctx = { db, dbPath, writer: new IssueWriter(dbPath, db), token: randomBytes(32).toString('hex'), host: '' };
   const server = createServer((req, res) => void handle(ctx, req, res));
   server.on('error', (err) => {
     console.error(`dashboard server failed: ${err.message}`);
