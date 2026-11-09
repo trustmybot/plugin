@@ -4,11 +4,19 @@
 // version and no fragments is a no-op.
 //
 // Usage:
-//   node --experimental-strip-types scripts/maintenance/bump-version.ts [--dry-run] [--date YYYY-MM-DD] <new-version>
+//   node --experimental-strip-types scripts/maintenance/bump-version.ts [--dry-run] [--date YYYY-MM-DD] [--impact-db <path>] <new-version>
 //   node --experimental-strip-types scripts/maintenance/bump-version.ts --version-only <new-version>
 //
 //   --dry-run       print the CHANGELOG section the release would get; change nothing
 //   --date          release date in the section header (default: today, UTC)
+//   --impact-db     trajectory DB to measure with: each fragment ending with a
+//                   `Metric:` line maps to the PR whose squash commit added it
+//                   (subject ending `(#N)`), mcp/trajectory-server/dist/change-impact/cli.js
+//                   --source plugin_version --id <N> measures it, and a
+//                   `### Measured impact` section closes the release section.
+//                   A fragment with no such commit is skipped with a warning; an
+//                   unknown change reads "not enough data"; a missing CLI or any
+//                   other CLI failure changes nothing. Ignored with --version-only.
 //   --version-only  update files 1-5 only; CHANGELOG.md and changelog.d/ are left
 //                   alone, fragments are not validated (CI dev builds)
 //
@@ -31,10 +39,12 @@
 // mcp/trajectory-server/src/index.ts derives the version from package.json
 // at runtime (readFileSync → packageVersion) and is not touched.
 
+import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { escapeRegExp, fragmentBody, fragmentList, fragmentSection, fragmentValidate, lines, SECTIONS, trimBlank } from './lib/changelog-fragments.ts';
+import { escapeRegExp, fragmentBody, fragmentList, fragmentMetric, fragmentSection, fragmentValidate, lines, SECTIONS, trimBlank } from './lib/changelog-fragments.ts';
+import { measuredImpactBullets, type PrImpact } from './lib/measured-impact.ts';
 
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
 const DATE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -43,7 +53,10 @@ const UNRELEASED = new RegExp(`^## Unreleased${SPACE}*$`);
 const VERSION_LINE = new RegExp(`"version"${SPACE}*:${SPACE}*"`);
 const CURRENT_VERSION = new RegExp(`.*"version"${SPACE}*:${SPACE}*"([^"]+)".*`, 's');
 const FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json', 'bun.lock'];
-const USAGE = `Usage: ${process.argv[1] ?? 'bump-version.ts'} [--dry-run] [--date YYYY-MM-DD] [--version-only] <new-version>`;
+const USAGE = `Usage: ${process.argv[1] ?? 'bump-version.ts'} [--dry-run] [--date YYYY-MM-DD] [--impact-db <path>] [--version-only] <new-version>`;
+const IMPACT_CLI = 'mcp/trajectory-server/dist/change-impact/cli.js';
+const PR_SUBJECT = /\(#(\d+)\)\s*$/;
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 class Exit extends Error {
   readonly code: number;
@@ -64,10 +77,11 @@ interface Options {
   versionOnly: boolean;
   date: string;
   version: string;
+  impactDb: string;
 }
 
 function parseArgs(argv: string[]): Options {
-  const o: Options = { dryRun: false, versionOnly: false, date: '', version: '' };
+  const o: Options = { dryRun: false, versionOnly: false, date: '', version: '', impactDb: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? '';
     if (a === '--dry-run') o.dryRun = true;
@@ -75,6 +89,9 @@ function parseArgs(argv: string[]): Options {
     else if (a === '--date') {
       if (i + 1 >= argv.length) die('Error: --date needs a value');
       o.date = argv[++i] ?? '';
+    } else if (a === '--impact-db') {
+      if (i + 1 >= argv.length || (argv[i + 1] ?? '') === '') die('Error: --impact-db needs a path');
+      o.impactDb = resolve(argv[++i] ?? '');
     } else if (a.startsWith('-') || o.version !== '') die(USAGE);
     else o.version = a;
   }
@@ -114,7 +131,7 @@ function splitUnreleased(changelog: string[]): { preamble: string[]; order: stri
 }
 
 /** The release section, or '' when there are neither fragments nor Unreleased entries. */
-function assembleBlock(changelog: string[], fragments: string[], o: Options): string {
+function assembleBlock(changelog: string[], fragments: string[], o: Options, impact: string[] = []): string {
   const { preamble, order, sections } = splitUnreleased(changelog);
   const fromFragments = new Map<string, string[]>();
   for (const f of fragments) {
@@ -130,7 +147,63 @@ function assembleBlock(changelog: string[], fragments: string[], o: Options): st
     if (entries.length === 0) continue;
     body += `### ${s}\n${entries.join('\n')}\n\n`;
   }
+  if (body !== '' && impact.length > 0) body += `### Measured impact\n${impact.join('\n')}\n\n`;
   return body === '' ? '' : `## v${o.version} — ${o.date}\n\n${body}`;
+}
+
+/** The PR whose commit added <fragment>: the newest adding commit whose subject ends `(#N)`, else null. */
+function fragmentPr(fragment: string): number | null {
+  const r = spawnSync('git', ['log', '--diff-filter=A', '--format=%s', '--', fragment], { cwd: ROOT, encoding: 'utf8' });
+  if (r.error || r.status !== 0) die(`Error: git log failed for ${fragment}: ${r.error?.message ?? r.stderr.trim()}`);
+  for (const subject of lines(r.stdout)) {
+    const m = PR_SUBJECT.exec(subject);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
+function parseObject(text: string): Partial<PrImpact> | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Partial<PrImpact>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `### Measured impact` bullets for the fragments that declare a metric; [] when none does. */
+function measuredImpact(fragments: string[], db: string): string[] {
+  const declaredByPr = new Map<number, { metric: string; direction: 'lower' | 'higher' }[]>();
+  for (const f of fragments) {
+    const declared = fragmentMetric(f);
+    if (!declared) continue;
+    const pr = fragmentPr(f);
+    if (pr === null) {
+      process.stderr.write(`Measured impact: skipping ${f} — no commit adding it has a subject ending (#N)\n`);
+      continue;
+    }
+    declaredByPr.set(pr, [...(declaredByPr.get(pr) ?? []), declared]);
+  }
+  if (declaredByPr.size === 0) return [];
+  if (!isFile(IMPACT_CLI)) die(`Error: --impact-db needs ${IMPACT_CLI}; build it (npm run build in mcp/trajectory-server); nothing was changed`);
+  const impacts: PrImpact[] = [];
+  for (const [pr, declared] of declaredByPr) {
+    const r = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', IMPACT_CLI, '--db', db, '--source', 'plugin_version', '--id', String(pr)], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    if (r.error) die(`Error: change-impact CLI failed for #${pr}: ${r.error.message}; nothing was changed`);
+    if (r.status !== 0) {
+      if (r.stderr.includes('unknown change')) {
+        impacts.push({ pr, declared: declared.map((d) => ({ ...d, outcome: 'not_enough_data' })), metrics: [] });
+        continue;
+      }
+      die(`Error: change-impact CLI failed for #${pr} (exit ${r.status ?? r.signal}): ${r.stderr.trim()}; nothing was changed`);
+    }
+    const result = parseObject(r.stdout) ?? die(`Error: change-impact CLI printed no JSON object for #${pr}; nothing was changed`);
+    impacts.push({ pr, declared: Array.isArray(result.declared) ? result.declared : [], metrics: Array.isArray(result.metrics) ? result.metrics : [] });
+  }
+  return measuredImpactBullets(impacts);
 }
 
 /** CHANGELOG.md with <block> in place of `## Unreleased`, else before the first release section, else at the end. */
@@ -185,7 +258,7 @@ function isFile(path: string): boolean {
 
 function main(argv: string[]): void {
   const o = parseArgs(argv);
-  process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
+  process.chdir(ROOT);
 
   let fragments: string[] = [];
   let block = '';
@@ -199,7 +272,7 @@ function main(argv: string[]): void {
     }
     if (!isFile('CHANGELOG.md')) die('Error: missing CHANGELOG.md');
     const changelog = lines(readFileSync('CHANGELOG.md', 'utf8'));
-    block = assembleBlock(changelog, fragments, o);
+    block = assembleBlock(changelog, fragments, o, o.impactDb === '' ? [] : measuredImpact(fragments, o.impactDb));
 
     if (o.dryRun) {
       if (block !== '') process.stdout.write(block);

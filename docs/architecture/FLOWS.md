@@ -154,18 +154,18 @@ sequenceDiagram
 
 `scan_run` is the single scan-side MCP tool. It runs the deterministic walker in `src/tools/scan-walk.ts` in-process, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-Triggered four ways (the `source` value is verified against `scan.ts`, whose enum still accepts `bro_auto_post_close`, though no hook fires it since GH 2584 removed the post-close rescan):
+Triggered four ways (`scan.ts` accepts `user_manual`, `bro_auto_initial` and `startup_catchup`, and records any other `source` as `bro_auto_initial`):
 
 | Trigger | `source` value | Who fires |
 |---|---|---|
 | First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
 | User typed `/scan` | `user_manual` | The slash command body passes it |
-| Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
+| Bro decides to rescan mid-session | `bro_auto_initial` | Bro calls `scan_run` after an architectural change (`tmb_planning` §6); without a `source` it records `bro_auto_initial` |
 | trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
 
 `scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
 
-- `source` (one of the four values above, or the unfired `bro_auto_post_close`)
+- `source` (one of the three accepted values above)
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
 

@@ -214,6 +214,40 @@ describe('Change impact section', () => {
     assert.ok(html.includes('docs: tighten the bro rules'));
   });
 
+  test('a declared change shows a badge per declaration: metric label, direction and outcome in words; wrong_way and not_moved in attention with an icon (GH 2600)', async () => {
+    const { body } = await get('');
+    for (const c of body.changes) assert.ok(!('declared' in c), `${c.source}:${c.id} has no declared in user mode`);
+    assert.doesNotMatch(mod.section(body), />Declared</, 'no Declared column without a declaration');
+
+    const declared = [
+      { metric: 'bro_tokens_per_session', direction: 'lower', outcome: 'as_declared' },
+      { metric: 'swe_rework_ratio', direction: 'higher', outcome: 'wrong_way' },
+      { metric: 'tokens_per_task', direction: 'lower', outcome: 'not_moved' },
+      { metric: 'review_fail_rate', direction: 'lower', outcome: 'not_enough_data' },
+    ];
+    const list = { ...body, changes: body.changes.map((c) => (c.id === '1.1.0' ? { ...c, declared } : c)) };
+    const html = mod.section(list);
+    assert.match(html, />Declared</);
+    const badges = [...html.matchAll(/<span class="([^"]*)" data-declared="([a-z_]+)">(.*?)<\/span>/g)].map((m) => ({
+      cls: m[1],
+      outcome: m[2],
+      icon: m[3].includes('<svg'),
+      text: m[3].replace(/<svg.*?<\/svg>/g, ''),
+    }));
+    assert.deepEqual(badges.map((b) => [b.outcome, b.text]), [
+      ['as_declared', 'bro tokens per session lower: moved as declared'],
+      ['wrong_way', 'swe rework ratio higher: moved the wrong way'],
+      ['not_moved', 'tokens per task lower: did not move'],
+      ['not_enough_data', 'review fail rate lower: not enough data'],
+    ]);
+    for (const b of badges.filter((x) => x.outcome === 'wrong_way' || x.outcome === 'not_moved')) {
+      assert.match(b.cls, /fgColor-attention/, `${b.outcome} uses the attention style`);
+      assert.ok(b.icon, `${b.outcome} carries an icon`);
+    }
+    const row = html.match(/<tr[^>]*>(?:(?!<\/tr>).)*moved as declared(?:(?!<\/tr>).)*<\/tr>/s)[0];
+    assert.ok(row.includes('>1.1.0<'), 'the badges sit on the declared change row');
+  });
+
   test('a source option per entry in sources, plus All; none hard-coded', async () => {
     const { body } = await get('');
     const options = (list) => [...mod.section(list).matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]]);

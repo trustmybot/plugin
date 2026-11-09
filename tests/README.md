@@ -93,7 +93,7 @@ Two switches narrow a run:
 TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types tests/run-all.ts --l1-only
 ```
 
-`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
+`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. The `l1` job of `.github/workflows/dev-build.yml` runs the same command on every push to `dev`, so a PR whose green check predates a new L1 rule turns `dev` red after it merges (GH 2651); the `stamp` job still publishes the dev build either way. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or

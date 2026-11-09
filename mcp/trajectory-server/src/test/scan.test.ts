@@ -1330,6 +1330,51 @@ console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, ro
   });
 });
 
+describe('scan_run — last_commit_sha on an unchanged md5 (GH 2636)', () => {
+  it('writes a differing incoming sha onto the stored row and leaves a matching one untouched', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-last-sha-'));
+    const db = tempDB();
+    const graph = new WorldModelGraph(db);
+    const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+    try {
+      const repoRoot = mkRepo(ws, 'app', {
+        'src/a.ts': '// Alpha.\nexport const a = 1;\n',
+        'src/b.ts': '// Beta.\nexport const b = 2;\n',
+      });
+      const head = execFileSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      const scan = async (): Promise<Record<string, unknown>> => {
+        const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        assert.ok(!r.isError, JSON.stringify(r));
+        return parse(r);
+      };
+      const snapshot = (): Record<string, Record<string, unknown>> =>
+        Object.fromEntries(graph.allFilesForRepo('app').map((f) => [WorldModelGraph.relativeFilePath(f), { ...f }]));
+
+      await scan();
+      const first = snapshot();
+      assert.equal(first['src/a.ts']!['last_commit_sha'], head);
+
+      const stale = 'f'.repeat(40);
+      db.run(`UPDATE wm_files SET last_commit_sha = ?, updated_at = '2000-01-01T00:00:00.000Z' WHERE repo = 'app' AND path = 'src/a.ts'`, [stale]);
+      const stats = await scan();
+      const healed = snapshot();
+      assert.equal(stats['files_upserted'], 1, 'only the row whose sha drifted is written');
+      assert.equal(healed['src/a.ts']!['last_commit_sha'], head, 'the incoming sha replaces the stale one');
+      assert.notEqual(healed['src/a.ts']!['updated_at'], '2000-01-01T00:00:00.000Z');
+      assert.deepEqual({ ...healed['src/a.ts'], updated_at: first['src/a.ts']!['updated_at'] }, first['src/a.ts'], 'every other stored field is kept');
+      assert.deepEqual(healed['src/b.ts'], first['src/b.ts'], 'a row whose sha matches is untouched');
+
+      const again = await scan();
+      assert.equal(again['files_upserted'], 0, 'a matching sha writes nothing');
+      assert.deepEqual(snapshot(), healed);
+    } finally {
+      graph.close();
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('scan_run — symbols and structural purposes (GH 1843)', () => {
   it('fills header-less rows, keeps them byte-identical on an unchanged rescan, and lets a new header win', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-derived-'));

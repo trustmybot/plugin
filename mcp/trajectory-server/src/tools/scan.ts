@@ -75,7 +75,6 @@ function wrap(fn: Fn): Fn {
 // and remediated by running scan).
 const VALID_SCAN_SOURCES = new Set([
   'user_manual',
-  'bro_auto_post_close',
   'bro_auto_initial',
   'startup_catchup',
 ]);
@@ -400,8 +399,9 @@ interface FilePlan {
 }
 
 // Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is,
-// unless its purpose_source is still 'none' (then it is re-extracted, written
-// only when that finds a purpose); a changed or new file is re-extracted from
+// except a new non-empty last_commit_sha is written onto it, and a
+// purpose_source still 'none' is re-extracted (written only when that finds a
+// purpose); a changed or new file is re-extracted from
 // its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
@@ -427,17 +427,15 @@ async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, s
       continue;
     }
     if (prev && prev.content_md5 === md5) {
+      const sha = f.last_commit_sha ?? '';
+      let node = sha !== '' && sha !== prev.last_commit_sha ? { ...prev, last_commit_sha: sha, updated_at: now } : prev;
       if (!scope && prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
         const extracted = extractPurpose(f.path, await headOf(f.repo, f.path));
         plan.extracted++;
-        if (extracted.source !== 'none') {
-          const node = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
-          plan.nodes.push(node);
-          plan.writes.push(node);
-          continue;
-        }
+        if (extracted.source !== 'none') node = { ...node, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
       }
-      plan.nodes.push(prev);
+      plan.nodes.push(node);
+      if (node !== prev) plan.writes.push(node);
       continue;
     }
     const facts = {
@@ -1112,9 +1110,9 @@ export function scanTools(
           },
           source: {
             type: 'string',
-            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
+            enum: ['user_manual', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_initial = bro hit the registry-cold gate, and run-scan.mjs\'s default; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
