@@ -1,4 +1,4 @@
-// Startup catch-up scan (ADR 0001, GH 1680): after the server connects, a
+// Startup catch-up scan (GH 1680): after the server connects, a
 // detached `run-scan.mjs <projectRoot> startup_catchup` brings each known
 // repo's world model to its target commit (origin/<target branch>, else HEAD)
 // with the git-range scope, the full-repo scope only when the repo's stamp

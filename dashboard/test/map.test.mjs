@@ -4,11 +4,18 @@
 // listing shows a breadcrumb and one row per child with its summary, and a
 // missing or empty world model renders a Blankslate with the existing copy;
 // then check the #/map URL helpers, the #/concepts redirect and the Files | Concepts
-// scope toggle with the field placeholder each scope shows.
+// scope toggle with the field placeholder each scope shows; check the
+// world-model query returns commits_behind and dead_refs, the List | Treemap
+// toggle, the treemap cells and their click target, and the README drift
+// markers in the listing, the tree and the treemap.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { build } from 'esbuild';
+import { importServer } from './server-module.mjs';
 
 const DASH = new URL('..', import.meta.url).pathname;
 const SERVER = join(DASH, 'dist/server.mjs');
@@ -37,6 +44,7 @@ before(async () => {
         import { ProjectMapView } from './web/views/ProjectMapView.tsx';
         import { DirectoryListing } from './web/views/map/DirectoryListing.tsx';
         import { DirectoryTree } from './web/views/map/DirectoryTree.tsx';
+        import { DirectoryTreemap, TreemapChart } from './web/views/map/DirectoryTreemap.tsx';
         import { CONCEPT_COPY } from './web/views/concepts/copy.ts';
         import { mapHash, parseMapQuery, legacyConceptsHash } from './web/shared/route.ts';
         import { segmentKey } from './web/ui/SegmentedControl.tsx';
@@ -50,7 +58,7 @@ before(async () => {
           try { return render(seed, el); } finally { delete globalThis.window; }
         }
         export const h = createElement;
-        export { ProjectMapView, DirectoryListing, DirectoryTree, CONCEPT_COPY, mapHash, parseMapQuery, legacyConceptsHash, segmentKey };`,
+        export { ProjectMapView, DirectoryListing, DirectoryTree, DirectoryTreemap, TreemapChart, CONCEPT_COPY, mapHash, parseMapQuery, legacyConceptsHash, segmentKey };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -66,6 +74,12 @@ before(async () => {
 });
 
 const noop = () => {};
+
+const radiogroup = (html, label) => {
+  const start = html.indexOf(`<div role="radiogroup" aria-label="${label}"`);
+  assert.ok(start >= 0, `radiogroup ${label}`);
+  return html.slice(start, html.indexOf('</div>', start));
+};
 
 describe('directory tree', () => {
   test('renders role="tree" with treeitems carrying aria-expanded', () => {
@@ -168,7 +182,7 @@ describe('map routing', () => {
 });
 
 describe('search scope', () => {
-  const radios = (html) => [...html.matchAll(/<button type="button" role="radio" aria-checked="(true|false)" tabindex="(0|-1)"[^>]*>([^<]+)<\/button>/g)].map((m) => m.slice(1));
+  const radios = (html, label = 'Search scope') => [...radiogroup(html, label).matchAll(/<button type="button" role="radio" aria-checked="(true|false)" tabindex="(0|-1)"[^>]*>([^<]+)<\/button>/g)].map((m) => m.slice(1));
 
   test('concept scope renders the scope radiogroup, the concepts placeholder and only the RepoPicker select', () => {
     const html = map.renderAt('#/map?scope=concepts&q=cold', FIXTURE, map.h(map.ProjectMapView));
@@ -203,5 +217,117 @@ describe('search scope', () => {
     assert.equal(map.segmentKey(1, 'Home', 2), 0);
     assert.equal(map.segmentKey(0, 'End', 2), 1);
     assert.equal(map.segmentKey(0, 'Enter', 2), null);
+  });
+});
+
+const DOCS = { ...node('docs', '', 'Guides.', 5), commits_behind: 3, dead_refs: ['a.md', 'b.md'] };
+const EMPTY = node('empty', '', 'Nothing here.', 0);
+const childKey = (path) => `world-model?repo=plugin&path=${path}&depth=1`;
+const DRIFT_ROOT = childKey('');
+const DRIFT = { ...FIXTURE, [DRIFT_ROOT]: { available: true, repos: [REPO], nodes: [ROOT, DASHBOARD, HOOKS, DOCS, EMPTY] } };
+
+function findElement(el, match) {
+  if (el === null || typeof el !== 'object') return null;
+  if (Array.isArray(el)) {
+    for (const child of el) {
+      const hit = findElement(child, match);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (el.props && match(el.props)) return el;
+  return findElement(el.props?.children, match);
+}
+
+describe('world-model query', () => {
+  test('directory nodes carry commits_behind and dead_refs, null when unset', async () => {
+    const { worldModel } = await importServer('queries.ts');
+    const tmp = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'tmb-dashboard-map-'));
+    try {
+      const db = new DatabaseSync(join(tmp, 'trajectory.db'));
+      db.exec(readFileSync(join(DASH, '../mcp/trajectory-server/src/schema.sql'), 'utf8'));
+      const dir = db.prepare(
+        `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, file_count, commits_behind, dead_refs)
+         VALUES ('plugin', ?, ?, 'x', 'readme', 1, ?, ?)`,
+      );
+      dir.run('', null, null, null);
+      dir.run('docs', '', 3, '["a.md"]');
+      dir.run('hooks', '', null, null);
+      dir.run('bad', '', 0, 'not json');
+      const body = worldModel(db, 'plugin', '', 1);
+      const by = Object.fromEntries(body.nodes.map((n) => [n.path, n]));
+      assert.equal(by.docs.commits_behind, 3);
+      assert.deepEqual(by.docs.dead_refs, ['a.md']);
+      assert.equal(by.hooks.commits_behind, null);
+      assert.equal(by.hooks.dead_refs, null);
+      assert.equal(by[''].commits_behind, null);
+      assert.equal(by.bad.commits_behind, 0);
+      assert.equal(by.bad.dead_refs, null);
+      db.close();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('README drift markers', () => {
+  test('the listing marks a drifted directory as text with the dead refs in a tooltip', () => {
+    const html = map.render(DRIFT, map.h(map.DirectoryListing, { repo: REPO, path: '', onSelect: noop }));
+    assert.match(html, />3 commits behind</);
+    assert.match(html, /<span title="a\.md\nb\.md">[^]*?>2 dead refs</);
+    assert.equal(html.match(/commits behind/g).length, 1, 'only docs drifted');
+    assert.match(html, /--fgColor-attention/);
+  });
+
+  test('the tree marks a drifted directory', () => {
+    const html = map.render(DRIFT, map.h(map.DirectoryTree, { root: ROOT, selected: '', expanded: new Set(['']), onSelect: noop, onToggle: noop }));
+    const docs = html.slice(html.indexOf('>docs<'));
+    assert.match(docs.slice(0, docs.indexOf('</li>')), />3 commits behind<[^]*>2 dead refs</);
+    assert.equal(html.match(/commits behind/g).length, 1);
+  });
+});
+
+describe('treemap', () => {
+  test('renders one cell per child with files, drift as text and a dashed outline', () => {
+    const html = map.render(DRIFT, map.h(map.DirectoryTreemap, { repo: REPO, path: '', onSelect: noop }));
+    assert.match(html, /<svg role="group" aria-label="Treemap of plugin by file count"/);
+    const cells = [...html.matchAll(/<g role="button" tabindex="0" aria-label="([^"]*)" data-path="([^"]*)"( data-drift="true")?/g)];
+    assert.deepEqual(cells.map((m) => m[2]).sort(), ['dashboard', 'docs', 'hooks'], 'the zero-file directory gets no cell');
+    const docs = cells.find((m) => m[2] === 'docs');
+    assert.equal(docs[1], 'docs, 5 files, 3 commits behind, 2 dead refs: a.md, b.md');
+    assert.ok(docs[3], 'docs is marked drifted');
+    assert.ok(!cells.find((m) => m[2] === 'hooks')[3]);
+    assert.match(html, /<title>docs\n5 files\n3 commits behind\n2 dead refs: a\.md, b\.md<\/title>/);
+    assert.match(html, /<title>hooks\n12 files<\/title>/);
+    assert.match(html, /stroke-dasharray="6 3"/);
+    assert.match(html, /<tspan[^>]*>3 commits behind<\/tspan>/);
+  });
+
+  test('clicking or pressing Enter on a cell selects that child', () => {
+    const picked = [];
+    const kids = DRIFT[DRIFT_ROOT].nodes.slice(1);
+    const chart = map.TreemapChart({ kids, title: REPO, clip: 't', onSelect: (p) => picked.push(p), onHover: noop });
+    const cell = (path) => findElement(chart, (p) => p['data-path'] === path);
+    cell('docs').props.onClick();
+    cell('hooks').props.onKeyDown({ key: 'Enter', preventDefault: noop });
+    cell('hooks').props.onKeyDown({ key: 'a', preventDefault: noop });
+    assert.deepEqual(picked, ['docs', 'hooks']);
+    assert.equal(cell('empty'), null);
+  });
+
+  test('a directory with no file-bearing children says so', () => {
+    const seed = { [childKey('empty')]: { available: true, repos: [REPO], nodes: [EMPTY, node('empty/none', 'empty', null, 0)] } };
+    const html = map.render(seed, map.h(map.DirectoryTreemap, { repo: REPO, path: 'empty', onSelect: noop }));
+    assert.doesNotMatch(html, /<svg/);
+    assert.match(html, /No subdirectories with files\./);
+  });
+
+  test('the project map offers a List | Treemap toggle with List selected', () => {
+    const html = map.render(FIXTURE, map.h(map.ProjectMapView));
+    assert.deepEqual(
+      [...radiogroup(html, 'Directory view').matchAll(/aria-checked="(true|false)"[^>]*>([^<]+)</g)].map((m) => m.slice(1)),
+      [['true', 'List'], ['false', 'Treemap']],
+    );
+    assert.match(html, /<nav aria-label="Breadcrumb"/);
   });
 });
