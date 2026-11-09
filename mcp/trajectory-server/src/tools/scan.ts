@@ -34,6 +34,7 @@ import {
   markReindexFailed,
   markReindexFinish,
   markReindexStart,
+  mismatchPending,
   recordReindex,
   triggerOfSource,
   type ReindexRun,
@@ -406,12 +407,13 @@ interface FilePlan {
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
 // from the indexed commit's blobs; a scoped reindex re-extracts only the files
-// whose content changed. `reparse` ignores every stored row, swe purposes
-// included, so each row is rewritten from the walk as a clean rebuild writes it.
-async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<FilePlan> {
+// whose content changed. For a repo in `reparse` every stored row is ignored,
+// swe purposes included, so each row is rewritten from the walk as a clean
+// rebuild writes it.
+async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse: ReadonlySet<string> = new Set()): Promise<FilePlan> {
   const repoNames = new Set(out.repos.map((r) => r.name));
   const existing = new Map<string, FileNode>();
-  for (const r of reparse ? [] : out.repos) {
+  for (const r of out.repos.filter((x) => !reparse.has(x.name))) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
   const headOf = async (repo: string, rel: string): Promise<string> =>
@@ -660,6 +662,8 @@ export function persistedFiles<F extends { repo: string; path: string }>(files: 
 // connection sees the old snapshot or the new one, never a mix. A stage that
 // fails is recorded in errors and the rest commits; a throw rolls it all back.
 // `run` given, each repo's wm_freshness row is finished in that transaction.
+// A repo with a shadow-compare mismatch pending is reparsed in full, since the
+// scan's full wm_reindex row clears it.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
@@ -722,11 +726,12 @@ async function persistScan(
   const indexed_by_repo = new Map<string, RepoIndexed>();
   const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
 
-  const graphPlan = graph ? await planGraph(graph, persisted, now) : null;
+  const reparse = new Set(persisted.repos.filter((r) => mismatchPending(db, r.name)).map((r) => r.name));
+  const graphPlan = graph ? await planGraph(graph, persisted, now, undefined, reparse) : null;
   const repoPlans = new Map<string, RepoIndexPlan>();
   if (graphPlan) {
     for (const r of persisted.repos) {
-      const planned = plannedFiles(db, r.name, graphPlan.files);
+      const planned = plannedFiles(db, r.name, graphPlan.files, reparse.has(r.name));
       repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned));
     }
   }
@@ -849,7 +854,7 @@ interface GraphPlan {
   scope?: ReindexScope;
 }
 
-async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<GraphPlan> {
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse?: ReadonlySet<string>): Promise<GraphPlan> {
   const files = await planFiles(graph, out, now, scope, reparse);
   const dirMap = deriveDirectoryEntries(out);
   const readmes = await readReadmes(out, dirMap, scope);
@@ -1062,7 +1067,7 @@ export async function persistRepoReindex(
     concepts_flagged,
     errors,
   });
-  const graphPlan = await planGraph(graph, persisted, now, scope, opts.reparse === true);
+  const graphPlan = await planGraph(graph, persisted, now, scope, new Set(opts.reparse ? out.repos.map((r) => r.name) : []));
   const repoPlans = new Map<string, RepoIndexPlan>();
   for (const r of out.repos) {
     const planned = plannedFiles(db, r.name, graphPlan.files, opts.reparse === true);

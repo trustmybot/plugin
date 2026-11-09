@@ -306,8 +306,9 @@ function repoState(db: TrajectoryDB, repo: string): RepoState | null {
 }
 
 // A mismatch verdict (the daily shadow compare's, shadow-compare.ts) with no
-// full rebuild after it.
-function mismatchPending(db: TrajectoryDB, repo: string): boolean {
+// full rebuild after it. Any full rebuild clears it, so one that runs while it
+// is pending, whatever its reason, reparses every file.
+export function mismatchPending(db: TrajectoryDB, repo: string): boolean {
   const row = db.get<{ mode: string | null }>(
     `SELECT json_extract(content_json, '$.mode') AS mode FROM audit
       WHERE event_type = 'wm_reindex' AND repo = ?
@@ -429,6 +430,7 @@ async function reindexLocked(
   if (!state || current(db, repo, state, target)) return undefined;
   const started = Date.now();
   let reason: FullReason | null = fullRebuildReason(db, repo, state);
+  const reparse = mismatchPending(db, repo);
   const run: ReindexRun = { mode: reason ? 'full' : 'incremental', trigger, startedMs: started };
   const finish = (errors: ScanError[]) => markReindexFinish(db, repo, run, errors.length === 0);
   markReindexStart(db, repo, run);
@@ -452,7 +454,7 @@ async function reindexLocked(
         files: out.files,
         contents: out.content ? new Map([[repo, out.content]]) : new Map(),
       };
-      const stats = await persistRepoReindex(db, graph, output, undefined, finish, { reparse: reason === 'mismatch' });
+      const stats = await persistRepoReindex(db, graph, output, undefined, finish, { reparse });
       recordReindex(db, {
         repo,
         mode: 'full',
