@@ -758,7 +758,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     {
       name: 'onboard_apply',
       description:
-        'Persist /onboard answers in one transaction: derives pr_target + protected_branches from branching_model and writes the onboarded marker. Takes wire values or labels (case-insensitive); a Keep option omits its key.',
+        'Persist /onboard answers in one transaction: derives pr_target + protected_branches from branching_model and writes the onboarded marker. Takes wire values or labels (case-insensitive); for a Keep answer pass its wire value (__keep__) and the stored value is kept.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -817,6 +817,11 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /8000/);
     assert.match(data.error, /8001/);
+    assert.ok(
+      data.error.includes('Split into several tasks, or cite existing code/conventions instead of restating them.'),
+      data.error,
+    );
+    assert.doesNotMatch(data.error, /depends_on/);
 
     db.close();
   });
@@ -1288,6 +1293,63 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     const data = parseResult(result);
     assert.equal(data.error, 'branch_state_violation');
+    assert.ok(
+      data.message.includes(
+        'Run intent_start first (tmb_planning section 3); it emits branch_id_proposed. task_provision creates the branch.',
+      ),
+      data.message,
+    );
+
+    db.close();
+  });
+
+  it('task_create_batch scope gate names the question it needs (GH 2714)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'fix/scope-gate-text', description: 'd' }],
+    });
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const data = parseResult(result);
+    assert.equal(data.error, 'scope_gate_violation');
+    assert.ok(
+      data.message.includes(
+        "Before creating tasks, ask the Human at least one clarifying question and record it with discussion_append(kind='question').",
+      ),
+      data.message,
+    );
+    assert.doesNotMatch(data.message, /kind='answer'|architect/);
+
+    db.close();
+  });
+
+  it('task_create_batch intent gate routes to intent_start (GH 2714)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      waive_registry_gate: true, waive_registry_gate_reason: 'unit-test synthetic registry; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'fix/intent-gate-text', description: 'd' }],
+    });
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const data = parseResult(result);
+    assert.equal(data.error, 'intent_gate_violation');
+    assert.ok(
+      data.message.includes('Log the intent with intent_start (tmb_planning section 3) before task_create_batch.'),
+      data.message,
+    );
+    assert.doesNotMatch(data.message, /Step 0/);
 
     db.close();
   });

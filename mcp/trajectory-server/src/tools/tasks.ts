@@ -62,7 +62,7 @@ export const BRANCH_ID_RE =
 
 // Hard cap on tasks.spec_body. Architect should cite existing code/conventions
 // rather than restate them; a spec longer than ~8k is usually a sign the task
-// should be split via depends_on. Very long specs push SWE cold-start into the
+// should be split into several tasks. Very long specs push SWE cold-start into the
 // minutes range (issue #55: a 55k-char spec hung the session). Tunable via
 // the TMB_SPEC_BODY_MAX_BYTES env var for downstream users with a different
 // SWE token budget; defaults to 8000 chars.
@@ -72,6 +72,15 @@ export const SPEC_BODY_MAX_BYTES = (() => {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
 })();
+
+function specBodyTooLongMessage(actual: number): string {
+  return (
+    `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${actual}). ` +
+    `Split into several tasks, or cite existing code/conventions instead of restating them. ` +
+    `Very long specs push SWE cold-start into the minutes range; see issue #55. ` +
+    `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`
+  );
+}
 
 function validateBranchId(branchId: string): void {
   if (!BRANCH_ID_RE.test(branchId)) {
@@ -333,12 +342,12 @@ export function taskTools(db: TrajectoryDB): {
                 spec_body: {
                   type: 'string',
                   description:
-                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it). Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`.',
+                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars; split the work into several tasks or cite existing code rather than exceeding it. Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`.',
                 },
                 repo: {
                   type: 'string',
                   description:
-                    'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC. Routes worktree creation.',
+                    'Name of a registered repo (a repos_list name). Required when more than one repo is registered; omit when exactly one is.',
                 },
                 prompt_bearing: {
                   type: 'number',
@@ -706,9 +715,8 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'scope_gate_violation',
                   message:
                     `Scope-ambiguity gate: issue ${issueId} has zero kind='question' discussions. ` +
-                    `Before creating tasks, architect must ask the Human at least one clarifying ` +
-                    `question via discussion_append(kind='question') and record their answer via ` +
-                    `discussion_append(kind='answer'). For truly trivial changes (typo fix, one-line ` +
+                    `Before creating tasks, ask the Human at least one clarifying question and record it ` +
+                    `with discussion_append(kind='question'). For truly trivial changes (typo fix, one-line ` +
                     `doc), pass waive_scope_gate=true with waive_scope_gate_reason="<why trivial>".`,
                   issue_id: issueId,
                   questions_found: 0,
@@ -722,9 +730,8 @@ export function taskTools(db: TrajectoryDB): {
       // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
       // task_create_batch must be preceded by an audit event with
       // event_type='branch_id_proposed' for this issue. Stops bro from spawning
-      // SWE without first running tmb_planning §Step 2 (which calls
-      // branch_id_propose, asks the Human to confirm, runs git switch -c, and
-      // emits the branch_id_proposed audit event).
+      // SWE without first running intent_start (tmb_planning section 3), which
+      // emits the branch_id_proposed audit event.
       const branchGateWaived = args['waive_branch_gate'] === true;
       const branchGateWaiverReason = (args['waive_branch_gate_reason'] ?? '') as string;
 
@@ -747,7 +754,7 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'branch_state_violation',
                   message:
                     `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. ` +
-                    `Run tmb_planning §Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). ` +
+                    `Run intent_start first (tmb_planning section 3); it emits branch_id_proposed. task_provision creates the branch. ` +
                     `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
@@ -797,8 +804,8 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       // --- Intent-discussion gate (MCP-level enforcement) ---
-      // tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human
-      // intent verbatim: ...') before task_create_batch. Production showed 0
+      // intent_start (tmb_planning section 3) logs the kind='intent' discussion
+      // before task_create_batch. Production showed 0
       // intent rows across 9 issues — bro consistently skipped this write
       // because no gate enforced it. Server-side now does.
       const intentGateWaived = args['waive_intent_gate'] === true;
@@ -826,8 +833,7 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'intent_gate_violation',
                   message:
                     `Intent gate: issue ${issueId} has zero kind='intent' discussions. ` +
-                    `tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human intent verbatim: "<the request>"') ` +
-                    `before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
+                    `Log the intent with intent_start (tmb_planning section 3) before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
               },
@@ -909,13 +915,7 @@ export function taskTools(db: TrajectoryDB): {
             throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
           }
           if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-            throw new Error(
-              `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
-              `Split into multiple tasks via depends_on, or cite existing code/` +
-              `conventions rather than restating them inline. Very long specs ` +
-              `push SWE cold-start into the minutes range; see issue #55. ` +
-              `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
-            );
+            throw new Error(specBodyTooLongMessage(t.spec_body.length));
           }
         }
 
@@ -984,13 +984,7 @@ export function taskTools(db: TrajectoryDB): {
             // Hard cap: SPEC_BODY_MAX_BYTES (default 8000) per task. See the
             // export at the top of the file for rationale + env override.
             if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-              throw new Error(
-                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
-                `Split into multiple tasks via depends_on, or cite existing code/` +
-                `conventions rather than restating them inline. Very long specs ` +
-                `push SWE cold-start into the minutes range; see issue #55. ` +
-                `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
-              );
+              throw new Error(specBodyTooLongMessage(t.spec_body.length));
             }
           }
 
