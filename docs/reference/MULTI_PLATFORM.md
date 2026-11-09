@@ -10,15 +10,9 @@
 |---|---|---|
 | macOS | Supported | Supported; `/onboard` defaults to Yes |
 | Linux | Supported (CI runs the suite on Linux) | Not yet validated; `/onboard` defaults to No |
-| Windows | WSL 2 only (hooks are bash) | As Linux, under WSL 2; none on native Windows |
+| Windows | WSL 2 only (native Windows is untested) | As Linux, under WSL 2; none on native Windows |
 
 Details: [Sandbox support](./INSTALL.md#sandbox-support).
-
-## Vision
-
-Many AI coding agents now exist (Claude Code, OpenAI Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot CLI, others). The bro doctrine — Human → bro → SWE with code-reviewer as push gate, Lego templates, lazy-bootstrap project setup, full audit trail in SQLite — is **platform-agnostic** in concept. The implementation is currently Claude-Code-shaped, but most of the content (skills, agent templates, planning protocol, MCP server) would port cleanly.
-
-This doc describes how the repo is structured to make that port realistic when there's demand.
 
 ## Structure (the Superpowers pattern)
 
@@ -36,9 +30,9 @@ plugin/
 ├── templates/agents/       # opt-in consultant templates (architect, cto, ceo, pm)
 ├── mcp/trajectory-server/  # Shared MCP core with isolated Claude/Codex entries
 │
-├── # Per-platform hook configs (CC only today; future: hooks/<platform>/)
+├── # Per-platform hook configs (CC only today)
 ├── hooks/hooks.json        # Claude Code event protocol
-├── scripts/hooks/          # Shell scripts; logic portable, event-name protocol CC-specific
+├── mcp/trajectory-server/src/hooks/  # TypeScript gates run by node; logic portable, event-name protocol CC-specific
 │
 ├── # Per-platform persona/loading files
 ├── CLAUDE.md               # bro persona for Claude Code — IMPLEMENTED
@@ -62,25 +56,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | `mcp/trajectory-server/src/hooks/*.ts` | ⚠️ Partly | Gate logic is portable; the JSON-decision contract is CC-specific |
 | `CLAUDE.md` (bro persona) | ⚠️ Partly | Doctrine is portable; trigger-word mechanism is CC-specific |
 
-## What an adapter would do
-
-For later Codex scopes, or when another platform adapter gets built, the work is:
-
-1. Extend the platform's verified packaging and discovery mechanism without widening incomplete surfaces.
-2. Author the platform's persona file (`CODEX.md`, `CURSOR.md`, `GEMINI.md`) — the bro doctrine adapted to the platform's tool names + trigger mechanism.
-3. Author the platform's hook configs under `hooks/<platform>/` — translating the doctrine-level rules (no commits to protected, no push without review, etc.) into the platform's native hook event names.
-4. Possibly a build/sync script under `scripts/sync-to-<platform>-marketplace.sh` if the platform's marketplace requires a separate fork repo (Superpowers does this for Codex).
-
-The shared MCP foundations remain intact, while prompts, manifests, Agent configuration, and host enforcement stay at the platform edge. A port reuses behavior only where the host contract can support and verify it.
-
-## Why the remaining placeholders stay
-
-Two reasons:
-
-1. **Discoverability.** Anyone browsing the repo sees `.codex-plugin/` and immediately understands TMB's vision. No conversation needed.
-2. **Path-precedent.** When we do ship Codex/Cursor/Gemini support, the directory structure already separates shared content from platform adapters. A real adapter still needs verified installation, runtime dispatch, configuration, and validation; filling in a placeholder manifest alone is not sufficient.
-
-The remaining placeholders explicitly say "not implemented." Codex documentation states its narrower Scope-4 boundary instead of implying the complete Claude workflow is available.
+The placeholders explicitly say "not implemented." Planned platform work lives in GitHub issues.
 
 ## Verified Codex surfaces
 
@@ -94,12 +70,9 @@ format, but this scope does not claim verified IDE, cloud, non-macOS, or
 stable-channel behavior. A host appearing to read the same configuration is not
 enough evidence for a support claim.
 
-## When later adapter scopes get built
-
-Driven by user demand, not by completionism. Each scope ports one verified surface while preserving the existing Claude behavior. The permanent guardrails are in [`../contributing/CODEX_PORT.md`](../contributing/CODEX_PORT.md).
-
 ## See also
 
+- [`../contributing/CODEX_PORT.md`](../contributing/CODEX_PORT.md) — the permanent guardrails for porting a surface
 - [`obra/superpowers`](https://github.com/obra/superpowers) — the canonical example of this pattern in the AI-skills ecosystem
 - [`./CLAUDE.md`](../../CLAUDE.md) — the bro persona for Claude Code
 - Platform files: [`./CODEX.md`](../../CODEX.md), [`./CURSOR.md`](../../CURSOR.md), [`./GEMINI.md`](../../GEMINI.md)

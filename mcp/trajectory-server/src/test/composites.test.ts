@@ -4077,6 +4077,41 @@ describe('task_reopen + task_update_spec', () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  it('task_provision and task_update_spec refuse a ## Commit subject over 72 code points and write nothing (GH 2667)', async () => {
+    const { ws, repoRoot, db, handlers, git } = setup();
+    try {
+      const withCommit = (subject: string) => `${SPEC}\n\n## Commit\n\n${subject}`;
+      const tooLong = withCommit(`⚡ improvement(tools): ${'x'.repeat(51)}`);
+      const valid = withCommit('⚡ improvement(tools): check the commit subject');
+      const taskCount = () => db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c;
+
+      const refused = await call(handlers, 'task_provision', {
+        agent: 'bro', issue_id: 1, branch_id: 'feat/long-subject', decision_body: 'approach: long subject fixture.',
+        task: { description: 'd', spec_body: tooLong, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+      assert.equal(refused.isError, true);
+      assert.match(String(parse(refused)['error']), /^commit_subject_invalid: .*length rule: it is 73 chars \(>72\)/);
+      assert.equal(taskCount(), 0, 'no task row');
+      assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/long-subject'), 'no branch ref');
+
+      const ok = parse(await call(handlers, 'task_provision', {
+        agent: 'bro', issue_id: 1, branch_id: 'feat/good-subject', decision_body: 'approach: valid subject fixture.',
+        task: { description: 'd', spec_body: valid, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      }));
+      const id = ok['task_id'] as number;
+      assert.equal(typeof id, 'number', JSON.stringify(ok));
+
+      const amend = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'x', spec_body: tooLong });
+      assert.equal(amend.isError, true);
+      assert.match(String(parse(amend)['error']), /^commit_subject_invalid: /);
+      assert.equal(taskRow(db, id).spec_body, valid, 'spec unchanged');
+      assert.equal(auditOf(db, 'task_spec_amended').length, 0);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('task_retry and task_reopen cut a missing branch and worktree (GH 1781)', () => {
