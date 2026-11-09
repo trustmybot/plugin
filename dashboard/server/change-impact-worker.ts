@@ -9,7 +9,7 @@ export interface ChangeImpactJob {
   opts: ChangeImpactOptions;
 }
 
-export type ChangeImpactReply = { result: unknown } | { error: string };
+export type ChangeImpactReply = { result: unknown } | { error: string; stack?: string };
 
 function statsReader(db: DatabaseSync): StatsReader {
   return {
@@ -31,7 +31,8 @@ function run({ dbPath, opts }: ChangeImpactJob): ChangeImpactReply {
       db.close();
     }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    if (!(err instanceof Error)) return { error: String(err) };
+    return err.stack === undefined ? { error: err.message } : { error: err.message, stack: err.stack };
   }
 }
 
