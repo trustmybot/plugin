@@ -18,6 +18,7 @@ import {
   isNonEmptyStringArray,
   setConfigValues,
   storedConfigParseErrorPrefix,
+  writeConfigValueJson,
 } from './tools/config.js';
 import { issueTools } from './tools/issues.js';
 import { scanTools } from './tools/scan.js';
@@ -805,11 +806,7 @@ function optionalEnum(
 }
 
 function forceLocalIssueSync(runtime: CodexRuntimeAccess): void {
-  runtime.db.run(
-    `INSERT INTO plugin_config (key, value_json)
-     VALUES ('issue_sync', '"off"')
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-  );
+  writeConfigValueJson(runtime.db, 'issue_sync', '"off"', 'bro');
 }
 
 interface PlanningLabelTaxonomy {
