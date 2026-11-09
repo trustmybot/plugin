@@ -96,7 +96,7 @@ Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3
 - Re-type legacy duplicate `verification_gate_waived` rows (schema v39): of the swe-written rows without a `commit_sha`, each task keeps its lowest-id row and every later one becomes `legacy_event` the same way, so `waiver_not_duplicated` stops counting them.
 - Add `repos.onboard_scan` (schema v40), a nullable JSON column holding the `/onboard` pre-scan evidence and recommendation; it stays `NULL` until the first `onboard_state_get`, and every other `repos` column is untouched.
 - Add `repo_remotes.sync` (schema v41), the onboard Remote choice issue and milestone sync follow: each repo's primary remote starts as its only synced one, every other remote at `0`; re-run `/onboard` to sync to a second host.
-- Rename the reviewer from `pr-reviewer` to `code-reviewer` in `agent_runs`, `validation_attempts` and `agents` (schema v51), rewrite every `audit.content_json` string value that is exactly `pr-reviewer` or `tmb:pr-reviewer`, and rename the old name in the plugin-seeded cheatcode descriptions; `audit.summary` and other prose are untouched (see [Upgrading into v1.2.0](#upgrading-into-v120--pr-reviewer-is-now-code-reviewer)).
+- Rename the reviewer from `pr-reviewer` to `code-reviewer` in `agent_runs`, `validation_attempts` and `agents` (schema v51), rewrite every `audit.content_json` string value that is exactly `pr-reviewer` or `tmb:pr-reviewer`, and rename the old name in the plugin-seeded cheatcode descriptions; `audit.summary` and other prose are untouched.
 
 Row data on every workflow table is preserved.
 
@@ -108,27 +108,6 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 ```
 
 Both columns should match the version you just installed.
-
-### Upgrading into v1.2.0 — the headless shim runs the router
-
-This applies only to a project that turned on headless enforcement. Its `.claude/settings.local.json` holds one shim entry per gate, `resolve-hook.sh --marketplace <mp> --hook <gate> --shim`, and its `.claude/tmb/resolve-hook.sh` hands them to `dispatch.sh`, which this release removes (GH 1692). The shim now writes one entry per PreToolUse group, `node <project>/.claude/tmb/resolve-hook.mjs --marketplace <mp> --hook PreToolUse --shim --project <root>`, which runs the TypeScript router (`node <install>/mcp/trajectory-server/dist/hooks.js PreToolUse --shim`) with the plugin's matcher, `timeout` and `onFailure`. Headless runs then judge each call exactly as interactive sessions do.
-
-- **Re-run the shim step once.** Re-run `/onboard`, or ask bro to turn headless enforcement on again (`onboard_apply(headless_enforcement='yes')`). It replaces every old `_tmb_managed` or `resolve-hook.sh` entry with the new `resolve-hook.mjs` ones, writes `.claude/tmb/resolve-hook.mjs`, deletes the old `.claude/tmb/resolve-hook.sh`, and leaves your own hooks as they are.
-- **Until you do,** an old entry prints a `failing OPEN` warning and enforces nothing, since `dispatch.sh` is gone. If a new resolver meets an old per-gate entry, it prints `--hook <gate> is not a hook event (re-run /onboard to rewrite the shim)` and allows the call.
-- **`node` is required.** With no resolvable install, or an install without `dist/hooks.js`, the resolver prints a `failing OPEN` warning and allows the call. With `node` off PATH the entry cannot start, which Claude Code treats as a non-blocking error, so the call goes ahead.
-
-### Upgrading into v1.2.0 — pr-reviewer is now code-reviewer
-
-The push-gate reviewer agent was renamed from `pr-reviewer` to `code-reviewer` (GH 1641). Its file is now `agents/code-reviewer.md`, and you spawn it as `tmb:code-reviewer`. This is a hard rename with no alias: the old name is not accepted anywhere.
-
-- **Restart after upgrading.** Fully quit and relaunch Claude Code (see [Trigger the new MCP server](#trigger-the-new-mcp-server-required-to-apply-the-migration)). A session that is still running loaded the old agent list, hooks and MCP server, so it cannot spawn `tmb:code-reviewer` and the v51 migration has not run.
-- **Spawns.** An Agent call with `subagent_type` `pr-reviewer` or `tmb:pr-reviewer` names no agent. Spawn `tmb:code-reviewer`.
-- **MCP calls.** A trajectory-server call whose `agent` is `pr-reviewer` gets no reviewer rights: `validation_record` rejects it with `forbidden` and writes no row. Pass `agent: "code-reviewer"`.
-- **Push gate.** A push needs a `code-reviewer` pass row for its commit. A hook payload whose `agent_type` is `pr-reviewer` is not the reviewer, so with no such row the push is denied.
-- **Trajectory DB (schema v51).** On first boot the migration renames `pr-reviewer` to `code-reviewer` in `agent_runs.agent_type`, `validation_attempts.agent` and the `agents` row (whose `file_path` becomes `plugin:agents/code-reviewer.md`). In `audit.content_json` it rewrites every JSON string value that is exactly `pr-reviewer` or `tmb:pr-reviewer`, at any depth, found with `json_tree`; longer strings that mention the old name, `audit.summary` and other prose keep the text they were written with. It also renames the old name in the descriptions of the plugin-seeded cheatcodes (`tmb_review`, `tmb_push-gate` and the `tmb` plugin row): `pr-reviewer` becomes `code-reviewer` and `PR-reviewer` becomes `Code-reviewer`. The audit search index follows the rewritten rows. The usual `.pre-v51.` backup is taken first, and running the migration again changes nothing.
-- **Bypass variables.** Each `TMB_SKIP_PR_REVIEWER_*` variable is now `TMB_SKIP_CODE_REVIEWER_*` (`SPAWN_NOTE`, `PREFLIGHT`, `PROMPT_SHAPE`, `CLOSE_GATE`), and `TMB_ALLOW_PR_REVIEWER_WORKTREE` is now `TMB_ALLOW_CODE_REVIEWER_WORKTREE`. The old names have no effect, so rename any you export.
-- **Local override.** If your project overrides the reviewer at `<project>/.claude/agents/pr-reviewer.md`, rename it to `code-reviewer.md` and change its frontmatter `name:` to `code-reviewer`.
-- **Codex.** The Codex reviewer agent is now `.codex/agents/tmb_code_reviewer.toml`. Run `$tmb:tmb-agent-setup` with `present` to install it, then delete a leftover `.codex/agents/tmb_pr_reviewer.toml` by hand; the setup does not know the old file.
 
 ### Upgrading into v1.1.0 — the bro persona loads from the plugin
 
@@ -149,27 +128,6 @@ To remove them:
 3. Check the file still parses: `jq empty ~/.claude/settings.json`.
 4. Delete `~/.claude/tmb-hooks/` once nothing references it.
 5. Start a new Claude Code session. The `Plugin:` line is gone.
-
-### Upgrading into v1.0.3 — recover lost agent_runs
-
-Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:
-
-```bash
-node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js backfill-agent-runs            # dry run: prints the report, writes nothing
-node --experimental-sqlite <plugin-source>/mcp/trajectory-server/dist/cli.js backfill-agent-runs --apply    # writes the rows
-```
-
-bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / code-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
-
-Run the backfill when no swe or code-reviewer spawn is active; otherwise the live SubagentStop hook keys the in-flight spawn by its agent id and a second row appears for it.
-
-### Upgrading into v1.0.3 — L6 chain runs move into the project
-
-The L6 chain runner (`tests/l5-l6/run-l6-chain.ts`) now writes its runs to `<project>/.claude/tmb/l6-chain-runs/` (or `L6C_RUNS_DIR`) and L5 preserves trajectories under `<project>/.claude/tmb/l5-trajectories/`. Runs from earlier versions stay under `~/.claude/tmb/l6-chain-runs/` and `~/.claude/tmb/l5-trajectories/` until you remove them; auto-resume reads only the new location, so start the first chain after upgrading with `--fresh` or `--from 1`.
-
-### Upgrading into v1.0.0 (first stable)
-
-v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal channel update — nothing special to do. The schema migrations apply on server start exactly as described above.
 
 ---
 
@@ -200,9 +158,9 @@ Recovery (one of):
   ```
   Then fully quit and relaunch CC.
 
-The flag is written by CC when a user disables an MCP server through the CC UI, OR potentially when CC auto-disables a misbehaving server. The plugin cannot read or write it — it's CC-owned state. Track at #2888 for context on how this was discovered.
+The flag is written by CC when a user disables an MCP server through the CC UI, OR potentially when CC auto-disables a misbehaving server. The plugin cannot read or write it — it's CC-owned state.
 
-### MCP server never registers after upgrade (CC plugin cache bug, issue #2888)
+### MCP server never registers after upgrade (CC plugin cache bug)
 
 After disabling and re-enabling the plugin, or after CC's auto-update lands a new tmb version, the trajectory MCP server can fail to register entirely. CC loads tmb's hooks / skills / agents / commands from the new cache dir, but the MCP server is absent from CC's resolved plugin list — and **a full CC quit + relaunch does not fix it.** CC persists the broken resolved-plugin list to disk somewhere that survives process restart.
 
@@ -232,7 +190,7 @@ After disabling and re-enabling the plugin, or after CC's auto-update lands a ne
    ```
    Then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root and relaunch CC.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `cli.js heal-mcp-cache` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `cli.js heal-mcp-cache` helper above.
 
 ### "stored schema_version N is newer than code's max M"
 
@@ -298,128 +256,4 @@ sqlite3 <workspace>/.claude/tmb/trajectory.db \
 
 ---
 
-## Maintainer side
-
-### Promoting rc → stable
-
-Promotion runs through a PR — merge `dev` → `main` via `gh pr create` + `gh pr merge` (the merge lands the version bump in `plugin.json` and its matching `CHANGELOG.md` entry) — then cut the release from `main`:
-
-```bash
-git checkout main && git pull origin main
-node --experimental-strip-types scripts/release.ts
-```
-
-`release.ts` tags `main` HEAD as `v<X.Y.Z>` (read from `plugin.json`), then resolves the promoted rc's release-gate verdict via `resolveGateTag()` (`scripts/lib/await-release-gate.ts`): the gate is rc/main-only (rc tag pushes plus dispatch from `rc`/`main`), so a stable tag resolves to the newest `v*-rc.*` tag in HEAD's ancestry — the rc it promotes — and consumes that run's verdict. It refuses to publish on a red or missing verdict, and on green creates the GitHub release from the CHANGELOG notes.
-
-### Bumping the version
-
-`bump-version.ts` keeps the Claude and Codex plugin manifests, both package manifests, and the `bun.lock` workspace entry in sync atomically:
-
-- `.claude-plugin/plugin.json`
-- `.codex-plugin/plugin.json`
-- `package.json`
-- `mcp/trajectory-server/package.json`
-- `bun.lock` (workspace `version`)
-
-It also assembles `## Unreleased` and the `changelog.d/` fragments into the release's `## vX.Y.Z — YYYY-MM-DD` section of `CHANGELOG.md` and deletes the fragments (`--dry-run` prints the section first; see `docs/contributing/CHANGELOG_AND_REBASES.md`).
-
-The Claude MCP entry derives the version from its package manifest. The Codex entry derives it from the installed `.codex-plugin/plugin.json`. The synchronized bump keeps both handshakes aligned without a hardcoded runtime version.
-
-### Bumping the schema
-
-When a schema change is breaking (drops a `NOT NULL` column, removes a table, etc.):
-
-1. Bump `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
-2. Update the `plugin_meta` seed in `mcp/trajectory-server/src/schema.sql` to match.
-3. Add a `migrateVnToVn+1(db)` function with the SQLite recipe (`CREATE TABLE _new`; copy; `DROP`; `RENAME`).
-4. Add an L2 case to `mcp/trajectory-server/src/test/schema-upgrade.test.ts` with a fixture at the previous version + assertions on the upgraded shape.
-5. Add a `changelog.d/` fragment with the migration details + the dropped column / table.
-
-### Testing the migration end-to-end through Claude Code
-
-The L0 install-smoke (`tests/l0-install/install-smoke.Dockerfile`) seeds a synthetic v1-shape DB inside the docker image and asserts the migration applies cleanly. That's the automated gate. To exercise the **real CC user upgrade path** by hand — install old plugin, accumulate state, upgrade, watch the migration run — use one of these three recipes:
-
-**Recipe A — git worktree + `--plugin-dir` (most deterministic, recommended for development).** Spin up an old plugin version as a worktree, then re-launch CC against the new source. Both sides resolve to the same trajectory DB in the test project, so the second launch triggers the migration.
-
-```bash
-# 1. Materialize an old plugin version
-git worktree add /tmp/tmb-old v<PREV.VERSION>
-( cd /tmp/tmb-old && bun install --frozen-lockfile && bun run build )
-
-# 2. Fresh test project
-TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
-( cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user.name t \
-    && echo init > README.md && git add . && git commit -qm init )
-
-# 3. Run CC with the OLD plugin to populate v1-shape state
-cd "$TEST_PROJ"
-echo '@bro hi' | claude --plugin-dir /tmp/tmb-old -p --dangerously-skip-permissions
-
-# Confirm pre-upgrade state — schema_version should be 1
-sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
-
-# 4. Run CC again with the NEW plugin — migration fires on MCP server boot
-echo '@bro check status' | claude --plugin-dir <your-plugin-checkout> -p --dangerously-skip-permissions
-
-# 5. Verify the migration applied
-sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
-ls -la .claude/tmb/trajectory.db.pre-v*.bak             # one backup per target version
-sqlite3 .claude/tmb/trajectory.db "SELECT value_json FROM plugin_config WHERE key='onboarded';"
-
-# 6. Cleanup
-git worktree remove /tmp/tmb-old
-rm -rf "$TEST_PROJ"
-```
-
-**Recipe B — through the real marketplace (smoke-tests CC's update mechanism too).** Slower; depends on what versions are actually published.
-
-```bash
-# From the project root:
-claude plugin marketplace add trustmybot/marketplace-rc --scope local
-claude plugin install tmb@trustmybot-rc --scope local   # whatever the marketplace currently ships
-```
-
-Use the plugin in a real project — accumulate issues, tasks, run `/onboard`. Then point the marketplace at the in-development source by switching channels or by updating the marketplace ref:
-
-```bash
-claude plugin marketplace update trustmybot-rc
-claude plugin update tmb@trustmybot-rc --scope local
-# Restart the CC session (Cmd+R) so the MCP server reboots with new code.
-```
-
-The MCP server log (`<project>/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
-
-**Recipe C — hand-craft a v1 DB (fastest, no install dance).** Useful when iterating on the migration code itself.
-
-```bash
-TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
-mkdir -p "$TEST_PROJ/.claude/tmb"
-DB="$TEST_PROJ/.claude/tmb/trajectory.db"
-
-# Seed a minimal v1-shape DB matching a pre-migration install
-sqlite3 "$DB" "
-  CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL);
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
-  CREATE TABLE identity (id INTEGER PRIMARY KEY);
-  INSERT INTO plugin_meta VALUES (1, 1, '<prev-version>');
-  INSERT INTO identity VALUES (1);
-"
-
-# Trigger the migration by booting the MCP server against this DB
-cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user.name t \
-  && echo init > README.md && git add . && git commit -qm init
-echo '@bro hi' | claude --plugin-dir <your-plugin-checkout> -p --dangerously-skip-permissions
-
-# Verify — schema_version should now match the plugin's current TARGET_SCHEMA_VERSION
-sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta;'
-ls "$DB".pre-v*.bak                                            # expect backup present
-sqlite3 "$DB" "SELECT value_json FROM plugin_config WHERE key='onboarded';"   # expect "true"
-rm -rf "$TEST_PROJ"
-```
-
-**Recovery — if the migration goes wrong on a real project:**
-
-```bash
-# Stop CC. Restore the .bak. Downgrade plugin. Re-launch.
-cp <project>/.claude/tmb/trajectory.db.pre-v<TARGET>.<timestamp>.bak <project>/.claude/tmb/trajectory.db
-```
+Releasing (version bump, rc and stable promotion) is in [CONTRIBUTING.md](../../CONTRIBUTING.md); how migrations are built and tested is in [ERD.md](../architecture/ERD.md) and `mcp/trajectory-server/src/db.ts`.
