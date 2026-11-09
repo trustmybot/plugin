@@ -32,6 +32,85 @@ export const QM = '\x17';
 const QM_LITERAL = '$' + ENC[8] + ENC[9];
 /** With `marks` (GH 2443): a `$` bash keeps literal, inside `'…'` or `$'…'` or after a backslash, unquoted or in `"…"`; `decode` turns it back into `$`. */
 export const DOLLAR = '\x19';
+/** An empty unquoted substitution: text the analyzers cannot know, so a word holding it reads as computed (GH 2640). */
+const COMPUTED = '$()';
+/** With `shownControls`, a control char a `$'…'` escape decodes to, which the skeleton cannot carry: U+FFFD, text the commit-message reader lints rather than skips. */
+export const CONTROL_SHOWN = '�';
+
+const ANSI_C_SIMPLE: ReadonlyMap<string, string> = new Map([
+  ['a', '\x07'],
+  ['b', '\b'],
+  ['e', '\x1b'],
+  ['E', '\x1b'],
+  ['f', '\f'],
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+  ['v', '\v'],
+  ['\\', '\\'],
+  ["'", "'"],
+  ['"', '"'],
+  ['?', '?'],
+]);
+
+const ANSI_C_DIGITS: ReadonlyMap<string, { re: RegExp; radix: number }> = new Map([
+  ['x', { re: /^[0-9A-Fa-f]{1,2}/, radix: 16 }],
+  ['u', { re: /^[0-9A-Fa-f]{1,4}/, radix: 16 }],
+  ['U', { re: /^[0-9A-Fa-f]{1,8}/, radix: 16 }],
+]);
+
+/** A code point bash writes as one char in every version and locale: not NUL (it ends the word), a surrogate, or past U+10FFFF. */
+const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff) ? null : String.fromCodePoint(n));
+
+/** A `\xHH` or `\NNN` byte: past 0x7F bash writes a raw byte that is no single char (F753-2). */
+const ansiCByte = (n: number): string | null => (n > 0x7f ? null : ansiCPoint(n));
+
+/**
+ * A `$'…'` body's chars as bash decodes them, null for an escape whose result
+ * is unknown: `\x` / `\u` / `\U` with no hex digit, a `\x` or `\NNN` byte past
+ * 0x7F, a NUL, an invalid code point, `\c` with no letter after it or with `\`
+ * or `?` (bash versions differ), a lone trailing backslash. An escape bash
+ * does not know keeps its backslash.
+ */
+export function ansiCChars(body: string): Array<string | null> {
+  const out: Array<string | null> = [];
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c !== '\\') {
+      out.push(c);
+      continue;
+    }
+    const e = body[i + 1];
+    if (e === undefined) {
+      out.push(null);
+      continue;
+    }
+    const simple = ANSI_C_SIMPLE.get(e);
+    const digits = ANSI_C_DIGITS.get(e);
+    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+    if (simple !== undefined) {
+      out.push(simple);
+      i++;
+    } else if (octal) {
+      const n = parseInt(octal[0], 8);
+      out.push(ansiCByte(n));
+      i += octal[0].length;
+    } else if (digits) {
+      const hex = digits.re.exec(body.slice(i + 2));
+      const point = e === 'x' ? ansiCByte : ansiCPoint;
+      out.push(hex ? point(parseInt(hex[0], digits.radix)) : null);
+      i += 1 + (hex ? hex[0].length : 0);
+    } else if (e === 'c') {
+      const x = body[i + 2];
+      out.push(x === undefined || x === '\\' || x === '?' || x.charCodeAt(0) > 0x7f ? null : ansiCPoint(x.toUpperCase().charCodeAt(0) & 0x1f));
+      i += x === undefined ? 1 : 2;
+    } else {
+      out.push('\\', e);
+      i++;
+    }
+  }
+  return out;
+}
 
 /** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
 export function plainDollars(text: string): boolean {
@@ -129,6 +208,7 @@ export class Encoder {
     private readonly src: string,
     private readonly charge: Charge,
     private readonly marks = false,
+    private readonly shownControls = false,
   ) {}
 
   /** One char of quoted or escaped text; with `marks`, a `$` bash keeps literal is DOLLAR. */
@@ -136,7 +216,7 @@ export class Encoder {
     return dollar && this.marks && c === '$' ? DOLLAR : neutral(c, this.marks);
   }
 
-  /** Unquoted text: a backslash escapes the next char. */
+  /** Unquoted text: a backslash escapes the next char; a backslash-newline is dropped, as bash joins the lines (GH 2646). */
   private plain(from: number, to: number): string {
     const { src } = this;
     let out = '';
@@ -147,13 +227,13 @@ export class Encoder {
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
-      out += QM + this.literal(next, true);
-      if (next !== undefined && next !== '\n') i++;
+      if (next !== '\n') out += QM + this.literal(next, true);
+      if (next !== undefined) i++;
     }
     return out;
   }
 
-  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes; `literal` keeps every `$` literal, else only an escaped one. */
+  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only an escaped one. */
   private quoted(from: number, to: number, escapes: boolean, literal: boolean): string {
     const { src } = this;
     let out = '';
@@ -162,9 +242,21 @@ export class Encoder {
       if (c === '\n') out += JOINER;
       else if (escapes && c === '\\') {
         const next = i + 1 < to ? src[i + 1] : undefined;
-        out += this.literal(next, true);
-        if (next !== undefined && next !== '\n') i++;
+        if (next !== '\n') out += this.literal(next, true);
+        if (next !== undefined) i++;
       } else out += this.literal(c, literal);
+    }
+    return out;
+  }
+
+  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, an undecodable escape COMPUTED, any other control char COMPUTED or with `shownControls` CONTROL_SHOWN. */
+  private ansiC(from: number, to: number): string {
+    let out = '';
+    for (const c of ansiCChars(this.src.slice(from, to))) {
+      if (c === null) out += COMPUTED;
+      else if (c === '\n') out += JOINER;
+      else if (c !== '\t' && /[\x00-\x1f\x7f]/.test(c)) out += this.shownControls ? CONTROL_SHOWN : COMPUTED;
+      else out += this.literal(c, true);
     }
     return out;
   }
@@ -271,7 +363,7 @@ export class Encoder {
           out += QM + this.quoted(span.start + 1, span.end - 1, false, true);
           break;
         case 'ansi_c_string':
-          out += QM + this.quoted(span.start + 2, span.end - 1, true, true);
+          out += QM + this.ansiC(span.start + 2, span.end - 1);
           break;
         case 'command_substitution':
           out += this.frame(node, span.start);
@@ -308,13 +400,41 @@ export function heldKey(word: string): string {
   return decode(word).replaceAll(QM, '').replace(/\x07/g, '$(').replace(/\x08/g, ')');
 }
 
-function heldWords(encoder: Encoder, root: Node): Set<string> {
+/** One shell word: its tree-sitter-bash nodes, more than one where a backslash-newline joins them (GH 1978), and whether a redirect holds part of it. */
+type ShellWord = { nodes: Node[]; redirect: boolean; joined: boolean };
+
+/** Each word of the `parents` nodes under `root` as bash reads it, a node a backslash-newline joins to the one before it being part of that word. */
+function shellWords(src: string, root: Node, parents: string[]): ShellWord[] {
+  const units = root.descendantsOfType(parents).flatMap((parent) =>
+    parent ? parent.namedChildren.flatMap((node) => (node && !/^(file|herestring)_redirect$/.test(node.type) ? [{ node, redirect: parent.type !== 'command' }] : [])) : [],
+  );
+  const at = new Map<number, (typeof units)[number]>();
+  for (const unit of units) if (!at.has(unit.node.startIndex)) at.set(unit.node.startIndex, unit);
+  const next = (unit: (typeof units)[number]): (typeof units)[number] | undefined => {
+    let pos = unit.node.endIndex;
+    while (src.startsWith('\\\n', pos)) pos += 2;
+    return pos > unit.node.endIndex ? at.get(pos) : undefined;
+  };
+  const tails = new Set(units.map(next));
+  return units
+    .filter((unit) => !tails.has(unit))
+    .map((head) => {
+      const chain = [head];
+      for (let n = next(head); n && !chain.includes(n); n = next(n)) chain.push(n);
+      const nodes = chain.map((u) => u.node);
+      return { nodes, redirect: chain.some((u) => u.redirect), joined: src.slice(nodes[0].startIndex, nodes.at(-1)!.endIndex).includes('\\\n') };
+    });
+}
+
+const wordKey = (encoder: Encoder, word: ShellWord): string => heldKey(word.nodes.map((node) => encoder.word(node)).join(''));
+
+/** A word held as `Encoded.held` says, or one a backslash-newline runs through that holds a `$` or backtick, or one holding a `$'…'` escape left COMPUTED. */
+function heldWords(encoder: Encoder, src: string, root: Node): Set<string> {
   const held = new Set<string>();
-  for (const node of root.descendantsOfType(['command', 'herestring_redirect'])) {
-    if (!node) continue;
-    for (const word of node.namedChildren) {
-      if (word && word.type !== 'file_redirect' && word.type !== 'herestring_redirect' && expands(word)) held.add(heldKey(encoder.word(word)));
-    }
+  for (const word of shellWords(src, root, ['command', 'herestring_redirect'])) {
+    const text = word.nodes.map((node) => encoder.word(node)).join('');
+    const key = heldKey(text);
+    if (word.nodes.some(expands) || text.includes(COMPUTED) || (word.joined && /[$`]/.test(key))) held.add(key);
   }
   return held;
 }
@@ -322,21 +442,16 @@ function heldWords(encoder: Encoder, root: Node): Set<string> {
 const PLAIN_EXPANSIONS = ['simple_expansion', 'expansion'];
 const CODE_EXPANSIONS = ['command_substitution', 'arithmetic_expansion', 'process_substitution'];
 
-function splicedWords(encoder: Encoder, root: Node): Set<string> {
+function splicedWords(encoder: Encoder, src: string, root: Node): Set<string> {
   const plain = new Set<string>();
   const opaque = new Set<string>();
-  const classify = (word: Node, redirect: boolean): void => {
-    const key = heldKey(encoder.word(word));
+  for (const word of shellWords(src, root, ['command', 'file_redirect', 'herestring_redirect'])) {
+    const key = wordKey(encoder, word);
     const dollars = key.split('$').length - 1;
-    if (dollars === 0 && !key.includes('`')) return;
-    const spliced =
-      !redirect && !key.includes('`') && word.descendantsOfType(CODE_EXPANSIONS).length === 0 && word.descendantsOfType(PLAIN_EXPANSIONS).length === dollars;
+    if (dollars === 0 && !key.includes('`')) continue;
+    const count = (types: string[]): number => word.nodes.reduce((n, node) => n + node.descendantsOfType(types).length, 0);
+    const spliced = !word.redirect && !word.joined && !key.includes('`') && count(CODE_EXPANSIONS) === 0 && count(PLAIN_EXPANSIONS) === dollars;
     (spliced ? plain : opaque).add(key);
-  };
-  for (const node of root.descendantsOfType(['command', 'file_redirect', 'herestring_redirect'])) {
-    if (!node) continue;
-    const redirect = node.type !== 'command';
-    for (const word of node.namedChildren) if (word && !/^(file|herestring)_redirect$/.test(word.type)) classify(word, redirect);
   }
   for (const key of opaque) plain.delete(key);
   return plain;
@@ -372,17 +487,39 @@ function heredocs(src: string, root: Node): Heredoc[] {
   });
 }
 
-/** The source line holding `at`, without its newline. */
-function lineAt(src: string, at: number): string {
-  const end = src.indexOf('\n', at);
-  return src.slice(src.lastIndexOf('\n', at - 1) + 1, end < 0 ? src.length : end);
+/**
+ * Where bash ends a heredoc whose body starts at `at`: the [start, stop) of
+ * the first line that is exactly `delim` once read as bash reads it, an
+ * unquoted delimiter's body lines joined across each backslash-newline the
+ * backslash is not itself escaped in, then leading tabs stripped for <<-
+ * (F753-1); null when no line is.
+ */
+function bashHeredocEnd(src: string, at: number, delim: string, joins: boolean, tabs: boolean): { start: number; stop: number } | null {
+  let start = at;
+  let text = '';
+  for (;;) {
+    const nl = src.indexOf('\n', at);
+    const stop = nl < 0 ? src.length : nl;
+    const physical = src.slice(at, stop);
+    if (joins && nl >= 0 && /\\*$/.exec(physical)![0].length % 2 === 1) {
+      text += physical.slice(0, -1);
+      at = nl + 1;
+      continue;
+    }
+    text += physical;
+    if ((tabs ? text.replace(/^\t+/, '') : text) === delim) return { start, stop };
+    if (nl < 0) return null;
+    at = start = nl + 1;
+    text = '';
+  }
 }
 
 /**
  * GH 1927: bash ends a heredoc at the first line that is exactly its
  * delimiter (the start word with quotes and backslashes removed, leading tabs
- * stripped for <<-). A heredoc tree-sitter-bash ends on another line, or past
- * a body line bash would end it on, has misread where the command resumes.
+ * stripped for <<-, an unquoted delimiter's body read across backslash-newline
+ * joins). A heredoc tree-sitter-bash ends on another line, or past a body line
+ * bash would end it on, has misread where the command resumes.
  */
 function heredocMisread(src: string, root: Node): boolean {
   return root.descendantsOfType('heredoc_redirect').some((node) => {
@@ -391,28 +528,28 @@ function heredocMisread(src: string, root: Node): boolean {
     const start = kids.find((c) => c.type === 'heredoc_start');
     const end = kids.find((c) => c.type === 'heredoc_end');
     if (!start || !end) return true;
-    const delim = src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '');
+    const word = src.slice(start.startIndex, start.endIndex);
+    const delim = word.replace(/['"\\]/g, '');
     const tabs = kids.some((c) => c.type === '<<-');
-    const line = (text: string): string => (tabs ? text.replace(/^\t+/, '') : text);
-    if (line(lineAt(src, end.startIndex)) !== delim) return true;
     const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
-    const bodyStart = src.lastIndexOf('\n', from - 1) + 1;
+    const bash = bashHeredocEnd(src, src.lastIndexOf('\n', from - 1) + 1, delim, !/['"\\]/.test(word), tabs);
     const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
-    return endStart > bodyStart && src.slice(bodyStart, endStart - 1).split('\n').some((l) => line(l) === delim);
+    const endStop = src.indexOf('\n', end.startIndex);
+    return bash === null || bash.start !== endStart || bash.stop !== (endStop < 0 ? src.length : endStop);
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912). */
-export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false): Encoded {
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912); `shownControls` gives a `$'…'` control char as CONTROL_SHOWN. */
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false, shownControls = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command, charge, marks);
+    const encoder = new Encoder(command, charge, marks, shownControls);
     const text = encoder.range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
+    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, command, root), spliced: splicedWords(encoder, command, root) };
   } finally {
     tree.delete();
   }
