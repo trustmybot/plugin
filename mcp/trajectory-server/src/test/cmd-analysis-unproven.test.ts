@@ -136,3 +136,29 @@ describe('GH 2463: a call inside an f-string interpolation leaves a python progr
     });
   }
 });
+
+describe('GH 2669: a node -e program calling Buffer.byteLength is proven', () => {
+  const run = (program: string): Promise<string[]> =>
+    writePaths(`node -e '${program}'`, { cwd: '/w', root: '/w', env: { HOME: '/h' } });
+
+  for (const program of [
+    'console.log(Buffer.byteLength("ab"))',
+    'const s="ab"; console.log(Buffer.byteLength(s, "utf8"))',
+  ]) {
+    it(`GH 2669 ${program} writes nothing`, async () => {
+      assert.deepEqual(await run(program), []);
+    });
+  }
+
+  for (const [label, program] of [
+    ['Buffer.from passed on to writeFileSync', 'require("fs").writeFileSync("x", Buffer.from("ab"))'],
+    ['Buffer bound to a name', 'const B=Buffer; B.byteLength("a")'],
+    ['Buffer.alloc', 'Buffer.alloc(1)'],
+    ['a dynamic import', 'await import("./x.js")'],
+  ]) {
+    it(`GH 2669 ${label} stays unproven`, async () => {
+      const out = await run(program);
+      assert.ok(out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));
+    });
+  }
+});
