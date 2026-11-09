@@ -80,7 +80,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Task composites | `tools/composites.ts` | `task_provision`, `task_brief` (optional `section`: `core` \| `verification` \| `scope` \| `history` \| `all`; default `core` for swe, `all` for every other caller; optional `response_format`: `concise` by default, `detailed` for world-model summaries and full discussion rows), `task_retry`, `task_recover`, `task_reopen` (bro: closed/failed/escalated/running → running, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `bro_atomic_close` |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `tools/audit.ts` | `audit_append`, `audit_list`, `audit_search` |
-| Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
+| Validation | `tools/validation.ts` | `validation_record`, `validation_history`, `review_queue` |
 | Skills (builtin rows in the unified `cheatcodes` registry, #101) | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote` |
 | Agents | `tools/agents.ts` | `agent_register`, `agent_list` (filter `root`), `agent_resolve` (bro) — `file_path` is `plugin:<path>` or `project:<path>`; rows carry `resolved_path` |
 | Reports | `tools/reports.ts` | `issue_report_md`, `issue_snapshot_md` |

@@ -11,7 +11,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Tasks | `tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable` |
 | Discussions | `discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `audit.ts` | `audit_append`, `audit_list`, `audit_search` |
-| Validation | `validation.ts` | `validation_record`, `validation_history` |
+| Validation | `validation.ts` | `validation_record`, `validation_history`, `review_queue` |
 | Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `task_provision`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`, `task_retry`, `task_reopen`, `task_update_spec`; `verification-paths.ts` holds the `verification[]` test-path guard four of them share, `verification-defaults.ts` the repo default checks provision and retry append |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
 | Skills | `skills.ts` | `skill_register`, `skill_promote` |

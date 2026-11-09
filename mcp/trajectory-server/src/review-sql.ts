@@ -87,7 +87,14 @@ export const reviewSkipAuthoredSql = (alias: string): string =>
   `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
       OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 
-export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+// A task whose review is on record at any commit: a passing validation_attempts
+// row, or a skip row from a trusted author (reviewSkipAuthoredSql) naming the
+// task. review_queue lists closed agile tasks without one.
+export const REVIEW_RECORDED_SQL = `(EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+  OR EXISTS (SELECT 1 FROM audit r WHERE ${reviewSkipAuthoredSql('r')}
+    AND CASE WHEN json_valid(r.content_json) THEN json_extract(r.content_json, '$.task_id') END = t.id))`;
+
+export const GATE_SKIP_RECORDED_SQL =`EXISTS (SELECT 1 FROM audit g
   WHERE ${reviewSkipAuthoredSql('g')}
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id

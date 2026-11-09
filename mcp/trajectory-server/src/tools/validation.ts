@@ -4,6 +4,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import type { FindingSeverity, ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
+import { REVIEW_RECORDED_SQL } from '../review-sql.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
 import { WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
@@ -87,6 +88,81 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 export const REVIEWER_OBSERVE_FROM_NODE = 'hook:reviewer-identity-observe';
 export const REVIEWER_OBSERVATION_TTL_S = 600;
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+interface QueuedTask {
+  id: number;
+  branch_id: string;
+  issue_id: number;
+  commit_sha: string | null;
+  files: string | null;
+}
+
+export interface ReviewQueueGroup {
+  task_ids: number[];
+  branch_ids: string[];
+  issue_ids: number[];
+  commit_shas: string[];
+  files: string[];
+}
+
+function taskFiles(raw: string | null): string[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((f): f is string => typeof f === 'string')
+    .map((f) => f.replace(/^\.\/+/, '').replace(/\/+$/, ''))
+    .filter((f) => f.length > 0);
+}
+
+export function pathsOverlap(a: string, b: string): boolean {
+  return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
+}
+
+export function groupByFileOverlap(tasks: readonly QueuedTask[]): ReviewQueueGroup[] {
+  const sorted = [...tasks].sort((x, y) => x.id - y.id);
+  const files = sorted.map((t) => taskFiles(t.files));
+  const parent = sorted.map((_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]!]!;
+      i = parent[i]!;
+    }
+    return i;
+  };
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (find(i) === find(j)) continue;
+      if (files[i]!.some((a) => files[j]!.some((b) => pathsOverlap(a, b)))) {
+        const [ri, rj] = [find(i), find(j)];
+        parent[Math.max(ri, rj)] = Math.min(ri, rj);
+      }
+    }
+  }
+  const byRoot = new Map<number, number[]>();
+  sorted.forEach((_, i) => {
+    const root = find(i);
+    byRoot.set(root, [...(byRoot.get(root) ?? []), i]);
+  });
+  return [...byRoot.keys()]
+    .sort((a, b) => a - b)
+    .map((root) => {
+      const members = byRoot.get(root)!;
+      const uniq = <T>(xs: T[]): T[] => [...new Set(xs)];
+      return {
+        task_ids: members.map((i) => sorted[i]!.id),
+        branch_ids: uniq(members.map((i) => sorted[i]!.branch_id)),
+        issue_ids: uniq(members.map((i) => sorted[i]!.issue_id)).sort((a, b) => a - b),
+        commit_shas: uniq(members.map((i) => sorted[i]!.commit_sha).filter((s): s is string => !!s)),
+        files: uniq(members.flatMap((i) => files[i]!)).sort(),
+      };
+    });
+}
 
 interface ReviewerObservation {
   id: number;
@@ -329,6 +405,20 @@ export function validationTools(db: TrajectoryDB): {
         required: ['agent', 'task_id'],
       },
     },
+    {
+      name: 'review_queue',
+      description:
+        'bro only. The closed tasks stamped workflow_mode=agile that have no passing validation_attempts row and no review_gate_waived (bro) or review_gate_bypassed (bro, hook:close-issue-on-merge) audit row, ' +
+        'grouped into connected components of overlapping files[] (equal paths, or one a path-segment prefix of the other). ' +
+        'Returns {total, groups: [{task_ids, branch_ids, issue_ids, commit_shas, files}]}: task ids ascending in a group, groups by smallest task id; a task with no files is its own group.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+        },
+        required: ['agent'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -567,6 +657,15 @@ export function validationTools(db: TrajectoryDB): {
         next_cursor,
       });
     }),
+
+    review_queue: requireRoles('review_queue', ['bro'], wrapHandler(async () => {
+      const rows = db.all<{ id: number; branch_id: string; issue_id: number; commit_sha: string | null; files: string | null }>(
+        `SELECT t.id, t.branch_id, t.issue_id, t.commit_sha, t.files FROM tasks t
+          WHERE t.status = 'closed' AND t.workflow_mode = 'agile' AND NOT ${REVIEW_RECORDED_SQL}
+          ORDER BY t.id`,
+      );
+      return ok({ total: rows.length, groups: groupByFileOverlap(rows) });
+    })),
   };
 
   return { definitions, handlers };
