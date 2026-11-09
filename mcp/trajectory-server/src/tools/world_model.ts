@@ -15,7 +15,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readBlobSync } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh, freshnessBlock, freshnessFields, isStale, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
+import { ensureFresh, fetchTargetIfDue, freshnessBlock, freshnessFields, isStale, type Freshness, type FreshnessBlock } from '../world-model/freshness.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -1343,31 +1343,32 @@ export function worldModelTools(
   const resolveRepo = (arg: unknown): ResolvedWorldModelRepo => resolveWorldModelRepo(db, arg, cwd);
   const sourceOf = (r: ResolvedWorldModelRepo): { repo_source?: RepoSource } =>
     r.repo_source ? { repo_source: r.repo_source } : {};
-  // Bring the repo's index to its target before answering (GH 2584). A
-  // failure answers from the index as it is.
-  const freshen = async (repo: string): Promise<Freshness | null> => {
-    const graph = repo ? (graphHolder?.ensureGraph() ?? null) : null;
-    if (!graph) return null;
-    try {
-      return await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger: 'read' });
-    } catch (e) {
-      serverLog({ event: 'wm_freshness_error', repo, error: (e as Error).message });
-      return null;
+  // Fetch each repo's target when its window is due, all at once, then bring
+  // each index to its target before answering (GH 2584). A failure answers
+  // from the index as it is.
+  const freshenAll = async (repos: readonly string[], agent: unknown): Promise<Map<string, Freshness>> => {
+    const byRepo = new Map<string, Freshness>();
+    const graph = graphHolder?.ensureGraph() ?? null;
+    if (!graph) return byRepo;
+    const named = repos.filter((repo) => repo);
+    const fetched = await Promise.all(named.map((repo) => fetchTargetIfDue(db, repo, { agent })));
+    for (const [i, repo] of named.entries()) {
+      try {
+        const trigger = fetched[i] === 'moved' ? 'fetch' : 'read';
+        byRepo.set(repo, await ensureFresh(db, graph, repo, { dbPath: db.dbPath, trigger }));
+      } catch (e) {
+        serverLog({ event: 'wm_freshness_error', repo, error: (e as Error).message });
+      }
     }
+    return byRepo;
   };
+  const freshen = async (repo: string, agent: unknown): Promise<Freshness | null> =>
+    (await freshenAll([repo], agent)).get(repo) ?? null;
   // The freshness block (decision 2487) every world_model_* answer carries;
   // with several repos, the first by name.
   const blockOf = (repo: string | readonly string[] | null): { freshness: FreshnessBlock | null } => ({
     freshness: freshnessBlock(db, typeof repo === 'string' || repo === null ? repo : ([...repo].sort()[0] ?? null)),
   });
-  const freshenAll = async (repos: readonly string[]): Promise<Map<string, Freshness>> => {
-    const byRepo = new Map<string, Freshness>();
-    for (const repo of repos) {
-      const f = await freshen(repo);
-      if (f) byRepo.set(repo, f);
-    }
-    return byRepo;
-  };
 
   const handlers: Record<string, Fn> = {
     world_model_get: requireRoles(
@@ -1401,7 +1402,7 @@ export function worldModelTools(
           return ok({ repo, ...source, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo) });
         }
 
-        const fr = await freshen(repo);
+        const fr = await freshen(repo, args['agent']);
         if (graph.directoryCount(repo) === 0) {
           return ok({ repo, ...source, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work, ...lag, last_scan, ...blockOf(repo) });
         }
@@ -1493,7 +1494,7 @@ export function worldModelTools(
           const scope = { repo_source: 'all' as const, repos_searched: resolved.available_repos };
           const graph = graphHolder?.ensureGraph() ?? null;
           if (!graph) return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...blockOf(resolved.available_repos) });
-          const fresh = await freshenAll(resolved.available_repos);
+          const fresh = await freshenAll(resolved.available_repos, args['agent']);
           const rankings: WorldModelRanking[] = [];
           for (const repo of resolved.available_repos) rankings.push(await rankWorldModel(db, graph, repo, query, mode, k));
           const top = rankings
@@ -1526,7 +1527,7 @@ export function worldModelTools(
           return ok({ ...scope, results: [], total_matched: 0, warning: 'world-model-unavailable', mode, ...lag, ...blockOf(repo) });
         }
 
-        const fr = await freshen(repo);
+        const fr = await freshen(repo, args['agent']);
         const { ranked, match, poolFull, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
         const results = resultsOf(ranked.slice(0, k), fr ? new Map([[repo, fr]]) : new Map());
         const total_matched = ranked.length;
@@ -1571,7 +1572,7 @@ export function worldModelTools(
         if (typeof id === 'number') {
           const before = symbolById(db, id);
           if (!before) return err(`symbol ${id} not found`);
-          fresh = await freshenAll([before.repo]);
+          fresh = await freshenAll([before.repo], args['agent']);
           symbol = symbolById(db, id) ?? symbolsByName(db, before.repo, before.qualified_name, before.path)[0] ?? null;
           if (!symbol) return err(`symbol ${id} not found: ${before.qualified_name} left ${before.path} at the target commit`);
         } else {
@@ -1584,7 +1585,7 @@ export function worldModelTools(
           source = allRepos ? { repo_source: 'all' } : sourceOf(resolved);
           const pathArg = args['path'];
           const path = typeof pathArg === 'string' && pathArg ? pathArg : undefined;
-          fresh = await freshenAll(allRepos ? resolved.available_repos : [repo]);
+          fresh = await freshenAll(allRepos ? resolved.available_repos : [repo], args['agent']);
           const matches = allRepos
             ? resolved.available_repos.flatMap((r) => symbolsByName(db, r, name, path))
             : symbolsByName(db, repo, name, path);

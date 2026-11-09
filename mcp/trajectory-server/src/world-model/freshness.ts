@@ -3,7 +3,8 @@
 // repos.indexed_stamp, the extractor and schema version it was built with).
 // Before a world_model_* read answers, and before a task spawn returns,
 // ensureFresh compares the stamp with the target and brings the index there;
-// the caller waits for it:
+// the caller waits for it. A read first fetches origin/<target branch>, at
+// most once per 10 minutes per repo (fetchTargetIfDue). Then:
 //   - no-op: the stamp is the target and current; no walk, no writes.
 //   - incremental: the stamp is a reachable commit; only the paths
 //     `git diff <indexed> <target>` names are re-parsed, whatever their number.
@@ -19,6 +20,7 @@
 // Each reindex writes one wm_reindex audit row, and its state to wm_freshness:
 // 'running' before its work, then 'idle'/'ok' in the transaction that stamps
 // the commit, or 'failed'/'error'. freshnessBlock reads that row back.
+import { execFile } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO, TARGET_SCHEMA_VERSION } from '../db.js';
 import type { WorldModelGraph } from '../graph.js';
@@ -26,10 +28,11 @@ import { WorldModelGraph as Graph } from '../graph.js';
 import { serverLog } from '../logger.js';
 import { isGeneratedPath } from '../parsing/extract.js';
 import { EXTRACTOR_VERSION } from '../symbol-index.js';
+import { normalizeAgent, type AgentRole } from '../middleware/agent-scope.js';
 import { insertAudit } from '../tools/audit.js';
 import { blobMd5, scannedAtNow, walkRepoAtCommit, type ScanFile, type ScanOutput } from '../tools/scan-walk.js';
 import { persistRepoReindex, type ReindexScope, type ScanError } from '../tools/scan.js';
-import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, lsTree } from '../utils/git-objects.js';
+import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, lsTree, resolveRefCommit } from '../utils/git-objects.js';
 import { runGit } from '../utils/git-run.js';
 import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
@@ -37,7 +40,7 @@ import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock
 export type ReindexMode = 'incremental' | 'full';
 export type FullReason = 'null_stamp' | 'unreachable' | 'stamp_changed' | 'mismatch' | 'scan' | 'range_failed';
 export type ReindexReason = 'ref_moved' | FullReason;
-export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn' | 'hook';
+export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn' | 'hook' | 'fetch';
 // The trigger as wm_freshness and the freshness block name it (decision 2487).
 export type BlockTrigger = 'read' | 'spawn' | 'startup' | 'scan' | 'hook' | 'fetch';
 export type ReindexState = 'idle' | 'running' | 'failed';
@@ -585,8 +588,118 @@ export async function reindexOnRefMove(
       timeout: REF_MOVE_FETCH_TIMEOUT_MS,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
+    stampTargetFetched(db, repo, Date.now());
   }
   return ensureFresh(db, graph, repo, { dbPath: opts.dbPath, trigger: 'hook', wait: false });
+}
+
+export const TARGET_FETCH_TTL_MS = 10 * 60 * 1000;
+export const TARGET_FETCH_TIMEOUT_MS = 5000;
+// Their worktree base is pinned at spawn (decision 2479).
+const NO_FETCH_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(['swe', 'code-reviewer']);
+
+// skipped: no attempt (role, pinned target, window open, no origin); failed:
+// the fetch errored or ran past the cap; moved/unchanged: origin/<target>
+// after the fetch against before it.
+export type TargetFetch = 'skipped' | 'failed' | 'unchanged' | 'moved';
+export type TargetFetchRunner = (args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => Promise<void>;
+
+const execGitFetch: TargetFetchRunner = (args, opts) =>
+  new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: opts.cwd, env: opts.env, signal: opts.signal, killSignal: 'SIGKILL', encoding: 'utf8' }, (error, _stdout, stderr) => {
+      if (error) reject(new Error(stderr.trim() || error.message));
+      else resolve();
+    });
+  });
+
+let fetchRunner: TargetFetchRunner = execGitFetch;
+let fetchTimeoutMs = TARGET_FETCH_TIMEOUT_MS;
+const fetching = new Map<string, Promise<TargetFetch>>();
+
+export function stampTargetFetched(db: TrajectoryDB, repo: string, nowMs: number): void {
+  try {
+    db.run(
+      `INSERT INTO wm_freshness (repo, target_fetched_at, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(repo) DO UPDATE SET target_fetched_at = excluded.target_fetched_at, updated_at = excluded.updated_at`,
+      [repo, new Date(nowMs).toISOString(), nowISO()],
+    );
+  } catch (e) {
+    serverLog({ event: 'wm_target_fetch_stamp_error', repo, error: (e as Error).message });
+  }
+}
+
+// A stamp from the future (a clock set back) or unreadable opens the window.
+function fetchDue(db: TrajectoryDB, repo: string, nowMs: number): boolean {
+  const at = db.get<{ at: string | null }>(`SELECT target_fetched_at AS at FROM wm_freshness WHERE repo = ?`, [repo])?.at;
+  if (!at) return true;
+  const elapsed = nowMs - Date.parse(at);
+  return !(elapsed >= 0 && elapsed < TARGET_FETCH_TTL_MS);
+}
+
+function hasOrigin(repoPath: string): boolean {
+  const res = runGit(repoPath, ['remote', 'get-url', 'origin']);
+  return res.status === 0 && res.stdout.trim() !== '';
+}
+
+async function runFetchCapped(args: string[], cwd: string): Promise<void> {
+  const ac = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const cap = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      reject(new Error(`git fetch ran past ${fetchTimeoutMs} ms`));
+    }, fetchTimeoutMs);
+  });
+  try {
+    await Promise.race([fetchRunner(args, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, signal: ac.signal }), cap]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchTarget(db: TrajectoryDB, repo: string, repoPath: string, nowMs: number): Promise<TargetFetch> {
+  const branch = targetBranchOf(db, repo, repoPath);
+  const ref = `refs/remotes/origin/${branch}`;
+  const before = resolveRefCommit(repoPath, ref);
+  stampTargetFetched(db, repo, nowMs);
+  try {
+    await runFetchCapped(['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', 'origin', branch], repoPath);
+  } catch (e) {
+    serverLog({ event: 'wm_target_fetch_failed', repo, branch, error: (e as Error).message });
+    return 'failed';
+  }
+  return resolveRefCommit(repoPath, ref) === before ? 'unchanged' : 'moved';
+}
+
+// Before a world_model_* read: fetch origin/<target branch> at most once per
+// TARGET_FETCH_TTL_MS per repo, the window shared through
+// wm_freshness.target_fetched_at, stamped on every attempt. Callers in this
+// process share one in-flight fetch. Never throws.
+export async function fetchTargetIfDue(db: TrajectoryDB, repo: string, opts: { agent: unknown; now?: number }): Promise<TargetFetch> {
+  try {
+    if (NO_FETCH_ROLES.has(normalizeAgent(opts.agent))) return 'skipped';
+    if (process.env['TMB_WM_INDEX_TARGET']) return 'skipped';
+    const running = fetching.get(repo);
+    if (running) return await running;
+    const nowMs = opts.now ?? Date.now();
+    const path = repoState(db, repo)?.path;
+    if (!path || !fetchDue(db, repo, nowMs) || !hasOrigin(path)) return 'skipped';
+    const run = fetchTarget(db, repo, path, nowMs);
+    fetching.set(repo, run);
+    try {
+      return await run;
+    } finally {
+      if (fetching.get(repo) === run) fetching.delete(repo);
+    }
+  } catch (e) {
+    serverLog({ event: 'wm_target_fetch_failed', repo, error: (e as Error).message });
+    return 'failed';
+  }
+}
+
+export function __setTargetFetchForTests(opts: { runner?: TargetFetchRunner; timeoutMs?: number } = {}): void {
+  fetchRunner = opts.runner ?? execGitFetch;
+  fetchTimeoutMs = opts.timeoutMs ?? TARGET_FETCH_TIMEOUT_MS;
 }
 
 // Test seam: wait for any reindex this process is running.

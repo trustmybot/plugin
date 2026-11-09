@@ -727,7 +727,7 @@ describe('wm_freshness (GH 2584 task D, SC3)', () => {
       ] as const) {
         assert.notEqual(row[key], null, key);
       }
-      assert.equal(row.target_fetched_at, null, 'target_fetched_at waits for the fetch task');
+      assert.equal(row.target_fetched_at, null, 'ensureFresh alone never fetches, so target_fetched_at stays NULL');
       assert.deepEqual(
         [row.target_ref, row.target_commit, row.reindex_state, row.reindex_mode, row.reindex_trigger, row.reindex_outcome],
         ['origin/main', head, 'idle', 'incremental', 'read', 'ok'],
