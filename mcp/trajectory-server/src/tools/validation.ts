@@ -310,7 +310,7 @@ export function validationTools(db: TrajectoryDB): {
     {
       name: 'validation_history',
       description:
-        'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null),verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
+        'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null), verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
         'Without limit, a bare array; with limit, {rows, next_cursor}.',
       inputSchema: {
         type: 'object',

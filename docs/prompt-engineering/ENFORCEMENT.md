@@ -1,129 +1,215 @@
 # Enforcement layers
 
-How TMB doctrine is enforced at runtime — what is structurally guaranteed by code, what depends on prompt discipline, which mechanism covers which interaction.
+How TMB doctrine is enforced at runtime — what is structurally guaranteed by code, what depends on prompt discipline, which layer covers which interaction — and how to decide where a new rule belongs.
 
-> **Why this doc matters.** A/B scenarios proved that prompt-only doctrine has a hard compliance ceiling (0/10 in both wording arms for the activation routine). Anything load-bearing should sit on a hard layer; soft prompts are for judgment, style, and rare-fire instructions.
+> **If a step could fail because the LLM forgot, misordered, or misunderstood it, that step does not belong in a prompt. It belongs in a deterministic layer.**
+
+Skills, CLAUDE.md, and agent files are reserved for the irreducibly judgment-bound parts of the workflow. Everything else sits on one of the harder layers below.
 
 ## The 6 layers (hardest → softest)
 
-| # | Layer | Mechanism | LLM-bypassable? |
+| # | Layer | What it is for | What it guarantees |
 |---|---|---|---|
-| 1 | **MCP server** | `requireRoles` middleware + tool-handler validation + DB CHECK constraints. Server returns `is_error: true` on violation regardless of prompt content. | No — wire-level rejection. |
-| 2 | **Hooks** | Shell scripts under `scripts/hooks/` fired by CC on lifecycle events (Pre/PostToolUse, UserPromptSubmit, SessionStart, SubagentStop, WorktreeCreate). Can `permissionDecision: deny` or inject `additionalContext`. | No — runs outside the LLM's context. |
-| 3 | **Frontmatter** | `tools:`, `disallowedTools:`, `isolation: worktree` in agent `.md` files. CC enforces structurally at spawn. | No — host-enforced. |
-| 4 | **Schema CHECK** | DB constraints (`CHECK`, `UNIQUE`, `NOT NULL`, FK). Reject malformed writes including raw-SQL bypasses of MCP handlers. | No — bypass-proof at the storage layer. |
-| 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context; reduces prompt noise. | Soft — model can still ignore loaded content. |
-| 6 | **Prompts** | CLAUDE.md, agent prompts, skill SKILL.md prose. | Yes — accept the compliance ceiling. |
+| 1 | **MCP server** | Role-bound tool access, input validation, server-side defaults for omitted args, and atomic composite tools that run a multi-step workflow as one call in one DB transaction. | Wire-level rejection (`is_error: true`) regardless of prompt content; a composite's steps land together or not at all. |
+| 2 | **Hooks** | Gates fired by the host on lifecycle events: PreToolUse blocks a call until its prerequisite holds; PostToolUse emits follow-up side effects; SessionStart and UserPromptSubmit inject context. | A block or side effect runs outside the LLM's context and cannot be skipped. Injected context is advisory: it reaches the model but compliance stays at layer 6. |
+| 3 | **Frontmatter** | `tools:`, `disallowedTools:`, `isolation:` in agent `.md` files. | Host-enforced at spawn. |
+| 4 | **Schema constraints** | `CHECK`, `UNIQUE`, `NOT NULL`, FK on the trajectory DB. | Rejects malformed writes at the storage layer, including raw-SQL bypasses of MCP handlers. |
+| 5 | **Skill `paths:`** | Skill auto-loads when matching files are in the active context. | Soft — reduces prompt noise; the model can still ignore loaded content. |
+| 6 | **Prompts** | CLAUDE.md, agent prompts, skill prose. | None — accept the compliance ceiling. |
 
-**Doctrine: prefer the hardest layer that fits.** Promote a constraint up the stack as soon as the soft layer below misses it.
+**Doctrine: prefer the hardest layer that fits.** Layer 6 is the fallback, not the default. Promote a constraint up the stack as soon as the soft layer below misses it.
 
-> **Non-interactive caveat.** Layer 2 (hooks) does not fire under a **marketplace-installed** plugin driven by `claude -p` — CC loads the MCP server, agents, and skills but leaves the plugin hooks inert. The Layer-1/4 MCP and schema gates still hold. To restore the deny gates there, `/onboard` copies the plugin's deny-capable PreToolUse hooks into the user's `settings.json` (which DO fire under `claude -p`); a `--plugin-dir` sideload (L5/L6, benchmarks, CI) fires the plugin hooks directly.
+The layers stack: a rule a prompt states should also be caught by a harder layer, so a dropped prompt line fails loudly (a block, a rejection) instead of silently. Layers 1 and 4 hold in every host configuration; layer 2 depends on the host firing the plugin's hooks.
+
+Source of truth for each layer's implementation: hooks under `mcp/trajectory-server/src/hooks/` (registered in `registry.ts`), MCP tools and middleware under `mcp/trajectory-server/src/`, constraints in `mcp/trajectory-server/src/schema.sql`, plugin settings in [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md).
+
+## What stays in layer 6
+
+Recognizable by the verb. **Anything that is *classifying*, *composing*, or *weighing novel context*.**
+
+| Verb class | TMB examples |
+|---|---|
+| **Classify / decide** | "Is this an architectural change?" "Is this scope creep?" |
+| **Draft / compose** | Spec body, commit messages, issue descriptions, Q+A wording, discussion notes |
+| **Weigh / trade off** | "Should I raise this concern with the human?" "Is the simpler alternative acceptable?" "Should the scope split into multiple tasks?" |
+| **Synthesize from novel context** | Roundtable participant arguments, code review qualitative assessment, consultant-style analysis |
+| **Recognize patterns in unfamiliar input** | "Does this diff match the spec?" "Is this a regression in the diff?" |
+
+These have no deterministic substitute: the criteria require contextual judgment over an open-ended input space.
+
+## What migrates out of layer 6
+
+Recognizable by mechanism. **Anything that is *sequencing*, *defaulting*, *constraining*, or *measuring* against a stable specification.**
+
+| Pattern in prompt prose | Migrates to |
+|---|---|
+| "Then call X with Y" (multi-step) | Layer 1 atomic composite |
+| "If config has X, use it; otherwise default Y" | Layer 1 server-side default |
+| "Tool X is forbidden for role Y" | Layer 1 role check |
+| "Validate input matches schema" | Layer 1 input validation, or a layer 4 constraint |
+| "Probe the environment for X, Y, Z" | Layer 1 tool that runs deterministic code |
+| "Don't proceed until Z has happened" | Layer 2 PreToolUse block |
+| "After A, also do B" | Layer 2 PostToolUse side effect |
+| "Enforce file naming / commit format" | Layer 2 lint hook |
+
+## The boundary test (apply this to any prompt line)
+
+For every numbered step or imperative in a skill, agent file, or CLAUDE.md:
+
+1. **Strike the verb.** Is what remains a *fact about the world* (file exists, role has access, value is X)? → migrate. Is it a *judgment* (is this good, what should I write)? → keep.
+2. **Imagine the LLM dropping this line.** Does the workflow break in a deterministic way (test fails, hook blocks, server rejects)? If not, determinism is missing — build the safety net so the prose isn't the safety net.
+3. **Count the steps.** Multi-step workflows have compound failure: at per-step adherence p, an N-step procedure succeeds with probability pᴺ.
+
+| N (steps) | P(success) at p=0.95 | P(success) at p=0.90 |
+|---:|---:|---:|
+| 1 | 95% | 90% |
+| 3 | 86% | 73% |
+| 5 | 77% | 59% |
+| 7 | 70% | 48% |
+
+A composite collapses N → 1: one call decision, deterministic execution.
 
 ## Coverage matrix
 
-The "Layer" column names the **strongest currently deployed** for each interaction. `Layer 6 only` means prompt-only — relies on LLM compliance.
+The "Layer" column names the **strongest currently deployed** layer for each interaction. `6 only` means prompt-only — relies on LLM compliance. Which file implements a row lives in the sources named above.
 
 ### bro
 
-| Interaction | Layer | Where |
-|---|---|---|
-| Activation routine (onboarded marker + pending issue injection) | 2 | `mcp/trajectory-server/src/hooks/activation-routine.ts` |
-| Auto-fire `/onboard` on first contact | 2 | hook-injected `additionalContext` directs bro |
-| Bro never edits source code (every code change → SWE) | 2 | `mcp/trajectory-server/src/hooks/no-source-edit-from-main.ts` |
-| Project `.gitignore` excludes `.claude/` | 2 | `mcp/trajectory-server/src/hooks/ensure-gitignore.ts` |
-| Bro creates the task branch (SWE may not invent / abbreviate) | 2 | `mcp/trajectory-server/src/hooks/no-worktree-branch-create.ts` (also blocks `--detach`) |
-| Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `mcp/trajectory-server/src/hooks/branch-up-to-date-with-remote.ts` |
-| Worktree cleanup on task close | 2 | `mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts` |
-| `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
-| MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
-| `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
-| `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
-| `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 | `mcp/.../tools/discussions.ts`, `mcp/.../hooks/rework-waiver-capture.ts` |
-| AUQ shape during roundtable `awaiting_human` | 2 | `mcp/trajectory-server/src/hooks/roundtable-auq-shape.ts` |
-| Issue-sync default-off + env-var kill-switch | 1 | schema seed + `TMB_DISABLE_REMOTE_SYNC` short-circuit in `sync/backend.ts` |
-| Roundtable state machine | 1 | server rejects state-transition violations |
-| Welcome banner phrasing | 6 only | CLAUDE.md |
-| Decision-audit row required on every `task_create_batch` | 1 | `mcp/.../tools/tasks.ts` decision_gate |
-| ADR-required hint (architectural intent → advisory injection) | 5 | `mcp/trajectory-server/src/hooks/prompt-intent-hints.ts` (UserPromptSubmit injection) |
-| Verify-context check before answering | 6 only | CLAUDE.md |
-| Voice / tone | 6 only | CLAUDE.md |
+| Interaction | Layer |
+|---|---|
+| Activation routine (onboarded marker + pending issue injection) | 2 |
+| Bro never edits source code (every code change → SWE) | 2 |
+| Project `.gitignore` excludes `.claude/` | 2 |
+| Bro creates the task branch (SWE may not invent, abbreviate, or detach) | 2 |
+| Branch up to date with the remote target branch before SWE attach | 2 |
+| Worktree cleanup on task close | 2 |
+| `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 |
+| Decision-audit row required on every `task_create_batch` | 1 |
+| MCP calls include `agent: 'bro'` | 1 |
+| `validation_record` requires `subagent_session_id` | 1 |
+| `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 + 2 |
+| AUQ shape during roundtable `awaiting_human` | 2 |
+| Roundtable state machine | 1 |
+| Issue-sync default-off + env-var kill-switch | 1 |
+| Architectural-intent and consultant routing hints | 2 (injection) |
+| Welcome banner phrasing, verify-context before answering, voice | 6 only |
 
 ### SWE
 
-| Interaction | Layer | Where |
-|---|---|---|
-| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body`; a schema-touching or column-adding spec names each new item's `Writer:` + `Populated:` (or `Nullable:`) | 2 | `mcp/trajectory-server/src/hooks/require-task-spec.ts` |
-| Runs in isolated worktree | 2 | worktree Bash hooks |
-| Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `mcp/trajectory-server/src/hooks/no-worktree-branch-create.ts` |
-| Worktree branch must descend from `origin/<pr_target>` | 2 | `mcp/trajectory-server/src/hooks/branch-up-to-date-with-remote.ts` |
-| Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
-| MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
-| Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing code-reviewer-only tools |
-| Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `mcp/trajectory-server/src/hooks/swe-verification-gate.ts` |
-| Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `mcp/trajectory-server/src/hooks/ensure-swe-worktree.ts` (PREPARE step run by `agent-spawn-dispatch`) |
-| Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `mcp/trajectory-server/src/hooks/record-swe-spawn.ts` (PREPARE step run by `agent-spawn-dispatch`) |
-| Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
+| Interaction | Layer |
+|---|---|
+| Spawned only with a valid `task_id` whose spec is non-empty and names a writer for each new schema item | 2 |
+| Runs in an isolated worktree created at the canonical path at spawn | 2 |
+| Task moved to `running` and its run row opened at spawn | 2 |
+| Cannot create branches (attaches to bro's pre-created branch) | 2 |
+| Worktree branch descends from the remote target branch | 2 |
+| Scope-limited tools keep SWE off bro-only MCP writes | 1 + 3 |
+| MCP calls include `agent: 'swe'`, scope-restricted | 1 |
+| Never writes its own `validation_record` | 1 |
+| Close runs the task's typed `verification[]` commands; denies on any failure | 2 |
+| Edits stay inside the task's `files[]` | 2 (advisory note) + 1 (close-time scope check) |
 
 ### code-reviewer
 
-| Interaction | Layer | Where |
-|---|---|---|
-| Push to protected branch blocked unless every unsigned commit has passing `validation_attempts` row | 2 | `mcp/trajectory-server/src/hooks/git-push-guard.ts` |
-| MCP calls include `agent: 'code-reviewer'`, scope-restricted | 1 | server middleware |
-| `validation_record` is code-reviewer-only | 1 | `requireRoles` |
-| Cannot edit code (read-only review) | 3 | `agents/code-reviewer.md` `tools:` excludes Edit/Write |
-| Review output format | 6 only | skill |
+| Interaction | Layer |
+|---|---|
+| Push to a protected branch blocked unless every unsigned commit has a passing validation row | 2 |
+| MCP calls include `agent: 'code-reviewer'`, scope-restricted | 1 |
+| `validation_record` is code-reviewer-only | 1 |
+| Cannot edit code (read-only review) | 3 |
+| Review output format | 6 only |
 
 ### Consultants
 
-| Interaction | Layer | Where |
-|---|---|---|
-| Cannot write workflow state (task_*, validation_record, issue_*) | 1 | server middleware |
-| Spawned only by bro, never by Human directly | 6 only | CLAUDE.md routing |
-| Return analyses, never decisions | 6 only | consultant agent prompts |
+| Interaction | Layer |
+|---|---|
+| Cannot write workflow state (task_*, validation_record, issue_*) | 1 |
+| Spawned only by bro, never by the Human directly | 6 only |
+| Return analyses, never decisions | 6 only |
 
-### git operations (universal)
+### Universal
 
-| Interaction | Layer | Where |
-|---|---|---|
-| Force-push to protected branches blocked | 2 | `mcp/trajectory-server/src/hooks/git-guards.ts` |
-| Direct commits to `dev`/`main` outside the dev→main PR flow blocked | 2 | `mcp/trajectory-server/src/hooks/git-guards.ts` |
-| Push gate (see code-reviewer) | 2 | `mcp/trajectory-server/src/hooks/git-push-guard.ts` |
-| Remote-write text citing a LOCAL issue id whose remote `iid` differs blocked (a bare `#N` resolves to the wrong remote issue) | 2 | `mcp/trajectory-server/src/hooks/remote-id-guard.ts` |
-| Issue a merged PR resolved auto-closed (local row + remote twin) on a successful `gh pr merge` / `glab mr merge` | 4 | `mcp/trajectory-server/src/hooks/close-issue-on-merge.ts` |
-| Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `mcp/trajectory-server/src/hooks/naming-lint.ts` |
-| Conventional-commit subject format | 2 | `mcp/trajectory-server/src/hooks/commit-msg-lint.ts` |
-| Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `mcp/trajectory-server/src/hooks/code-quality-lint.ts` |
-| bro's persona in every session (the plugin's `CLAUDE.md`, which Claude Code never loads) | 2 | `mcp/trajectory-server/src/hooks/session-start-persona.ts`; once-per-session fallback `mcp/trajectory-server/src/hooks/user-prompt-persona.ts` |
-| Project inventory at session start | 2 | `mcp/trajectory-server/src/hooks/session-start-prescan.ts` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
-| Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `mcp/trajectory-server/src/hooks/prompt-intent-hints.ts` |
-| Roundtable capture-surface verification on `roundtable_close` | 2 | `mcp/trajectory-server/src/hooks/roundtable-cleanup-postcheck.ts` |
-| Bro task-close atomic invariants (audit + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
-| SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry` |
-| `branch_id` derivation from intent | 1 (composite) | `mcp/.../tools/composites.ts:branch_id_propose` |
+| Interaction | Layer |
+|---|---|
+| Force-push and direct commits to protected branches blocked | 2 |
+| Remote-write text citing a local issue id whose remote id differs blocked | 2 |
+| Issue a merged PR resolved auto-closed on a successful merge | 2 (side effect) |
+| Naming conventions, conventional-commit subjects, mechanical code-quality patterns | 2 |
+| bro's persona injected in every session | 2 |
+| Project inventory at session start | 2 |
+| Roundtable capture-surface verification on close | 2 |
+| Task close, SWE retry, and `branch_id` derivation as atomic composites | 1 |
 
 ## How to add a new enforcement
 
 1. Identify the failure mode. What's the bad thing if the LLM doesn't comply?
-2. Pick the strongest layer that fits (table at top).
-3. Implement:
-   - **Layer 1**: `requireRoles` wrapper / handler validation / schema CHECK; add MCP-integration test.
-   - **Layer 2**: write the gate as `mcp/trajectory-server/src/hooks/<name>.ts`, add it to `src/hooks/registry.ts` (`ROUTER_GROUPS`), and test it under `mcp/trajectory-server/src/test/`.
-   - **Layer 3**: edit agent's `.md` frontmatter; verify with subagent spawn.
-   - **Layer 4**: schema CHECK in `mcp/.../schema.sql` (and migration in `db.ts` if existing DBs need rebuild).
-   - **Layer 5**: add `paths:` to skill frontmatter.
-   - **Layer 6**: edit prose; **note in this matrix that the item is Layer-6-only and may need promotion**.
-4. If the guard covers version-control commands, match git, gh and glab at a command boundary — so `gh pr merge` and `glab mr merge` are both caught, while a match inside a quoted string or a longer word is not — and add an L3 test case for each CLI.
-5. Update this matrix with the new row.
-6. **If demoting from a harder layer to a softer one, justify in the PR**.
+2. Pick the hardest layer that fits (table at top).
+3. Implement it in that layer's source (see above) with a test; a layer 4 change to an existing table also needs its migration.
+4. If the guard covers version-control commands, match git, gh and glab at a command boundary — so `gh pr merge` and `glab mr merge` are both caught, while a match inside a quoted string or a longer word is not — and add a test case for each CLI.
+5. Hooks that compare role names normalize them first: the host passes roles with or without a `<plugin>:` prefix, and a hook that silently skips a prefixed role is a disabled safety gate.
+6. Update the coverage matrix. A layer 6 row notes that it may need promotion.
+7. **If demoting from a harder layer to a softer one, justify in the PR.**
 
 ## Positive prompts as the floor
 
-Layer 6 (prompt) is the floor of TMB's enforcement stack. Negative directives (`don't X`, `never Y`) are anti-pattern: they force the model to first process the forbidden concept (Pink Elephant Problem). Phrase the canonical positive form; if the constraint is load-bearing, promote to a deterministic layer instead of bracing the prompt.
+Layer 6 is the floor of the stack. Negative directives (`don't X`, `never Y`) are an anti-pattern: they force the model to first process the forbidden concept (Pink Elephant Problem). Phrase the canonical positive form; if the constraint is load-bearing, promote it to a deterministic layer instead of bracing the prompt.
 
 Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (Jang 2023, MLR), compliance gap analysis (Gadlet 2026).
 
+## Grading a prompt surface
+
+### The six tests
+
+| Test | Pass condition |
+|---|---|
+| **(A) Mechanism test** | Sequencing, defaulting, constraining, or measuring migrates to layers 1–5. Only judgment stays. |
+| **(B) If/else test** | Anything you can write as an if/else statement lives in hooks/MCP, never in prompt prose. |
+| **(C) Natural-language test** | If the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
+| **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. |
+| **(E) Persona test** | Every agent opens with a plain-language identity sentence ("You are a senior software engineer. You execute tasks assigned by bro."). |
+| **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
+
+### Every line earns its place
+
+A prompt is not documentation. It loads into the agent's context every time its trigger fires, so every line is a recurring tax. Four exposition patterns, cut on sight:
+
+- **Concept-selling** — persuading the agent a skill is worth using after it already loaded it.
+- **Self-narration** — a skill describing what kind of skill it is. Do the thing; don't annotate its shape.
+- **Frontmatter restatement** — the body re-explaining the when/why already in the `description`.
+- **Rhetorical repetition** — one point stretched across three sentences for emphasis.
+
+### Line disposition
+
+| What the line does | Action |
+|---|---|
+| Encodeable as if/else AND enforced by a gate | **DELETE** — the gate already guarantees the behavior. |
+| Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
+| Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
+| Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
+| Explains, motivates, or restates rather than directing | **DELETE** — exposition, not judgment. |
+
+### A–F rubric
+
+| Grade | What it means |
+|---|---|
+| **A** | Every line passes all six tests. |
+| **B** | Compliant architecture, but carries residual machine-spec, exposition, or minor duplication. |
+| **C** | Procedures wearing a prompt costume — readable but enforceable; or so padded with exposition the judgment core is buried. |
+| **D** | Prompt is doing enforcement's job for at least one workflow step. |
+| **F** | Agent can act against policy before any gate fires. |
+
+### The gate-strength principle
+
+**A prompt line is only deletable when its gate actually guarantees the behavior — grade the system, not the prose.** If deleting a line would let an agent act before any gate catches it, strengthen the gate first, then delete the line. Gates teach their recovery in the deny message.
+
+### Size discipline
+
+A skill over about 200 lines is a signal it is doing too much. In order: apply the boundary test and migrate what it flags; move judgment used on every run into the agent body and keep situational judgment in the skill; split into several skills only when neither suffices. Measure density, not just length.
+
 ## See also
 
-- [`FLOWS.md`](../architecture/FLOWS.md) — workflows; cross-references which hook fires when in each flow.
-- [`ERD.md`](../architecture/ERD.md) — schema; the role-by-tool matrix at the bottom is the source of truth for Layer 1's coverage.
+- [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) — how we author personas, skills, and commands.
+- [`RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md) — agent roles and boundaries.
+- [`FLOWS.md`](../architecture/FLOWS.md) — workflows and which gate fires when.
+- [`ERD.md`](../architecture/ERD.md) — schema.
+- [`agent-scope.ts`](../../mcp/trajectory-server/src/middleware/agent-scope.ts) — defines the `requireRoles` check behind layer 1; each tool's allowed roles are set at its `requireRoles(...)` call in [`tools/*.ts`](../../mcp/trajectory-server/src/tools/).

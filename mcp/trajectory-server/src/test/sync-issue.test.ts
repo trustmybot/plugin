@@ -357,6 +357,42 @@ describe('syncIssueCreate', () => {
     assert.equal(result.reason, 'verify_failed');
   });
 
+  async function readBackFailure(stderr: string) {
+    const spawnFn = makeSpawnFn([
+      { status: 0, stdout: 'https://github.com/owner/repo/issues/42\n', stderr: '' },
+      { status: 1, stdout: '', stderr },
+    ]);
+    const result = await syncIssueCreate({
+      issueId: 1,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+    });
+    assert.ok(isSyncFailure(result));
+    assert.equal(result.reason, 'verify_failed');
+    return result.message ?? '';
+  }
+
+  it('read-back non-zero exit keeps the first non-empty stderr line (GH 2778)', async () => {
+    const message = await readBackFailure('\n  HTTP 401: Bad credentials\nmore');
+    assert.ok(
+      message.endsWith('read_back_non_zero_exit: HTTP 401: Bad credentials'),
+      `unexpected message: ${message}`,
+    );
+  });
+
+  it('read-back non-zero exit with empty stderr keeps the bare reason (GH 2778)', async () => {
+    const message = await readBackFailure(' \n\t\n');
+    assert.ok(message.endsWith(': read_back_non_zero_exit'), `unexpected message: ${message}`);
+  });
+
+  it('read-back non-zero exit cuts a long stderr line to 200 characters (GH 2778)', async () => {
+    const message = await readBackFailure('x'.repeat(250));
+    assert.ok(message.endsWith(`read_back_non_zero_exit: ${'x'.repeat(200)}`), `unexpected message: ${message}`);
+    assert.ok(!message.includes('x'.repeat(201)));
+  });
+
   it('syncIssueCreate writes logs to TMB_SYNC_LOG_DIR, not ~/.claude/ (log-isolation, #314)', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-sync-'));
     const savedLogDir = process.env.TMB_SYNC_LOG_DIR;
@@ -596,7 +632,29 @@ describe('verifyRemoteIssue (#36)', () => {
     const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: 'not found' });
     const result = await verifyRemoteIssue('gh', 999999, { spawnFn });
     assert.equal(result.ok, false);
+    assert.equal(result.reason, 'not_found_or_error: not found');
+  });
+
+  it('carries the first non-empty stderr line in the reason (GH 2772)', async () => {
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: '\n  HTTP 401: Bad credentials  \nmore' });
+    const result = await verifyRemoteIssue('gh', 42, { spawnFn });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'not_found_or_error: HTTP 401: Bad credentials');
+  });
+
+  it('keeps the bare reason when stderr is empty (GH 2772)', async () => {
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: '' });
+    const result = await verifyRemoteIssue('gh', 42, { spawnFn });
     assert.equal(result.reason, 'not_found_or_error');
+    const blank: SpawnFn = () => ({ status: 1, stdout: '', stderr: '  \n\n' });
+    assert.equal((await verifyRemoteIssue('gh', 42, { spawnFn: blank })).reason, 'not_found_or_error');
+  });
+
+  it('cuts a stderr line over 200 chars to 200 (GH 2772)', async () => {
+    const long = 'x'.repeat(250);
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: long });
+    const result = await verifyRemoteIssue('glab', 42, { spawnFn });
+    assert.equal(result.reason, `not_found_or_error: ${'x'.repeat(200)}`);
   });
 
   it('fails when gh view stdout is unparseable', async () => {

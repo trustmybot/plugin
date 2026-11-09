@@ -28,6 +28,7 @@ export const GATE_NAME = 'git-push-guard';
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
+const CONTINUATION = /\\\n/g;
 const UNQUOTE = /['"\\]/g;
 const GIT_WORD = /\bgit\b/;
 const EXPANDS = /[$`*?[{\x01-\x06\x0e-\x11\x13\x15\x16]/;
@@ -304,7 +305,7 @@ class Guard {
 
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  const bare = command.replace(UNQUOTE, '');
+  const bare = command.replace(CONTINUATION, '').replace(UNQUOTE, '');
   if (!bare.includes('push') && !(GIT_WORD.test(bare) && EXPANDS.test(bare))) return ALLOW;
 
   const cwd = payloadCwd(payload, env);

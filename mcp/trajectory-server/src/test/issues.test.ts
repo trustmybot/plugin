@@ -2246,6 +2246,72 @@ describe('issue_adopt_remote (#36)', () => {
     db.close();
   });
 
+  function countingSpawn(result: { status: number; stdout: string; stderr: string }) {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const fn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      return result;
+    };
+    return { fn, calls };
+  }
+
+  it('a DIFFERENT-iid conflict returns already_linked without spawning gh (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote conflict no spawn');
+    db.run('UPDATE issues SET gh_iid = 42, remote_kind = ? WHERE id = ?', ['github', issueId]);
+
+    const spawn = countingSpawn({ status: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway' });
+    const conflict = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 43, _spawnFn: spawn.fn });
+    const data = parseResult(conflict);
+    assert.ok(conflict.isError, 'conflicting adopt must error');
+    assert.match(data.error, /^already_linked: /);
+    assert.equal(spawn.calls.length, 0, 'no gh spawn before the link-conflict check');
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid, 42);
+
+    db.close();
+  });
+
+  it('re-adopting the SAME iid still verifies once (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote same iid verifies');
+    db.run('UPDATE issues SET gh_iid = 42, remote_kind = ? WHERE id = ?', ['github', issueId]);
+
+    const spawn = countingSpawn({ status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' });
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `same-iid re-adopt must succeed, got: ${data.error}`);
+    assert.equal(data.idempotent, true);
+    assert.equal(spawn.calls.length, 1);
+    assert.deepEqual(spawn.calls[0]!.args.slice(0, 3), ['issue', 'view', '42']);
+
+    db.close();
+  });
+
+  it('an unlinked adopt verifies first and refuses on verify failure with gh stderr (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote verify stderr');
+
+    const spawn = countingSpawn({ status: 1, stdout: '', stderr: 'HTTP 401: Bad credentials\nmore' });
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'verify failure must error');
+    assert.equal(spawn.calls.length, 1);
+    assert.match(data.error, /^remote_verify_failed: .*\(not_found_or_error: HTTP 401: Bad credentials\)$/);
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid ?? null, null, 'no link persisted on verification failure');
+
+    db.close();
+  });
+
   it('nonexistent remote → named error, no link persisted', async () => {
     const db = tempDB();
     registerGithubRepo(db);
@@ -2462,9 +2528,6 @@ describe('issue write tools omit the description unless include_description (GH 
 
   it('issue_create on an unresolvable repo omits the description by default and echoes it on opt-in', async () => {
     const db = tempDB();
-    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a'), ('b', '/ws/b')`);
-    upsertRepoRemotes(db, 'a', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' }]);
-    upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' }]);
     db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')
              ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
     const tools = issueTools(db);
@@ -2473,6 +2536,7 @@ describe('issue write tools omit the description unless include_description (GH 
       agent: 'bro', objective: 'unresolvable default', labels: VALID_LABELS, description: BODY, _spawnFn: makeSpawnFn([]),
     }));
     assert.equal(plain._sync.reason, 'unresolvable_repo');
+    assert.equal(plain._sync.hint, 'no repos registered — run /scan to register this repo.');
     assert.ok(!('description' in plain), 'no description by default');
 
     const optIn = parseResult(await call(tools.handlers, 'issue_create', {
@@ -2562,18 +2626,20 @@ describe('issue_adopt_remote repo resolution (GH 1368)', () => {
     upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' }]);
   }
 
-  async function createRepolessIssue(tools: ReturnType<typeof issueTools>, db: ReturnType<typeof tempDB>): Promise<number> {
-    const created = parseResult(await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'repo-less issue', labels: VALID_LABELS }));
-    const row = db.get<{ repo: string | null }>('SELECT repo FROM issues WHERE id = ?', [created.id]);
-    assert.equal(row?.repo ?? null, null, 'precondition: the issue has no repo');
-    return created.id as number;
+  // issue_create refuses a repo-less issue once several repos exist (GH 2709),
+  // so seed the legacy row (created before the repos were registered) directly.
+  function seedRepolessIssue(db: ReturnType<typeof tempDB>): number {
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at, repo) VALUES ('repo-less issue', '', 'open', datetime('now'), datetime('now'), NULL)`,
+    );
+    return db.get<{ id: number }>(`SELECT id FROM issues WHERE objective = 'repo-less issue'`)!.id;
   }
 
   it('an explicit repo drives the verify spawn and backfills the null issue repo', async () => {
     const db = tempDB();
     seedTwoRepos(db);
     const tools = issueTools(db);
-    const issueId = await createRepolessIssue(tools, db);
+    const issueId = seedRepolessIssue(db);
     const spawn = recordingViewSpawn();
 
     const result = await call(tools.handlers, 'issue_adopt_remote', {
@@ -2599,7 +2665,7 @@ describe('issue_adopt_remote repo resolution (GH 1368)', () => {
     const db = tempDB();
     seedTwoRepos(db);
     const tools = issueTools(db);
-    const issueId = await createRepolessIssue(tools, db);
+    const issueId = seedRepolessIssue(db);
     const spawn = recordingViewSpawn();
 
     const result = await call(tools.handlers, 'issue_adopt_remote', {
@@ -2649,7 +2715,7 @@ describe('issue_adopt_remote repo resolution (GH 1368)', () => {
     const db = tempDB();
     seedTwoRepos(db);
     const tools = issueTools(db);
-    const issueId = await createRepolessIssue(tools, db);
+    const issueId = seedRepolessIssue(db);
     const spawn = recordingViewSpawn();
 
     const result = await call(tools.handlers, 'issue_adopt_remote', {
@@ -2842,6 +2908,119 @@ describe('issue_create skip reasons (GH 1601)', () => {
     assert.equal(created._sync.reason, 'not_synced');
     assert.match(created._sync.hint, /GitHub and GitLab/);
     assert.deepEqual(calls, []);
+    db.close();
+  });
+});
+
+describe('issue_create requires repo in a multi-repo project (GH 2709)', () => {
+  type Call = { cmd: string; args: string[]; cwd: unknown };
+
+  function recordingSpawn(calls: Call[]) {
+    return (cmd: string, args: string[], opts: { cwd?: unknown }) => {
+      calls.push({ cmd, args, cwd: opts?.cwd });
+      return { status: 1, stdout: '', stderr: 'simulated remote failure' };
+    };
+  }
+
+  function seedRepos(db: ReturnType<typeof tempDB>, names: string[]): void {
+    for (const name of names) {
+      db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [name, `/ws/${name}`]);
+      upsertRepoRemotes(db, name, [{ name: 'origin', provider: 'github', url: `https://github.com/acme/${name}.git` }]);
+      setRemoteSync(db, name, ['github']);
+    }
+  }
+
+  function issueCount(db: ReturnType<typeof tempDB>): number {
+    return db.get<{ n: number }>('SELECT COUNT(*) AS n FROM issues')!.n;
+  }
+
+  it('refuses a missing repo with every repo named and writes no row', async () => {
+    const db = tempDB();
+    seedRepos(db, ['zeta', 'alpha', 'mid']);
+    await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+    const seeded = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'seed issue in alpha', labels: VALID_LABELS, repo: 'alpha', _spawnFn: recordingSpawn([]),
+    });
+    assert.ok(!seeded.isError, JSON.stringify(parseResult(seeded)));
+    const before = issueCount(db);
+    const calls: Call[] = [];
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'no repo given', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+    });
+    assert.ok(result.isError, 'must error');
+    assert.equal(
+      parseResult(result).error,
+      'repo_required: 3 repos are registered (alpha, mid, zeta) — pass repo= on issue_create to pick one',
+    );
+    assert.equal(issueCount(db), before, 'no issues row written');
+    assert.deepEqual(calls, [], 'no gh/glab spawn');
+    db.close();
+  });
+
+  it('refuses a missing repo on the remote-adoption path before verifying or inserting', async () => {
+    const db = tempDB();
+    seedRepos(db, ['a', 'b']);
+    const tools = issueTools(db);
+    const before = issueCount(db);
+    const calls: Call[] = [];
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'adopt with no repo', labels: VALID_LABELS, remote_iid: 42, _spawnFn: recordingSpawn(calls),
+    });
+    assert.ok(result.isError, 'must error');
+    assert.match(parseResult(result).error, /^repo_required: 2 repos are registered \(a, b\)/);
+    assert.equal(issueCount(db), before, 'no issues row written');
+    assert.deepEqual(calls, [], 'no remote verify spawn');
+    db.close();
+  });
+
+  it('a single repos row still resolves without repo and records it', async () => {
+    const db = tempDB();
+    seedRepos(db, ['solo']);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'single repo default', labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, JSON.stringify(created));
+    assert.equal(created.repo, 'solo');
+    assert.equal(db.get<{ repo: string | null }>('SELECT repo FROM issues WHERE id = ?', [created.id])?.repo, 'solo');
+    db.close();
+  });
+
+  it('a project with no repos row still creates a repo-less issue', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'no repos registered', labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, JSON.stringify(created));
+    assert.equal(created.repo ?? null, null);
+    db.close();
+  });
+
+  it('an explicit repo in a multi-repo project creates and syncs against that repo', async () => {
+    const db = tempDB();
+    seedRepos(db, ['a', 'b']);
+    await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+    const calls: Call[] = [];
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'explicit repo b', labels: VALID_LABELS, repo: 'b', _spawnFn: recordingSpawn(calls),
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, JSON.stringify(created));
+    assert.equal(created.repo, 'b');
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall, `gh issue create ran: ${JSON.stringify(calls)}`);
+    assert.equal(createCall.cwd, '/ws/b');
+    assert.equal(createCall.args[createCall.args.indexOf('--repo') + 1], 'github.com/acme/b');
     db.close();
   });
 });

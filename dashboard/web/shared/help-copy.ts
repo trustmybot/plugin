@@ -1,4 +1,4 @@
-export type HelpKey = 'overview' | 'insights' | 'issues' | 'tasks' | 'runs' | 'audit' | 'map' | 'issue' | 'task';
+export type HelpKey = 'overview' | 'insights' | 'issues' | 'tasks' | 'runs' | 'audit' | 'map' | 'settings' | 'issue' | 'task';
 
 export interface HelpEntry {
   intro: string;
@@ -57,6 +57,17 @@ export const HELP: Record<HelpKey, HelpEntry> = {
       'See which concepts need checking after a change.',
     ],
   },
+  settings: {
+    intro:
+      'The project settings you can change here: model prices and the issue label lists. Each save is recorded in the audit log. Policy settings change only through /onboard.',
+    uses: ['Set token prices for a model so Insights can show its cost.', 'Add, rename or remove the labels issues can carry.'],
+  },
+};
+
+export const GATE_BOARD_HELP: HelpEntry = {
+  intro:
+    'One row per branch with open tasks or work in the last 14 days. Blocked: a task failed its latest verification or review, or has an open blocking finding. Ready: every open task passed verification on its own commit and passed review. Pending: anything else.',
+  uses: ['See what still blocks each branch from pushing.', 'Open a blocked task to read its failing run or finding.'],
 };
 
 export const HEALTH_HELP: HelpEntry = {
