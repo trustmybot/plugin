@@ -86,4 +86,4 @@ Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries st
 |---|---|---|
 | macOS | Supported. The recorded network probe ran here (GH 1549). | **Yes (Recommended)**, unless a repo remote uses SSH |
 | Linux | Untested. TMB's scripts are portable (temp files use an explicit `mktemp "<dir>/…XXXXXX"` template under `$TMPDIR` that GNU and BSD `mktemp` both honour, GH 1573), but the sandbox block has not been validated on a Linux host and the network probe is darwin-only (`SANDBOX_NETWORK_PROBE` in `onboard-sandbox.ts`). | **No**; answering Yes still writes the block |
-| Windows | Through WSL 2 only, which is the Linux case. Claude Code has no sandbox on native Windows, and TMB's hooks are bash. | As Linux |
+| Windows | Through WSL 2 only, which is the Linux case. Claude Code has no sandbox on native Windows, and TMB is untested there. | As Linux |

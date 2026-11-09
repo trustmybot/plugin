@@ -437,6 +437,45 @@ describe('onboard tools', () => {
       db.close();
     });
 
+    it('audits each config key it changes, key only, and nothing on an identical re-apply (GH 2619)', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const audits = () =>
+        db.all<{ from_node: string; summary: string; content_json: string; issue_id: number }>(
+          "SELECT from_node, summary, content_json, issue_id FROM audit WHERE event_type = 'config_changed' ORDER BY id",
+        );
+      const changedKeys = (rows: ReturnType<typeof audits>) =>
+        rows.map((r) => (JSON.parse(r.content_json) as { key: string }).key).sort();
+      const args = { shape: 'local', sandbox_enforcement: 'no', bug_report_consent: 'yes' };
+      db.run(`UPDATE plugin_config SET value_json = '"auto"' WHERE key = 'issue_sync'`);
+
+      assert.equal(parse(await call(tools.handlers, 'onboard_apply', args)).ok, true);
+      const first = audits();
+      assert.deepEqual(changedKeys(first), [
+        'bug_report_consent',
+        'headless_enforcement',
+        'issue_sync',
+        'onboarded',
+        'sandbox_enforcement',
+      ]);
+      for (const row of first) {
+        const key = (JSON.parse(row.content_json) as { key: string }).key;
+        assert.deepEqual({ ...row }, {
+          from_node: 'bro',
+          summary: `Config changed: ${key}`,
+          content_json: JSON.stringify({ key }),
+          issue_id: -1,
+        });
+      }
+
+      assert.equal(parse(await call(tools.handlers, 'onboard_apply', args)).ok, true);
+      assert.equal(audits().length, first.length);
+
+      assert.equal(parse(await call(tools.handlers, 'onboard_apply', { ...args, bug_report_consent: 'no' })).ok, true);
+      assert.deepEqual(changedKeys(audits().slice(first.length)), ['bug_report_consent']);
+      db.close();
+    });
+
     it('local + gitflow: pr_target derives to dev, protected_branches gets both main + dev (#2878)', async () => {
       const db = tempDB();
       const tools = onboardTools(db);

@@ -56,6 +56,7 @@ import {
   parseSpawnNote,
   parseStoredReport,
   reportMissingIds,
+  specCommitProblem,
   specCriteriaProblem,
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
@@ -852,6 +853,10 @@ type TaskBranchOutcome =
   | { kind: 'diverged'; ref: string; baseRef: string }
   | { kind: 'git_failed'; what: string; error: unknown };
 
+function baseIsBranch(base: string, branchId: string): boolean {
+  return [branchId, `origin/${branchId}`, `refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`].includes(base);
+}
+
 // The task branch policy task_provision, task_retry and task_reopen share: a
 // missing ref is cut from resolveCutBase(base) (created); an existing local or
 // origin ref at or behind the base tip is fast-forwarded to it (reused); a
@@ -1602,6 +1607,8 @@ export function compositeTools(
         }
         const criteriaProblem = specCriteriaProblem(task.spec_body);
         if (criteriaProblem) return err(criteriaProblem);
+        const commitProblem = specCommitProblem(task.spec_body);
+        if (commitProblem) return err(commitProblem);
         const validateStrArray = (value: unknown, field: 'files' | 'verification'): string[] => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field} must be a non-empty array of strings.`);
@@ -1743,6 +1750,13 @@ export function compositeTools(
           repoPath,
           (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
         );
+        if (baseIsBranch(base, branchId)) {
+          return err(
+            `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
+              `would block every commit on it. Pass a different base, e.g. the PR target. ` +
+              `No branch, worktree or task row was created.`,
+          );
+        }
 
         // Branch policy (ensureTaskBranch): a new ref is created from the base
         // ('created'); an existing ref at or behind the base tip is reused; a
@@ -2155,6 +2169,8 @@ export function compositeTools(
           }
           const criteriaProblem = specCriteriaProblem(newSpec);
           if (criteriaProblem) return err(criteriaProblem);
+          const commitProblem = specCommitProblem(newSpec);
+          if (commitProblem) return err(commitProblem);
         }
         if (newFiles === undefined && newVerification === undefined && newSpec === undefined) {
           return err('task_update_spec: pass at least one of files, verification, spec_body');

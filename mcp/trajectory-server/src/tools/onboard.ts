@@ -30,6 +30,7 @@ import {
   type OtherClaudeDb,
 } from '../platform.js';
 import { insertAudit } from './audit.js';
+import { writeConfigValueJson } from './config.js';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -197,12 +198,7 @@ function readConfig(db: TrajectoryDB, key: string): unknown {
 }
 
 function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
-  db.run(
-    `INSERT INTO plugin_config (key, value_json)
-     VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-    [key, JSON.stringify(value)],
-  );
+  writeConfigValueJson(db, key, JSON.stringify(value), 'bro');
 }
 
 type RemoteView = ReturnType<typeof remotesView>;
