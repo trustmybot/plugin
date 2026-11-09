@@ -225,6 +225,40 @@ describe('fixture steps: incremental reindex equals a clean rebuild (SC1)', () =
     }
   });
 
+  it('a merge whose side branch adds a file byte-identical to one main already has (GH 2636)', async () => {
+    const fx = await fixture(BASE);
+    const at = (date: string, ...a: string[]) =>
+      execFileSync('git', ['-C', fx.root, ...a], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+      })
+        .toString()
+        .trim();
+    const addDup = (date: string) => {
+      writeFileSync(join(fx.root, 'lib/dup.ts'), SHARED(9));
+      at(date, 'add', '-A');
+      at(date, 'commit', '-qm', 'add lib/dup.ts');
+      return at(date, 'rev-parse', 'HEAD');
+    };
+    try {
+      at('2030-01-01T00:00:00Z', 'branch', 'side');
+      const onMain = addDup('2030-01-02T00:00:00Z');
+      await stepIncremental(fx.a, 'app', onMain);
+      at('2030-01-03T00:00:00Z', 'checkout', '-q', 'side');
+      const onSide = addDup('2030-01-03T00:00:00Z');
+      at('2030-01-04T00:00:00Z', 'checkout', '-q', 'main');
+      at('2030-01-04T00:00:00Z', 'merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+      const merged = at('2030-01-04T00:00:00Z', 'rev-parse', 'HEAD');
+      assert.equal(at('2030-01-04T00:00:00Z', 'diff', '--name-only', onMain, merged), '', 'the merge changes no content');
+      await stepIncremental(fx.a, 'app', merged);
+      const dup = fx.a.graph.allFilesForRepo('app').find((f) => WorldModelGraph.relativeFilePath(f) === 'lib/dup.ts');
+      assert.equal(dup?.last_commit_sha, onSide, 'lib/dup.ts carries the side commit, the newest to touch it');
+      await fx.check('after merging a side branch that adds an identical lib/dup.ts');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   it('a file that fails to parse, fixed in a later commit', async () => {
     const fx = await fixture(BASE);
     try {

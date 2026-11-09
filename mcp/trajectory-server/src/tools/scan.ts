@@ -399,8 +399,9 @@ interface FilePlan {
 }
 
 // Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is,
-// unless its purpose_source is still 'none' (then it is re-extracted, written
-// only when that finds a purpose); a changed or new file is re-extracted from
+// except a new non-empty last_commit_sha is written onto it, and a
+// purpose_source still 'none' is re-extracted (written only when that finds a
+// purpose); a changed or new file is re-extracted from
 // its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
@@ -426,17 +427,15 @@ async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, s
       continue;
     }
     if (prev && prev.content_md5 === md5) {
+      const sha = f.last_commit_sha ?? '';
+      let node = sha !== '' && sha !== prev.last_commit_sha ? { ...prev, last_commit_sha: sha, updated_at: now } : prev;
       if (!scope && prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
         const extracted = extractPurpose(f.path, await headOf(f.repo, f.path));
         plan.extracted++;
-        if (extracted.source !== 'none') {
-          const node = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
-          plan.nodes.push(node);
-          plan.writes.push(node);
-          continue;
-        }
+        if (extracted.source !== 'none') node = { ...node, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
       }
-      plan.nodes.push(prev);
+      plan.nodes.push(node);
+      if (node !== prev) plan.writes.push(node);
       continue;
     }
     const facts = {

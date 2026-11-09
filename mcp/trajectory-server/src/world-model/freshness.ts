@@ -482,8 +482,10 @@ function dirOf(relPath: string): string {
 }
 
 // The incremental path: the commit's tree for the file list, md5s re-read only
-// for the paths the diff names (and any tracked path the index lacks), the
-// directories holding a diffed path and their ancestors rewritten. null when
+// for the paths the diff names (and any tracked path the index lacks),
+// last_commit_sha taken from the range's log for every path it names (a merge
+// can touch a path without changing it), the directories holding a diffed path
+// and their ancestors rewritten. null when
 // git cannot list the tree or the diff, so the caller rebuilds the repo.
 async function reindexRange(
   db: TrajectoryDB,
@@ -514,7 +516,7 @@ async function reindexRange(
           path: rel,
           content_md5: prev?.content_md5 ?? '',
           size_bytes: prev?.size_bytes ?? entry.size,
-          last_commit_sha: prev?.last_commit_sha ?? '',
+          last_commit_sha: lastBy.get(rel) ?? prev?.last_commit_sha ?? '',
         });
         continue;
       }
