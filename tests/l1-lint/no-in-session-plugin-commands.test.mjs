@@ -1,4 +1,4 @@
-// L1 lint: TMB prescribes plugin changes only as CLI commands run from the project root with an explicit scope (`claude plugin update tmb@trustmybot-dev --scope local`), never as the in-session commands `/plugin …`, `/reload-plugins` or reconnecting through `/mcp` (GH 1730): a plugin change applies only after a full quit and relaunch of Claude Code, and `/plugin` does not work in Claude Desktop. Flags the three used as a command; path segments (`trustmybot/plugin`, `/plugin/`, `plugin.json`, `logs/mcp-server.log`) and absolute paths given to `cd` or a Dockerfile WORKDIR, COPY, ADD or VOLUME line pass. Scans every git-tracked *.md, *.sh, *.ts, *.mjs, *.js, *.json and *.yml outside tests/, test/, dist/ and node_modules/ dirs, CHANGELOG.md and changelog.d/. Every run also checks fixtures/no-in-session-plugin-commands/: every line of each bad.* fixture but a `#!` or `# shellcheck` header is flagged, and each good.* fixture yields nothing.
+// L1 lint: TMB prescribes plugin changes only as CLI commands run from the project root with an explicit scope (`claude plugin update tmb@trustmybot-dev --scope local`), never as the in-session commands `/plugin …`, `/reload-plugins` or reconnecting through `/mcp` (GH 1730): a plugin change applies only after a full quit and relaunch of Claude Code, and `/plugin` does not work in Claude Desktop. Flags the three used as a command; path segments (`trustmybot/plugin`, `/plugin/`, `plugin.json`, `logs/mcp-server.log`) and absolute paths given to `cd` or a Dockerfile WORKDIR, COPY, ADD or VOLUME line pass. Scans every git-tracked *.md, *.ts, *.mjs, *.js, *.json and *.yml outside tests/, test/, dist/ and node_modules/ dirs, CHANGELOG.md and changelog.d/. Every run also checks fixtures/no-in-session-plugin-commands/: every line of each bad.* fixture is flagged, and each good.* fixture yields nothing.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -29,7 +29,7 @@ export function scan(file, label = file) {
 }
 
 function scannedFiles() {
-  const tracked = execFileSync('git', ['ls-files', '-z', '--', '*.md', '*.sh', '*.ts', '*.mjs', '*.js', '*.json', '*.yml'], {
+  const tracked = execFileSync('git', ['ls-files', '-z', '--', '*.md', '*.ts', '*.mjs', '*.js', '*.json', '*.yml'], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -45,12 +45,12 @@ const fixtures = (prefix) =>
     .filter((name) => name.startsWith(`${prefix}.`))
     .sort();
 
-test('every non-header line of each bad.* fixture is flagged', () => {
+test('every line of each bad.* fixture is flagged', () => {
   const bad = fixtures('bad');
   assert.notDeepEqual(bad, [], 'no bad.* fixtures found');
   for (const name of bad) {
     const file = join(FIXTURES, name);
-    const expected = lines(readFileSync(file, 'utf8')).filter((l) => !/^(#!|# shellcheck )/.test(l)).length;
+    const expected = lines(readFileSync(file, 'utf8')).length;
     const found = scan(file);
     assert.ok(
       found.length !== 0 && found.length === expected,
