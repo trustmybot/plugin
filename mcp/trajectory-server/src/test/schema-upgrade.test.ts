@@ -1356,7 +1356,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       assert.ok(row !== undefined, `${t} must exist after migration chain`);
     }
 
-    // file_registry tables were dropped at v7 (GH 1680); verify they're gone.
+    // file_registry tables were dropped at v7; verify they're gone.
     for (const t of ['file_registry', 'file_registry_fts', 'file_registry_embeddings']) {
       const row = db.get<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE name=?",
