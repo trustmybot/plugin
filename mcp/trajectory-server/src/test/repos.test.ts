@@ -28,7 +28,7 @@ async function rename(db: TrajectoryDB, args: Record<string, unknown>, holder: G
 
 const NOW = '2026-10-11T00:00:00.000Z';
 
-// One row of every repo FK child plus a pr_review_runs host slug, all on `old`.
+// One row of every repo-keyed child plus a pr_review_runs host slug, all on `old`.
 function seed(db: TrajectoryDB, opts: { taskStatus?: string; repoPath?: string } = {}): void {
   db.run(`INSERT INTO repos (name, path, file_count, target_branch) VALUES ('old', ?, 7, 'dev')`, [opts.repoPath ?? '/work/old']);
   upsertRepoRemotes(db, 'old', [{ name: 'origin', provider: 'github', url: 'git@github.com:acme/old.git' }]);
@@ -62,6 +62,10 @@ function seed(db: TrajectoryDB, opts: { taskStatus?: string; repoPath?: string }
     [NOW, NOW],
   );
   db.run(`INSERT INTO wm_freshness (repo, target_ref, target_commit, updated_at) VALUES ('old', 'origin/dev', 'abc', ?)`, [NOW]);
+  db.run(
+    `INSERT INTO prs (repo, number, state, created_at, updated_at, synced_at) VALUES ('old', 5, 'open', ?, ?, ?)`,
+    [NOW, NOW, NOW],
+  );
 }
 
 function countOn(db: TrajectoryDB, table: string, repo: string): number {
@@ -76,11 +80,12 @@ function countOn(db: TrajectoryDB, table: string, repo: string): number {
     repo_remotes: 'SELECT COUNT(*) AS n FROM repo_remotes WHERE repo = ?',
     repo_env: 'SELECT COUNT(*) AS n FROM repo_env WHERE repo = ?',
     wm_freshness: 'SELECT COUNT(*) AS n FROM wm_freshness WHERE repo = ?',
+    prs: 'SELECT COUNT(*) AS n FROM prs WHERE repo = ?',
   };
   return Number(db.get<{ n: number }>(sql[table]!, [repo])!.n);
 }
 
-const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs', 'repo_env', 'wm_freshness'];
+const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs', 'repo_env', 'wm_freshness', 'prs'];
 
 describe('repo_rename — transactional move', () => {
   it('moves every FK child + the pr_review_runs slug, drops the old row, audits per-table counts', async () => {
@@ -128,6 +133,7 @@ describe('repo_rename — transactional move', () => {
       agent_runs: 1,
       repo_env: 1,
       wm_freshness: 1,
+      prs: 1,
       pr_review_runs: 1,
     });
     db.close();
