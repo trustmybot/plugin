@@ -1,0 +1,2 @@
+### Changed
+- **Pull requests now get a TypeScript lint and a dashboard type check** (GH 2064): typescript-eslint's `recommendedTypeChecked` rules run over the MCP server and dashboard sources as an L1 lint, so the existing PR check fails on any new violation. Today's violations are recorded once in `eslint-suppressions.json`; the lint also fails when a suppression is no longer needed, so the baseline only shrinks. `tsc --noEmit` now type-checks the dashboard as well as the MCP server.
