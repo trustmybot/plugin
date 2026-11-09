@@ -50,6 +50,7 @@ import {
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
+import { appendVerificationDefaults, readVerificationDefaults, verificationDefaultsResult } from './verification-defaults.js';
 import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
@@ -1688,7 +1689,7 @@ export function compositeTools(
           return value as string[];
         };
         const files = validateStrArray(task.files, 'files');
-        const verification = validateStrArray(task.verification, 'verification');
+        const givenVerification = validateStrArray(task.verification, 'verification');
 
         let repoValue: string | null = null;
         const hasTaskRepo = task.repo !== undefined && task.repo !== null && task.repo !== '';
@@ -1834,6 +1835,9 @@ export function compositeTools(
         const reuseExisting = args['reuse_existing'] === true;
         const pathRef =
           resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
+        const defaults = readVerificationDefaults(repoPath, pathRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
         if (pathRef) {
           const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
           if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
@@ -2002,6 +2006,7 @@ export function compositeTools(
               }
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
@@ -2776,15 +2781,23 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
         const retryFiles = parseTaskFiles(failed.files);
-        const retryVerification = parseTaskFiles(failed.verification);
         const retryBase = repoPath ? normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id)) : null;
         const pathRef = repoPath && retryBase ? resolveCutBase(repoPath, retryBase)?.ref ?? null : null;
+        const defaults = readVerificationDefaults(repoPath, pathRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_retry', pathRef, defaults.error);
+        const { verification: retryVerification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          parseTaskFiles(failed.verification),
+          defaults.commands,
+        );
+        const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
         if (!repoPath || pathRef) {
           const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
           if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
         }
-        const suggested = () =>
-          suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification);
+        const suggested = () => ({
+          verification_defaults_added: verificationDefaultsAdded,
+          ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
+        });
         if (repoPath && retryBase) {
           const base = retryBase;
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
@@ -2831,7 +2844,7 @@ export function compositeTools(
               repoOverride ?? failed.repo,
               failed.prompt_bearing,
               failed.files,
-              failed.verification,
+              storedVerification,
               effort,
               now,
               now,
