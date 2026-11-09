@@ -14,7 +14,7 @@
  * The same three tools refuse a spec whose `## Commit` subject commit-msg-lint
  * would deny (specCommitProblem, GH 2667).
  *
- * A report may also carry `concepts` (GH 1680, ADR 0002): up to five L2
+ * A report may also carry `concepts` (GH 1680): up to five L2
  * concept proposals, checked here for shape only. scan_run applies a closed,
  * reviewed task's proposals once their anchors are in the index
  * (applyConceptProposals).
