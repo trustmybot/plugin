@@ -7,11 +7,28 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { broTurnUsage, cursorPath, transcriptRead, transcriptUsage, turnUsage, type TurnUsage } from '../hooks/bro-turn-usage.js';
+import { ALLOW } from '../hooks/gate.js';
+
+const fsModule = createRequire(import.meta.url)('node:fs') as Record<string, unknown>;
+
+/** Runs <fn> with node:fs's <name> replaced for every ESM importer, the original restored after. */
+function withFs<T>(name: 'fstatSync' | 'readSync', replace: (original: (...args: unknown[]) => unknown) => (...args: unknown[]) => unknown, fn: () => T): T {
+  const original = fsModule[name] as (...args: unknown[]) => unknown;
+  fsModule[name] = replace(original);
+  syncBuiltinESMExports();
+  try {
+    return fn();
+  } finally {
+    fsModule[name] = original;
+    syncBuiltinESMExports();
+  }
+}
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
@@ -338,4 +355,60 @@ describe('bro-turn-usage cursor', () => {
       'no temp file left',
     );
   });
+
+  it('a stale run does not move a newer cursor back (GH 2711)', () => {
+    const { transcript, cursor } = fresh('stale');
+    const lines = FIXTURE.split(/(?<=\n)/);
+    const head = lines.slice(0, 3).join('');
+    const stale = lines.slice(0, 7).join('');
+    writeFileSync(transcript, head);
+    transcriptUsage(transcript, cursor);
+    assert.equal(cursorOffset(cursor), Buffer.byteLength(head));
+    appendFileSync(transcript, lines.slice(3, 7).join(''));
+    let newer = '';
+    let armed = true;
+    const staleRun = withFs(
+      'readSync',
+      (original) =>
+        (...args: unknown[]) => {
+          if (armed && args[4] === Buffer.byteLength(head)) {
+            armed = false;
+            appendFileSync(transcript, lines.slice(7).join(''));
+            assert.deepEqual(transcriptUsage(transcript, cursor), turnUsage(FIXTURE), 'the newer run');
+            newer = readFileSync(cursor, 'utf8');
+          }
+          return original(...args);
+        },
+      () => transcriptUsage(transcript, cursor),
+    );
+    assert.equal(armed, false, 'the newer run ran inside the stale one');
+    assert.deepEqual(staleRun, turnUsage(stale), 'the stale run finishes its own prefix');
+    assert.equal(cursorOffset(cursor), Buffer.byteLength(FIXTURE), 'the newer offset survives');
+    assert.equal(readFileSync(cursor, 'utf8'), newer, 'the newer cursor is untouched');
+    const next = measured(transcript, cursor);
+    assert.deepEqual(next.usage, turnUsage(FIXTURE));
+    assert.equal(next.bytes, 0, 'the next run reads from the newer offset');
+  });
+});
+
+describe('bro-turn-usage transcript read errors', () => {
+  for (const name of ['readSync', 'fstatSync'] as const) {
+    it(`a ${name} error allows quietly and writes no agent_runs row (GH 2711)`, () => {
+      const { db, env, transcript, cursor } = fresh(`read-error-${name}`);
+      writeFileSync(transcript, FIXTURE);
+      const fail = () => () => {
+        throw Object.assign(new Error(`EIO: i/o error, ${name}`), { code: 'EIO' });
+      };
+      assert.throws(() => withFs(name, fail, () => transcriptUsage(transcript, cursor)), /EIO/, 'transcriptUsage still throws');
+      const result = withFs(name, fail, () => broTurnUsage(JSON.stringify({ session_id: SESSION, transcript_path: transcript }), env));
+      assert.deepEqual(result, ALLOW);
+      const d = new DatabaseSync(db, { readOnly: true });
+      try {
+        assert.deepEqual({ ...d.prepare('SELECT COUNT(*) AS n FROM agent_runs').get() }, { n: 0 });
+      } finally {
+        d.close();
+      }
+      assert.equal(existsSync(cursor), false, 'no cursor written');
+    });
+  }
 });
