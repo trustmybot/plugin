@@ -43,7 +43,7 @@ A hook can be registered more than once for the same event: a project install be
 
 The agents TMB runs are held to the same boundary, in three layers.
 
-**Run root.** Every agent run records its root: the project for bro, the task's worktree for swe. A write is judged against the root of the caller's own run, resolved from the caller's identity and never from its cwd, because a swe is spawned with the main checkout as its cwd and a cwd says nothing about who is writing. A swe's run is bound to its identity at its first `task_brief`; until then it has no root and every write is denied with the instruction to call `task_brief`, never widened to the project. A swe payload with no identity (headless or legacy) falls back to the open swe run of the task its worktree resolves to. code-reviewer and bro get the project.
+**Run root.** Every agent run records its root: the project for bro, the task's worktree for swe. A write is judged against the root of the caller's own run, resolved from the caller's identity and never from its cwd, because a swe is spawned with the main checkout as its cwd and a cwd says nothing about who is writing. A swe's run is bound to its identity at its first `task_brief`; until then it has no root and every write but one to a device sink is denied with the instruction to call `task_brief`, never widened to the project. A swe payload with no identity (headless or legacy) falls back to the open swe run of the task its worktree resolves to. code-reviewer and bro get the project.
 
 | Tier | Layer | What it holds |
 |---|---|---|
@@ -57,7 +57,8 @@ The guard is a parser, not a jail; its invariant is that a write it cannot prove
 
 - **File tools** are judged by their canonical target path. **Bash** is judged by every write target a shell parser finds in the command (redirects, copy and move destinations, deletes, links, directory options, the working tree of a mutating git command, and the targets of inline interpreter programs), each in the directory its own statement runs in. Data heredocs and quoted text are data. Reads are never judged.
 - **Paths resolve the way the kernel does**: symlinks are followed before a later `..` applies, so a link that points out of the root is outside. A target that leaves the root and comes back in is denied, since it lands on the root from outside.
-- **Unknowns deny.** A command the parser cannot parse, a path built at run time, a variable the command does not set to a literal, a command substitution, a directory change it cannot resolve, and, in an inline program, any process call, dynamic import, evaluated string, held or aliased write function, or introspection that could hide a write are all unresolvable and denied. The deny names which kind of unknown it hit. Only plain literals count as resolved, so the rules are an allowlist, not a blocklist.
+- **Unknowns deny unless the literal prefix is inside the root.** A write target with an unknown part (a variable the command does not set to a literal, a command substitution, a relative path after a directory change the guard cannot resolve, a process call in an inline program whose command, arguments or cwd are not all literals, or a held or aliased write function) is allowed only when the literal directory before the unknown part is inside an allowed root, and denied otherwise. A process call whose command, arguments and cwd are all literals is not an unknown: it is judged as the shell command it runs, where it runs.
+- **Some targets are never judged.** A command the parser cannot parse, a path a program builds at run time, and an inline program the guard cannot prove (a dynamic import, an evaluated string, introspection or any other call that could hide a write) are denied even behind a literal directory inside the root. Every such deny names which kind of unknown it hit. Only literals count as resolved, so the rules are an allowlist, not a blocklist.
 - **Not followed:** variables set in an earlier Bash call, and programs an interpreter reads from a file. Tier 0 covers those for Bash.
 
 ### Allowed write roots
@@ -65,6 +66,7 @@ The guard is a parser, not a jail; its invariant is that a write it cannot prove
 | Root | Why |
 |---|---|
 | The run's root: a swe's own task worktree (none until its run is bound), else the project | The work itself |
+| The device sinks (`/dev/null`, the standard streams, the terminal and open file descriptors), for every caller, a swe without a bound run included | They store nothing, so discarding or echoing output cannot leave anything outside the root |
 | The embedding model cache | The one TMB path outside the project |
 | The host's own temp dirs, including Claude Code's per-user temp root when it is a real directory the user owns | Ephemeral space the sandbox itself leaves writable. The rest of `/tmp` is shared and stays denied. |
 | The sanctioned scratch dir inside the root | Throwaway scripts, logs and data dumps; a separate gate denies prose files there, and deny messages name it |
