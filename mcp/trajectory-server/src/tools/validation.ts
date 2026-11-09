@@ -114,14 +114,18 @@ function taskFiles(raw: string | null): string[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed
-    .filter((f): f is string => typeof f === 'string')
-    .map((f) => f.replace(/^\.\/+/, '').replace(/\/+$/, ''))
-    .filter((f) => f.length > 0);
+  return parsed.filter((f): f is string => typeof f === 'string').map(normalizeTaskPath);
+}
+
+const REPO_ROOT = '.';
+
+export function normalizeTaskPath(path: string): string {
+  const segments = path.split('/').filter((s) => s !== '' && s !== '.');
+  return segments.length === 0 ? REPO_ROOT : segments.join('/');
 }
 
 export function pathsOverlap(a: string, b: string): boolean {
-  return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
+  return a === REPO_ROOT || b === REPO_ROOT || a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
 }
 
 export function groupByFileOverlap(tasks: readonly QueuedTask[]): ReviewQueueGroup[] {
@@ -409,7 +413,7 @@ export function validationTools(db: TrajectoryDB): {
       name: 'review_queue',
       description:
         'bro only. The closed tasks stamped workflow_mode=agile that have no passing validation_attempts row and no review_gate_waived (bro) or review_gate_bypassed (bro, hook:close-issue-on-merge) audit row, ' +
-        'grouped into connected components of overlapping files[] (equal paths, or one a path-segment prefix of the other). ' +
+        'grouped into connected components of overlapping files[] (equal paths, or one a path-segment prefix of the other; "." is the whole repo and overlaps every path). ' +
         'Returns {total, groups: [{task_ids, branch_ids, issue_ids, commit_shas, files}]}: task ids ascending in a group, groups by smallest task id; a task with no files is its own group.',
       inputSchema: {
         type: 'object',

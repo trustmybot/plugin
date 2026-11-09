@@ -94,7 +94,7 @@ export const REVIEW_RECORDED_SQL = `(EXISTS (SELECT 1 FROM validation_attempts v
   OR EXISTS (SELECT 1 FROM audit r WHERE ${reviewSkipAuthoredSql('r')}
     AND CASE WHEN json_valid(r.content_json) THEN json_extract(r.content_json, '$.task_id') END = t.id))`;
 
-export const GATE_SKIP_RECORDED_SQL =`EXISTS (SELECT 1 FROM audit g
+export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
   WHERE ${reviewSkipAuthoredSql('g')}
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id

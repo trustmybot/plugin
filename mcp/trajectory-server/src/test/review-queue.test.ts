@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
-import { groupByFileOverlap, pathsOverlap, validationTools } from '../tools/validation.js';
+import { groupByFileOverlap, normalizeTaskPath, pathsOverlap, validationTools } from '../tools/validation.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Queue = { total: number; groups: Array<{ task_ids: number[]; branch_ids: string[]; issue_ids: number[]; commit_shas: string[]; files: string[] }> };
@@ -145,6 +145,28 @@ describe('review_queue (GH 2225)', () => {
     const q = await queued(db);
     assert.deepEqual(q.groups.map((g) => g.task_ids), [[1, 3], [2, 4, 5], [6]]);
     assert.deepEqual(q.groups[1]!.files, ['lib', 'lib/x.ts', 'src/ab', 'src/ab/c.ts']);
+  });
+
+  it('SC3: a whole-repo entry (".", "./", "") overlaps every path', async () => {
+    for (const root of ['.', './', '', '/', '././']) assert.equal(normalizeTaskPath(root), '.', JSON.stringify(root));
+    assert.equal(normalizeTaskPath('./src//a/./b.ts/'), 'src/a/b.ts');
+    assert.equal(pathsOverlap('.', 'src/a.ts'), true);
+    assert.equal(pathsOverlap('docs', '.'), true);
+    assert.equal(pathsOverlap('.', '.'), true);
+
+    const db = tempDB();
+    seedIssue(db, 1);
+    seedTask(db, 1, { files: ['src/a.ts'] });
+    seedTask(db, 2, { files: ['docs/x.md'] });
+    seedTask(db, 3, { files: ['./'] });
+    seedTask(db, 4, { files: [] });
+    seedTask(db, 5, { files: ['lib'] });
+    seedTask(db, 6, { files: ['.'] });
+    seedTask(db, 7, { files: ['other.ts'] });
+
+    const q = await queued(db);
+    assert.deepEqual(q.groups.map((g) => g.task_ids), [[1, 2, 3, 5, 6, 7], [4]]);
+    assert.deepEqual(q.groups[0]!.files, ['.', 'docs/x.md', 'lib', 'other.ts', 'src/a.ts']);
   });
 
   it('SC4: any agent other than bro is refused', async () => {
