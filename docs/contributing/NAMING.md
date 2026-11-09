@@ -4,23 +4,11 @@ A feature has **one canonical name stem**. Every surface that implements, tests,
 
 ## The rule
 
-When you add or rename a feature, the stem matches across all of these:
-
-| Surface | Pattern |
-|---|---|
-| Skill dir | `skills/tmb_<stem>/` |
-| MCP tool | `<stem>_<verb>` (e.g. `cheatcode_search`) |
-| MCP source / test | `src/tools/<stem>.ts`, `src/test/<stem>.test.ts` |
-| Forked script | `scripts/<stem>-<verb>.sh` |
-| Hook / integration test | `tests/**/<stem>-<verb>.test.sh` |
-| L5/L6 row | `tests/l5-l6/rows/NN-<stem>/` |
-| ADR / design doc | titled for `<stem>` |
-| Audit `event_type` | `<stem>_<verb>` |
-| Env / fixture vars | `TMB_<STEM>_*` |
+When you add or rename a feature, the stem carries across its surfaces in each surface's own case: `skills/tmb_<stem>/` for a skill, `<stem>_<verb>` for MCP tools and audit event types, `<stem>[-<verb>]` for TypeScript source and test files, `TMB_<STEM>_*` for env vars. `cheatcode` is the model: the `tmb_cheatcode` skill, the `cheatcode_*` tools and events, `src/tools/cheatcode-*.ts` and `src/test/cheatcode-*.test.ts`.
 
 ## Why
 
-A split stem — the v0.10.0 `cheatcode` skill shipping over a `resource_search` tool, `resource.ts`, and `resource-search.sh` — forces every reader to learn two names for one thing and hides the wiring. One stem makes the feature greppable: `git grep <stem>` returns the whole surface.
+A split stem — the v0.10.0 `cheatcode` skill shipping over a `resource_search` tool and `resource.ts` — forces every reader to learn two names for one thing and hides the wiring. One stem makes the feature greppable: `git grep <stem>` returns the whole surface.
 
 ## Boundary
 
@@ -30,6 +18,10 @@ The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource"
 
 Short, memorable, one concept. A vivid name (`cheatcode`) beats a generic one (`resource`): unique, greppable, and it sticks. Avoid words already used generically in the codebase.
 
+## Enforcement
+
+The stem rule is held in review; no lint checks it across surfaces. Two lints hold the skill names: [`skill-frontmatter.test.mjs`](../../tests/l1-lint/skill-frontmatter.test.mjs) (a `SKILL.md` `name` equals its directory) and [`skill-catalog-sync.test.mjs`](../../tests/l1-lint/skill-catalog-sync.test.mjs) (the skill directories and the builtin-skill seed rows in `schema.sql` are the same set).
+
 ## Intentional exceptions
 
-`onboard` is intentionally **tools-only** — `onboard_*` MCP tools (and the `onboard.ts` source) with no skill, forked script, or test stem. The onboarding ceremony is driven entirely through the MCP surface, so there is nothing to align on the other rows. This is a deliberate `WONTFIX`, not a drift.
+`onboard` is intentionally **tools-only** — `onboard_*` MCP tools (and the `onboard.ts` source) with no skill. The onboarding ceremony is driven entirely through the MCP surface. This is a deliberate `WONTFIX`, not a drift.
