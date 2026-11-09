@@ -15,10 +15,14 @@
  *      anchor, REVIEW_ANCHOR_AT_SQL) → exit 3. A head integrate made keeps the
  *      anchor it carried, so a second integrate needs no new review unless a
  *      verdict since says otherwise.
- *   2. <base> already an ancestor of commit_sha → print commit_sha, exit 0;
+ *   2. <base> is fetched first (GH 2632): a local branch tracking a remote
+ *      fetches its upstream and resolves to `<base>@{u}`; `<remote>/<x>`
+ *      fetches <x>. A failed fetch warns and keeps the local ref.
+ *      <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
- *      detached at commit_sha, runs `git rebase <base>`. A conflict is aborted
+ *      detached at commit_sha, runs `git -c merge.renames=false rebase <base>`
+ *      (no rename detection, GH 2356). A conflict is aborted
  *      → exit 2, branch and DB unchanged. Each untracked node_modules of the
  *      main checkout beside a tracked package.json is symlinked into the
  *      worktree (GH 1541).
@@ -133,6 +137,7 @@ class Integration {
   private reviewAnchorAt = '';
   private commitSha = '';
   private baseSha = '';
+  private baseLabel = '';
   private repoRoot = '';
   private tip = '';
   private wt = '';
@@ -343,6 +348,37 @@ SELECT changes();`,
     return true;
   }
 
+  private fetchBase(remote: string, ref: string): boolean {
+    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, ref], {
+      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    if (!r.ok) {
+      const reason = r.err.split('\n').find((line) => line.trim() !== '') ?? '';
+      this.say(`warning: git fetch ${remote} ${ref} failed, using the local ${this.base}: ${reason.trim()}`);
+    }
+    return r.ok;
+  }
+
+  /** The ref <base> resolves to after fetching it: `<base>@{u}` for a local branch tracking a remote, else <base> (GH 2632); sets baseLabel. */
+  private resolveBaseRef(): string {
+    this.baseLabel = this.base;
+    if (this.revParse(this.repoRoot, `refs/heads/${this.base}`) !== '') {
+      const remote = this.g(['config', '--get', `branch.${this.base}.remote`]).out;
+      const merge = this.g(['config', '--get', `branch.${this.base}.merge`]).out;
+      if (remote === '' || remote === '.' || merge === '' || !this.fetchBase(remote, merge)) return this.base;
+      const upstream = `${this.base}@{u}`;
+      if (this.revParse(this.repoRoot, `${upstream}^{commit}`) === '') return this.base;
+      this.baseLabel = this.g(['rev-parse', '--abbrev-ref', upstream]).out || upstream;
+      return upstream;
+    }
+    const remote = this.g(['remote'])
+      .out.split('\n')
+      .filter((name) => name !== '' && this.base.startsWith(`${name}/`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (remote !== undefined) this.fetchBase(remote, `refs/heads/${this.base.slice(remote.length + 1)}`);
+    return this.base;
+  }
+
   private rebasePicks(sha: string): string {
     return this.git(this.wt, ['rev-list', '--reverse', '--no-merges', '--cherry-pick', '--right-only', `${this.baseSha}...${sha}`]).out;
   }
@@ -399,11 +435,11 @@ SELECT changes();`,
 
     this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
     if (this.commitSha === '') this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
-    this.baseSha = this.revParse(this.repoRoot, `${this.base}^{commit}`);
+    this.baseSha = this.revParse(this.repoRoot, `${this.resolveBaseRef()}^{commit}`);
     if (this.baseSha === '') this.die(4, `base '${this.base}' is not a commit in ${this.repoRoot}`);
 
     if (this.g(['merge-base', '--is-ancestor', this.baseSha, this.commitSha]).ok) {
-      this.say(`${this.base} is already an ancestor of task ${this.taskId}'s commit; nothing to rebase`);
+      this.say(`${this.baseLabel} is already an ancestor of task ${this.taskId}'s commit; nothing to rebase`);
       this.io.out(`${this.commitSha}\n`);
       return 0;
     }
@@ -436,10 +472,10 @@ SELECT changes();`,
       this.die(4, 'git worktree add failed');
     }
 
-    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.base} (${this.baseSha}) in ${this.wt}`);
-    if (!this.gitLoud(this.wt, ['rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
+    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.baseLabel} (${this.baseSha}) in ${this.wt}`);
+    if (!this.gitLoud(this.wt, ['-c', 'merge.renames=false', 'rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
       this.git(this.wt, ['rebase', '--abort']);
-      this.die(2, `rebase of task ${this.taskId} onto ${this.base} conflicted; aborted, ${branch} and the DB are unchanged`);
+      this.die(2, `rebase of task ${this.taskId} onto ${this.baseLabel} conflicted; aborted, ${branch} and the DB are unchanged`);
     }
     const newSha = this.revParse(this.wt, 'HEAD');
     if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
@@ -457,12 +493,12 @@ SELECT changes();`,
     const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
 
     if (this.rebasePicks(newSha) === '') {
-      this.die(2, `task ${this.taskId}'s patch is already in ${this.base}; nothing to integrate, ${branch} and the DB are unchanged`);
+      this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
     }
     if (this.patchIds(this.commitSha) !== this.patchIds(newSha)) {
       this.die(
         2,
-        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.base}..reviewed differs from ${this.base}..rebased); ${branch} and the DB are unchanged`,
+        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
       );
     }
 
