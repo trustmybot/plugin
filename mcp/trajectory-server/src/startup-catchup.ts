@@ -1,7 +1,7 @@
 // Startup catch-up scan (GH 1680): after the server connects, a
 // detached `run-scan.mjs <projectRoot> startup_catchup` brings each known
-// repo's world model to its target commit (origin/<target branch>, else HEAD)
-// with the git-range scope, the full-repo scope only when the repo's stamp
+// repo's world model to its target commit (origin/<target branch>, fetched
+// first when the periodic fetch is due, else HEAD) with the git-range scope, the full-repo scope only when the repo's stamp
 // needs it, and never a workspace walk on a warm DB (GH 2584). Each repo's
 // scan lock serialises it with any other reindex of that repo; the child never
 // holds the stdio event loop.

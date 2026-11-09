@@ -3,14 +3,16 @@
 // repos.indexed_stamp, the extractor and schema version it was built with).
 // Before a world_model_* read answers, and before a task spawn returns,
 // ensureFresh compares the stamp with the target and brings the index there;
-// the caller waits for it. A read first fetches origin/<target branch>, at
-// most once per 10 minutes per repo (fetchTargetIfDue). Then:
+// the caller waits for it. A read and the startup catch-up first fetch
+// origin/<target branch>, at most once per 10 minutes per repo
+// (fetchTargetIfDue). Then:
 //   - no-op: the stamp is the target and current; no walk, no writes.
 //   - incremental: the stamp is a reachable commit; only the paths
 //     `git diff <indexed> <target>` names are re-parsed, whatever their number.
 //   - full: the stamp is NULL, unreachable or from another extractor or schema
-//     version, or the repo's newest wm_reindex verdict is a mismatch; the repo
-//     is rebuilt from the target's tree. /scan is scan_run's full rebuild.
+//     version, or a shadow-compare mismatch holds for the repo's stamp
+//     (mismatchPending); the repo is rebuilt from the target's tree. /scan is
+//     scan_run's full rebuild.
 //
 // One reindex per repo runs at a time: in this process callers share the
 // running one; across processes scan.<repo>.lock beside the DB (and the
@@ -122,6 +124,8 @@ export interface ReindexRow {
   // The concepts whose status or reason the reindex's refreshConcepts changed.
   concepts_flagged: number;
   ms: number;
+  // On a mismatch row: repos.indexed_stamp when the verdict was written.
+  stamp?: string | null;
 }
 
 interface RepoState {
@@ -133,8 +137,15 @@ interface RepoState {
 const NOTHING: ReadonlySet<string> = new Set();
 const inflight = new Map<string, Promise<RebuildMode | undefined>>();
 
+let stampForTests: string | null = null;
+
 export function indexStamp(): string {
-  return `${EXTRACTOR_VERSION}:${TARGET_SCHEMA_VERSION}`;
+  return stampForTests ?? `${EXTRACTOR_VERSION}:${TARGET_SCHEMA_VERSION}`;
+}
+
+// Test seam: stand in for an extractor or schema version bump.
+export function __setIndexStampForTests(stamp?: string): void {
+  stampForTests = stamp ?? null;
 }
 
 export function triggerOfSource(source: string): ReindexTrigger {
@@ -306,9 +317,9 @@ function repoState(db: TrajectoryDB, repo: string): RepoState | null {
 }
 
 // A mismatch verdict (the daily shadow compare's, shadow-compare.ts) with no
-// full rebuild after it. Any full rebuild clears it, so one that runs while it
-// is pending, whatever its reason, reparses every file.
-export function mismatchPending(db: TrajectoryDB, repo: string): boolean {
+// full rebuild after it: the index at its commit is suspect, so even a read
+// at the target rebuilds it.
+function mismatchUnrepaired(db: TrajectoryDB, repo: string): boolean {
   const row = db.get<{ mode: string | null }>(
     `SELECT json_extract(content_json, '$.mode') AS mode FROM audit
       WHERE event_type = 'wm_reindex' AND repo = ?
@@ -319,8 +330,35 @@ export function mismatchPending(db: TrajectoryDB, repo: string): boolean {
   return row?.mode === 'mismatch';
 }
 
+// The repo's newest mismatch verdict holds: every reindex of it is a full
+// rebuild that reparses every file, while repos.indexed_stamp is the stamp
+// the verdict was written under (a new extractor or schema version ends it)
+// and no clean shadow compare under another stamp came after it. A verdict
+// with no stamp (written before stamps were recorded) holds until the next
+// full rebuild.
+export function mismatchPending(db: TrajectoryDB, repo: string): boolean {
+  const verdict = db.get<{ id: number; stamp: string | null }>(
+    `SELECT id, json_extract(content_json, '$.stamp') AS stamp FROM audit
+      WHERE event_type = 'wm_reindex' AND repo = ? AND json_extract(content_json, '$.mode') = 'mismatch'
+      ORDER BY id DESC LIMIT 1`,
+    [repo],
+  );
+  if (!verdict) return false;
+  if (verdict.stamp === null) return mismatchUnrepaired(db, repo);
+  if (repoState(db, repo)?.indexed_stamp !== verdict.stamp) return false;
+  const cleared = db.get(
+    `SELECT 1 FROM audit
+      WHERE event_type = 'wm_shadow_compare' AND repo = ? AND id > ?
+        AND json_extract(content_json, '$.verdict') = 'match'
+        AND json_extract(content_json, '$.stamp') <> ?
+      LIMIT 1`,
+    [repo, verdict.id, verdict.stamp],
+  );
+  return !cleared;
+}
+
 function current(db: TrajectoryDB, repo: string, state: RepoState, target: string): boolean {
-  return state.indexed_commit === target && state.indexed_stamp === indexStamp() && !mismatchPending(db, repo);
+  return state.indexed_commit === target && state.indexed_stamp === indexStamp() && !mismatchUnrepaired(db, repo);
 }
 
 // Why the incremental path cannot be trusted for this repo, or null when it can.
@@ -587,7 +625,9 @@ export interface CatchUpResult {
   held: boolean;
 }
 
-// startup_catchup: each known repo brought to its target, one at a time.
+// startup_catchup: each known repo brought to its target, one at a time, after
+// the periodic fetch of origin/<target branch> when it is due. A failed fetch
+// is logged and the repo reindexes to the local ref.
 export async function catchUpRepos(
   db: TrajectoryDB,
   graph: WorldModelGraph,
@@ -596,6 +636,7 @@ export async function catchUpRepos(
   const results: CatchUpResult[] = [];
   for (const { name } of db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`)) {
     try {
+      await fetchTargetIfDue(db, name, { agent: null });
       const f = await ensureFresh(db, graph, name, { dbPath: opts.dbPath, trigger: opts.trigger });
       results.push({
         repo: name,
@@ -713,7 +754,7 @@ async function fetchTarget(db: TrajectoryDB, repo: string, repoPath: string, now
   return resolveRefCommit(repoPath, ref) === before ? 'unchanged' : 'moved';
 }
 
-// Before a world_model_* read: fetch origin/<target branch> at most once per
+// Before a world_model_* read and each startup catch-up reindex: fetch origin/<target branch> at most once per
 // TARGET_FETCH_TTL_MS per repo, the window shared through
 // wm_freshness.target_fetched_at, stamped on every attempt. Callers in this
 // process share one in-flight fetch. Never throws.

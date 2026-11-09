@@ -144,18 +144,51 @@ function runChild(fx: Fx, args: string[]): { status: number | null; out: string 
 }
 
 describe('moveOf', () => {
-  it('names git fetch, pull and push, and gh pr merge or glab mr merge', () => {
+  it('names git fetch, pull, push, merge, rebase, reset, checkout and switch, and gh pr merge, glab mr merge or gh repo sync', () => {
     assert.equal(moveOf('git fetch origin'), 'git');
     assert.equal(moveOf('git -C /x pull --rebase'), 'git');
     assert.equal(moveOf('git push -u origin feat'), 'git');
+    assert.equal(moveOf('git merge --ff-only main'), 'git');
+    assert.equal(moveOf('git rebase origin/main'), 'git');
+    assert.equal(moveOf('git reset --hard origin/main'), 'git');
+    assert.equal(moveOf('git checkout main'), 'git');
+    assert.equal(moveOf('git -C /x switch -c feat'), 'git');
     assert.equal(moveOf('gh pr merge 12 --squash'), 'forge');
     assert.equal(moveOf('glab mr merge 3'), 'forge');
-    assert.equal(moveOf('git merge main'), null);
-    assert.equal(moveOf('git rebase origin/main'), null);
-    assert.equal(moveOf('git reset --hard origin/main'), null);
-    assert.equal(moveOf('gh pr view 12'), null);
-    assert.equal(moveOf('echo git push'), null);
+    assert.equal(moveOf('gh repo sync'), 'forge');
+    assert.equal(moveOf('gh repo sync owner/fork --branch main'), 'forge');
   });
+
+  it('names nothing for any other command', () => {
+    assert.equal(moveOf('git log --oneline main'), null);
+    assert.equal(moveOf('git commit -m "merge, rebase, reset, checkout and switch"'), null);
+    assert.equal(moveOf('git merge-base main HEAD'), null);
+    assert.equal(moveOf('gh pr view 12'), null);
+    assert.equal(moveOf('gh repo view'), null);
+    assert.equal(moveOf('gh pr sync'), null);
+    assert.equal(moveOf('echo git push'), null);
+    assert.equal(moveOf('echo git checkout main'), null);
+  });
+
+  for (const [name, command] of [
+    ['git merge', 'git merge --ff-only main'],
+    ['git rebase', 'git rebase origin/main'],
+    ['git reset', 'git reset --hard origin/main'],
+    ['git checkout', 'git checkout main'],
+    ['git switch', 'git switch main'],
+    ['gh repo sync', 'gh repo sync'],
+  ] as const) {
+    it(`${name} parsed from a command line is a move; the same words in a heredoc or quoted text are not`, async () => {
+      const moves = async (cmd: string) => {
+        const parsed = await cmdStatements(cmd, '', process.env);
+        assert.ok(parsed.ok, cmd);
+        return parsed.statements.map(({ stmt }) => moveOf(stmt));
+      };
+      assert.deepEqual(await moves(`cd /x && ${command}`), [null, command.startsWith('gh ') ? 'forge' : 'git']);
+      assert.ok((await moves(`cat <<'EOF' > notes.txt\n${command}\nEOF`)).every((m) => m === null));
+      assert.ok((await moves(`echo "${command}" && printf '%s' '${command}'`)).every((m) => m === null));
+    });
+  }
 });
 
 describe('SC1: a command with no ref-moving statement', () => {
@@ -171,7 +204,8 @@ describe('SC1: a command with no ref-moving statement', () => {
     ['heredoc', "cat <<'EOF' > notes.txt\ngit push origin main\ngh pr merge 12 --squash\nEOF"],
     ['quoted', 'echo "git push origin main" && printf \'%s\' "gh pr merge 12"'],
     ['commit message', 'git commit -m "fetch, pull, push and merge"'],
-    ['local merge', 'git merge --ff-only main'],
+    ['merge-base', 'git merge-base main HEAD'],
+    ['quoted checkout', 'echo "git checkout main; git switch dev; gh repo sync"'],
   ] as const) {
     it(`${name}: spawns nothing and runs no git or DB call`, async () => {
       const db = dbFile();
@@ -330,6 +364,58 @@ describe('SC4: gh pr merge fetches the target branch first', () => {
       await reindexOnRefMove(fx.db, new WorldModelGraph(fx.db), 'app', { dbPath: fx.dbPath });
       __setGitRunnerForTests();
       assert.ok(!seen.some((a) => a.includes('fetch')), JSON.stringify(seen));
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('local ref moves and gh repo sync', () => {
+  const stamp: RepoStamp = { name: 'app', indexed_commit: 'c'.repeat(40), target_branch: 'main' };
+  const env = (): NodeJS.ProcessEnv => {
+    const dir = mkdtempSync(join(tmpdir(), 'ref-move-db-'));
+    writeFileSync(join(dir, 'trajectory.db'), '');
+    return { ...process.env, TRAJECTORY_DB_PATH: join(dir, 'trajectory.db') };
+  };
+  const seamsAt = (target: string) =>
+    recording({ statements: cmdStatements, repoRoot: async () => '/repo', repoStamp: () => stamp, targetCommit: () => target });
+
+  for (const command of ['git merge --ff-only main', 'git rebase main', 'git reset --hard HEAD~1', 'git checkout main', 'git switch main']) {
+    it(`${command}: the stamp check alone decides`, async () => {
+      const moved = seamsAt('d'.repeat(40));
+      await refMoveReindexWith(moved.seams)(payload(command, '/repo'), env());
+      assert.deepEqual(moved.calls.launch, [['/repo', 'hook', 'app']]);
+
+      const still = seamsAt(stamp.indexed_commit);
+      await refMoveReindexWith(still.seams)(payload(command, '/repo'), env());
+      assert.deepEqual(still.calls.targetCommit, ['/repo']);
+      assert.deepEqual(still.calls.launch, []);
+    });
+  }
+
+  it('gh repo sync spawns the child with --fetch as bro, and only on a moved target as swe', async () => {
+    const bro = seamsAt(stamp.indexed_commit);
+    await refMoveReindexWith(bro.seams)(payload('gh repo sync', '/repo'), env());
+    assert.deepEqual(bro.calls.launch, [['/repo', 'hook', 'app', '--fetch']]);
+
+    const swe = seamsAt(stamp.indexed_commit);
+    await refMoveReindexWith(swe.seams)(payload('gh repo sync', '/repo', { agent_id: 'a1', agent_type: 'tmb:swe' }), env());
+    assert.deepEqual(swe.calls.launch, []);
+  });
+
+  it('a local reset in a repo with no origin brings the stamp to HEAD with trigger hook', async () => {
+    const fx = await fixture();
+    try {
+      gitIn(fx.root, 'remote', 'remove', 'origin');
+      gitIn(fx.root, 'update-ref', '-d', 'refs/remotes/origin/main');
+      const first = fx.stamp()!;
+      const next = fx.commit('b.ts', 'export const beta = 2;\n');
+      const { seams, calls } = recording();
+      await refMoveReindexWith(seams)(payload('git reset --hard HEAD', fx.root), fx.env);
+      assert.deepEqual(calls.launch, [[fx.root, 'hook', 'app']]);
+      assert.equal(runChild(fx, calls.launch[0]!).status, 0);
+      assert.equal(fx.stamp(), next);
+      assert.notEqual(first, next);
     } finally {
       fx.cleanup();
     }

@@ -12,7 +12,7 @@ import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { reindexHooks, scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
 import { compositeTools } from '../tools/composites.js';
-import { ensureFresh, reindexIdle, type Freshness } from '../world-model/freshness.js';
+import { __setTargetFetchForTests, ensureFresh, reindexIdle, type Freshness } from '../world-model/freshness.js';
 import { sweepStaleAtStartup } from '../startup-catchup.js';
 import { releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 import { CommitContent, resolveRefCommit } from '../utils/git-objects.js';
@@ -216,10 +216,12 @@ describe('the git-range reindex on every ref move (SC2)', () => {
       assert.equal(danglingEdges(fx.db), 0);
 
       fx.git('mv', 'src/a.ts', 'src/c.ts');
-      fx.commit({});
+      fx.commit({ 'src/b.ts': B.replace("'./a.js'", "'./c.js'") });
       await fx.fresh();
       const moved = callEdge(fx.db, 'beta', 'alpha')!;
-      assert.ok(moved.dst_path === 'src/c.ts' || (moved.dst_id === null && moved.resolution === 'unresolved'), JSON.stringify(moved));
+      assert.equal(moved.dst_path, 'src/c.ts', JSON.stringify(moved));
+      assert.equal(moved.dst_id, symbol(fx.db, 'alpha')!.id);
+      assert.notEqual(moved.resolution, 'unresolved');
       assert.equal(danglingEdges(fx.db), 0);
 
       fx.commit({ 'src/c.ts': null });
@@ -229,6 +231,38 @@ describe('the git-range reindex on every ref move (SC2)', () => {
       assert.equal(gone.resolution, 'unresolved');
       assert.equal(danglingEdges(fx.db), 0);
       assert.ok(rows(fx.db).slice(-3).every((r) => r.mode === 'incremental'));
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a rename that leaves its callers unchanged makes them unresolved when the name has another definition', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B, 'lib/d.ts': A });
+    try {
+      assert.equal(callEdge(fx.db, 'beta', 'alpha')?.dst_path, 'src/a.ts');
+      fx.git('mv', 'src/a.ts', 'src/c.ts');
+      fx.commit({});
+      await fx.fresh();
+      assert.equal(rows(fx.db).at(-1)!.mode, 'incremental');
+      const left = callEdge(fx.db, 'beta', 'alpha')!;
+      assert.equal(left.dst_id, null, JSON.stringify(left));
+      assert.equal(left.resolution, 'unresolved');
+      assert.equal(danglingEdges(fx.db), 0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a rename that leaves its callers unchanged links them by name when the name is unique', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      fx.git('mv', 'src/a.ts', 'src/c.ts');
+      fx.commit({});
+      await fx.fresh();
+      assert.equal(rows(fx.db).at(-1)!.mode, 'incremental');
+      const left = callEdge(fx.db, 'beta', 'alpha')!;
+      assert.deepEqual({ ...left }, { dst_id: symbol(fx.db, 'alpha')!.id, resolution: 'name', dst_path: 'src/c.ts' });
+      assert.equal(danglingEdges(fx.db), 0);
     } finally {
       fx.cleanup();
     }
@@ -563,6 +597,156 @@ describe('spawns (SC6)', () => {
       assert.equal(spawn.length, 1);
       assert.equal(spawn[0]!.to_commit, tip);
       assert.equal(spawn[0]!.mode, 'incremental');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('task_brief locations show the moved line range after task_provision, task_reopen and task_retry', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B }, { remote: true });
+    try {
+      fx.db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+                 VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+      const composites = compositeTools(fx.db, fx.dbPath, fx.holder, { host: 'claude', projectRoot: fx.ws }).handlers as Handlers;
+      const spec = ['## Description', 'Change `alpha` in `src/a.ts`.', '', '## Success Criteria', '- SC1: works'].join('\n');
+      const moveAlpha = (pad: number) => fx.commit({ 'src/a.ts': `${'//\n'.repeat(pad)}${A}` });
+      const alphaRange = async (taskId: number) => {
+        const brief = parse(await composites['task_brief']!({ agent: 'bro', task_id: taskId, section: 'core' }));
+        const files = (brief['locations'] as { files: Array<{ path: string; symbols: Array<{ qualified_name: string; start_line: number; end_line: number }> }> }).files;
+        const alpha = files.find((f) => f.path === 'src/a.ts')?.symbols.find((s) => s.qualified_name === 'alpha');
+        assert.ok(alpha, JSON.stringify(brief['locations']));
+        return [alpha.start_line, alpha.end_line];
+      };
+      const spawnRows = () => rows(fx.db).filter((x) => x.trigger === 'spawn');
+
+      const first = moveAlpha(3);
+      const provisioned = parse(
+        await composites['task_provision']!({
+          agent: 'bro',
+          issue_id: 1,
+          branch_id: 'feat/brief-lines',
+          decision_body: 'Chosen approach: provision after the base moved.',
+          task: { description: 'd', spec_body: spec, files: ['src/a.ts'], verification: ['true'], repo: 'app' },
+        }),
+      );
+      const taskId = provisioned['task_id'] as number;
+      assert.equal(typeof taskId, 'number', JSON.stringify(provisioned));
+      assert.deepEqual(await alphaRange(taskId), [4, 6]);
+      assert.deepEqual(spawnRows().map((r) => r.to_commit), [first]);
+
+      const second = moveAlpha(7);
+      const reopened = parse(await composites['task_reopen']!({ agent: 'bro', task_id: taskId, reason: 'rework after the base moved' }));
+      assert.equal(reopened['status'], 'running', JSON.stringify(reopened));
+      assert.deepEqual(await alphaRange(taskId), [8, 10]);
+      assert.deepEqual(spawnRows().map((r) => r.to_commit), [first, second]);
+
+      fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
+      const third = moveAlpha(12);
+      const retried = parse(
+        await composites['task_retry']!({
+          agent: 'bro',
+          failed_task_id: String(taskId),
+          new_branch_id: 'feat/brief-lines-retry',
+          corrected_spec_body: spec,
+          retry_rationale: 'retry after the base moved',
+          description: 'd',
+        }),
+      );
+      const retryId = retried['task_id'] as number;
+      assert.equal(typeof retryId, 'number', JSON.stringify(retried));
+      assert.deepEqual(await alphaRange(retryId), [13, 15]);
+      assert.deepEqual(spawnRows().map((r) => r.to_commit), [first, second, third]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('a main checkout behind the target', () => {
+  it('with HEAD 5 commits behind origin/main, world_model_symbol answers from indexed_commit', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B }, { remote: true });
+    try {
+      const base = fx.git('rev-parse', 'HEAD');
+      let tip = base;
+      for (let n = 1; n <= 5; n++) tip = fx.commit({ 'src/a.ts': `${'//\n'.repeat(n)}${A.replace('1', String(n))}` });
+      fx.git('reset', '-q', '--hard', base);
+      assert.equal(fx.git('rev-list', '--count', 'HEAD..origin/main'), '5');
+
+      const wm = worldModelTools(fx.db, fx.holder).handlers as Handlers;
+      const card = parse(await wm['world_model_symbol']!({ agent: 'bro', qualified_name: 'alpha', repo: 'app', source: true }));
+      assert.equal(card['indexed_commit'], tip);
+      assert.equal(stamp(fx.db), tip);
+      const sym = card['symbol'] as { start_line: number; end_line: number };
+      assert.deepEqual([sym.start_line, sym.end_line], [6, 8]);
+      const source = card['source'] as { start_line: number; text: string };
+      assert.equal(source.start_line, 6);
+      assert.match(source.text, /return 5;/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('the startup catch-up fetches the target first', () => {
+  afterEach(() => __setTargetFetchForTests());
+
+  async function withOrigin(): Promise<Fx & { origin: string }> {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    const origin = `${fx.ws}-origin.git`;
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+    fx.git('remote', 'add', 'origin', origin);
+    fx.git('push', '-q', '-u', 'origin', 'main');
+    await fx.fresh();
+    const cleanup = fx.cleanup;
+    return { ...fx, origin, cleanup: () => (cleanup(), rmSync(origin, { recursive: true, force: true })) };
+  }
+  const fetchedAt = (db: TrajectoryDB) => db.get<{ at: string | null }>(`SELECT target_fetched_at AS at FROM wm_freshness WHERE repo = 'app'`)?.at ?? null;
+
+  it('a commit pushed from another clone is indexed by startup_catchup with no other fetch', async () => {
+    const fx = await withOrigin();
+    const peer = `${fx.ws}-peer`;
+    try {
+      execFileSync('git', ['clone', '-q', fx.origin, peer]);
+      const inPeer = (...a: string[]) => execFileSync('git', ['-C', peer, '-c', 'user.email=t@t.io', '-c', 'user.name=t', ...a]).toString().trim();
+      writeFileSync(join(peer, 'src/a.ts'), A.replace('1', '7'));
+      inPeer('commit', '-qam', 'pushed from a peer');
+      inPeer('push', '-q', 'origin', 'main');
+      const pushed = inPeer('rev-parse', 'HEAD');
+      const before = stamp(fx.db);
+      assert.notEqual(before, pushed);
+      assert.equal(fx.git('rev-parse', 'refs/remotes/origin/main'), before, 'nothing fetched yet');
+      assert.equal(fetchedAt(fx.db), null);
+
+      await fx.scan('startup_catchup');
+      assert.equal(fx.git('rev-parse', 'refs/remotes/origin/main'), pushed);
+      assert.equal(stamp(fx.db), pushed);
+      assert.notEqual(fetchedAt(fx.db), null);
+      const row = rows(fx.db).at(-1)!;
+      assert.deepEqual([row.mode, row.trigger, row.from_commit, row.to_commit], ['incremental', 'startup_catchup', before, pushed]);
+    } finally {
+      rmSync(peer, { recursive: true, force: true });
+      fx.cleanup();
+    }
+  });
+
+  it('a failed fetch still reindexes to the local origin/<target branch>', async () => {
+    const fx = await withOrigin();
+    try {
+      const local = fx.commit({ 'src/a.ts': A.replace('1', '8') });
+      fx.git('update-ref', 'refs/remotes/origin/main', local);
+      const fetches: string[][] = [];
+      __setTargetFetchForTests({
+        runner: async (args) => {
+          fetches.push(args);
+          throw new Error('remote unreachable');
+        },
+      });
+      await fx.scan('startup_catchup');
+      assert.equal(fetches.length, 1);
+      assert.deepEqual(fetches[0]!.slice(-4), ['fetch', '-q', 'origin', 'main']);
+      assert.notEqual(fetchedAt(fx.db), null, 'the attempt is stamped');
+      assert.equal(stamp(fx.db), local);
+      assert.equal(rows(fx.db).at(-1)!.trigger, 'startup_catchup');
     } finally {
       fx.cleanup();
     }
