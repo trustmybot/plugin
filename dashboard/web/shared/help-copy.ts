@@ -1,4 +1,4 @@
-export type HelpKey = 'overview' | 'insights' | 'issues' | 'tasks' | 'runs' | 'audit' | 'map' | 'issue' | 'task';
+export type HelpKey = 'overview' | 'insights' | 'issues' | 'tasks' | 'runs' | 'audit' | 'map' | 'settings' | 'issue' | 'task';
 
 export interface HelpEntry {
   intro: string;
@@ -56,6 +56,11 @@ export const HELP: Record<HelpKey, HelpEntry> = {
       'Follow a concept through the code, step by step.',
       'See which concepts need checking after a change.',
     ],
+  },
+  settings: {
+    intro:
+      'The project settings you can change here: model prices and the issue label lists. Each save is recorded in the audit log. Policy settings change only through /onboard.',
+    uses: ['Set token prices for a model so Insights can show its cost.', 'Add, rename or remove the labels issues can carry.'],
   },
 };
 
