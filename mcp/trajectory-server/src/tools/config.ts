@@ -101,14 +101,17 @@ export function readHighEffortPaths(db: TrajectoryDB): string[] {
   return [];
 }
 
-function stripTrailingSlash(path: string): string {
-  return path.endsWith('/') ? path.slice(0, -1) : path;
+function pathSegments(path: string): string[] {
+  return path.split('/').filter((s) => s !== '' && s !== '.');
 }
 
+/** Equal paths, or one a path-segment prefix of the other; empty and `.` segments are dropped, so `.` (the repo root) overlaps every path. */
 export function pathsOverlap(file: string, prefix: string): boolean {
-  const a = stripTrailingSlash(file);
-  const b = stripTrailingSlash(prefix);
-  return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
+  const a = pathSegments(file);
+  const b = pathSegments(prefix);
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 export const SWE_EFFORT_AB_KEY = 'swe_effort_ab';

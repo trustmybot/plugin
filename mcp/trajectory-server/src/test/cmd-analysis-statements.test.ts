@@ -152,6 +152,40 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
     assert.equal(decode(shown.text).replaceAll(QM, ''), `git commit -m ${CONTROL_SHOWN} feat$()`);
   });
 
+  for (const [body, before, utf8] of [
+    ['\\xe2\\x9c\\xa8 x', [null, null, null, ' ', 'x'], ['✨', ' ', 'x']],
+    ['\\342\\234\\250', [null, null, null], ['✨']],
+    ['\\x41\\342\\x9c\\250B', ['A', null, null, null, 'B'], ['A', '✨', 'B']],
+    ['\\xef\\xbb\\xbf', [null, null, null], ['﻿']],
+    ['\\xc3\\xa9\\x01\\x00', [null, null, '\x01', null], ['é', '\x01', null]],
+    ['\\xc3\\xa9\\u0041', [null, null, 'A'], ['é', 'A']],
+    ['\\xff x', [null, ' ', 'x'], [null, ' ', 'x']],
+    ['\\xe2\\x9c x', [null, null, ' ', 'x'], [null, null, ' ', 'x']],
+    ['\\xe2\\x9c\\u00a8', [null, null, '¨'], [null, null, '¨']],
+    ['\\xe2a\\x9c\\xa8', [null, 'a', null, null], [null, 'a', null, null]],
+    ['\\xed\\xa0\\x80', [null, null, null], [null, null, null]],
+    ['\\xc3\\777', [null, null], [null, null]],
+  ] as const) {
+    it(`ansiCChars(${JSON.stringify(body)}) keeps each byte past 0x7F null without utf8 (GH 2765)`, () => {
+      assert.deepEqual(ansiCChars(body), before);
+    });
+    it(`ansiCChars(${JSON.stringify(body)}, utf8) decodes only a valid UTF-8 run of byte escapes (GH 2765)`, () => {
+      assert.deepEqual(ansiCChars(body, true), utf8);
+    });
+  }
+
+  it('encode without shownControls reads a byte escape past 0x7F as computed text (GH 2765)', () => {
+    const plain = encode(parser, "git commit -m $'\\xe2\\x9c\\xa8 bad'");
+    assert.ok(plain.ok);
+    assert.equal(decode(plain.text).replaceAll(QM, ''), 'git commit -m $()$()$() bad');
+  });
+
+  it('with shownControls a valid UTF-8 run of byte escapes reads as its chars, an invalid one as computed text (GH 2765)', () => {
+    const shown = encode(parser, "git commit -m $'\\xe2\\x9c\\xa8 feat(x): y\\xff'", NO_CHARGE, false, true);
+    assert.ok(shown.ok);
+    assert.equal(decode(shown.text).replaceAll(QM, ''), 'git commit -m ✨ feat(x): y$()');
+  });
+
   it('a word tree-sitter-bash splits at a backslash-newline is held as the joined word', () => {
     assert.ok(held('eval $x\\\ny').includes('$xy'));
     assert.ok(held('cat <<<$a\\\nb').includes('$ab'));
