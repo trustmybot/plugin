@@ -55,6 +55,8 @@ Or run `/tmb:dashboard` in a Claude Code session: it starts the same server in t
 | `/api/concepts/:id` | the concept with its ordered `steps` (at most 50; `steps_truncated` says when more exist). Each step has `ordinal`, `description`, `trust`, `trust_reason`, `handoff` and `symbol` (`null` when the anchor is gone, then `trust: broken`) |
 | `/api/concepts/:id/graph?limit=` | `{ nodes, edges, truncated }`: the step symbols plus their 1-hop `calls`, `sources`, `runs` and `imports` neighbours over exact edges, test and fixture paths dropped (default 60, 1–120). Step nodes are never cut; neighbours fill the rest of the limit in step order. Each node has `id`, `label`, `repo`, `path`, `dir`, `kind`, `line_start` and `step_ordinal` (`null` for a neighbour); each edge `src`, `dst`, `kind` |
 | `/api/symbols/:id/neighbourhood?limit=` | the same shape for one symbol and its 1-hop neighbours (default 40, 1–100), used to expand a graph node |
+| `/api/config` | `{ keys: [{ key, value }] }`: the four config keys the Settings tab edits (`model_prices`, `issue_area_labels`, `issue_classification_labels`, `issue_priority_labels`), in that order, each with its parsed `plugin_config` value, `null` when unset |
+| `POST /api/config/:key` | writes one of those keys through `config_set`; see [Config writes](#config-writes) |
 
 The world-model endpoints pass each `summary`, `text` and `purpose` through `summaryLine` in `server/queries.ts`: the `<untrusted-content>` framing and markdown syntax are removed and the first non-empty line that is not a horizontal rule is returned, at most 160 characters.
 
@@ -89,6 +91,18 @@ A handler refusal is 422 with the handler's `error`, `message` and data (for a r
 The issue view has an Edit button (objective, description, priority, labels, milestone), a comment box under the discussion, and a Close button for open issues. Errors show the handler's message, any blocking tasks and, for a partly applied edit, the `applied` handlers.
 
 The editor snapshots the issue when it opens. Its fields, the changed-field diff it sends and the `updated_at` it sends all come from that snapshot, never from the live refetch, so a change another session makes mid-edit is never sent back as if the Human had typed it: Save gets 409 `stale` instead. When the live `updated_at` moves past the snapshot, the editor shows a notice that the issue changed; cancel and reopen the editor to load it.
+
+### Config writes
+
+`POST /api/config/:key` with the body `{ value, expected }` (`server/config.ts`) calls the trajectory server's `config_set` handler in-process as `bro`. It passes the same `Host`, `Origin`, token, body-size and schema-version guards as the issue writes, and then:
+
+- Only `model_prices`, `issue_area_labels`, `issue_classification_labels` and `issue_priority_labels` are editable (`EDITABLE_CONFIG_KEYS`). Any other key under `/api/config/`, such as `onboarded`, `sandbox_enforcement` or a key with a space, colon or percent-encoding, is 403 `policy_key` and is left unchanged; policy keys change through `/onboard`.
+- `expected` is the value the page loaded (`null` for an unset key) and is required (400 `expected_required`). When the stored value is not deep-equal to it, the write is 409 `stale` with the `current` value. The check, `config_set`'s write and the audit row run in one `BEGIN IMMEDIATE`.
+- A label list must be a non-empty array of unique, non-empty strings with no leading or trailing spaces. `model_prices` must be an object (it may be empty) whose entries each have exactly `input`, `output`, `cache_read` and `cache_creation` as finite numbers ≥ 0 (USD per 1M tokens). Any other value is 422 `invalid_value` with the offending `field`, such as `value[1]` or `value["claude-opus-5-5"].input`.
+
+A success is 200 `{ ok, key, value, changed }`. `config_set` writes its own `config_changed` audit row (`content_json` `{ key }`). When the value changed, the dashboard adds a `config_changed` row from `dashboard` whose `content_json` carries `actor: human`, `source: dashboard`, `tool: config_set` and `fields: [key]`, with no `key` field so change-impact does not count the change twice.
+
+The Settings tab (`#/settings`, `web/views/settings/`) shows the four keys: model prices as a table with one row per model and its four prices, each label list as an editable list. Each key saves on its own and sends the value it loaded as `expected`. A label list is sent trimmed with its blank rows kept, so the `field` index of a 422 is the row on screen. A 409 shows a prompt to reload that key with the current value; a 422 shows the server's message and field inline.
 
 ## Page help
 
