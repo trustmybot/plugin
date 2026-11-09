@@ -1,7 +1,7 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2650,6 +2650,62 @@ describe('task_provision (#157)', () => {
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+
+  describe('base equal to branch_id (GH 2499)', () => {
+    const provisionOn = (branch_id: string, base: string) => ({
+      agent: 'bro', issue_id: 1, branch_id, base, decision_body: 'Chosen approach: base check; trade-off none.',
+      task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+    });
+
+    for (const base of ['feat/self', 'origin/feat/self', 'refs/heads/feat/self']) {
+      it(`refuses base='${base}' naming both values and creates no branch, worktree, task or decision row`, async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+          const head = git(repoRoot, 'rev-parse', 'HEAD');
+          git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/self', head);
+          const db = tempDB();
+          seedIssue(db, repoRoot);
+          const worktreesBefore = git(repoRoot, 'worktree', 'list', '--porcelain');
+          const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+          const r = await call(composites.handlers, 'task_provision', provisionOn('feat/self', base));
+          assert.equal(r.isError, true, JSON.stringify(parse(r)));
+          const message = String(parse(r)['error']);
+          assert.match(message, /base '(origin\/|refs\/heads\/)?feat\/self' is the task's own branch_id 'feat\/self'/);
+          assert.match(message, /Pass a different base, e.g\. the PR target\./);
+          assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/self'), 'no local branch ref');
+          assert.equal(git(repoRoot, 'worktree', 'list', '--porcelain'), worktreesBefore, 'no worktree');
+          assert.equal(existsSync(join(repoRoot, '.claude', 'worktrees', 'self')), false, 'no worktree dir');
+          assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+          assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM discussions WHERE kind = 'decision'`)!.c, 0, 'no decision row');
+          db.close();
+        } finally {
+          rmSync(ws, { recursive: true, force: true });
+        }
+      });
+    }
+
+    it("stacks on another task's branch: base='feat/lower' provisions feat/upper cut at feat/lower", async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const lower = await call(composites.handlers, 'task_provision', provisionOn('feat/lower', 'main'));
+        assert.ok(!lower.isError, JSON.stringify(parse(lower)));
+        const upper = await call(composites.handlers, 'task_provision', provisionOn('feat/upper', 'feat/lower'));
+        assert.ok(!upper.isError, JSON.stringify(parse(upper)));
+        assert.equal(
+          git(repoRoot, 'rev-parse', 'refs/heads/feat/upper'),
+          git(repoRoot, 'rev-parse', 'refs/heads/feat/lower'),
+        );
+        const row = db.get<{ parent_branch_id: string }>('SELECT parent_branch_id FROM tasks WHERE id = ?', [parse(upper)['task_id']]);
+        assert.equal(row!.parent_branch_id, 'feat/lower');
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
   });
 
   it('waive_spec_shape writes one per-task spec_shape_gate_waived row in the require-task-spec shape; none without it; a short reason writes nothing', async () => {

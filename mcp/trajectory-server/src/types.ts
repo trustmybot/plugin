@@ -195,6 +195,7 @@ export interface ValidationAttempt {
   mcp_available: number;
   subagent_session_id?: string | null;
   reviewer_agent_id?: string | null;
+  reviewed_sha?: string | null;
   created_at: string;
   repo?: string | null;
 }
