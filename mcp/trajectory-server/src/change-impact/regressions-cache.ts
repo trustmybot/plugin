@@ -24,6 +24,9 @@ const METRICS_MAX = 8;
 const CHANGE_ID = /^[A-Za-z0-9._:/-]{1,64}$/;
 const METRIC_ID = /^[a-z][a-z0-9_]{0,47}$/;
 const KEEP = /[\p{L}\p{N} .,:;!?()[\]#/+_@=%&'-]/u;
+const LETTER = /\p{L}/u;
+const MARK = /\p{M}/u;
+const MARKS_MAX = 3;
 
 export interface RegressedMetric {
   id: string;
@@ -43,18 +46,36 @@ export interface RegressionsCache {
 }
 
 /**
- * An allowlist pass: letters, digits, space and `.,:;!?()[]#/+_@=%&'-` stay;
- * every other code point becomes a space; whitespace collapses; the result is
- * capped at 80 code points, ending in `…` when cut. A label already ending in
- * the cut mark keeps it, so a second pass (the hook's read) is a no-op.
+ * An allowlist pass over the NFC form: letters, digits, space and
+ * `.,:;!?()[]#/+_@=%&'-` stay; a combining mark stays only right after a kept
+ * letter or a mark kept on it, at most 3 per letter, and any other mark is
+ * dropped; every other code point becomes a space; whitespace collapses; the
+ * result is capped at 80 code points, ending in `…` when cut, and normalized to
+ * NFC again after the cut. A label already ending in the cut mark keeps it, so
+ * a second pass (the hook's read) is a no-op.
  */
 export function sanitizeChangeLabel(text: string): string {
-  const cut = text.endsWith(CUT_MARK);
+  const nfc = text.normalize('NFC');
+  const cut = nfc.endsWith(CUT_MARK);
   let kept = '';
-  for (const ch of cut ? text.slice(0, -CUT_MARK.length) : text) kept += KEEP.test(ch) ? ch : ' ';
+  let marks = -1;
+  for (const ch of cut ? nfc.slice(0, -CUT_MARK.length) : nfc) {
+    if (MARK.test(ch)) {
+      if (marks >= 0 && marks < MARKS_MAX) {
+        kept += ch;
+        marks++;
+      }
+    } else if (KEEP.test(ch)) {
+      kept += ch;
+      marks = LETTER.test(ch) ? 0 : -1;
+    } else {
+      kept += ' ';
+      marks = -1;
+    }
+  }
   const points = [...kept.replace(/ {2,}/g, ' ').trim()];
   if (!cut && points.length <= LABEL_MAX) return points.join('');
-  return `${points.slice(0, LABEL_MAX - 1).join('').trimEnd()}${CUT_MARK}`;
+  return `${points.slice(0, LABEL_MAX - 1).join('').trimEnd()}${CUT_MARK}`.normalize('NFC');
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);

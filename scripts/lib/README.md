@@ -1,6 +1,6 @@
 # scripts/lib
 
-TypeScript helpers for the release flow. The headless hook shim's resolver is TypeScript, `mcp/trajectory-server/src/hooks/resolve-hook.ts`, bundled to `dist/resolve-hook.mjs`. The hook engine's own shared helpers — trajectory-DB location, reads and writes, timestamps, task resolution, repo policy, command analysis — live in [`scripts/hooks/lib/`](../hooks/lib/).
+TypeScript helpers for the release flow. The headless hook shim's resolver is TypeScript, `mcp/trajectory-server/src/hooks/resolve-hook.ts`, bundled to `dist/resolve-hook.mjs`. The hook engine's own shared helpers — trajectory-DB location, reads and writes, timestamps, task resolution, repo policy, command analysis — live in [`mcp/trajectory-server/src/hooks/lib/`](../../mcp/trajectory-server/src/hooks/lib/).
 
 ## Files
 
