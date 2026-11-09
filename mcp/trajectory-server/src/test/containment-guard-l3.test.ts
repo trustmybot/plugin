@@ -15,7 +15,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { delimiter, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { makeSandbox, PLUGIN_ROOT, runGate, type Sandbox } from './hook-sandbox.js';
+import { makeSandbox, PLUGIN_ROOT, runGate, type HookRun, type Sandbox } from './hook-sandbox.js';
 import { git, has, hasNot } from './git-push-guard-l3.js';
 import { FAKE_UID_PRELOAD, sqlExec } from './db-test-fixtures.js';
 
@@ -43,6 +43,12 @@ function decision(out: string): string {
   } catch {
     return `unparseable: ${out}`;
   }
+}
+
+/** <r>'s stdout, after asserting <gate> wrote nothing to stderr. */
+function noStderr(gate: string, r: HookRun): string {
+  assert.equal(r.stderr, '', `${gate} stderr was not empty: ${r.stderr}`);
+  return r.stdout;
 }
 
 describe('containment-guard l3', () => {
@@ -90,16 +96,16 @@ describe('containment-guard l3', () => {
   }
 
   /**
-   * The gate's stdout and stderr (a `2>&1`, trailing newlines gone) for a
-   * PreToolUse <tool> payload from <cwd>. A swe payload carries the task-5
-   * spawn transcript unless <noIdentity>.
+   * The gate's stdout (trailing newlines gone) for a PreToolUse <tool> payload
+   * from <cwd>, after asserting its stderr is empty. A swe payload carries the
+   * task-5 spawn transcript unless <noIdentity>.
    */
   function run(cwd: string, agent: string, tool: string, toolInput: object, opts: { projectDir?: string; noIdentity?: boolean } = {}): string {
     const payload: Record<string, unknown> = { hook_event_name: 'PreToolUse', session_id: 's-1', cwd, tool_name: tool, tool_input: toolInput };
     if (agent !== '') payload.agent_type = agent;
     if (/swe$/.test(agent) && !opts.noIdentity) payload.agent_transcript_path = TRANSCRIPT;
     const r = runGate('containment-guard', { cwd, input: JSON.stringify(payload), env: hookEnv(opts.projectDir ?? PROJECT, cwd) });
-    return (r.stdout + r.stderr).replace(/\n+$/, '');
+    return noStderr('containment-guard', r).replace(/\n+$/, '');
   }
   const dec = (cwd: string, agent: string, tool: string, toolInput: object, opts?: { projectDir?: string; noIdentity?: boolean }) =>
     decision(run(cwd, agent, tool, toolInput, opts));
@@ -123,8 +129,8 @@ describe('containment-guard l3', () => {
       tool_use_id: toolUseId,
     });
     const env = { ...hookEnv(PROJECT, WT), CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT };
-    if (tool === 'Bash') runGate('PreToolUse', { cwd: WT, input: payload, env });
-    return runGate(gate, { cwd: WT, input: payload, env }).stdout.replace(/\n+$/, '');
+    if (tool === 'Bash') noStderr('PreToolUse', runGate('PreToolUse', { cwd: WT, input: payload, env }));
+    return noStderr(gate, runGate(gate, { cwd: WT, input: payload, env })).replace(/\n+$/, '');
   }
   let DENIES: string;
   let UJ_FILE: string;
