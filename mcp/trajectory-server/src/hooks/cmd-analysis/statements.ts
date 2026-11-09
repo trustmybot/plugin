@@ -69,6 +69,8 @@ export interface Record {
   stmt: string;
   /** The words after an unquoted $( ) or backtick, arguments of the statement it sits in rather than a command (GH 1903), so they change no dir or variable in either mode (GH 2377, GH 2381). */
   tail?: boolean;
+  /** Without `assign`, a git statement cut where an unquoted $( ) or backtick starts: `word` when a blank comes before it, `glued` when it joins the last word (GH 2634). */
+  cut?: 'word' | 'glued';
 }
 
 function norm(p: string): string {
@@ -264,9 +266,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
   const sstack: boolean[] = [];
   const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string, args = false) => {
+  const emit = (dir: string, text: string, args = false, cut?: Record['cut']) => {
     charge(dir.length);
-    records.push(args ? { dir, stmt: text, tail: true } : { dir, stmt: text });
+    records.push({ dir, stmt: text, ...(args ? { tail: true } : {}), ...(cut ? { cut } : {}) });
   };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g' | 'u'> = [];
   const fids: number[] = [];
@@ -875,6 +877,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       ok = VPLAIN.test(a0);
     }
     const kept = !assign && a0 === 'git' ? gitEmptyWords(w, wq, first) : new Set<number>();
+    const gitCut: Record['cut'] = sub && a0 === 'git' ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
     let out = a0;
     for (let k = first + 1; k < n; k++) {
       if (w[k] !== '') out += ' ' + w[k];
@@ -956,7 +959,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     }
     if (calls && !args) fnword(w, first);
     if (cur !== at.cur || alts !== at.alts) for (const fo of fnstack) if (defs[fo].sp === sp && defs[fo].qsp === qsp) defs[fo].moved = true;
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args);
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, gitCut);
     if (!chained && !args) {
       old = '-';
       owhy = '';
