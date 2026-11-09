@@ -60,8 +60,6 @@ import { rawOrEmpty } from './swe-brief-gate.js';
 import { acquireSuiteSlot, describeHolder, isFullSuite, SUITE_LOCK_HELD_ENV } from '../suite-lock.js';
 import { describeSetupFailure, runWorktreeSetup, WORKTREE_SETUP_FILE } from '../utils/worktree-setup.js';
 
-export { shellLength, shellTail } from './lib/verification-runs.js';
-
 export const GATE_NAME = 'swe-verification-gate';
 
 /** hooks.json's timeout for the trajectory-server PreToolUse matcher that runs this gate. */
@@ -315,7 +313,7 @@ class VerificationRun {
   }
 
   private start(ms: number): string {
-    const r = this.write(ms, runStartSql(this.c.taskId, this.c.wtSha, this.c.timeoutS));
+    const r = this.write(ms, runStartSql(this.c.taskId, this.c.wtSha, this.c.timeoutS, 'gate'));
     return r.ok ? commandSubstitution(r.stdout) : '';
   }
 

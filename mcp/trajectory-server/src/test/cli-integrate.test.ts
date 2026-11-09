@@ -138,14 +138,15 @@ function setup(move: Move, verification = PASSING): void {
   }
 }
 
-function cliEnv(): NodeJS.ProcessEnv {
+function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...GIT_ENV, TRAJECTORY_DB_PATH: db, PWD: repo };
   delete env.TMB_VERIFICATION_TIMEOUT_S;
-  return env;
+  delete env.TMB_VERIFICATION_TAIL_CHARS;
+  return { ...env, ...extra };
 }
 
-function integrate(base: string): Run {
-  const r = spawnSync(process.execPath, ['--experimental-sqlite', CLI, 'integrate', '1', base], { cwd: repo, encoding: 'utf8', env: cliEnv() });
+function integrate(base: string, extra: NodeJS.ProcessEnv = {}): Run {
+  const r = spawnSync(process.execPath, ['--experimental-sqlite', CLI, 'integrate', '1', base], { cwd: repo, encoding: 'utf8', env: cliEnv(extra) });
   return { code: r.status, out: r.stdout.replace(/\n+$/, ''), err: r.stderr };
 }
 
@@ -261,6 +262,19 @@ describe('cli.js integrate', () => {
     );
     assertNoTempWorktree();
   });
+
+  for (const [cap, want] of [
+    ['10', 'abcdefghij'],
+    ['0', '0123456789abcdefghij'],
+  ] as const) {
+    it(`TMB_VERIFICATION_TAIL_CHARS=${cap}: the command's output_tail is cut by the shared rule (GH 1405)`, () => {
+      setup('clean', '["test -f a.txt", "printf 0123456789abcdefghij"]');
+      const r = integrate('main', { TMB_VERIFICATION_TAIL_CHARS: cap, LC_ALL: 'C' });
+      assert.equal(r.code, 0, r.err);
+      assert.equal(q(`SELECT source FROM verification_runs WHERE commit_sha = '${r.out}'`), 'manual', 'the run row is a manual run');
+      assert.equal(q('SELECT output_tail FROM verification_run_commands WHERE ordinal = 2'), want, cap === '0' ? '0 means no cut' : 'last 10 characters kept');
+    });
+  }
 
   it('failing verification: exit 1, the failing run is recorded, branch unmoved', () => {
     setup('clean', FAILING);
