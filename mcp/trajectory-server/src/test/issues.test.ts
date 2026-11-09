@@ -2246,6 +2246,72 @@ describe('issue_adopt_remote (#36)', () => {
     db.close();
   });
 
+  function countingSpawn(result: { status: number; stdout: string; stderr: string }) {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const fn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      return result;
+    };
+    return { fn, calls };
+  }
+
+  it('a DIFFERENT-iid conflict returns already_linked without spawning gh (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote conflict no spawn');
+    db.run('UPDATE issues SET gh_iid = 42, remote_kind = ? WHERE id = ?', ['github', issueId]);
+
+    const spawn = countingSpawn({ status: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway' });
+    const conflict = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 43, _spawnFn: spawn.fn });
+    const data = parseResult(conflict);
+    assert.ok(conflict.isError, 'conflicting adopt must error');
+    assert.match(data.error, /^already_linked: /);
+    assert.equal(spawn.calls.length, 0, 'no gh spawn before the link-conflict check');
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid, 42);
+
+    db.close();
+  });
+
+  it('re-adopting the SAME iid still verifies once (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote same iid verifies');
+    db.run('UPDATE issues SET gh_iid = 42, remote_kind = ? WHERE id = ?', ['github', issueId]);
+
+    const spawn = countingSpawn({ status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' });
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `same-iid re-adopt must succeed, got: ${data.error}`);
+    assert.equal(data.idempotent, true);
+    assert.equal(spawn.calls.length, 1);
+    assert.deepEqual(spawn.calls[0]!.args.slice(0, 3), ['issue', 'view', '42']);
+
+    db.close();
+  });
+
+  it('an unlinked adopt verifies first and refuses on verify failure with gh stderr (GH 2772)', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote verify stderr');
+
+    const spawn = countingSpawn({ status: 1, stdout: '', stderr: 'HTTP 401: Bad credentials\nmore' });
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'verify failure must error');
+    assert.equal(spawn.calls.length, 1);
+    assert.match(data.error, /^remote_verify_failed: .*\(not_found_or_error: HTTP 401: Bad credentials\)$/);
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid ?? null, null, 'no link persisted on verification failure');
+
+    db.close();
+  });
+
   it('nonexistent remote → named error, no link persisted', async () => {
     const db = tempDB();
     registerGithubRepo(db);
