@@ -49,6 +49,7 @@ node --test tests/l1-lint/link-check.test.mjs
 | [`agent-task-brief-contract.test.mjs`](./agent-task-brief-contract.test.mjs) | Agent/task-brief contract drift |
 | [`agent-template-byte-identity.test.mjs`](./agent-template-byte-identity.test.mjs) | Shipped vs template agent byte mismatch |
 | [`command-frontmatter.test.mjs`](./command-frontmatter.test.mjs) | Malformed command frontmatter |
+| [`frontmatter-plain-scalar.test.mjs`](./frontmatter-plain-scalar.test.mjs) | A skill, agent or command frontmatter value left unquoted while it holds `: `, which YAML rejects |
 | [`skill-frontmatter.test.mjs`](./skill-frontmatter.test.mjs) | Malformed skill frontmatter |
 | [`skill-catalog-sync.test.mjs`](./skill-catalog-sync.test.mjs) | Skill catalog out of sync with skill dirs |
 | [`tool-description-budget.test.mjs`](./tool-description-budget.test.mjs) | MCP tool descriptions over budget |
