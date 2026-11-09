@@ -383,9 +383,10 @@ describe('prompt-intent-hints l3', () => {
       has(o, 'feat/done', 'the unsigned task is listed');
       has(
         o,
-        "`Agent(subagent_type='code-reviewer', effort='<reviewer_effort from bro_atomic_close>', prompt='task_id=<N>')`, per tmb_push-gate.",
-        'push hint spawns code-reviewer with its effort (GH 2713)',
+        'spawn code-reviewer per pending task with the `reviewer_spawn` Agent call bro_atomic_close returned, passed as is (its prompt carries the anchors the spawn gates require), per tmb_push-gate.',
+        'push hint spawns code-reviewer with the reviewer_spawn call bro_atomic_close returned (GH 2743)',
       );
+      hasNot(o, "prompt='task_id=<N>'", 'no bare task_id spawn prompt the anchor gates deny (GH 2743)');
       hasNot(o, 'isolation=', 'no empty isolation argument');
     });
 

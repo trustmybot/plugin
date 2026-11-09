@@ -65,6 +65,10 @@ describe('code-reviewer-no-worktree', () => {
       assert.equal(denyReason(r.stdout), fixedReason(DENY_REASON, DENY_FIX));
     }
   });
+  it('names tmb_planning section 6, not V1/V2/V3 (GH 2743)', () => {
+    assert.ok(DENY_REASON.includes('(tmb_planning section 6: the four checks + bro_atomic_close)'), DENY_REASON);
+    assert.ok(!DENY_REASON.includes('V1/V2/V3'), DENY_REASON);
+  });
   it('allows other isolation values, other agents and other tools', () => {
     assert.deepEqual(codeReviewerNoWorktree(spawn({ subagent_type: 'code-reviewer' }), env), ALLOWED);
     assert.deepEqual(codeReviewerNoWorktree(spawn({ subagent_type: 'code-reviewer', isolation: 'Worktree' }), env), ALLOWED);
