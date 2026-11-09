@@ -43,7 +43,7 @@ export const PARSE_REASON =
   'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler commands with plain quoting' };
 const subcommandReason = (what: string): string =>
-  `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally.`;
+  `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally. An option value in double quotes, such as \`git -C "$W" status\`, is allowed.`;
 const SUBCOMMAND_FIX: DenyFix = { allowed: 'git -C <path> push …, or the literal subcommand it runs' };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 

@@ -235,6 +235,11 @@ describe('git-push-guard: GH 2643 an unquoted expansion in git -C may split into
       assert.match(reason((await gitPushGuard(payload(command, wt), env)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);
     });
 
+  it('the ambiguous-subcommand deny names the double-quoted option value form as allowed', async () => {
+    const text = reason((await gitPushGuard(payload("W='/x push'; git -C $W status", wt), env)).stdout);
+    assert.ok(text.includes(' An option value in double quotes, such as `git -C "$W" status`, is allowed.'), text);
+  });
+
   it('W=/x; git -C "$W" status: from a worktree cwd is allowed', async () => {
     assert.equal(reason((await gitPushGuard(payload('W=/x; git -C "$W" status', wt), env)).stdout), '');
   });
