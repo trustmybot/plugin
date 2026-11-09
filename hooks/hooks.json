@@ -163,7 +163,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PostToolUse",
-            "timeout": 13
+            "timeout": 13,
+            "onFailure": "block"
           }
         ]
       }
