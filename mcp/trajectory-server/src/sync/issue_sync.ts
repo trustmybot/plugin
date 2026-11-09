@@ -108,7 +108,7 @@ async function readBackVerify(
       result = spawnFn('glab', args, spawnOpts);
     }
     if (result.status !== 0) {
-      return { ok: false, reason: 'read_back_non_zero_exit' };
+      return { ok: false, reason: verifyFailureReason('read_back_non_zero_exit', result.stderr) };
     }
     if (backend === 'gh') {
       let parsed: { number?: number; url?: string };
@@ -261,9 +261,9 @@ function parseRemoteMetadata(stdout: string): { milestone: string | null; labels
 
 const VERIFY_STDERR_MAX = 200;
 
-function verifyFailureReason(stderr: string | null | undefined): string {
+function verifyFailureReason(prefix: string, stderr: string | null | undefined): string {
   const line = (stderr ?? '').split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '');
-  return line ? `not_found_or_error: ${line.slice(0, VERIFY_STDERR_MAX)}` : 'not_found_or_error';
+  return line ? `${prefix}: ${line.slice(0, VERIFY_STDERR_MAX)}` : prefix;
 }
 
 export async function verifyRemoteIssue(
@@ -285,7 +285,7 @@ export async function verifyRemoteIssue(
       if (opts.repoSlug) args.push('-R', opts.repoSlug);
       result = spawnFn('glab', args, spawnOpts);
     }
-    if (result.status !== 0) return { ok: false, reason: verifyFailureReason(result.stderr) };
+    if (result.status !== 0) return { ok: false, reason: verifyFailureReason('not_found_or_error', result.stderr) };
     if (backend === 'gh') {
       let parsed: { number?: unknown };
       try {
