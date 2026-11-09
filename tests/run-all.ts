@@ -178,7 +178,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: no grep -q in L6 chain-manifest pipelines', 'no-grep-q-in-pipelines.test.mjs'),
     lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs'),
     lint('L1 lint: no destructive SQL in migrations', 'no-destructive-sql.test.mjs'),
-    lint('L1 lint: tsc --noEmit on MCP server', 'tsc-noemit.test.mjs'),
+    lint('L1 lint: tsc --noEmit on MCP server + dashboard', 'tsc-noemit.test.mjs'),
+    lint('L1 lint: typescript-eslint against the suppressions baseline', 'eslint.test.mjs'),
     lint('L1 lint: dist entrypoints are esbuild bundles', 'dist-bundles.test.mjs'),
     lint('L1 lint: bundle whitespace preserves string constants', 'bundle-whitespace-safety.test.mjs'),
     lint('L1 lint: labels.json triage rule + LABELS.md generated fresh', 'labels.test.mjs'),
@@ -234,6 +235,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
     lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
+    lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs'),
   ];
 }
 
