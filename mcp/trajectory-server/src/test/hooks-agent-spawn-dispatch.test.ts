@@ -48,7 +48,7 @@ function stubs(replies: Record<string, Gate | GateResult> = {}) {
 }
 
 describe('agent-spawn-dispatch', () => {
-  it('runs the nine chain gates in order, then the two PREPARE steps, and allows', async () => {
+  it('runs the nine chain gates in order, then the three PREPARE steps, and allows', async () => {
     const s = stubs();
     assert.deepEqual(await agentSpawnDispatch(`${PAYLOAD}\n\n`, {}, s.find), ALLOW);
     assert.deepEqual(s.names(), [...CHAIN, ...PREPARE]);
@@ -64,7 +64,7 @@ describe('agent-spawn-dispatch', () => {
       'code-reviewer-preflight',
       'rework-limit',
     ]);
-    assert.deepEqual(PREPARE, ['ensure-swe-worktree', 'record-swe-spawn']);
+    assert.deepEqual(PREPARE, ['ensure-swe-worktree', 'record-swe-spawn', 'record-reviewer-spawn']);
   });
 
   it('prints the first deny verbatim and runs no later gate or PREPARE step', async () => {
