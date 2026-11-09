@@ -14,7 +14,7 @@
 // migrates the live DB (GH 1639). The project root is the argument, else
 // CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never the working
 // directory, which may be a worktree or a subdirectory. Neither → exit 2.
-// The source is scan_run's audit `source`: bro_auto_post_close by default,
+// The source is scan_run's audit `source`: bro_auto_initial by default,
 // startup_catchup from the server's connect-time catch-up, which on a warm DB
 // reindexes each known repo to its target commit instead of walking the
 // workspace (GH 2584). The invoker then waits for the daily shadow compare
@@ -48,7 +48,7 @@ async function main() {
   if (dbPath === ':memory:' || !existsSync(dbPath)) {
     fail(2, `no trajectory DB at ${dbPath}; nothing scanned`);
   }
-  const source = process.argv[3] || 'bro_auto_post_close';
+  const source = process.argv[3] || 'bro_auto_initial';
   const hookRepo = source === 'hook' ? process.argv[4] : undefined;
   if (source === 'hook' && !hookRepo) {
     fail(2, 'hook mode needs a repo: run-scan.mjs <project-root> hook <repo> [--fetch]; nothing scanned');

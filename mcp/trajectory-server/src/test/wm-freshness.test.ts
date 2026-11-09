@@ -386,7 +386,7 @@ describe('every successful scan stamps the target commit (SC8)', () => {
     try {
       const head = fx.git('rev-parse', 'main');
       assert.equal(stamp(fx.db), head);
-      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+      for (const source of ['user_manual', 'bro_auto_initial', 'startup_catchup']) {
         await fx.scan(source);
         assert.equal(stamp(fx.db), head, source);
       }
@@ -399,7 +399,7 @@ describe('every successful scan stamps the target commit (SC8)', () => {
     const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
     try {
       const head = fx.git('rev-parse', 'main');
-      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+      for (const source of ['user_manual', 'bro_auto_initial', 'startup_catchup']) {
         fx.db.run(`UPDATE repos SET indexed_commit = NULL WHERE name = 'app'`);
         await fx.scan(source);
         assert.equal(stamp(fx.db), head, source);

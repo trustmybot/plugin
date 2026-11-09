@@ -154,7 +154,7 @@ sequenceDiagram
 
 `scan_run` is the single scan-side MCP tool. It runs the deterministic walker in `src/tools/scan-walk.ts` in-process, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-Triggered four ways (the `source` value is verified against `scan.ts`, whose enum still accepts `bro_auto_post_close`, though no hook fires it since GH 2584 removed the post-close rescan):
+Triggered four ways (`scan.ts` accepts `user_manual`, `bro_auto_initial` and `startup_catchup`, and records any other `source` as `bro_auto_initial`):
 
 | Trigger | `source` value | Who fires |
 |---|---|---|
@@ -165,7 +165,7 @@ Triggered four ways (the `source` value is verified against `scan.ts`, whose enu
 
 `scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
 
-- `source` (one of the four values above, or the unfired `bro_auto_post_close`)
+- `source` (one of the three accepted values above)
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
 
