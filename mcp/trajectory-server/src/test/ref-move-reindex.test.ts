@@ -378,7 +378,7 @@ describe('local ref moves and gh repo sync', () => {
     return { ...process.env, TRAJECTORY_DB_PATH: join(dir, 'trajectory.db') };
   };
   const seamsAt = (target: string) =>
-    recording({ statements: cmdStatements, repoRoot: async () => '/repo', repoStamp: () => stamp, targetCommit: () => target });
+    recording({ statements: cmdStatements, repoRoot: () => Promise.resolve('/repo'), repoStamp: () => stamp, targetCommit: () => target });
 
   for (const command of ['git merge --ff-only main', 'git rebase main', 'git reset --hard HEAD~1', 'git checkout main', 'git switch main']) {
     it(`${command}: the stamp check alone decides`, async () => {
@@ -413,7 +413,7 @@ describe('local ref moves and gh repo sync', () => {
       const { seams, calls } = recording();
       await refMoveReindexWith(seams)(payload('git reset --hard HEAD', fx.root), fx.env);
       assert.deepEqual(calls.launch, [[fx.root, 'hook', 'app']]);
-      assert.equal(runChild(fx, calls.launch[0]!).status, 0);
+      assert.equal(runChild(fx, calls.launch[0]).status, 0);
       assert.equal(fx.stamp(), next);
       assert.notEqual(first, next);
     } finally {

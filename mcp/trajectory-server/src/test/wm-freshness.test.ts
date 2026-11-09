@@ -611,7 +611,7 @@ describe('spawns (SC6)', () => {
       const spec = ['## Description', 'Change `alpha` in `src/a.ts`.', '', '## Success Criteria', '- SC1: works'].join('\n');
       const moveAlpha = (pad: number) => fx.commit({ 'src/a.ts': `${'//\n'.repeat(pad)}${A}` });
       const alphaRange = async (taskId: number) => {
-        const brief = parse(await composites['task_brief']!({ agent: 'bro', task_id: taskId, section: 'core' }));
+        const brief = parse(await composites['task_brief']({ agent: 'bro', task_id: taskId, section: 'core' }));
         const files = (brief['locations'] as { files: Array<{ path: string; symbols: Array<{ qualified_name: string; start_line: number; end_line: number }> }> }).files;
         const alpha = files.find((f) => f.path === 'src/a.ts')?.symbols.find((s) => s.qualified_name === 'alpha');
         assert.ok(alpha, JSON.stringify(brief['locations']));
@@ -621,7 +621,7 @@ describe('spawns (SC6)', () => {
 
       const first = moveAlpha(3);
       const provisioned = parse(
-        await composites['task_provision']!({
+        await composites['task_provision']({
           agent: 'bro',
           issue_id: 1,
           branch_id: 'feat/brief-lines',
@@ -635,7 +635,7 @@ describe('spawns (SC6)', () => {
       assert.deepEqual(spawnRows().map((r) => r.to_commit), [first]);
 
       const second = moveAlpha(7);
-      const reopened = parse(await composites['task_reopen']!({ agent: 'bro', task_id: taskId, reason: 'rework after the base moved' }));
+      const reopened = parse(await composites['task_reopen']({ agent: 'bro', task_id: taskId, reason: 'rework after the base moved' }));
       assert.equal(reopened['status'], 'running', JSON.stringify(reopened));
       assert.deepEqual(await alphaRange(taskId), [8, 10]);
       assert.deepEqual(spawnRows().map((r) => r.to_commit), [first, second]);
@@ -643,7 +643,7 @@ describe('spawns (SC6)', () => {
       fx.db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [taskId]);
       const third = moveAlpha(12);
       const retried = parse(
-        await composites['task_retry']!({
+        await composites['task_retry']({
           agent: 'bro',
           failed_task_id: String(taskId),
           new_branch_id: 'feat/brief-lines-retry',
@@ -673,7 +673,7 @@ describe('a main checkout behind the target', () => {
       assert.equal(fx.git('rev-list', '--count', 'HEAD..origin/main'), '5');
 
       const wm = worldModelTools(fx.db, fx.holder).handlers as Handlers;
-      const card = parse(await wm['world_model_symbol']!({ agent: 'bro', qualified_name: 'alpha', repo: 'app', source: true }));
+      const card = parse(await wm['world_model_symbol']({ agent: 'bro', qualified_name: 'alpha', repo: 'app', source: true }));
       assert.equal(card['indexed_commit'], tip);
       assert.equal(stamp(fx.db), tip);
       const sym = card['symbol'] as { start_line: number; end_line: number };
@@ -736,14 +736,14 @@ describe('the startup catch-up fetches the target first', () => {
       fx.git('update-ref', 'refs/remotes/origin/main', local);
       const fetches: string[][] = [];
       __setTargetFetchForTests({
-        runner: async (args) => {
+        runner: (args) => {
           fetches.push(args);
-          throw new Error('remote unreachable');
+          return Promise.reject(new Error('remote unreachable'));
         },
       });
       await fx.scan('startup_catchup');
       assert.equal(fetches.length, 1);
-      assert.deepEqual(fetches[0]!.slice(-4), ['fetch', '-q', 'origin', 'main']);
+      assert.deepEqual(fetches[0].slice(-4), ['fetch', '-q', 'origin', 'main']);
       assert.notEqual(fetchedAt(fx.db), null, 'the attempt is stamped');
       assert.equal(stamp(fx.db), local);
       assert.equal(rows(fx.db).at(-1)!.trigger, 'startup_catchup');
