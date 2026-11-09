@@ -91,11 +91,41 @@ describe('git-push-guard sees pushes the listing hid (GH 2635)', () => {
       ["PS4='$(git push origin dev)'; set -x; true", TARGET],
       ["PS4='`git push origin dev`'; set -x; true", TARGET],
       ["export PS4='$(git push origin dev)'; set -x; true", TARGET],
+      ["PS4='$(git push origin dev)' bash -x -c true", TARGET],
+      ["PS4+='$(git push origin dev)'; set -x; true", TARGET],
       ['f() { git push origin dev; }; builtin mapfile -C f -c 1 < /dev/null', TARGET],
       ['a=(1); echo $(( a[$(git push origin dev)] ))', WORKTREE],
       ["PS4='+ '; set -x; git status", ''],
       ["trap 'rm -f t' EXIT", ''],
       ["alias ll='ls -l'", ''],
+    ]);
+  });
+
+  it('denies a PS4 set behind a wrapper, from an expansion or by a builtin operand (F680-1)', async () => {
+    await expect([
+      ["env PS4='$(git push origin dev)' bash -xc true", UNKNOWN],
+      ["env FOO=1 PS4='$(git push origin dev)' bash -xc true", UNKNOWN],
+      ["sudo PS4='$(git push origin dev)' bash -xc true", UNKNOWN],
+      ["X='$(git push origin dev)'; PS4=$X; set -x; true", UNKNOWN],
+      ['X=\'$(git push origin dev)\'; PS4="$X"; set -x; true', UNKNOWN],
+      ['X=\'$(git push origin dev)\'; export PS4="$X"; set -x; true', UNKNOWN],
+      ['f() { local PS4=$X; set -x; true; }; f push', UNKNOWN],
+      ["printf -v PS4 '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["printf -vPS4 '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["read -r PS4 <<< '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["declare -n p=PS4; p='$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["env PS4='+ $(date)' bash -xc 'git status'", ''],
+      ['PS4=$X; set -x; git status', ''],
+      ['unset PS4; git status', ''],
+      ['git push origin PS4', WORKTREE],
+    ]);
+  });
+
+  it('reads a case pattern inside a heredoc $( ) (F680-2)', async () => {
+    await expect([
+      ['cat <<EOF\n$(case x in a) git push origin dev;; esac)\nEOF', WORKTREE],
+      ['cat <<EOF\n$( (case x in (a) git push origin dev;; esac) )\nEOF', WORKTREE],
+      ['cat <<EOF\n$(case x in a) git status;; esac) (note)\nEOF', ''],
     ]);
   });
 
@@ -149,5 +179,7 @@ describe('cmdStatements marks code it cannot read (GH 2635)', () => {
   it('reads the substitutions of a heredoc body as text', () => {
     assert.deepEqual(bodySubstitutions('a $(b "c)") `d \\` e` \\$(f) $(( $(g) ))'), ['b "c)"', 'd ` e', 'g']);
     assert.equal(bodySubstitutions('$(a'), null);
+    assert.deepEqual(bodySubstitutions('$(case x in a) y;; esac) z)', (code) => code.endsWith('esac')), ['case x in a) y;; esac']);
+    assert.deepEqual(bodySubstitutions('$(a) b)', () => false), ['a']);
   });
 });

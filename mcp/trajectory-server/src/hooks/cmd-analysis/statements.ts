@@ -798,6 +798,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     let cdw = '';
     const chdirs: string[] = [];
     const aw: string[] = [];
+    const wrapped: string[] = [];
     let plain = true;
     const waspiped = piped;
     piped = false;
@@ -853,6 +854,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       }
       if (WRAPPER.test(w[first])) {
         const u = unwrap(w, first);
+        for (let k = first; k < u.k; k++) if (PS4_WORD.test(w[k])) wrapped.push(w[k]);
         first = u.k;
         plain = false;
         for (const dir of u.dirs) {
@@ -865,7 +867,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     }
     if (!assign) {
       const decl = first < n && !wq[first] && DECLARE.test(w[first]) ? w.slice(first + 1) : [];
-      for (const word of [...aw, ...decl]) if (PS4_WORD.test(word)) emit(here(), word, args, sub ? (w[n - 1] === '' ? 'word' : 'glued') : undefined);
+      for (const word of [...aw, ...wrapped, ...decl]) if (PS4_WORD.test(word)) emit(here(), word, args, sub ? (w[n - 1] === '' ? 'word' : 'glued') : undefined);
     }
     if (calls && w.some((x) => HOOK_ARRAY.test(x))) fndyn();
     if (fhead && fpend === null && first < n && w.slice(first + 1).every((x) => x === '')) {

@@ -130,29 +130,41 @@ export function heredocEncoder(parser: Parser, charge: Charge = NO_CHARGE): Here
   };
 }
 
-/** Where the `)` closing the `(` at <open> of shell source <s> is, past quotes and nested parens; -1 when unclosed. */
-function closeParen(s: string, open: number): number {
+/** How many `)` bodySubstitutions tries as a $( )'s close. */
+const MAX_CLOSES = 8;
+
+/**
+ * The `)` that may close the `(` at <open> of shell source <s>, past quotes
+ * and nested parens: the one that pairs it, then each later unpaired one,
+ * since a `case` pattern's `)` pairs no `(`; at most MAX_CLOSES.
+ */
+function closeParens(s: string, open: number): number[] {
+  const out: number[] = [];
   let depth = 0;
-  for (let j = open; j < s.length; j++) {
+  for (let j = open; j < s.length && out.length < MAX_CLOSES; j++) {
     const c = s[j];
     if (c === '\\') j++;
     else if (c === "'") {
       j = s.indexOf("'", j + 1);
-      if (j < 0) return -1;
+      if (j < 0) break;
     } else if (c === '"') {
       for (j++; j < s.length && s[j] !== '"'; j++) if (s[j] === '\\') j++;
     } else if (c === '(') depth++;
-    else if (c === ')' && --depth === 0) return j;
+    else if (c === ')' && --depth <= 0) {
+      out.push(j);
+      depth = 0;
+    }
   }
-  return -1;
+  return out;
 }
 
 /**
  * The code of each outermost $( ) and backtick in the text of an
  * unquoted-delimiter heredoc body, a backslash escaping the next char, the
- * code inside `$((` … `))` read on; null at an unclosed one.
+ * code inside `$((` … `))` read on; null at an unclosed one. A $( ) ends at
+ * the first `)` closeParens gives whose code <parses>, else at the first.
  */
-export function bodySubstitutions(text: string): string[] | null {
+export function bodySubstitutions(text: string, parses: (code: string) => boolean = () => true): string[] | null {
   const out: string[] = [];
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -168,8 +180,9 @@ export function bodySubstitutions(text: string): string[] | null {
       out.push(code);
       i = j;
     } else if (c === '$' && text[i + 1] === '(' && text[i + 2] !== '(') {
-      const close = closeParen(text, i + 1);
-      if (close < 0) return null;
+      const closes = closeParens(text, i + 1);
+      if (closes.length === 0) return null;
+      const close = closes.find((at) => parses(text.slice(i + 2, at))) ?? closes[0];
       out.push(text.slice(i + 2, close));
       i = close;
     }
@@ -281,9 +294,10 @@ export class Encoder {
     if (end && this.src[dropTo] === '\n') dropTo++;
     let code = '';
     if (this.heredocCode && body && end && !/['"\\]/.test(word)) {
-      const subs = bodySubstitutions(this.src.slice(body.startIndex, end.startIndex));
+      const heredocCode = this.heredocCode;
+      const subs = bodySubstitutions(this.src.slice(body.startIndex, end.startIndex), (sub) => heredocCode(sub) !== null);
       for (const sub of subs ?? []) {
-        const text = this.heredocCode(sub);
+        const text = heredocCode(sub);
         if (text === null) this.failed = true;
         else code += ` ${QO}${text}${QC}`;
       }

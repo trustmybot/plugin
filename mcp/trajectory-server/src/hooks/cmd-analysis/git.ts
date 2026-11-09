@@ -61,6 +61,8 @@ interface CodeRead {
 
 const NO_CODE: CodeRead = { codes: [], check: [], stdin: false };
 const PROMPT_EXPANSION = /\$\{[^}]*@P\}/;
+/** A word naming PS4 as a variable to set: `PS4`, `-vPS4`, `PS4[i]`, or a nameref's `=PS4`. */
+const PS4_OPERAND = /(^|^-v|=)PS4(\[.*\])?$/;
 const upTo = (k: number): number[] => Array.from({ length: k }, (_, i) => i + 1);
 /** Text the shell expands as a double-quoted word, as code that runs only its expansions. */
 const expanded = (value: string): string => `: "${value}"`;
@@ -142,7 +144,7 @@ function aliasCode(w: readonly string[]): CodeRead {
 function codeOf(stmt: string): CodeRead {
   if (PS4_WORD.test(stmt)) {
     const value = decode(stmt.slice(stmt.indexOf('=') + 1));
-    return /[$`]/.test(value) ? { codes: [{ text: expanded(value.replace(/\\/g, '')), later: true }], check: [], stdin: false } : NO_CODE;
+    return /[$`]/.test(value) ? { codes: [{ text: expanded(value.replace(/\\/g, '')), later: true }], check: [0], stdin: false } : NO_CODE;
   }
   const w = readWords(stmt);
   const argv0 = w[0] ?? '';
@@ -253,9 +255,12 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
  * it defines outlive it, so their statements run in `-`. Code a statement
  * runs later (codeOf) is listed in `-` after the statement itself, and is
  * `opaque` where it does not parse. A statement whose code cannot be read is
- * `opaque` (GH 2635): a code word that is not literal, a statement an
- * unquoted $( ) or backtick cut, a shell reading stdin, a `${…@P}` prompt
- * expansion, or code past MAX_DEPTH; the code it can read is still listed.
+ * `opaque` (GH 2635): a code word that is not literal (a PS4 value that
+ * expands as it is assigned, whose result `set -x` expands again), a
+ * statement an unquoted $( ) or backtick cut, a shell reading stdin, a
+ * `${…@P}` prompt expansion, a PS4 operand (`printf -v PS4`, `read PS4`, a
+ * `declare -n` to it) that sets PS4 to text the listing cannot see, or code
+ * past MAX_DEPTH; the code it can read is still listed.
  */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
@@ -273,13 +278,15 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
       for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(opaque ? { opaque: true as const } : {}) }, () => srcAt(k)));
     };
     const { codes, check, stdin } = dir.startsWith('=') ? NO_CODE : codeOf(stmt);
+    const words = readWords(stmt);
     const prompt = PROMPT_EXPANSION.test(decode(stmt));
-    const cutRunner = cut !== undefined && readWords(stmt)[0] !== 'git';
+    const setsPs4 = words[0] !== 'git' && words.slice(1).some((word) => PS4_OPERAND.test(decode(word)));
+    const cutRunner = cut !== undefined && words[0] !== 'git';
     if (codes.length === 0 || stdin || prompt || depth >= MAX_DEPTH) {
-      own(stdin || prompt || cutRunner || codes.length > 0);
+      own(stdin || prompt || setsPs4 || cutRunner || codes.length > 0);
       continue;
     }
-    let opaque = cutRunner || !literalWords(stmt, check, () => srcAt(k));
+    let opaque = setsPs4 || cutRunner || !literalWords(stmt, check, () => srcAt(k));
     const bodies: Statement[] = [];
     for (const code of codes) {
       const nested = listing(parser, decode(code.text).replace(/\n+$/, ''), code.later ? '-' : dir, depth + 1, home, code.later || readWords(stmt)[0] === 'eval');
