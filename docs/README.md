@@ -6,14 +6,13 @@ Developer documentation for the TMB plugin. Read these when you're contributing 
 
 If something in `docs/` turns out to be load-bearing for bro's behavior, inline it where bro actually reads it.
 
-| File / folder | Purpose |
+Each folder's `README.md` lists the files it holds.
+
+| Folder | Purpose |
 |---|---|
-| `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, world model, CC config) |
-| `reference/CONFIG_KEYS.md` | `plugin_config` key registry (generated) |
-| `reference/MULTI_PLATFORM.md` | OS compatibility notes |
-| `reference/INSTALL.md` | Recommended install scope and what `/onboard` writes where |
-| `reference/UPGRADE.md` | Plugin version migration notes |
-| `architecture/` | Design rationale (MEMORY, CHEATCODES, ERD, FLOWS, GIT, REPO_RESOLUTION, RESPONSIBILITIES, TYPED_RAILS, UI, WORLD_MODEL) |
-| `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
-| `contributing/` | Enum/label/naming registries (ENUMS, LABELS, NAMING) |
-| `adapters/` | Platform-adapter development standard (ADAPTER_CONTRACT) |
+| [`reference/`](./reference/) | Operational lookups: where state lives, config keys, install, upgrade, platforms |
+| [`architecture/`](./architecture/) | Design rationale: the schema, the workflow gates, the role boundaries, the world model |
+| [`prompt-engineering/`](./prompt-engineering/) | How TMB writes and enforces the prompts that drive its agents |
+| [`contributing/`](./contributing/) | Naming, enum, label and changelog rules for contributors |
+| [`adapters/`](./adapters/) | The platform-adapter development standard |
+| `assets/` | Images the READMEs embed |

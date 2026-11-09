@@ -75,8 +75,8 @@ function byteEscape(body: string, i: number): { n: number; len: number } | null 
   return b && b.n <= 0xff ? b : null;
 }
 
-/** The maximal run of byte escapes at `body[i]` decoded as UTF-8 (GH 2765), each char as `ansiCPoint` gives it; null when the run is all ASCII, and its bytes as `ansiCByte` gives them when it is not valid UTF-8. */
-function utf8Run(body: string, i: number): { chars: Array<string | null>; end: number } | null {
+/** The maximal run of byte escapes at `body[i]` decoded as UTF-8 (GH 2765), each char as `ansiCPoint` gives it; null when `body[i]` starts no byte escape, and its bytes as `ansiCByte` gives them when the run is all ASCII (GH 2793) or not valid UTF-8. */
+export function utf8Run(body: string, i: number): { chars: Array<string | null>; end: number } | null {
   const bytes: number[] = [];
   let end = i;
   while (body[end] === '\\') {
@@ -85,7 +85,8 @@ function utf8Run(body: string, i: number): { chars: Array<string | null>; end: n
     bytes.push(b.n);
     end += b.len;
   }
-  if (!bytes.some((n) => n > 0x7f)) return null;
+  if (bytes.length === 0) return null;
+  if (!bytes.some((n) => n > 0x7f)) return { chars: bytes.map(ansiCByte), end };
   try {
     return { chars: [...UTF8.decode(Uint8Array.from(bytes))].map((ch) => ansiCPoint(ch.codePointAt(0)!)), end };
   } catch {

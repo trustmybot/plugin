@@ -30,7 +30,7 @@ type Check = { pattern: string; message: string };
 
 const PY_CHECKS: Check[] = [
   { pattern: '^[S]*except[S]*:', message: "bare 'except:' — catch a specific exception or re-raise" },
-  { pattern: '^[S]*except[S]+Exception[S]*[:as ]', message: "'except Exception' is too broad — catches SystemExit/KeyboardInterrupt" },
+  { pattern: '^[S]*except[S]+Exception[S]*[:as ]', message: "'except Exception' hides unrelated errors; catch the specific exception types the block handles." },
 ];
 const PY_LATER_CHECKS: Check[] = [
   { pattern: `f['"](SELECT|INSERT|UPDATE|DELETE|MERGE)[S]`, message: 'f-string SQL — use parameterized queries to prevent injection' },

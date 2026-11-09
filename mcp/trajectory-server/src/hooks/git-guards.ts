@@ -44,6 +44,7 @@ import { jqAlternatives, jqCompact, jqRawElements, jsonStream } from './lib/jq.j
 import { posixBasename } from './lib/project-env.js';
 import { lineStatements } from './lib/statement-rows.js';
 import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve } from './lib/repo.js';
+import { classifyUrl } from '../utils/classify-url.js';
 
 export const GATE_NAME = 'git-guards';
 
@@ -87,6 +88,29 @@ function deny(reason: string, fix: DenyFix): Denied {
 interface Recovery {
   text: string;
   fix: DenyFix;
+}
+
+/** The URL `origin` fetches from in `git remote -v` output, else the first remote's. */
+export function primaryRemoteUrl(remotes: string): string {
+  const rows = remotes
+    .split('\n')
+    .map((line) => line.split(/[ \t]+/))
+    .filter((cols) => cols.length >= 2 && cols[0] !== '');
+  return (rows.find((cols) => cols[0] === 'origin') ?? rows[0])?.[1] ?? '';
+}
+
+/** The push-then-open recovery for <target>: `glab mr create` on a GitLab remote, `gh pr create` on any other. */
+export function forgeRecovery(remotes: string, target: string): Recovery {
+  if (classifyUrl(primaryRemoteUrl(remotes)) === 'gitlab') {
+    return {
+      text: ` Push your feature branch and open an MR into ${target}.`,
+      fix: { allowed: `git push origin <branch> && glab mr create --target-branch ${target} --source-branch <branch>` },
+    };
+  }
+  return {
+    text: ` Push your feature branch and open a PR into ${target}.`,
+    fix: { allowed: `git push origin <branch> && gh pr create --base ${target} --head <branch>` },
+  };
 }
 
 interface Row {
@@ -292,9 +316,9 @@ class GitGuards {
   }
 
   private async rule2Recovery(dir: string): Promise<Recovery> {
-    const pr: DenyFix = { allowed: `git push origin <branch> && gh pr create --base ${this.prTarget} --head <branch>` };
-    if (dir === '-' || dir === '?' || dir === '' || !isDir(dir)) return { text: '', fix: pr };
-    if (await this.git(dir, 'remote', '-v') !== '') return { text: ` Push your feature branch and open a PR into ${this.prTarget}.`, fix: pr };
+    if (dir === '-' || dir === '?' || dir === '' || !isDir(dir)) return { text: '', fix: forgeRecovery('', this.prTarget).fix };
+    const remotes = await this.git(dir, 'remote', '-v');
+    if (remotes !== '') return forgeRecovery(remotes, this.prTarget);
     return { text: ' This repo has no remote — leave the branch unmerged and surface it to the Human for integration.', fix: 'policy' };
   }
 
