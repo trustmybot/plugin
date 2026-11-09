@@ -111,6 +111,8 @@ before(async () => {
         import { ChangeImpactSection } from './web/views/insights/change-impact.tsx';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
         import { parseInsightParams } from './web/views/insights/params.ts';
+        export { rowRef } from './web/views/insights/change-impact.tsx';
+        export { changeImpactApiPath } from './web/views/insights/params.ts';
         export function compute(path, opts) {
           const db = new DatabaseSync(path, { readOnly: true });
           const reader = {
@@ -184,7 +186,54 @@ describe('GET /api/insights/change-impact', () => {
       assert.ok(body.metrics.some((m) => m.series.before.length + m.series.after.length > 0), `${source}:${id} has series points`);
     }
     const c1 = await get(`source=agent_surface&id=${shas.C1}`);
-    assert.deepEqual(c1.body.measured_with, [{ source: 'agent_surface', id: shas.C2 }]);
+    assert.deepEqual(c1.body.measured_with, [{ source: 'agent_surface', id: shas.C2, repo: 'proj' }]);
+  });
+
+  test('repo picks the change in that repo; an unknown repo is a 404, an empty one or one without id a 400 (GH 2613)', async () => {
+    const named = await get(`source=agent_surface&id=${shas.C1}&repo=proj`);
+    assert.equal(named.status, 200);
+    assert.equal(named.body.repo, 'proj');
+    assert.deepEqual(named.body, mod.compute(DB_PATH, { change: { source: 'agent_surface', id: shas.C1, repo: 'proj' }, series: true }));
+    const unknown = await get(`source=agent_surface&id=${shas.C1}&repo=nope`);
+    assert.equal(unknown.status, 404);
+    assert.match(unknown.body.error, /in repo nope/);
+    for (const query of [`source=agent_surface&id=${shas.C1}&repo=`, 'source=agent_surface&repo=proj']) {
+      const { status, body } = await get(query);
+      assert.equal(status, 400, query);
+      assert.equal(typeof body.error, 'string', query);
+    }
+  });
+
+  test('an id two repos share is a 400 naming both without repo and resolves with repo (GH 2613)', async () => {
+    const twin = join(tmp, 'twin.db');
+    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    db.exec(`VACUUM INTO '${twin}'`);
+    db.close();
+    const w = new DatabaseSync(twin);
+    w.prepare('INSERT INTO repos (name, path, target_branch) VALUES (?, ?, ?)').run('twin', REPO, 'main');
+    w.close();
+    const s = await startServer(twin);
+    try {
+      const at = async (q) => {
+        const res = await fetch(`${s.url}api/insights/change-impact?${q}`);
+        return { status: res.status, body: await res.json() };
+      };
+      const ambiguous = await at(`source=agent_surface&id=${shas.C1}`);
+      assert.equal(ambiguous.status, 400);
+      assert.match(ambiguous.body.error, /ambiguous change .*proj.*twin/);
+      for (const repo of ['proj', 'twin']) {
+        const { status, body } = await at(`source=agent_surface&id=${shas.C1}&repo=${repo}`);
+        assert.equal(status, 200, repo);
+        assert.equal(body.repo, repo);
+        const other = repo === 'proj' ? 'twin' : 'proj';
+        assert.deepEqual(
+          body.measured_with.map((c) => `${c.repo}:${c.id}`).sort(),
+          [`${repo}:${shas.C2}`, `${other}:${shas.C1}`, `${other}:${shas.C2}`].sort(),
+        );
+      }
+    } finally {
+      await s.stop();
+    }
   });
 
   test('a bad source, limit or an id without source is a 400 with an error; an unknown id is a 404', async () => {
@@ -313,6 +362,16 @@ describe('Change impact section', () => {
     const { body: list } = await get('');
     const { body: detail } = await get(`source=agent_surface&id=${shas.C1}`);
     assert.ok(mod.section(list, detail, { source: 'agent_surface', id: shas.C1 }).includes(`Measured with: agent_surface:${shas.C2}`));
+  });
+
+  test('a row click selects the row\'s repo and the detail path carries it (GH 2613)', async () => {
+    const { body } = await get('source=agent_surface');
+    const row = body.changes.find((c) => c.id === shas.C1);
+    assert.deepEqual(mod.rowRef(row), { source: 'agent_surface', id: shas.C1, repo: 'proj' });
+    assert.deepEqual(mod.rowRef({ source: 'tmb_events', id: 'x', repo: null }), { source: 'tmb_events', id: 'x', repo: null });
+    assert.equal(mod.changeImpactApiPath('agent_surface', shas.C1, 'proj'), `insights/change-impact?source=agent_surface&id=${shas.C1}&repo=proj`);
+    assert.equal(mod.changeImpactApiPath('tmb_events', 'x', null), 'insights/change-impact?source=tmb_events&id=x');
+    assert.equal(mod.changeImpactApiPath('agent_surface'), 'insights/change-impact?source=agent_surface');
   });
 
   test('loading and error states follow EfficiencyView', () => {

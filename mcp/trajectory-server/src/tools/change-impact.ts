@@ -54,9 +54,11 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function changeRef(v: unknown): ChangeRef | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'object' || Array.isArray(v)) throw new Error('change must be an object {source, id}');
-  const { source, id } = v as Record<string, unknown>;
+  const { source, id, repo } = v as Record<string, unknown>;
   if (typeof source !== 'string' || typeof id !== 'string') throw new Error('change must be an object {source, id} of strings');
-  return { source: source as ChangeSource, id };
+  if (repo === undefined || repo === null) return { source: source as ChangeSource, id };
+  if (typeof repo !== 'string') throw new Error('change.repo must be a string');
+  return { source: source as ChangeSource, id, repo };
 }
 
 export function changeImpactTools(
@@ -76,6 +78,7 @@ export function changeImpactTools(
             properties: {
               source: { type: 'string', enum: [...CHANGE_SOURCES] },
               id: { type: 'string' },
+              repo: { type: 'string', description: 'The repo the change belongs to; required when its id matches changes in more than one repo' },
             },
             required: ['source', 'id'],
             description:
