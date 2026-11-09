@@ -1,3 +1,4 @@
+// Worker thread for /api/insights/change-impact (GH 2618): runs computeChangeImpact off the main thread so the dashboard's event loop stays free.
 import { parentPort, workerData } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
 import { computeChangeImpact, type ChangeImpactOptions } from '../../mcp/trajectory-server/src/change-impact/index.ts';
