@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- verification[] is the command list the verification gate runs
     -- (swe-verification-gate.sh). Both default to an empty array; an empty array
     -- means the hook skips enforcement with a warning (no spec_body markdown
-    -- fallback). See docs/architecture/TYPED_RAILS.md.
+    -- fallback). See docs/reference/REFERENCE.md.
     files             TEXT    NOT NULL DEFAULT '[]',
     verification      TEXT    NOT NULL DEFAULT '[]',
     created_at        TEXT    NOT NULL,
