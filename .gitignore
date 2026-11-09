@@ -31,6 +31,10 @@ dist/
 scripts/hooks/lib/audit-events.txt
 scripts/hooks/lib/data-contracts.json
 
+# Before/after comparison scratch output (GH 2708)
+/.old.*
+/.new.*
+
 # OS
 .DS_Store
 
