@@ -303,6 +303,7 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
     flag: process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'],
     path: process.env['PATH'],
     home: process.env['HOME'],
+    timeout: process.env['TMB_CHEATCODE_HEALTHCHECK_TIMEOUT'],
   };
   let root: string;
   let home: string;
@@ -345,6 +346,7 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
     process.env['PATH'] = `${bin}:${saved.path ?? ''}`;
     process.env['HOME'] = home;
     delete process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'];
+    process.env['TMB_CHEATCODE_HEALTHCHECK_TIMEOUT'] = '30';
     root = join(root, 'project');
     db = tempDB({ path: join(root, '.claude', 'tmb', 'trajectory.db') });
     db.run('DELETE FROM cheatcodes');
@@ -356,6 +358,7 @@ describe('reconcileAtStartup probe gating (GH 1698)', () => {
       ['TMB_DISABLE_CHEATCODE_HEALTHCHECK', saved.flag],
       ['PATH', saved.path],
       ['HOME', saved.home],
+      ['TMB_CHEATCODE_HEALTHCHECK_TIMEOUT', saved.timeout],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
