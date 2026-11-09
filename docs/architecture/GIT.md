@@ -1,179 +1,56 @@
 # Git workflow — actor states across a task lifecycle
 
-Where each actor's git state lives at every stage of a TMB task. Helps you answer "what branch am I on?" / "what is bro looking at?" / "where did SWE put the work?" without spelunking.
+Where each actor's git state lives at every stage of a TMB task: "what branch am I on?", "what is bro looking at?", "where did swe put the work?". The guards that enforce it are the git hooks under `mcp/trajectory-server/src/hooks/`; the step-by-step chain is flow 2 in [`FLOWS.md`](./FLOWS.md).
 
 ## Core principle: local is canonical, origin is downstream
 
-Your local `<feature>` branch is the source of truth at every step of a task. SWE's commits land directly on `<feature>` — its worktree owns the branch ref — then the branch flows OUT to origin (via push). SWE never pushes straight to origin — that would bypass the local-canonical invariant and your review.
+Your local `<feature>` branch is the source of truth at every step of a task. swe's commits land directly on `<feature>` — its worktree owns the branch ref — and the branch then flows out to origin through bro's push. swe never pushes, so nothing reaches origin without passing bro's checks and the code-reviewer.
 
-This mirrors standard developer flow: edit + commit locally, push to origin, open PR. The TMB twist is that "edit + commit" happens in SWE's worktree, which is attached directly to `<feature>` — so its commits advance the branch ref with no separate bro-side merge. Bro just pushes `<feature>` and opens the PR/MR; integration into `<base>` happens on the remote when the PR merges.
+This mirrors the standard developer flow: edit and commit locally, push, open a PR. The TMB twist is that "edit and commit" happens in swe's worktree, attached directly to `<feature>`, so its commits advance the branch ref with no separate merge step. Integration into `<base>` happens on the remote when the PR merges.
 
 ## Actors
 
-- **You** — your shell + IDE on your project's main checkout
-- **Bro** — the persona on the main Claude thread. Operates on the main checkout via `git -C <project> …`.
-- **SWE** — subagent. Always works from a private worktree at `<project>/.claude/worktrees/<slug>/`, attached directly to `<feature>` so commits advance the branch ref naturally.
-- **Origin** — your remote. `<base>` is the configured base branch (`main` for github-flow, `dev` for gitflow — set via each repo's `repos.target_branch` row, the `pr_target` policy and sole source of truth).
+- **You** — your shell and IDE on the project's main checkout.
+- **Bro** — the persona on the main Claude thread. Works on the main checkout, which stays on `<base>`.
+- **swe** — subagent. Works only in a private worktree under `<project>/.claude/worktrees/`, attached to `<feature>`.
+- **Origin** — your remote. `<base>` is the repo's configured PR target, held on its `repos` row.
 
 ## Stage table
 
-| Actor | Idle | Issue + task filed, branch pre-created | SWE working | SWE committed (in worktree) | Bro pushes (MR opens) | Push gate / verify | After merge |
-|---|---|---|---|---|---|---|---|
-| **You** + **Bro** (main checkout) | `<base>` | `<base>` — bro creates `<feature>` from `origin/<base>` but DOES NOT switch the main checkout to it (SWE's worktree will own the branch ref) | `<base>` | `<base>` | `<base>`; bro runs `git -C <project> push origin <feature>` (the ref is already ahead via SWE's commits in the worktree) | `<base>` | `<base>` — origin/`<feature>` is gone after merge |
-| **SWE** | not spawned | not spawned | `.claude/worktrees/<slug>/` checked out on `<feature>`; dirty edits | `.claude/worktrees/<slug>/` on `<feature>` with one or more commits — these commits ADVANCE the local `<feature>` ref directly because the worktree holds it | (idle, worktree still around for inspection) | (idle) | worktree removed; branch ref freed |
-| **Origin** | `<base>` | `<base>` only | same | same — SWE has not pushed | `<base>`; `<feature>` updated by bro's push from the local ref (which SWE's worktree already advanced) | same | `<base>` advanced (merge commit + feature commits); `<feature>` removed (`--remove-source-branch`) |
+| Actor | Idle | Task provisioned | swe working | swe committed | Bro pushes (PR opens) | After merge |
+|---|---|---|---|---|---|---|
+| **You** + **Bro** (main checkout) | `<base>` | `<base>` — bro provisions the task, its `<feature>` branch from `origin/<base>` and its worktree, without switching the main checkout | `<base>` | `<base>` | `<base>`; bro pushes `<feature>`, already advanced by swe's commits | `<base>` |
+| **swe** | not spawned | not spawned | worktree on `<feature>`, dirty edits | worktree on `<feature>` with commits that advance the local ref | idle; the worktree stays for review rework | worktree removed; branch ref freed |
+| **Origin** | `<base>` | `<base>` | same | same — swe has not pushed | `<feature>` updated by bro's push | `<base>` advanced; `<feature>` deleted if the host removes merged branches |
 
 ## Key handoffs
 
-- **Bro pre-creates the branch from `origin/<base>` but stays on `<base>`.** Bro creates `<feature>` via `git -C <project> branch <feature> origin/<base>` (or equivalent) without checking it out. SWE's worktree will own the branch ref next.
-- **SWE's worktree attaches to `<feature>` directly.** `git -C <repo> worktree add <path> <feature>`. SWE's commits advance the branch ref naturally; pushes carry the work without a separate merge step.
-- **No bro-side merge step.** Because SWE's commits already landed on `<feature>`, bro just pushes: `git -C <project> push origin <feature>`. Origin mirrors the local `<feature>` ref, which already includes SWE's work.
-- **After MR merge**, bro removes the worktree (which frees the ref) and the branch is gone from origin via `--remove-source-branch`.
+- **Bro provisions the task and its worktree.** One provisioning call creates the task, cuts `<feature>` from `origin/<base>` and attaches a worktree to it. The main checkout never switches branches. swe never creates branches or worktrees.
+- **No bro-side merge.** swe's commits are already on `<feature>`, so bro just pushes it.
+- **Push gate.** A push is admitted only when each pushed task commit has a passing code-reviewer verdict.
+- **Cleanup.** A passing review of the closed task removes its worktree; a merge run in the session also removes the merged local branch.
 
 ## Why this design
 
-A git branch can only be checked out in one worktree at a time. SWE's worktree owns `<feature>` so its commits advance the branch ref directly — pushes carry the work via the branch ref alone, with the main checkout sitting on `<base>` for the duration of the task. The single-owner rule of git worktrees is what makes this work: ownership of `<feature>` belongs to one place at a time (SWE's worktree while SWE works; the main checkout after the worktree is removed), so there's never a second checkout to reconcile against.
+A git branch can be checked out in only one worktree at a time. swe's worktree owns `<feature>` while swe works, and the main checkout sits on `<base>` for the whole task, so there is never a second checkout to reconcile.
 
-Routing SWE's commits through your local branch (rather than letting SWE push straight to origin) preserves the standard developer mental model: local commits → push → PR. Your local branch is always canonical; you can inspect, rebase, drop, or amend before anything reaches origin. Industry-standard PR flows assume this — bypassing it (CI bots that push straight to feature branches) is the unusual pattern that most teams disallow.
+Routing swe's commits through your local branch, rather than letting swe push to origin, keeps the standard mental model: local commits, then push, then PR. You can inspect, rebase, drop or amend before anything reaches origin.
 
-## Per-repo branch protection + guard scoping
+## Per-repo branch policy and guard scoping
 
-Branch policy is **per-repo**, not global. Each registered repo's `repos` row carries its own `target_branch`, `branching_model`, and `protected_branches`; the git guards resolve the acting repo path-keyed (the command's git toplevel → matching `repos` row) and enforce that row's policy. The `repos` row is the sole source of truth — there is no global `plugin_config` fallback.
+Branch policy is **per repo**. Each registered repo's `repos` row carries its PR target, branching model and protected branches, and is the sole source of truth; there is no global fallback. The git guards resolve the acting repo from the command's git toplevel and enforce that row's policy.
 
-Guard scoping is **registration-based**: a git op is enforced only when its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — TMB never enforces on a tree it doesn't manage. For a single-repo project the sole repo is the registered root, so the whole tree is guarded; `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) for the full resolution contract.
+Guard scoping is **registration-based**: a git operation is enforced only when its git root resolves to a registered repo. In an unregistered sibling tree the guards do nothing. `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-## Rebasing a reviewed task: cli.js integrate
+## Rebasing a reviewed task
 
-SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the code-reviewer, bro runs `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>` from the main checkout. The subcommand:
+swe never fetches, rebases or pulls. When `<base>` moves after a task passed review, bro runs the server CLI's `integrate` subcommand (`mcp/trajectory-server/src/cli/integrate.ts`) from the main checkout. It rebases the reviewed commit in a temporary worktree, refuses when the rebased patch differs from the reviewed one or conflicts, re-runs the task's verification on the result, and only on a pass moves the task branch and the task's recorded commit to the rebased SHA. Because the patch is unchanged, the reviewed commit's pass carries over to the rebase, the way Gerrit carries a vote across a trivial rebase; any other new commit needs a fresh review. The push gate applies the same patch-identity rule to rebased commits no task records.
 
-1. Exits 3 when the task has no passing review for its `commit_sha`. A head integrate made carries the pass of the commit it rebased, so a second integrate needs no new review unless a later verdict failed.
-2. Prints `commit_sha` and exits 0 when `<base>` is already an ancestor of it. No run is recorded.
-3. Rebases in a temporary worktree under `.claude/worktrees/`, detached at `commit_sha`. The git-guards rebase deny covers the main checkout, not linked worktrees. A conflict aborts the rebase and exits 2.
-4. Exits 2 when the `git patch-id --stable` of the rebased commits differs from the reviewed ones, both computed over every path. Generated outputs are untracked and built by `bun run build:payload`, so the rebase neither regenerates nor amends anything. Both sides list the commits a rebase picks (`git rev-list --cherry-pick --right-only <base>...<sha>`), so a commit already in `<base>` under another SHA, such as a squash-merged parent branch's, is skipped. It also exits 2 when no rebased commit is left, because the task's patch is already in `<base>`.
-5. Runs `verification[]` in the temporary worktree and records it in `verification_runs` (source `manual`, the rebased SHA). A failure exits 1 and leaves the branch where it was. A pass moves `refs/heads/<branch_id>` to the rebased SHA, then in one transaction sets `tasks.commit_sha` to it (only while it still names the reviewed SHA) and writes a `task_integrated` audit row (`task_id`, `reviewed_sha`, `review_anchor_at`, `commit_sha`, `base`, `run_id`), prints the SHA and exits 0. If that write fails, the branch has moved but the task still names the reviewed SHA: it exits 4 naming the rebased SHA, and `code-reviewer-preflight` denies a review of it (`sha_mismatch`). It refuses to move a branch that is checked out anywhere.
-6. Always removes the temporary worktree, and finishes a run it left open with the code it exits with: 130 on INT, 143 on TERM, otherwise its own failure code. A SIGKILL cannot be trapped; that run is finished as exit 137 by the next run start once it is past its budget + 60 s.
-
-After exit 0 with a rebase, `tasks.commit_sha` names the rebased commit. The `task_integrated` row is a review anchor beside `bro_verification_pass` (`HAS_PASS_SQL` in `mcp/trajectory-server/src/review-sql.ts`). Its `review_anchor_at` is the anchor the reviewed commit's pass was judged against, so that pass covers the rebase, the way Gerrit's `TRIVIAL_REBASE` copyCondition carries a vote across a rebase of the same patch: bro pushes the printed SHA (GH 2082). A row written before GH 2082 has `reviewed_sha` but no `review_anchor_at`; it takes the anchor of its `reviewed_sha` instead, walking back through such rows of the task (each row's `reviewed_sha` is the previous row's `commit_sha`, at most 10 hops) to the earliest `bro_verification_pass` or carried `review_anchor_at`, and anchors at its own `created_at` when there is none (GH 2546). Only a `task_integrated` row from `hook:integrate` carries an anchor; a later FAIL verdict still blocks, and any other new head needs a fresh pass. `git-push-guard` also judges rebases that no task records: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review: a pass recorded at or after the review anchor of its current `commit_sha`, the same anchor that admits a push of the task commit itself. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. A commit matching no task's patch-id is compared again with the generated `mcp/*/dist` and `dashboard/dist` left out of both sides, so a rebase that rebuilt them is judged the same way. A commit with no source change has no such patch-id. Commits that match neither are left alone.
-
-## Where files live, at a glance
+## Where files live
 
 | Path | Belongs to | Lifetime |
 |---|---|---|
-| `<project>/` (main checkout) | You + bro | Permanent; switches between `<base>` and `<feature>` per task |
-| `<project>/.claude/worktrees/<slug>/` | SWE (on the task's `<feature>` branch) | Per-task; created on spawn, removed after bro closes the task (its commits are already on `<feature>` via the shared branch ref) |
+| `<project>/` (main checkout) | You + bro | Permanent; stays on `<base>` |
+| `<project>/.claude/worktrees/<slug>/` | swe, on the task's `<feature>` | Per task; created at provisioning, removed once the task is reviewed or merged |
 | `origin/<base>` | Shared | Permanent; advances on merges |
-| `origin/<feature>` | Shared | Per-task; created by bro's push from local; removed after MR merge |
-
-## dev→main promotion policy
-
-When `dev` is ready to ship, the release PR is merged into `main` using a **merge commit** (`gh pr merge --merge`). This preserves both branches' full ancestry in the graph.
-
-### Why merge commit, not squash
-
-Squash promotions rewrite `main`'s tree without ancestry: every release appears as a single flat commit with no connection to the feature commits that composed it. In practice this caused two compounding problems:
-
-1. **Version-manifest conflicts at every release.** Because `dev`'s history was not represented in `main`'s ancestry, Git could not find a meaningful common ancestor when computing diffs for the next promotion. Files that changed only on `main` (e.g. `plugin.json` version bumps from a hotfix) were treated as divergent on every subsequent release PR.
-2. **Main-only file deletion at v0.7.0.** A squash promotion replaced `main`'s tree with `dev`'s snapshot, silently deleting files that existed on `main` but had never been on `dev`. This was the failure mode that prompted the policy change (#472/#473).
-
-Merge commits avoid both: `main` gains ancestry over every `dev` commit, so the common ancestor at the next promotion is real and conflicts reflect genuine content divergence.
-
-### Transition note
-
-`main`'s history prior to v0.8.0 consists of squash-promotions (one flat commit per release). The v0.7.1 release bridged ancestry via an `-s ours` merge (#471), which recorded `dev`'s history into `main`'s graph without altering `main`'s working tree. From v0.8.0 onward, every promotion is a standard merge commit.
-
-## Realized by — files per stage
-
-**Idle**
-```text
-plugin/
-├── CLAUDE.md                                          # bro persona; reads plugin_config('onboarded') + issue_resume on activation
-├── mcp/trajectory-server/src/hooks/activation-routine.ts   # UserPromptSubmit: pre-fetches plugin_config('onboarded') + pending issue
-└── mcp/trajectory-server/src/
-    ├── tools/onboard.ts                              # onboard_state_get (reads plugin_config marker)
-    ├── tools/issues.ts                               # issue_resume
-    └── schema.sql                                    # plugin_config defaults seeded at DB init
-```
-
-**Issue + task filed, branch pre-created**
-```text
-plugin/
-├── CLAUDE.md                                          # bro planning chain (issue_create → task_create_batch)
-├── skills/
-│   └── tmb_planning/SKILL.md                         # full code-touching flow (spec authoring + SWE spawn + V1/V2/V3)
-├── commands/
-│   └── scan.md                                       # /scan — must run before task_create_batch (registry-cold gate)
-├── mcp/trajectory-server/src/hooks/
-│   ├── git-guards.ts                              # enforces branch naming on commits
-│   └── require-feature-branch-active.ts           # blocks issue/task ops without a feature branch
-└── mcp/trajectory-server/src/tools/
-    ├── issues.ts                                     # issue_create
-    ├── tasks.ts                                      # task_create_batch (scope/branch/registry-cold gates)
-    ├── discussions.ts                                # discussion_append (intent + decision audit)
-    ├── composites.ts                                 # branch_id_propose
-    ├── scan.ts                                       # scan_run (Phase 1 of /scan)
-    └── audit.ts                                      # audit_append(planning_complete)
-```
-
-**SWE working**
-```text
-plugin/
-├── agents/swe.md                                      # SWE executor prompt
-├── mcp/trajectory-server/src/hooks/
-│   ├── require-task-spec.ts                       # gates spawn on valid pending spec row
-│   ├── worktree-create.ts                         # creates the per-task worktree on spawn (on the task's feature branch — see #2879)
-│   ├── no-worktree-branch-create.ts               # prevents SWE from creating branches
-│   └── git-guards.ts                              # commit branch check in worktree
-└── mcp/trajectory-server/src/tools/
-    ├── tasks.ts                                      # task_get (SWE reads spec) + task_update_status(running)
-    └── audit.ts                                      # audit table writes
-```
-
-**SWE committed (in worktree)**
-```text
-plugin/
-├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
-├── mcp/trajectory-server/src/hooks/
-│   ├── swe-atomic-close.ts                        # SubagentStop safety net if SWE skips close
-│   └── cleanup-worktree-on-task-close.ts          # removes worktree once code-reviewer passes the closed task
-└── mcp/trajectory-server/src/tools/
-    └── tasks.ts                                      # task_update_status(completed, commit_sha)
-```
-
-**Bro pushes (MR opens)**
-```text
-plugin/
-├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
-├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
-├── mcp/trajectory-server/src/cli/integrate.ts      # rebases a reviewed task onto <base>, re-verifies, moves the branch
-├── mcp/trajectory-server/src/hooks/
-│   ├── git-push-guard.ts                          # blocks push without pass verdicts or a verified rebase
-│   └── branch-up-to-date-with-remote.ts           # verifies local branch is current
-└── mcp/trajectory-server/src/tools/
-    ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
-    ├── audit.ts                                      # audit_append(bro_verification_pass)
-    └── issues.ts                                     # issue_close
-```
-
-**Push gate / verify**
-```text
-plugin/
-├── agents/code-reviewer.md                             # code-reviewer subagent
-├── skills/tmb_review/SKILL.md                        # code-reviewer diff-level review protocol
-├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
-├── mcp/trajectory-server/src/hooks/git-push-guard.ts   # final enforcement before origin push
-└── mcp/trajectory-server/src/
-    ├── tools/validation.ts                           # validation_record (verdict write)
-    ├── tools/tasks.ts                                # task_get (read spec + commit_sha)
-    ├── tools/discussions.ts                          # discussion_append on FAIL
-    └── schema.sql                                    # validation_attempts table
-```
-
-**After merge**
-```text
-plugin/
-├── CLAUDE.md                                          # bro post-merge cleanup chain
-├── mcp/trajectory-server/src/hooks/cleanup-worktree-on-task-close.ts   # removes SWE worktree (already done at a passing review)
-└── mcp/trajectory-server/src/tools/
-    ├── audit.ts                                      # audit_append(post-merge state)
-    └── scan.ts                                       # scan_run rerun by the server's startup catch-up refreshes the world model + emits deep_scan_completed audit
-```
+| `origin/<feature>` | Shared | Per task; created by bro's push |

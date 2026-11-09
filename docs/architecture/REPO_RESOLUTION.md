@@ -4,35 +4,24 @@ How TMB answers "which repo does this operation belong to" in a single- or multi
 
 ## Context
 
-A workspace can hold more than one inner git repo (siblings or submodules) under one trajectory DB. Each discovered repo gets a `repos` row (written by `/scan`), keyed by `name` with an authoritative `path`. The canonical resolvers — `mcp/trajectory-server/src/utils/repo-paths.ts` for the server and `mcp/trajectory-server/src/hooks/lib/repo.ts` for hooks — both resolve by `repos.path` / cwd git-root.
+A workspace can hold more than one inner git repo (siblings or submodules) under one trajectory DB. Each discovered repo gets a `repos` row (written by `/scan`), keyed by `name` with an authoritative `path`. The server and the hooks each have one resolver module that matches a path against those rows; both live under `mcp/trajectory-server/src/` (`utils/repo-paths.ts`, `hooks/lib/repo.ts`).
 
-A name-keyed global default forced one repo to be "the" repo and made the git guards string-join `<workspace>/<name>` to decide what to enforce on. That breaks the moment a second repo enters the workspace, and it duplicates state the `repos` table already holds path-first.
+A name-keyed global default forces one repo to be "the" repo and makes the git guards guess what to enforce on. That breaks the moment a second repo enters the workspace, and it duplicates state the `repos` table already holds path-first.
 
 ## Decision
 
-1. **Resolution is path-keyed.** "Which repo does this operation belong to" = match the operation's path — the cwd git-root for a hook, or `tasks.repo` for a task — against `repos.path`. There is no global default-repo name.
+1. **Resolution is path-keyed.** "Which repo does this operation belong to" = match the operation's path — the command's git root for a hook, or the task's repo for a task — against `repos.path`. There is no global default-repo name.
 
-2. **Repos are identified by registration.** A repo participates in TMB resolution iff it has a `repos` row (matched by path). `/scan` records the row; unregistered sibling trees are invisible to resolution.
+2. **Repos are identified by registration.** A repo participates in TMB resolution iff it has a `repos` row. `/scan` records the row; unregistered sibling trees are invisible to resolution.
 
-3. **git-guard scoping is registration-based.** A git op is enforced iff its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — they never enforce on a tree TMB doesn't manage. For a single-repo user project the sole repo *is* the registered root, so the whole tree is guarded as before.
+3. **git-guard scoping is registration-based.** A git op is enforced iff its git root resolves to a registered `repos` row. When the command's git root is an unregistered sibling tree, the guards do nothing — they never enforce on a tree TMB doesn't manage. For a single-repo user project the sole repo *is* the registered root, so the whole tree is guarded.
 
-4. **`protected_branches` is per-repo authoritative.** `repos.protected_branches` (resolved path-keyed) is the sole source of truth; there is no global `plugin_config` fallback.
+4. **Branch policy is per repo.** The PR target, branching model and protected branches on a repo's row are the sole source of truth; there is no global fallback.
 
-5. **Single-repo fallback.** When exactly one repo is registered, resolution defaults to it. This keeps single-repo projects (the common case) working without any per-operation repo argument.
-
-6. **Read-tolerant migration.** No data migration is needed. Existing projects keep working: a single registered repo resolves via the single-repo fallback, and a multi-repo workspace resolves each operation by its path.
-
-## The resolution contract
-
-Implementers (MCP source and hooks) agree on one shape:
-
-- **Canonical resolver** — `resolveSoleRepoPath(db)` returns the path of the sole registered repo (single-repo fallback), else `null`. A caller that needs a *specific* repo passes `tasks.repo` or the cwd git-root and resolves it against `repos.path`.
-- **Hooks** resolve the acting repo from the command's git-root → `repos` row. Absent a matching row, they apply the single-repo fallback; if that doesn't resolve either, they no-op rather than enforce on an unregistered tree.
-- **`mcp/trajectory-server/src/hooks/lib/repo.ts`** is the hook side of this contract: `repoGitRoot` (cwd → main worktree root), `repoIsRegistered`, `repoResolve` (per-repo `target_branch|branching_model|protected_branches`), `repoSinglePath` (single-repo fallback), and `repoResolvePath` (by name, falling back to single-repo).
+5. **Single-repo fallback.** When an operation names no repo and exactly one repo is registered, it resolves to that repo. This keeps single-repo projects (the common case) working without any per-operation repo argument. A git root that matches no row is never resolved this way.
 
 ## Consequences
 
 - **Multi-repo workspaces work without ceremony.** Each operation resolves to its own repo by path; sibling repos coexist without one being privileged.
 - **Guards never fire on unmanaged trees.** Editing or committing in an unregistered sibling repo is allowed — TMB only enforces on trees it registered.
-- **Per-repo branch policy.** Each repo carries its own `target_branch`, `branching_model`, and `protected_branches` on its `repos` row — the sole source of truth, with no global fallback.
 - **`/scan` is the registration point.** A repo must be scanned to participate; this is the same step that warms the world model, so the two stay aligned.
