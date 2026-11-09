@@ -623,7 +623,7 @@ export function issueTools(
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. Applied to the remote issue.' },
           milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
-          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists; required when several exist (repo_required otherwise).' },
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
           remote_iid: { type: 'number', description: 'Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing.' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional backend for remote_iid adoption. Defaults to the repo\'s sole configured remote.' },
@@ -836,11 +836,19 @@ export function issueTools(
         return err(labelError);
       }
       // repo (#155): explicit arg, else the sole/managed repo when exactly one
-      // repos row exists. Null for an ambiguous multi-repo install with no
-      // selector — the FK is nullable so the insert still succeeds. Resolved
-      // before the dedup check so dedup can scope to the same repo.
+      // repos row exists. A multi-repo project with no selector is refused
+      // before any write (GH 2709); a zero-repo project stays repo-less.
+      // Resolved before the dedup check so dedup can scope to the same repo.
       const explicitRepo = (args['repo'] as string | undefined) ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
+      if (issueRepo === null) {
+        const repoNames = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+        if (repoNames.length > 1) {
+          return err(
+            `repo_required: ${repoNames.length} repos are registered (${repoNames.join(', ')}) — pass repo= on issue_create to pick one`,
+          );
+        }
+      }
       // Dedup pre-check (#91/#775): unless explicitly overridden, refuse to
       // fork a second open issue for objective-equivalent work. Deterministic
       // token-set Jaccard against OPEN issues in the SAME repo (or repo-less
@@ -978,7 +986,7 @@ export function issueTools(
               backend,
               hint: issueRepo
                 ? `issue repo "${issueRepo}" has no matching repos row — run /scan or pass a valid repo.`
-                : 'multiple repos registered and no issue repo selected — pass repo= on issue_create.',
+                : 'no repos registered — run /scan to register this repo.',
             };
             const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row!);
