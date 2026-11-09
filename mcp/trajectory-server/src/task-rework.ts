@@ -12,7 +12,7 @@
 /** The agent_runs predicate of a swe spawn (columns unqualified). */
 export const SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
 
-/** FAIL verdicts on a task since its latest pass and Human waiver at which a further swe run is denied. */
+/** FAIL verdicts on a task since its last passing review and Human waiver at which a further swe run is denied. */
 export const REWORK_FAIL_LIMIT = 2;
 
 /** swe runs of a task, budget handbacks aside, since its latest passing review and Human waiver at which a further run is denied. */
