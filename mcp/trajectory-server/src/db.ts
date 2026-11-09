@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 65;
+export const TARGET_SCHEMA_VERSION = 66;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -849,6 +849,8 @@ function runMigrations(
   if (fromVersion < 64 && toVersion >= 64) migrateV63toV64(db);
   // v64→v65: validation_attempts.reviewed_sha, the commit each review covered (GH 2684)
   if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
+  // v65→v66: tasks.workflow_mode, the workflow mode a task closed under (GH 2225)
+  if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3467,6 +3469,27 @@ function migrateV64toV65(db: DatabaseSync): void {
   try {
     if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'reviewed_sha')) {
       db.exec('ALTER TABLE validation_attempts ADD COLUMN reviewed_sha TEXT');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v65→v66: tasks.workflow_mode (GH 2225), the plugin_config.workflow_mode the
+// shared close path read when the task closed. Existing rows keep NULL.
+function migrateV65toV66(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'workflow_mode')) {
+      db.exec(
+        "ALTER TABLE tasks ADD COLUMN workflow_mode TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))",
+      );
     }
     commitTransaction(db);
   } catch (err) {
