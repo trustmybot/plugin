@@ -10,7 +10,7 @@
     },
     "PreToolUse:Bash": {
       "max_budget_ms": 16000,
-      "p99_sum_ms": 22023,
+      "p99_sum_ms": 22023.2,
       "group_budget_ms": 16000
     },
     "PreToolUse:Agent": {
@@ -347,6 +347,22 @@
       "floor_ms": 4000,
       "budget_ms": 7280,
       "date": "2026-10-31"
+    },
+    "test-run-nudge": {
+      "kind": "advisory",
+      "bench_p50": 0,
+      "bench_p95": 0.1,
+      "bench_p99": 0.2,
+      "bench_runs": 640,
+      "bench_load_avg": 322.74,
+      "transcript_p99": null,
+      "reason": "born in TypeScript (GH 1907): no test-run-nudge PreToolUse hook attachment in any transcript yet, benched alone with the router-p99 worker (4 workers x 20 rounds)",
+      "transcript_samples": 0,
+      "transcript_timed_out": 0,
+      "window_days": 14,
+      "floor_ms": 4000,
+      "budget_ms": 4000,
+      "date": "2026-11-09"
     },
     "no-remote-auth-guard": {
       "kind": "enforcement",
