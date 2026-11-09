@@ -110,8 +110,9 @@ function firstNumber(row: Record<string, unknown> | undefined): number | null {
  * skipped with its reason and does not affect `healthy`. A DB contract whose
  * `skip_when` SELECT returns non-zero is skipped with that reason, likewise
  * without affecting `healthy`.
- * `healthy` is false when an error-severity contract fails or a DB contract
- * is skipped.
+ * `healthy` is false when an error-severity contract fails or an
+ * error-severity DB contract cannot run: its `min_schema` is above the DB
+ * schema, its query throws, or it runs past `statementTimeoutMs`.
  */
 export function runDataContracts(
   reader: ContractReader,

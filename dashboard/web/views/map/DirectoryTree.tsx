@@ -1,6 +1,7 @@
 import { FileDirectoryFillIcon, FileDirectoryOpenFillIcon } from '@primer/octicons-react';
 import { useApi, type WmNode, type WorldModel } from '../../api.ts';
 import { TreeView, TreeViewItem } from '../../ui/TreeView.tsx';
+import { DriftMarkers, driftOf } from './Drift.tsx';
 import { ancestors, childrenOf, childrenPath, dirName } from './paths.ts';
 
 type TreeState = {
@@ -34,6 +35,7 @@ function DirNode({ node, level, tabStop, ...state }: TreeState & { node: WmNode;
       tabStop={tabStop}
       expanded={open}
       leadingVisual={<Icon size={16} className={ICON} />}
+      trailingVisual={driftOf(node) ? <DriftMarkers node={node} /> : undefined}
       onSelect={() => state.onSelect(node.path)}
       onToggle={() => state.onToggle(node.path)}
     >
