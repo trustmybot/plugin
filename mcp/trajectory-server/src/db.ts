@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 63;
+export const TARGET_SCHEMA_VERSION = 65;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -845,6 +845,10 @@ function runMigrations(
   if (fromVersion < 62 && toVersion >= 62) migrateV61toV62(db);
   // v62→v63: wm_freshness, each repo's target and newest reindex state (GH 2584)
   if (fromVersion < 63 && toVersion >= 63) migrateV62toV63(db);
+  // v63→v64: wm_directories.readme_review_pending, a changed README for bro (GH 2584)
+  if (fromVersion < 64 && toVersion >= 64) migrateV63toV64(db);
+  // v64→v65: validation_attempts.reviewed_sha, the commit each review covered (GH 2684)
+  if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3425,6 +3429,45 @@ function migrateV62toV63(db: DatabaseSync): void {
   beginImmediate(db);
   try {
     db.exec(WM_FRESHNESS_DDL);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v63→v64: wm_directories.readme_review_pending (GH 2584), set when a reindex
+// changes a README-sourced summary and cleared once a world-model read lists
+// it to bro. Existing rows start at 0.
+function migrateV63toV64(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'wm_directories') && !hasColumn(db, 'wm_directories', 'readme_review_pending')) {
+      db.exec('ALTER TABLE wm_directories ADD COLUMN readme_review_pending INTEGER NOT NULL DEFAULT 0');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v64→v65: validation_attempts.reviewed_sha (GH 2684), the commit the
+// reviewer's spawn named. Existing rows keep NULL.
+function migrateV64toV65(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'reviewed_sha')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN reviewed_sha TEXT');
+    }
     commitTransaction(db);
   } catch (err) {
     try {

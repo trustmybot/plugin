@@ -1,9 +1,20 @@
 import { useState } from 'react';
-import type { ChangeImpact, ChangeImpactList, ChangeRef, DayPoint, MetricImpact, Verdict } from '../../../../mcp/trajectory-server/src/change-impact/index.ts';
+import { AlertIcon, CheckIcon, type Icon } from '@primer/octicons-react';
+import type {
+  ChangeImpact,
+  ChangeImpactList,
+  ChangeRef,
+  DayPoint,
+  DeclaredMetric,
+  DeclaredOutcome,
+  MetricImpact,
+  Verdict,
+} from '../../../../mcp/trajectory-server/src/change-impact/index.ts';
 import { useApi, type Row } from '../../api.ts';
 import { DataTable, type Column } from '../../DataTable.tsx';
 import { FIELD } from '../../shared/classes.ts';
 import { Loading } from '../../shared/Loading.tsx';
+import { LABEL_ICON, labelClass, type LabelVariant } from '../../ui/Label.tsx';
 import { ChartCard } from './ChartCard.tsx';
 import { ColumnChart, type Column as ChartColumn } from './charts.tsx';
 import { OTHER_COLOR } from './explore.tsx';
@@ -46,6 +57,41 @@ const isShift = (m: MetricImpact) => m.verdict === 'improved' || m.verdict === '
 export const shiftsOf = (c: ChangeImpact) => c.metrics.filter(isShift).map((m) => `${m.label} ${VERDICT_TEXT[m.verdict]}`);
 
 const changeKey = (r: ChangeRef) => `${r.source}:${r.id}`;
+const rowKey = (r: ChangeRef) => (r.repo ? `${r.repo}/${changeKey(r)}` : changeKey(r));
+export const rowRef = (r: Row): ChangeRef => ({ source: r['source'] as ChangeRef['source'], id: String(r['id']), repo: (r['repo'] as string | null) ?? null });
+
+export const DECLARED_TEXT: Record<DeclaredOutcome, string> = {
+  as_declared: 'moved as declared',
+  wrong_way: 'moved the wrong way',
+  not_moved: 'did not move',
+  not_enough_data: 'not enough data',
+};
+
+const DECLARED_LOOK: Record<DeclaredOutcome, { variant: LabelVariant; icon: Icon | null }> = {
+  as_declared: { variant: 'success', icon: CheckIcon },
+  wrong_way: { variant: 'attention', icon: AlertIcon },
+  not_moved: { variant: 'attention', icon: AlertIcon },
+  not_enough_data: { variant: 'secondary', icon: null },
+};
+
+export const declaredText = (d: DeclaredMetric, metrics: MetricImpact[]) =>
+  `${metrics.find((m) => m.id === d.metric)?.label ?? d.metric} ${d.direction}: ${DECLARED_TEXT[d.outcome]}`;
+
+function DeclaredBadges({ declared, metrics }: { declared: DeclaredMetric[]; metrics: MetricImpact[] }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {declared.map((d, i) => {
+        const { variant, icon: OutcomeIcon } = DECLARED_LOOK[d.outcome];
+        return (
+          <span key={`${d.metric}-${d.direction}-${i}`} className={labelClass(variant)} data-declared={d.outcome}>
+            {OutcomeIcon && <OutcomeIcon size={LABEL_ICON} aria-hidden="true" />}
+            {declaredText(d, metrics)}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 const LIST_COLUMNS: Column[] = [
   { key: 'label', header: 'Change', truncate: true },
@@ -63,8 +109,30 @@ const LIST_COLUMNS: Column[] = [
   { key: 'measured_together', header: 'Measured together', title: 'Other changes no run separates from this one', cell: (r) => <span className={NUMERIC}>{String(r['measured_together'])}</span> },
 ];
 
+const DECLARED_COLUMN: Column = {
+  key: 'declared_text',
+  header: 'Declared',
+  title: 'The metric the change\'s changelog fragment declared, and whether it moved that way',
+  cell: (r) => {
+    const declared = r['declared'] as DeclaredMetric[] | undefined;
+    return declared ? <DeclaredBadges declared={declared} metrics={r['metrics'] as MetricImpact[]} /> : null;
+  },
+};
+
+const listColumns = (changes: ChangeImpact[]): Column[] =>
+  changes.some((c) => c.declared) ? [...LIST_COLUMNS.slice(0, -1), DECLARED_COLUMN, LIST_COLUMNS.at(-1)!] : LIST_COLUMNS;
+
 const listRows = (changes: ChangeImpact[]): Row[] =>
-  changes.map((c) => ({ ...c, key: changeKey(c), shifts: shiftsOf(c), measured_together: c.measured_with.length }) as unknown as Row);
+  changes.map(
+    (c) =>
+      ({
+        ...c,
+        key: rowKey(c),
+        shifts: shiftsOf(c),
+        declared_text: (c.declared ?? []).map((d) => declaredText(d, c.metrics)).join(', '),
+        measured_together: c.measured_with.length,
+      }) as unknown as Row,
+  );
 
 const numCell = (key: string) => (r: Row) => <span className={NUMERIC}>{num(r[key] as number | null)}</span>;
 
@@ -214,15 +282,15 @@ export function ChangeImpactSection({ list, detail, source, selected, onSource, 
             ) : (
               <DataTable
                 rows={listRows(l.changes)}
-                columns={LIST_COLUMNS}
+                columns={listColumns(l.changes)}
                 filter={false}
-                onRowClick={(r) => onSelect({ source: r['source'] as ChangeRef['source'], id: String(r['id']) })}
+                onRowClick={(r) => onSelect(rowRef(r))}
               />
             )}
           </>
         )}
       </Loading>
-      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail key={changeKey(c)} change={c} />}</Loading>}
+      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail key={rowKey(c)} change={c} />}</Loading>}
     </div>
   );
 }
@@ -231,7 +299,7 @@ export function useChangeImpact(): ChangeImpactProps {
   const [source, setSource] = useState('');
   const [selected, setSelected] = useState<ChangeRef | null>(null);
   const list = useApi<ChangeImpactList>(changeImpactApiPath(source), { keepPrevious: true });
-  const detail = useApi<ChangeImpact>(changeImpactApiPath(selected?.source ?? '', selected?.id ?? ''), { enabled: selected !== null });
+  const detail = useApi<ChangeImpact>(changeImpactApiPath(selected?.source ?? '', selected?.id ?? '', selected?.repo), { enabled: selected !== null });
   return {
     list,
     detail,

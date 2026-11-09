@@ -101,14 +101,17 @@ export function readHighEffortPaths(db: TrajectoryDB): string[] {
   return [];
 }
 
-function stripTrailingSlash(path: string): string {
-  return path.endsWith('/') ? path.slice(0, -1) : path;
+function pathSegments(path: string): string[] {
+  return path.split('/').filter((s) => s !== '' && s !== '.');
 }
 
+/** Equal paths, or one a path-segment prefix of the other; empty and `.` segments are dropped, so `.` (the repo root) overlaps every path. */
 export function pathsOverlap(file: string, prefix: string): boolean {
-  const a = stripTrailingSlash(file);
-  const b = stripTrailingSlash(prefix);
-  return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
+  const a = pathSegments(file);
+  const b = pathSegments(prefix);
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 export const SWE_EFFORT_AB_KEY = 'swe_effort_ab';
@@ -294,10 +297,41 @@ export function storedConfigParseErrorPrefix(key: string): string {
 }
 
 /**
+ * Store one already-serialized plugin-config value. When it differs from the
+ * stored value_json, the upsert and a `config_changed` audit row naming the
+ * key only (a value may hold a secret) commit together; an identical value
+ * writes nothing. Runs no validation: callers own what they store.
+ */
+export function writeConfigValueJson(
+  db: TrajectoryDB,
+  key: string,
+  valueJson: string,
+  fromNode: string,
+): void {
+  db.transaction(() => {
+    const stored = db.get<{ value_json: string }>('SELECT value_json FROM plugin_config WHERE key = ?', [key]);
+    if (stored?.value_json === valueJson) return;
+    db.run(
+      `INSERT INTO plugin_config (key, value_json)
+       VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+      [key, valueJson],
+    );
+    insertAudit(db, {
+      issue_id: -1,
+      from_node: fromNode,
+      event_type: 'config_changed',
+      summary: `Config changed: ${key}`,
+      content_json: JSON.stringify({ key }),
+    });
+  });
+}
+
+/**
  * Persist one or more shared plugin-config values atomically. Callers remain
  * responsible for exposing only the keys their host contract permits. Each
  * key whose stored value changes gets a `config_changed` audit row in the same
- * transaction, naming the key only: a value may hold a secret.
+ * transaction (writeConfigValueJson).
  */
 export function setConfigValues(
   db: TrajectoryDB,
@@ -309,23 +343,7 @@ export function setConfigValues(
     valueJson: serializeConfigValue(key, value),
   }));
   db.transaction(() => {
-    for (const { key, valueJson } of serialized) {
-      const stored = db.get<{ value_json: string }>('SELECT value_json FROM plugin_config WHERE key = ?', [key]);
-      if (stored?.value_json === valueJson) continue;
-      db.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson],
-      );
-      insertAudit(db, {
-        issue_id: -1,
-        from_node: fromNode,
-        event_type: 'config_changed',
-        summary: `Config changed: ${key}`,
-        content_json: JSON.stringify({ key }),
-      });
-    }
+    for (const { key, valueJson } of serialized) writeConfigValueJson(db, key, valueJson, fromNode);
   });
 }
 

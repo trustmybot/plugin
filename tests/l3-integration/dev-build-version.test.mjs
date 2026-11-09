@@ -132,6 +132,7 @@ for (const f of VERSION_FILES) {
 }
 copyFileSync(join(ROOT, 'scripts/maintenance/bump-version.ts'), join(B, 'scripts/maintenance/bump-version.ts'));
 copyFileSync(join(ROOT, 'scripts/maintenance/lib/changelog-fragments.ts'), join(B, 'scripts/maintenance/lib/changelog-fragments.ts'));
+copyFileSync(join(ROOT, 'scripts/maintenance/lib/measured-impact.ts'), join(B, 'scripts/maintenance/lib/measured-impact.ts'));
 writeFileSync(join(B, 'CHANGELOG.md'), '# Changelog\n\n## Unreleased\n\n### Fixed\n- **Old** (GH 100): old.\n');
 writeFileSync(join(B, 'changelog.d/77-dummy.md'), '### Tweaked\n- **Not validated** (GH 77): a malformed fragment does not block a version-only bump.\n');
 

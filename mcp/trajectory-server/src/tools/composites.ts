@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
 import { resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
@@ -39,7 +40,7 @@ import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
-import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
+import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
@@ -49,6 +50,7 @@ import {
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
+import { appendVerificationDefaults, readVerificationDefaults, verificationDefaultsResult } from './verification-defaults.js';
 import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
@@ -56,6 +58,7 @@ import {
   parseSpawnNote,
   parseStoredReport,
   reportMissingIds,
+  specCommitProblem,
   specCriteriaProblem,
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
@@ -68,6 +71,72 @@ import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
+const STDOUT_KEEP = 4096;
+const STDERR_KEEP = 2048;
+
+interface BudgetedRun {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
+/** `bash -c command` in cwd, async; past timeoutMs its whole process group is SIGKILLed. */
+function runBudgeted(command: string, cwd: string, timeoutMs: number): Promise<BudgetedRun> {
+  return new Promise((done) => {
+    const out: Buffer[] = [];
+    const errOut: Buffer[] = [];
+    let outBytes = 0;
+    let errBytes = 0;
+    let timedOut = false;
+    let settled = false;
+    const finish = (exitCode: number, spawnError?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const stderr = Buffer.concat(errOut).toString('utf8');
+      done({
+        stdout: Buffer.concat(out).toString('utf8'),
+        stderr: spawnError !== undefined && stderr === '' ? spawnError : stderr,
+        exitCode,
+        timedOut,
+      });
+    };
+    const child = spawn('bash', ['-c', command], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (outBytes < STDOUT_KEEP) out.push(chunk);
+      outBytes += chunk.length;
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (errBytes < STDERR_KEEP) errOut.push(chunk);
+      errBytes += chunk.length;
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // The group already exited.
+      }
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }, timeoutMs);
+    child.on('error', (e) => finish(127, e.message));
+    child.on('close', (code, signal) => finish(code ?? (signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : 1)));
+  });
+}
+
+/** The verification budget in seconds: TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s. */
+function commandBudgetS(db: TrajectoryDB): number {
+  let raw = process.env['TMB_VERIFICATION_TIMEOUT_S'] ?? '';
+  if (raw === '') {
+    const row = db.get<{ v: unknown }>(
+      `SELECT json_extract(value_json, '$') AS v FROM plugin_config WHERE key = 'verification_timeout_s'`,
+    );
+    raw = row?.v == null ? '' : String(row.v);
+  }
+  return parseBudget(raw).timeoutS;
+}
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -227,6 +296,16 @@ function scopeUnchecked(e: unknown): ScopeCheck {
     checked: false,
     reason: (e as Error).message.split('\n')[0] || 'git diff failed',
   };
+}
+
+// The guard briefLocations opens with: an indexed repo gets non-null locations and concepts.
+function repoIndexed(db: TrajectoryDB, repo: string): boolean {
+  if (!repo) return false;
+  const row = db.get<{ n: number }>(
+    `SELECT EXISTS (SELECT 1 FROM wm_files WHERE repo = ?) OR EXISTS (SELECT 1 FROM wm_symbols WHERE repo = ?) AS n`,
+    [repo, repo],
+  );
+  return Number(row?.n ?? 0) !== 0;
 }
 
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
@@ -842,6 +921,10 @@ type TaskBranchOutcome =
   | { kind: 'diverged'; ref: string; baseRef: string }
   | { kind: 'git_failed'; what: string; error: unknown };
 
+function baseIsBranch(base: string, branchId: string): boolean {
+  return [branchId, `origin/${branchId}`, `refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`].includes(base);
+}
+
 // The task branch policy task_provision, task_retry and task_reopen share: a
 // missing ref is cut from resolveCutBase(base) (created); an existing local or
 // origin ref at or behind the base tip is fast-forwarded to it (reused); a
@@ -1222,7 +1305,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        "Creates a worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout's node_modules, runs the repo's .config/tmb/worktree-setup.json commands (a failing one returns an error naming it, and command is not run), runs command there, then removes the worktree. A repo_path outside the project is refused with outside_project.",
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under verification budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1592,6 +1675,8 @@ export function compositeTools(
         }
         const criteriaProblem = specCriteriaProblem(task.spec_body);
         if (criteriaProblem) return err(criteriaProblem);
+        const commitProblem = specCommitProblem(task.spec_body);
+        if (commitProblem) return err(commitProblem);
         const validateStrArray = (value: unknown, field: 'files' | 'verification'): string[] => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field} must be a non-empty array of strings.`);
@@ -1604,7 +1689,7 @@ export function compositeTools(
           return value as string[];
         };
         const files = validateStrArray(task.files, 'files');
-        const verification = validateStrArray(task.verification, 'verification');
+        const givenVerification = validateStrArray(task.verification, 'verification');
 
         let repoValue: string | null = null;
         const hasTaskRepo = task.repo !== undefined && task.repo !== null && task.repo !== '';
@@ -1733,6 +1818,13 @@ export function compositeTools(
           repoPath,
           (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
         );
+        if (baseIsBranch(base, branchId)) {
+          return err(
+            `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
+              `would block every commit on it. Pass a different base, e.g. the PR target. ` +
+              `No branch, worktree or task row was created.`,
+          );
+        }
 
         // Branch policy (ensureTaskBranch): a new ref is created from the base
         // ('created'); an existing ref at or behind the base tip is reused; a
@@ -1743,6 +1835,9 @@ export function compositeTools(
         const reuseExisting = args['reuse_existing'] === true;
         const pathRef =
           resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
+        const defaults = readVerificationDefaults(repoPath, pathRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
         if (pathRef) {
           const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
           if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
@@ -1911,6 +2006,7 @@ export function compositeTools(
               }
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
@@ -2145,6 +2241,8 @@ export function compositeTools(
           }
           const criteriaProblem = specCriteriaProblem(newSpec);
           if (criteriaProblem) return err(criteriaProblem);
+          const commitProblem = specCommitProblem(newSpec);
+          if (commitProblem) return err(commitProblem);
         }
         if (newFiles === undefined && newVerification === undefined && newSpec === undefined) {
           return err('task_update_spec: pass at least one of files, verification, spec_body');
@@ -2245,7 +2343,8 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
-        const isSwe = normalizeAgent(args['agent'] as string | undefined) === 'swe';
+        const caller = normalizeAgent(args['agent'] as string | undefined);
+        const isSwe = caller === 'swe';
         const section = args['section'] ?? (isSwe ? 'core' : 'all');
         if (!isBriefSection(section)) {
           return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
@@ -2257,6 +2356,7 @@ export function compositeTools(
           );
         }
         const concise = responseFormat === 'concise';
+        const leanReviewerCore = concise && caller === 'code-reviewer';
         let trimmed = false;
         const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
@@ -2342,7 +2442,13 @@ export function compositeTools(
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
           const taskFiles = parseTaskFiles(task.files);
-          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+          let worldModel: Record<string, unknown> = {};
+          if (leanReviewerCore) {
+            trimmed ||= repoIndexed(db, repo);
+          } else {
+            const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+            worldModel = { locations, concepts: briefConcepts(db, repo, taskFiles, locations) };
+          }
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2361,8 +2467,7 @@ export function compositeTools(
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations,
-            concepts: briefConcepts(db, repo, taskFiles, locations),
+            ...worldModel,
           };
         };
 
@@ -2676,15 +2781,23 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
         const retryFiles = parseTaskFiles(failed.files);
-        const retryVerification = parseTaskFiles(failed.verification);
         const retryBase = repoPath ? normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id)) : null;
         const pathRef = repoPath && retryBase ? resolveCutBase(repoPath, retryBase)?.ref ?? null : null;
+        const defaults = readVerificationDefaults(repoPath, pathRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_retry', pathRef, defaults.error);
+        const { verification: retryVerification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          parseTaskFiles(failed.verification),
+          defaults.commands,
+        );
+        const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
         if (!repoPath || pathRef) {
           const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
           if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
         }
-        const suggested = () =>
-          suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification);
+        const suggested = () => ({
+          verification_defaults_added: verificationDefaultsAdded,
+          ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
+        });
         if (repoPath && retryBase) {
           const base = retryBase;
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
@@ -2731,7 +2844,7 @@ export function compositeTools(
               repoOverride ?? failed.repo,
               failed.prompt_bearing,
               failed.files,
-              failed.verification,
+              storedVerification,
               effort,
               now,
               now,
@@ -3001,6 +3114,7 @@ export function compositeTools(
         let stdout = '';
         let stderr = '';
         let exitCode = 0;
+        let timedOut = false;
 
         try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
@@ -3022,18 +3136,11 @@ export function compositeTools(
           if (setup.error !== undefined) {
             setupFailure = setup;
           } else {
-            const result = execFileSync('bash', ['-c', command], {
-              cwd: wtPath,
-              stdio: ['ignore', 'pipe', 'pipe'],
-              timeout: 60_000,
-            });
-            stdout = result.toString('utf8');
+            ({ stdout, stderr, exitCode, timedOut } = await runBudgeted(command, wtPath, commandBudgetS(db) * 1000));
           }
         } catch (e: unknown) {
-          const spawnErr = e as { stdout?: Buffer; stderr?: Buffer; status?: number; message?: string };
-          stdout = spawnErr.stdout?.toString('utf8') ?? '';
-          stderr = spawnErr.stderr?.toString('utf8') ?? spawnErr.message ?? '';
-          exitCode = spawnErr.status ?? 1;
+          stderr = (e as Error).message ?? '';
+          exitCode = 1;
         } finally {
           try {
             execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
@@ -3057,6 +3164,7 @@ export function compositeTools(
                 worktree: wtPath,
                 exit_code: exitCode,
                 passed,
+                timed_out: timedOut,
                 stdout: stdout.slice(0, 4096),
                 stderr: stderr.slice(0, 2048),
               }),

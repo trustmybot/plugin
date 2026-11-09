@@ -12,7 +12,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { summaryLine } from '../server/queries.ts';
+import { importServer } from './server-module.mjs';
+
+const { summaryLine } = await importServer('queries.ts');
 
 const DASH = new URL('..', import.meta.url).pathname;
 const SCHEMA = join(DASH, '../mcp/trajectory-server/src/schema.sql');

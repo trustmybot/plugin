@@ -32,7 +32,7 @@ import { normalizeAgent, type AgentRole } from '../middleware/agent-scope.js';
 import { insertAudit } from '../tools/audit.js';
 import { blobMd5, scannedAtNow, walkRepoAtCommit, type ScanFile, type ScanOutput } from '../tools/scan-walk.js';
 import { persistRepoReindex, type ReindexScope, type ScanError } from '../tools/scan.js';
-import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, lsTree, resolveRefCommit } from '../utils/git-objects.js';
+import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, logOrder, lsTree, resolveRefCommit } from '../utils/git-objects.js';
 import { runGit } from '../utils/git-run.js';
 import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
@@ -119,6 +119,8 @@ export interface ReindexRow {
   files_diffed: number;
   files_parsed: number;
   dirs_touched: number;
+  // The concepts whose status or reason the reindex's refreshConcepts changed.
+  concepts_flagged: number;
   ms: number;
 }
 
@@ -178,7 +180,11 @@ export function freshnessBlock(db: TrajectoryDB, repo: string | null): Freshness
        FROM wm_freshness WHERE repo = ?`,
     [repo],
   );
-  const review = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`, [repo]);
+  const review = db.get<{ n: number }>(
+    `SELECT (SELECT COUNT(*) FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken'))
+          + (SELECT COUNT(*) FROM wm_directories WHERE repo = ? AND readme_review_pending = 1) AS n`,
+    [repo, repo],
+  );
   const targetCommit = f?.target_commit ?? null;
   const state = f?.reindex_state ?? 'idle';
   const elapsed = f?.reindex_elapsed_ms;
@@ -300,8 +306,9 @@ function repoState(db: TrajectoryDB, repo: string): RepoState | null {
 }
 
 // A mismatch verdict (the daily shadow compare's, shadow-compare.ts) with no
-// full rebuild after it.
-function mismatchPending(db: TrajectoryDB, repo: string): boolean {
+// full rebuild after it. Any full rebuild clears it, so one that runs while it
+// is pending, whatever its reason, reparses every file.
+export function mismatchPending(db: TrajectoryDB, repo: string): boolean {
   const row = db.get<{ mode: string | null }>(
     `SELECT json_extract(content_json, '$.mode') AS mode FROM audit
       WHERE event_type = 'wm_reindex' AND repo = ?
@@ -423,6 +430,7 @@ async function reindexLocked(
   if (!state || current(db, repo, state, target)) return undefined;
   const started = Date.now();
   let reason: FullReason | null = fullRebuildReason(db, repo, state);
+  const reparse = mismatchPending(db, repo);
   const run: ReindexRun = { mode: reason ? 'full' : 'incremental', trigger, startedMs: started };
   const finish = (errors: ScanError[]) => markReindexFinish(db, repo, run, errors.length === 0);
   markReindexStart(db, repo, run);
@@ -446,7 +454,7 @@ async function reindexLocked(
         files: out.files,
         contents: out.content ? new Map([[repo, out.content]]) : new Map(),
       };
-      const stats = await persistRepoReindex(db, graph, output, undefined, finish, { reparse: reason === 'mismatch' });
+      const stats = await persistRepoReindex(db, graph, output, undefined, finish, { reparse });
       recordReindex(db, {
         repo,
         mode: 'full',
@@ -457,6 +465,7 @@ async function reindexLocked(
         files_diffed: out.files.length,
         files_parsed: stats.files_parsed,
         dirs_touched: stats.dirs_touched,
+        concepts_flagged: stats.concepts_flagged,
         ms: Date.now() - started,
       });
     } finally {
@@ -474,6 +483,32 @@ function dirOf(relPath: string): string {
   return i >= 0 ? relPath.slice(0, i) : '';
 }
 
+// A path's last_commit_sha after a reindex of from..to: of the range's newest
+// commit touching it and the stored one, whichever `git log <to>` lists first,
+// the commit a clean scan names (a merge can bring in an older-dated side
+// commit, or touch a path without changing it). The range's when the order is
+// unknown; the stored one for a path the range does not touch.
+function newestLastCommit(
+  repoPath: string,
+  inRange: Map<string, string>,
+  stored: Map<string, { last_commit_sha: string }>,
+): (rel: string, prev: { last_commit_sha: string } | undefined) => string {
+  const rivals: string[] = [];
+  for (const [rel, sha] of inRange) {
+    const prevSha = stored.get(rel)?.last_commit_sha;
+    if (prevSha && prevSha !== sha) rivals.push(sha, prevSha);
+  }
+  const rank = rivals.length ? logOrder(repoPath, rivals) : null;
+  return (rel, prev) => {
+    const sha = inRange.get(rel);
+    const prevSha = prev?.last_commit_sha ?? '';
+    if (!sha) return prevSha;
+    const a = rank?.get(sha);
+    const b = rank?.get(prevSha);
+    return a !== undefined && b !== undefined && b < a ? prevSha : sha;
+  };
+}
+
 // The incremental path: the commit's tree for the file list, md5s re-read only
 // for the paths the diff names (and any tracked path the index lacks), the
 // directories holding a diffed path and their ancestors rewritten. null when
@@ -486,13 +521,13 @@ async function reindexRange(
   from: string,
   to: string,
   onApply: (errors: ScanError[]) => void,
-): Promise<{ files_diffed: number; files_parsed: number; dirs_touched: number } | null> {
+): Promise<{ files_diffed: number; files_parsed: number; dirs_touched: number; concepts_flagged: number } | null> {
   const tree = lsTree(repoPath, to);
   const diff = tree ? diffNameStatus(repoPath, from, to) : null;
   if (!tree || !diff) return null;
   const diffed = new Set(diff.map((d) => d.path));
   const stored = new Map(graph.allFilesForRepo(repo).map((f) => [Graph.relativeFilePath(f), f]));
-  const lastBy = lastCommitByPath(repoPath, `${from}..${to}`);
+  const lastCommit = newestLastCommit(repoPath, lastCommitByPath(repoPath, `${from}..${to}`), stored);
   const content = new CommitContent(repoPath, to, tree, true);
   try {
     const changed = new Set<string>();
@@ -507,7 +542,7 @@ async function reindexRange(
           path: rel,
           content_md5: prev?.content_md5 ?? '',
           size_bytes: prev?.size_bytes ?? entry.size,
-          last_commit_sha: prev?.last_commit_sha ?? '',
+          last_commit_sha: lastCommit(rel, prev),
         });
         continue;
       }
@@ -517,7 +552,7 @@ async function reindexRange(
         path: rel,
         content_md5: blobMd5(await content.read(rel)),
         size_bytes: entry.size,
-        last_commit_sha: lastBy.get(rel) ?? prev?.last_commit_sha ?? '',
+        last_commit_sha: lastCommit(rel, prev),
       });
     }
     const dirs = new Set<string>();
@@ -538,7 +573,7 @@ async function reindexRange(
       contents: new Map([[repo, content]]),
     };
     const stats = await persistRepoReindex(db, graph, out, scope, onApply);
-    return { files_diffed: diff.length, files_parsed: stats.files_parsed, dirs_touched: stats.dirs_touched };
+    return { files_diffed: diff.length, files_parsed: stats.files_parsed, dirs_touched: stats.dirs_touched, concepts_flagged: stats.concepts_flagged };
   } finally {
     content.close();
   }

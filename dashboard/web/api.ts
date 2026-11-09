@@ -71,12 +71,31 @@ export interface Gates {
   verifications: Row[];
 }
 
+export interface GateTask {
+  id: number;
+  title: string;
+  status: string;
+  commit_sha: string | null;
+  verification: { id: number; exit_code: number | null; timed_out: boolean; commit_sha: string | null; matches_commit: boolean } | null;
+  verdict: { id: number; verdict: string; attempt_n: number } | null;
+  open_findings: number;
+}
+
+export interface GateBranch {
+  branch_id: string;
+  state: 'ready' | 'blocked' | 'pending';
+  updated_at: string;
+  tasks: GateTask[];
+}
+
 export interface WmNode {
   repo: string;
   path: string;
   parent_path: string | null;
   summary: string | null;
   file_count: number;
+  commits_behind?: number | null;
+  dead_refs?: string[] | null;
 }
 
 export interface Freshness {
@@ -99,6 +118,26 @@ export interface Freshness {
 export interface WmStatus {
   repos: Array<{ repo: string; freshness: Freshness | null }>;
   history: Row[];
+}
+
+export interface HealthContract {
+  id: string;
+  severity: 'error' | 'warn';
+  description: string;
+  ok: boolean | null;
+  skipped: string | null;
+  actual: number | null;
+  expected: { op: string; value: number };
+}
+
+export interface Health {
+  checked_at: string;
+  healthy: boolean;
+  schema: { version: number | null; target: number };
+  contracts: HealthContract[];
+  freshness: Array<{ repo: string; freshness: Freshness | null }>;
+  concepts: { by_status: Record<string, number>; steps_by_trust: Record<string, number> };
+  embeddings: Array<{ source: string; rows: number; embedded: number }>;
 }
 
 export interface WorldModel {
@@ -301,6 +340,25 @@ export function useIssueWrite(id: string, action: IssueAction) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: Row) => postJson(`issues/${id}/${action}`, body),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
+  });
+}
+
+export type EditableConfigKey = 'model_prices' | 'issue_area_labels' | 'issue_classification_labels' | 'issue_priority_labels';
+
+export interface ConfigEntry {
+  key: EditableConfigKey;
+  value: unknown;
+}
+
+export interface EditableConfig {
+  keys: ConfigEntry[];
+}
+
+export function useConfigWrite(key: EditableConfigKey) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { value: unknown; expected: unknown }) => postJson(`config/${key}`, body),
     onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
   });
 }

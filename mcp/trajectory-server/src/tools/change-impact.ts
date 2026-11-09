@@ -54,9 +54,11 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function changeRef(v: unknown): ChangeRef | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'object' || Array.isArray(v)) throw new Error('change must be an object {source, id}');
-  const { source, id } = v as Record<string, unknown>;
+  const { source, id, repo } = v as Record<string, unknown>;
   if (typeof source !== 'string' || typeof id !== 'string') throw new Error('change must be an object {source, id} of strings');
-  return { source: source as ChangeSource, id };
+  if (repo === undefined || repo === null) return { source: source as ChangeSource, id };
+  if (typeof repo !== 'string') throw new Error('change.repo must be a string');
+  return { source: source as ChangeSource, id, repo };
 }
 
 export function changeImpactTools(
@@ -76,11 +78,13 @@ export function changeImpactTools(
             properties: {
               source: { type: 'string', enum: [...CHANGE_SOURCES] },
               id: { type: 'string' },
+              repo: { type: 'string', description: 'The repo the change belongs to; required when its id matches changes in more than one repo' },
             },
             required: ['source', 'id'],
             description:
               'A change: plugin_version (an installed version; on dev builds a merged change by build), agent_surface (a base-branch commit touching agent files; id is its merge number or 12-char SHA), or tmb_events (a cheatcode install, id cheatcode-<n>, or a cheatcode uninstall or config change, id audit-<n>). Omit for {sources, changes} over the last `limit`. ' +
-              'Per metric: before/after {n, median, mean, estimated_n, unattributed_n}, ratio_of_medians, ratio_ci (seeded 95% bootstrap), p (Mann-Whitney U), p_holm (Holm), verdict (improved, regressed, no_change, not_enough_data under 20 a side). measured_with: changes no sample separates from it.',
+              'Per metric: before/after {n, median, mean, estimated_n, unattributed_n}, ratio_of_medians, ratio_ci (seeded 95% bootstrap), p (Mann-Whitney U), p_holm (Holm), verdict (improved, regressed, no_change, not_enough_data under 20 a side). measured_with: changes no sample separates from it. ' +
+              'declared (dev-build plugin_version changes only, absent when none): {metric, direction, outcome} per `Metric: <id> lower|higher` line in the changelog.d/ fragments the PR added; outcome as_declared, wrong_way, not_moved or not_enough_data.',
           },
           source: { type: 'string', enum: [...CHANGE_SOURCES], description: 'Without change: list only this source' },
           metric: { type: 'string', enum: METRICS.map((m) => m.id), description: 'Return only this metric (Holm still spans every metric)' },

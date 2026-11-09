@@ -153,10 +153,10 @@ const JS_SAFE_GLOBALS = new Set([
   ...JS_SAFE_GLOBAL_CALLS, 'console', 'JSON', 'Math', 'Object', 'Array', 'undefined', 'NaN', 'Infinity', 'Map', 'Set', 'Date', 'RegExp', 'Error',
 ]);
 const JS_NEW = new Set(['Map', 'Set', 'Array', 'Date', 'RegExp', 'Error']);
-const JS_ROOTS = new Set(['console', 'JSON', 'Math', 'Object', 'process', 'Array', 'String', 'Number']);
+const JS_ROOTS = new Set(['console', 'JSON', 'Math', 'Object', 'process', 'Array', 'String', 'Number', 'Buffer']);
 const JS_SAFE_CALLS = new Set([
   'Object.keys', 'Object.values', 'Object.entries', 'fs.readFileSync', 'fs.existsSync', 'fs.readdirSync', 'fs.statSync',
-  'process.stdout.write', 'process.stderr.write',
+  'process.stdout.write', 'process.stderr.write', 'Buffer.byteLength',
 ]);
 const JS_SAFE_ROOT_CALL = /^(console|JSON|Math)\./;
 const JS_SAFE_VALUE = /^process\.(argv|env|stdout|stderr|version|versions|platform|arch)(\.|$)/;

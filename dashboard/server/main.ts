@@ -4,14 +4,17 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { CHANGE_SOURCES, computeChangeImpact, type ChangeSource } from '../../mcp/trajectory-server/src/change-impact/index.ts';
+import { Worker } from 'node:worker_threads';
+import { CHANGE_SOURCES, type ChangeImpactOptions, type ChangeSource } from '../../mcp/trajectory-server/src/change-impact/index.ts';
 import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
-import type { StatsReader } from '../../mcp/trajectory-server/src/tools/stats.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
+import type { ChangeImpactJob, ChangeImpactReply } from './change-impact-worker.ts';
 import { conceptsApi } from './concepts.ts';
+import { ConfigWriter, EDITABLE_CONFIG_KEYS, editableConfig, isEditableConfigKey } from './config.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
 import { clampHistory, freshnessFor, withFreshness, worldModelStatus, type Freshness } from './freshness.ts';
 import { cachedGraph, etagMatches, type GraphResponse } from './graph-cache.ts';
+import { dbFile, health } from './health.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { loadReleases } from './releases.ts';
@@ -27,10 +30,13 @@ const TOKEN_HEADER = 'x-tmb-token';
 const CHANGELOG = process.env['TMB_DASHBOARD_CHANGELOG'] || fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url));
 const RELEASES = loadReleases(CHANGELOG);
 const INTERNAL_ERROR = { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' };
+const CHANGE_IMPACT_WORKER = new URL('./change-impact-worker.mjs', import.meta.url);
 
 interface Ctx {
   db: DatabaseSync;
+  dbPath: string;
   writer: IssueWriter;
+  config: ConfigWriter;
   token: string;
   host: string;
 }
@@ -74,35 +80,46 @@ function clampLimit(raw: string | null): number {
 const CHANGE_IMPACT_LIMIT = 20;
 const CHANGE_IMPACT_MAX_LIMIT = 100;
 const UNKNOWN_CHANGE = /^unknown change /;
+const AMBIGUOUS_CHANGE = /^ambiguous change /;
 
-function statsReader(db: DatabaseSync): StatsReader {
-  return {
-    get<T>(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).get(...(params as never[])) as T | undefined;
-    },
-    all<T>(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).all(...(params as never[])) as T[];
-    },
-  };
+function workerError({ error, stack }: { error: string; stack?: string }): Error {
+  const err = new Error(error);
+  if (stack !== undefined) err.stack = stack;
+  return err;
 }
 
-function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; body: unknown } {
+function runChangeImpact(job: ChangeImpactJob): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(CHANGE_IMPACT_WORKER, { workerData: job });
+    worker.once('message', (reply: ChangeImpactReply) => ('error' in reply ? reject(workerError(reply)) : resolve(reply.result)));
+    worker.once('error', reject);
+    worker.once('exit', (code) => reject(new Error(`change impact worker exited with code ${code} before replying`)));
+  });
+}
+
+async function changeImpact(dbPath: string, p: URLSearchParams): Promise<{ status: number; body: unknown }> {
   const source = p.get('source');
   const id = p.get('id');
+  const repo = p.get('repo');
   const rawLimit = p.get('limit');
   if (source !== null && !CHANGE_SOURCES.includes(source as ChangeSource)) {
     return { status: 400, body: { error: `source must be one of ${CHANGE_SOURCES.join(', ')}` } };
   }
   if (id !== null && source === null) return { status: 400, body: { error: 'id needs source' } };
   if (id === '') return { status: 400, body: { error: 'id must be non-empty' } };
+  if (repo !== null && id === null) return { status: 400, body: { error: 'repo needs id' } };
+  if (repo === '') return { status: 400, body: { error: 'repo must be non-empty' } };
   if (rawLimit !== null && !/^[1-9]\d*$/.test(rawLimit)) return { status: 400, body: { error: 'limit must be a positive integer' } };
   const limit = rawLimit === null ? CHANGE_IMPACT_LIMIT : Math.min(Number(rawLimit), CHANGE_IMPACT_MAX_LIMIT);
-  const reader = statsReader(db);
+  const opts: ChangeImpactOptions =
+    id !== null
+      ? { change: { source: source as ChangeSource, id, ...(repo === null ? {} : { repo }) }, series: true }
+      : { ...(source === null ? {} : { source: source as ChangeSource }), limit };
   try {
-    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id }, series: true }) };
-    return { status: 200, body: computeChangeImpact(reader, undefined, { ...(source === null ? {} : { source: source as ChangeSource }), limit }) };
+    return { status: 200, body: await runChangeImpact({ dbPath, opts }) };
   } catch (err) {
     if (err instanceof Error && UNKNOWN_CHANGE.test(err.message)) return { status: 404, body: { error: err.message } };
+    if (err instanceof Error && AMBIGUOUS_CHANGE.test(err.message)) return { status: 400, body: { error: err.message } };
     throw err;
   }
 }
@@ -127,7 +144,7 @@ function sendGraph(
   res.end(withFreshness(graph.body, freshness()));
 }
 
-async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
+async function handleApi(db: DatabaseSync, dbPath: string, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const [resource, id] = parts;
   const concepts = conceptsApi(db, url);
@@ -139,8 +156,11 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
       case 'tasks': return sendJson(res, 200, q.tasks(db));
       case 'agent-runs': return sendJson(res, 200, q.agentRuns(db));
       case 'gates': return sendJson(res, 200, q.gates(db));
+      case 'gate-board': return sendJson(res, 200, q.gateBoard(db));
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
+      case 'health': return sendJson(res, 200, health(db, dbFile(db)));
+      case 'config': return sendJson(res, 200, editableConfig(db));
       case 'insights': {
         const filter = q.insightFilter(url.searchParams);
         return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, q.insights(db, filter));
@@ -172,7 +192,7 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
     return 'error' in query ? sendJson(res, 400, query) : sendJson(res, 200, await efficiencyCompare(db, query.filter, query.p1, query.p2));
   }
   if (parts.length === 2 && resource === 'insights' && id === 'change-impact') {
-    const result = changeImpact(db, url.searchParams);
+    const result = await changeImpact(dbPath, url.searchParams);
     return sendJson(res, result.status, result.body);
   }
   if (parts.length === 2 && resource === 'insights' && id === 'compare') {
@@ -254,8 +274,35 @@ function readBody(req: IncomingMessage): Promise<string | null> {
   });
 }
 
-// POST /api/issues/:id/<edit|comment|close>. Every other POST path is a 404:
-// tasks, plugin_config and issue create have no write endpoint.
+// The JSON object body of a write, or null once an error response is sent.
+async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | null> {
+  if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+    sendJson(res, 415, { error: 'unsupported_media_type', message: 'send application/json' });
+    return null;
+  }
+  const raw = await readBody(req);
+  if (raw === null) {
+    res.setHeader('connection', 'close');
+    sendJson(res, 413, { error: 'body_too_large', message: `the body is over ${MAX_BODY_BYTES} bytes` });
+    return null;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: 'invalid_json' });
+    return null;
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'invalid_json', message: 'body must be a JSON object' });
+    return null;
+  }
+  return body as Record<string, unknown>;
+}
+
+// POST /api/issues/:id/<edit|comment|close> and POST /api/config/:key for the
+// EDITABLE_CONFIG_KEYS allowlist; any other key is 403 policy_key. Every other
+// POST path is a 404: tasks, policy config and issue create have no write endpoint.
 async function handleWrite(ctx: Ctx, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const origin = `http://${ctx.host}`;
   if (req.headers.origin !== origin) {
@@ -264,27 +311,26 @@ async function handleWrite(ctx: Ctx, req: IncomingMessage, url: URL, res: Server
   if (!tokenMatches(ctx.token, req.headers[TOKEN_HEADER])) {
     return sendJson(res, 403, { error: 'bad_token', message: 'missing or wrong dashboard token; reload the page' });
   }
+  const configKey = /^\/api\/config\/(.*)$/.exec(url.pathname)?.[1];
+  if (configKey !== undefined) {
+    if (!isEditableConfigKey(configKey)) {
+      return sendJson(res, 403, {
+        error: 'policy_key',
+        message: `${configKey} is not editable from the dashboard; policy keys change through /onboard`,
+        editable: EDITABLE_CONFIG_KEYS,
+      });
+    }
+    const body = await readJsonBody(req, res);
+    if (body === null) return;
+    const result = await ctx.config.perform(configKey, body);
+    return sendJson(res, result.status, result.body);
+  }
   const match = /^\/api\/issues\/([1-9]\d*)\/([a-z]+)$/.exec(url.pathname);
   const action = match?.[2];
   if (!match || action === undefined || !isWriteAction(action)) return sendJson(res, 404, { error: 'unknown endpoint' });
-  if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
-    return sendJson(res, 415, { error: 'unsupported_media_type', message: 'send application/json' });
-  }
-  const raw = await readBody(req);
-  if (raw === null) {
-    res.setHeader('connection', 'close');
-    return sendJson(res, 413, { error: 'body_too_large', message: `the body is over ${MAX_BODY_BYTES} bytes` });
-  }
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return sendJson(res, 400, { error: 'invalid_json' });
-  }
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return sendJson(res, 400, { error: 'invalid_json', message: 'body must be a JSON object' });
-  }
-  const result = await ctx.writer.perform(action, Number(match[1]), body as Record<string, unknown>);
+  const body = await readJsonBody(req, res);
+  if (body === null) return;
+  const result = await ctx.writer.perform(action, Number(match[1]), body);
   sendJson(res, result.status, result.body);
 }
 
@@ -299,7 +345,7 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
       res.writeHead(405, { allow: 'GET, HEAD, POST' }).end();
       return;
     }
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, req, url, res);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) await handleApi(ctx.db, ctx.dbPath, req, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err) {
     console.error('dashboard request failed:', err);
@@ -311,7 +357,14 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
 function main(): void {
   const dbPath = resolveClaudeDbPath();
   const db = openDb(dbPath);
-  const ctx: Ctx = { db, writer: new IssueWriter(dbPath, db), token: randomBytes(32).toString('hex'), host: '' };
+  const ctx: Ctx = {
+    db,
+    dbPath,
+    writer: new IssueWriter(dbPath, db),
+    config: new ConfigWriter(dbPath, db),
+    token: randomBytes(32).toString('hex'),
+    host: '',
+  };
   const server = createServer((req, res) => void handle(ctx, req, res));
   server.on('error', (err) => {
     console.error(`dashboard server failed: ${err.message}`);
@@ -327,6 +380,7 @@ function main(): void {
   const shutdown = (): void => {
     server.close();
     ctx.writer.close();
+    ctx.config.close();
     db.close();
     process.exit(0);
   };

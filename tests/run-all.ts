@@ -170,13 +170,15 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
     lint('L1 lint: version sync (4 manifests agree)', 'version-sync.test.mjs'),
     lint('L1 lint: changelog top section current', 'changelog-current.test.mjs'),
+    lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs'),
     lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs'),
     lint('L1 lint: no grep -q in pipelines under pipefail', 'no-grep-q-in-pipelines.test.mjs'),
     lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs'),
     lint('L1 lint: no destructive SQL in migrations', 'no-destructive-sql.test.mjs'),
-    lint('L1 lint: tsc --noEmit on MCP server', 'tsc-noemit.test.mjs'),
+    lint('L1 lint: tsc --noEmit on MCP server + dashboard', 'tsc-noemit.test.mjs'),
+    lint('L1 lint: typescript-eslint against the suppressions baseline', 'eslint.test.mjs'),
     lint('L1 lint: dist entrypoints are esbuild bundles', 'dist-bundles.test.mjs'),
     lint('L1 lint: bundle whitespace preserves string constants', 'bundle-whitespace-safety.test.mjs'),
     lint('L1 lint: labels.json triage rule + LABELS.md generated fresh', 'labels.test.mjs'),
@@ -233,6 +235,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: nothing finds the project or a repo from the cwd', 'no-cwd-reads.test.mjs'),
     lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
+    lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
+    lint('L1 lint: pr-check suite job runs the full sweep', 'pr-check-full-suite.test.mjs'),
   ];
 }
 

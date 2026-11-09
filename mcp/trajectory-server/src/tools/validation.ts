@@ -115,6 +115,26 @@ function latestObservation(db: TrajectoryDB, taskId: number, attemptN: number): 
   );
 }
 
+export const REVIEWER_SPAWN_FROM_NODE = 'hook:record-reviewer-spawn';
+
+function reviewedSha(db: TrajectoryDB, taskId: number, attemptN: number): string | null {
+  return (
+    db.get<{ sha: string }>(
+      `SELECT json_extract(content_json, '$.commit_sha') AS sha
+         FROM audit
+        WHERE event_type = 'reviewer_spawn_observed'
+          AND from_node = ?
+          AND json_valid(content_json)
+          AND json_type(content_json, '$.commit_sha') = 'text'
+          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+          AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        ORDER BY id DESC
+        LIMIT 1`,
+      [REVIEWER_SPAWN_FROM_NODE, taskId, attemptN],
+    )?.sha ?? null
+  );
+}
+
 function supersedeOlderObservations(db: TrajectoryDB, taskId: number, attemptN: number, consumedId: number, now: string): void {
   db.run(
     `UPDATE audit
@@ -290,7 +310,7 @@ export function validationTools(db: TrajectoryDB): {
     {
       name: 'validation_history',
       description:
-        'All validation attempts for a task by attempt_n ascending. Each row carries verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
+        'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null), verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
         'Without limit, a bare array; with limit, {rows, next_cursor}.',
       inputSchema: {
         type: 'object',
@@ -303,7 +323,7 @@ export function validationTools(db: TrajectoryDB): {
           fields: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns.',
+            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns.',
           },
         },
         required: ['agent', 'task_id'],
@@ -427,9 +447,9 @@ export function validationTools(db: TrajectoryDB): {
         )?.n ?? attemptN;
         rowId = db.run(
           `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo],
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, reviewedSha(db, taskId, attemptN), now, taskExists.repo],
         ).lastInsertRowid;
 
         const lastN =
@@ -474,7 +494,7 @@ export function validationTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const fieldsArg = args['fields'] as string[] | undefined;
 
-      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run', 'findings']);
+      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'reviewed_sha', 'created_at', 'verification_run', 'findings']);
 
       if (fieldsArg !== undefined) {
         const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));

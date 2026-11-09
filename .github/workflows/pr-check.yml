@@ -1,6 +1,7 @@
 name: pr-check
 on:
-  # L1 lints and strict tsc (via build:payload) on every PR into dev, rc or main (GH 2064).
+  # L1 lints and strict tsc (via build:payload) on every PR into dev, rc or main (GH 2064),
+  # plus the full L1-L4 sweep in the suite job (GH 2497).
   pull_request:
     branches: [dev, rc, main]
 
@@ -37,3 +38,65 @@ jobs:
 
       - name: L1 lints (build:payload runs first)
         run: node --experimental-strip-types tests/run-all.ts --l1-only
+
+  dashboard:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install deps
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
+
+      - name: Build
+        run: |
+          (cd mcp/trajectory-server && bun run build:tsc)
+          (cd dashboard && bun run build)
+
+      - name: Dashboard tests
+        run: node --test dashboard/test/*.test.mjs
+
+  suite:
+    name: L1+L2+L3+L4 sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install deps
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
+
+      - name: Build the generated payload
+        run: bun run build:payload
+
+      - uses: ./.github/actions/fetch-bge-model
+
+      - name: Run L1-L4 sweep (run-all.ts)
+        run: node --experimental-strip-types tests/run-all.ts

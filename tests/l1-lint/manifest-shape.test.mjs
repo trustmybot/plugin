@@ -20,7 +20,6 @@ const HOOKS_MANIFEST = 'hooks/hooks.json';
 // Findings awaiting a Human-owned or prompt-surface change, one "<path relative to the plugin root>|<message prefix>" each.
 const STRICT_ACCEPTED = [
   'CLAUDE.md|root: CLAUDE.md at the plugin root is not loaded as project context.',
-  'agents/README.md|frontmatter: No frontmatter block found.',
   'commands/README.md|frontmatter: No frontmatter block found.',
 ];
 

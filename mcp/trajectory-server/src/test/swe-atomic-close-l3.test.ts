@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
 import { git, has, hasNot } from './git-push-guard-l3.js';
-import { commitIn, execDb, hook, newMinDb, NO_COMMITS, q, skippedCount, spawnInput, spawnTranscript } from './swe-atomic-close-l3.js';
+import { commitIn, execDb, hook, newMinDb, NO_COMMITS, q, skippedCount, spawnInput, spawnTranscript, writeTranscript } from './swe-atomic-close-l3.js';
 
 describe('swe-atomic-close l3: one repo', () => {
   let sb: Sandbox;
@@ -247,6 +247,64 @@ describe('swe-atomic-close l3: one repo', () => {
       assert.equal(Number(skippedCount(db)), before + 1, 'one capture-skipped audit row');
       assert.equal(status(42), 'pending', 'task untouched');
       assert.equal(q(db, 'SELECT COUNT(*) FROM agent_runs'), arTotal, 'no agent_runs row');
+    });
+  });
+
+  describe('swe waits on a background command (GH 2206)', () => {
+    const waitRows = () => Number(q(db, "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_background_wait'"));
+    const closeRows = () => Number(q(db, "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_auto_completed'"));
+    const bgTranscript = (ended: boolean) => {
+      const lines: object[] = [
+        { type: 'user', timestamp: '2026-04-01T00:00:00.000Z', message: { role: 'user', content: 'task_id=42 You are swe. Implement the spec.' } },
+        {
+          type: 'assistant',
+          timestamp: '2026-04-01T00:00:00.500Z',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Bash', input: { command: 'sleep 60', run_in_background: true } }] },
+        },
+        {
+          type: 'user',
+          timestamp: '2026-04-01T00:00:01.000Z',
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'Command running in background with ID: bgw2206. Output is being written to: /tmp/bgw2206.output.' }] },
+        },
+      ];
+      if (ended) {
+        lines.push({
+          type: 'attachment',
+          timestamp: '2026-04-01T00:00:03.000Z',
+          attachment: { type: 'queued_command', prompt: '<task-notification>\n<task-id>bgw2206</task-id>\n<status>completed</status>\n</task-notification>' },
+        });
+      }
+      lines.push({ type: 'assistant', timestamp: '2026-04-01T00:00:02.000Z', message: { role: 'assistant', usage: { input_tokens: 10, output_tokens: 5 }, content: [] } });
+      return writeTranscript(join(sb.dir, `bg-${ended ? 'ended' : 'live'}.jsonl`), lines);
+    };
+    const bgInput = (ended: boolean) => ({ agent_type: 'swe', agent_id: `bg-${ended}`, agent_transcript_path: bgTranscript(ended), hook_event_name: 'SubagentStop', session_id: 'sess-test' });
+
+    it('live background id: task stays running, commit_sha unchanged, one background_wait row, no auto_completed row', () => {
+      resetPending();
+      execDb(db, "UPDATE tasks SET status='running' WHERE id=42;");
+      const head = commitIn(sb.env, wt, 'work-bg.txt', 'feat: bg work');
+      const closeBefore = closeRows();
+      const out = run(bgInput(false));
+      assert.equal(status(42), 'running', 'task stays running');
+      assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), '', 'commit_sha unchanged');
+      assert.equal(waitRows(), 1, 'one swe_atomic_close_background_wait row');
+      assert.equal(closeRows(), closeBefore, 'no swe_atomic_close_auto_completed row');
+      const content = JSON.parse(q(db, "SELECT content_json FROM audit WHERE event_type='swe_atomic_close_background_wait'")) as object;
+      assert.deepEqual(content, { task_id: 42, commit_sha: head, background_ids: ['bgw2206'] });
+      has(q(db, "SELECT summary FROM audit WHERE event_type='swe_atomic_close_background_wait'"), 'bgw2206', 'summary names the id');
+      has(out, 'additionalContext', 'context for bro');
+      has(out, 'bgw2206', 'context names the id');
+      has(out, 'resumed turn closes', 'context says swe closes it');
+    });
+
+    it('every background id ended: auto-completes', () => {
+      const head = git(sb.env, wt, 'rev-parse', 'HEAD');
+      const closeBefore = closeRows();
+      assert.equal(run(bgInput(true)), '', 'no additionalContext on auto-close');
+      assert.equal(status(42), 'completed', 'task auto-completed');
+      assert.equal(q(db, 'SELECT commit_sha FROM tasks WHERE id=42'), head, 'commit_sha written');
+      assert.equal(closeRows(), closeBefore + 1, 'one auto_completed row');
+      assert.equal(waitRows(), 1, 'no new background_wait row');
     });
   });
 });

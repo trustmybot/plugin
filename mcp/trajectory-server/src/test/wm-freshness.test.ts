@@ -119,6 +119,7 @@ interface Row {
   files_diffed: number;
   files_parsed: number;
   dirs_touched: number;
+  concepts_flagged: number;
   ms: number;
 }
 
@@ -368,10 +369,92 @@ describe('full rebuild triggers (SC4) and the wm_reindex row (SC5)', () => {
       await fx.scan('user_manual');
       assert.deepEqual([last().mode, last().reason, last().trigger], ['full', 'scan', 'scan']);
 
-      const keys = ['repo', 'mode', 'reason', 'trigger', 'from_commit', 'to_commit', 'files_diffed', 'files_parsed', 'dirs_touched', 'ms'] as const;
+      const keys = ['repo', 'mode', 'reason', 'trigger', 'from_commit', 'to_commit', 'files_diffed', 'files_parsed', 'dirs_touched', 'concepts_flagged', 'ms'] as const;
       const written = rows(fx.db).filter((r) => r.mode !== 'mismatch');
       assert.ok(written.length > 0);
       for (const r of written) for (const k of keys) assert.ok(r[k] !== null && r[k] !== undefined, `${k} in ${JSON.stringify(r)}`);
+      for (const r of written) assert.ok(Number.isInteger(r.concepts_flagged), `concepts_flagged in ${JSON.stringify(r)}`);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe('a full rebuild for another reason reparses while a mismatch is pending (GH 2639)', () => {
+  const pendMismatch = (db: TrajectoryDB) =>
+    db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+       VALUES (-1, NULL, 'system', 'wm_reindex', 'shadow mismatch', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'app')`,
+      [JSON.stringify({ repo: 'app', mode: 'mismatch' })],
+    );
+  const tamper = (db: TrajectoryDB) =>
+    db.run(`UPDATE wm_symbols SET signature = 'tampered' WHERE repo = 'app' AND qualified_name = 'beta' AND kind <> 'module'`);
+  const forces: ReadonlyArray<readonly [string, string, string | null]> = [
+    ['null_stamp', `UPDATE repos SET indexed_commit = ? WHERE name = 'app'`, null],
+    ['unreachable', `UPDATE repos SET indexed_commit = ? WHERE name = 'app'`, '0123456789abcdef0123456789abcdef01234567'],
+    ['stamp_changed', `UPDATE repos SET indexed_stamp = ? WHERE name = 'app'`, '0:0'],
+  ];
+
+  for (const [reason, force, value] of forces) {
+    it(`${reason} with a mismatch pending: the rebuild reparses every file and clears the mismatch`, async () => {
+      const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+      try {
+        tamper(fx.db);
+        pendMismatch(fx.db);
+        fx.db.run(force, [value]);
+        assert.equal((await fx.fresh()).mode, 'full');
+        const row = rows(fx.db).at(-1)!;
+        assert.deepEqual([row.mode, row.reason], ['full', reason]);
+        assert.equal(row.files_parsed, 2);
+        assert.notEqual(symbol(fx.db, 'beta')!.signature, 'tampered');
+        const count = rows(fx.db).length;
+        await fx.fresh();
+        assert.equal(rows(fx.db).length, count, 'the full rebuild clears the mismatch');
+      } finally {
+        fx.cleanup();
+      }
+    });
+  }
+
+  it('stamp_changed with no mismatch pending keeps the stored stamps and parses nothing', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      tamper(fx.db);
+      fx.db.run(`UPDATE repos SET indexed_stamp = '0:0' WHERE name = 'app'`);
+      assert.equal((await fx.fresh()).mode, 'full');
+      const row = rows(fx.db).at(-1)!;
+      assert.deepEqual([row.mode, row.reason, row.files_parsed], ['full', 'stamp_changed', 0]);
+      assert.equal(symbol(fx.db, 'beta')!.signature, 'tampered');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('/scan with a mismatch pending reparses every file and clears the mismatch', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      tamper(fx.db);
+      pendMismatch(fx.db);
+      await fx.scan('user_manual');
+      const row = rows(fx.db).at(-1)!;
+      assert.deepEqual([row.mode, row.reason, row.files_parsed], ['full', 'scan', 2]);
+      assert.notEqual(symbol(fx.db, 'beta')!.signature, 'tampered');
+      const count = rows(fx.db).length;
+      await fx.fresh();
+      assert.equal(rows(fx.db).length, count, 'the scan clears the mismatch');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('/scan with no mismatch pending parses nothing', async () => {
+    const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
+    try {
+      tamper(fx.db);
+      await fx.scan('user_manual');
+      const row = rows(fx.db).at(-1)!;
+      assert.deepEqual([row.mode, row.reason, row.files_parsed], ['full', 'scan', 0]);
+      assert.equal(symbol(fx.db, 'beta')!.signature, 'tampered');
     } finally {
       fx.cleanup();
     }
@@ -384,7 +467,7 @@ describe('every successful scan stamps the target commit (SC8)', () => {
     try {
       const head = fx.git('rev-parse', 'main');
       assert.equal(stamp(fx.db), head);
-      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+      for (const source of ['user_manual', 'bro_auto_initial', 'startup_catchup']) {
         await fx.scan(source);
         assert.equal(stamp(fx.db), head, source);
       }
@@ -397,7 +480,7 @@ describe('every successful scan stamps the target commit (SC8)', () => {
     const fx = await fixture({ 'src/a.ts': A, 'src/b.ts': B });
     try {
       const head = fx.git('rev-parse', 'main');
-      for (const source of ['user_manual', 'bro_auto_initial', 'bro_auto_post_close', 'startup_catchup']) {
+      for (const source of ['user_manual', 'bro_auto_initial', 'startup_catchup']) {
         fx.db.run(`UPDATE repos SET indexed_commit = NULL WHERE name = 'app'`);
         await fx.scan(source);
         assert.equal(stamp(fx.db), head, source);

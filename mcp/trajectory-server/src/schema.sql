@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
-    -- CC (no repos row yet). Relative path string (e.g. "plugin", "repos/backend").
+    -- CC (no repos row yet). Holds a registered repo name: the repo root's
+    -- basename, as listed by repos_list.
     repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     -- prompt_bearing: 1 when this task intentionally modifies agent/skill/command
     -- prompt-surface files. When 0 (default), the swe-boundary hook denies writes
@@ -246,6 +247,12 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- (subagent_session_id stays the Claude Code session). NULL until
     -- validation_record writes it, and for honor-system rows.
     reviewer_agent_id   TEXT,
+    -- reviewed_sha (v65 GH 2684): the commit_sha= anchor of the code-reviewer
+    -- spawn record-reviewer-spawn observed for the row's task and attempt. NULL
+    -- when no spawn was observed: honor-system rows and rows from before v65.
+    -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
+    -- to the nearest comma.
+    reviewed_sha        TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -407,7 +414,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 63, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 65, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -783,7 +790,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     touching the README, commits_behind (GH 1833) counts later commits that
 --     change, other than by adding, a file the README references, dead_refs
 --     is a JSON array of repo-relative paths the README names that no longer
---     exist. All three NULL otherwise.
+--     exist. All three NULL otherwise. readme_review_pending (GH 2584) is 1
+--     once a reindex changed the README-sourced summary of an existing
+--     README row, until a world-model read lists the dir to bro.
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
@@ -845,6 +854,7 @@ CREATE TABLE IF NOT EXISTS wm_directories (
     summary_sha        TEXT,
     commits_behind     INTEGER,
     dead_refs          TEXT,
+    readme_review_pending INTEGER NOT NULL DEFAULT 0,
     UNIQUE (repo, path)
 );
 

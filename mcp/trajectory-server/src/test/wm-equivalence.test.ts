@@ -24,6 +24,16 @@ const PIN_TARGET = 'TMB_WM_INDEX_TARGET';
 const git = (cwd: string, ...a: string[]) =>
   execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString().trim();
 
+const datedGit =
+  (cwd: string) =>
+  (date: string, ...a: string[]) =>
+    execFileSync('git', ['-C', cwd, ...a], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    })
+      .toString()
+      .trim();
+
 function assertEquivalent(a: TrajectoryDB, b: TrajectoryDB, repo: string, label: string): void {
   const sa = snapshot(a, repo);
   const sb = snapshot(b, repo);
@@ -220,6 +230,88 @@ describe('fixture steps: incremental reindex equals a clean rebuild (SC1)', () =
       const one = fx.commit({ 'lib/h2.ts': null });
       await stepIncremental(fx.a, 'app', one);
       await fx.check('after removing lib/h2.ts');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a merge whose side branch adds a file byte-identical to one main already has (GH 2636)', async () => {
+    const fx = await fixture(BASE);
+    const at = datedGit(fx.root);
+    const addDup = (date: string) => {
+      writeFileSync(join(fx.root, 'lib/dup.ts'), SHARED(9));
+      at(date, 'add', '-A');
+      at(date, 'commit', '-qm', 'add lib/dup.ts');
+      return at(date, 'rev-parse', 'HEAD');
+    };
+    try {
+      at('2030-01-01T00:00:00Z', 'branch', 'side');
+      const onMain = addDup('2030-01-02T00:00:00Z');
+      await stepIncremental(fx.a, 'app', onMain);
+      at('2030-01-03T00:00:00Z', 'checkout', '-q', 'side');
+      const onSide = addDup('2030-01-03T00:00:00Z');
+      at('2030-01-04T00:00:00Z', 'checkout', '-q', 'main');
+      at('2030-01-04T00:00:00Z', 'merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+      const merged = at('2030-01-04T00:00:00Z', 'rev-parse', 'HEAD');
+      assert.equal(at('2030-01-04T00:00:00Z', 'diff', '--name-only', onMain, merged), '', 'the merge changes no content');
+      await stepIncremental(fx.a, 'app', merged);
+      const dup = fx.a.graph.allFilesForRepo('app').find((f) => WorldModelGraph.relativeFilePath(f) === 'lib/dup.ts');
+      assert.equal(dup?.last_commit_sha, onSide, 'lib/dup.ts carries the side commit, the newest to touch it');
+      await fx.check('after merging a side branch that adds an identical lib/dup.ts');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('the same merge with the side commit older-dated than main (GH 2636 older side)', async () => {
+    const fx = await fixture(BASE);
+    const at = datedGit(fx.root);
+    const addDup = (date: string) => {
+      writeFileSync(join(fx.root, 'lib/dup.ts'), SHARED(9));
+      at(date, 'add', '-A');
+      at(date, 'commit', '-qm', 'add lib/dup.ts');
+      return at(date, 'rev-parse', 'HEAD');
+    };
+    try {
+      at('2030-01-01T00:00:00Z', 'branch', 'side');
+      const onMain = addDup('2030-01-02T00:00:00Z');
+      await stepIncremental(fx.a, 'app', onMain);
+      at('2030-01-03T00:00:00Z', 'checkout', '-q', 'side');
+      addDup('2030-01-01T12:00:00Z');
+      at('2030-01-04T00:00:00Z', 'checkout', '-q', 'main');
+      at('2030-01-04T00:00:00Z', 'merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+      const merged = at('2030-01-04T00:00:00Z', 'rev-parse', 'HEAD');
+      await stepIncremental(fx.a, 'app', merged);
+      const dup = fx.a.graph.allFilesForRepo('app').find((f) => WorldModelGraph.relativeFilePath(f) === 'lib/dup.ts');
+      assert.equal(dup?.last_commit_sha, onMain, "lib/dup.ts keeps main's commit, the newer by date");
+      await fx.check('after merging an older-dated side branch that adds an identical lib/dup.ts');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('a merge taking an older-dated side change over a newer main change (GH 2636 re-read)', async () => {
+    const fx = await fixture(BASE);
+    const at = datedGit(fx.root);
+    const setUtil = (date: string, n: number) => {
+      writeFileSync(join(fx.root, 'lib/util.ts'), `export const util = ${n};\n`);
+      at(date, 'commit', '-qam', `util ${n}`);
+      return at(date, 'rev-parse', 'HEAD');
+    };
+    try {
+      at('2030-01-01T00:00:00Z', 'branch', 'side');
+      const onMain = setUtil('2030-01-02T00:00:00Z', 2);
+      await stepIncremental(fx.a, 'app', onMain);
+      at('2030-01-03T00:00:00Z', 'checkout', '-q', 'side');
+      setUtil('2030-01-01T12:00:00Z', 3);
+      at('2030-01-04T00:00:00Z', 'checkout', '-q', 'main');
+      at('2030-01-04T00:00:00Z', 'merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'merge side', 'side');
+      const merged = at('2030-01-04T00:00:00Z', 'rev-parse', 'HEAD');
+      assert.equal(at('2030-01-04T00:00:00Z', 'diff', '--name-only', onMain, merged), 'lib/util.ts', 'the merge changes lib/util.ts');
+      await stepIncremental(fx.a, 'app', merged);
+      const util = fx.a.graph.allFilesForRepo('app').find((f) => WorldModelGraph.relativeFilePath(f) === 'lib/util.ts');
+      assert.equal(util?.last_commit_sha, onMain, "lib/util.ts carries main's commit, the newer by date");
+      await fx.check('after merging an older-dated side change to lib/util.ts');
     } finally {
       fx.cleanup();
     }

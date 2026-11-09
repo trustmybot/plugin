@@ -170,8 +170,8 @@ describe('scripts/maintenance/run-scan.mjs', () => {
     assert.ok(Number(sql<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM repos')[0].n) >= 1, first.out);
   });
 
-  it('audits the scan as bro_auto_post_close without a source argument and releases its lock', () => {
-    assert.equal(lastSource(), 'bro_auto_post_close');
+  it('audits the scan as bro_auto_initial without a source argument and releases its lock', () => {
+    assert.equal(lastSource(), 'bro_auto_initial');
     assert.equal(existsSync(join(ws, '.claude/tmb/scan.lock')), false);
   });
 
@@ -184,7 +184,7 @@ describe('scripts/maintenance/run-scan.mjs', () => {
       "SELECT json_extract(content_json, '$.trigger') AS trigger, json_extract(content_json, '$.reason') AS reason FROM audit WHERE event_type = 'wm_reindex' ORDER BY id DESC LIMIT 1",
     )[0];
     assert.deepEqual({ ...row }, { trigger: 'startup_catchup', reason: 'null_stamp' }, r.out);
-    assert.equal(lastSource(), 'bro_auto_post_close', 'a warm catch-up writes no deep_scan_completed row');
+    assert.equal(lastSource(), 'bro_auto_initial', 'a warm catch-up writes no deep_scan_completed row');
   });
 
   it('exits 2 naming TRAJECTORY_DB_PATH when it is unset, CLAUDE_PROJECT_DIR notwithstanding (GH 1639)', () => {

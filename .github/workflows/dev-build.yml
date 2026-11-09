@@ -1,7 +1,9 @@
 name: dev-build
 on:
   # Stamps every dev push as X.Y.Z-dev.<n>.gh<PR> and force-pushes the result to
-  # the dev-build branch that the dev marketplace channel serves. Not a gate.
+  # the dev-build branch that the dev marketplace channel serves. stamp is not a
+  # gate. The l1 job reruns the L1 tier on each dev push, so a merge that breaks
+  # an L1 rule turns dev red (GH 2651).
   push:
     branches: [dev]
   workflow_dispatch:
@@ -187,3 +189,32 @@ jobs:
           if ! gh pr comment "$PR" --repo "$REPO" --body "$BODY"; then
             echo "::warning::Could not comment dev build $VERSION on PR #$PR; the build itself succeeded."
           fi
+
+  l1:
+    name: L1 lints + strict tsc on dev
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The world-model equivalence test replays the last first-parent commits.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install deps
+        run: |
+          bun install --frozen-lockfile
+          (cd dashboard && bun install --frozen-lockfile)
+
+      - name: L1 lints (build:payload runs first)
+        run: node --experimental-strip-types tests/run-all.ts --l1-only

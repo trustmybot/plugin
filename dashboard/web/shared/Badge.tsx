@@ -7,6 +7,8 @@ export const STATUS_VARIANT: Record<string, LabelVariant> = {
   needs_validation: 'done',
   completed: 'success',
   pass: 'success',
+  ready: 'success',
+  blocked: 'danger',
   verified: 'success',
   closed: 'secondary',
   failed: 'danger',

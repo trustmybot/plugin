@@ -368,7 +368,7 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
   const tree = parser.parse(cmd);
   if (!tree) return stmts.map(() => undefined);
   try {
-    const encoder = new Encoder(cmd, NO_CHARGE, false, heredocEncoder(parser));
+    const encoder = new Encoder(cmd, NO_CHARGE, false, false, heredocEncoder(parser));
     const listed = (node: Node, at: number): string[] =>
       statementsEnc(encoder.from(node, at), '@', home, false)
         .map((record) => readStmt(record.stmt))
@@ -425,7 +425,7 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
  */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
-  const encoded = encode(parser, cmd, NO_CHARGE, false, true);
+  const encoded = encode(parser, cmd, NO_CHARGE, false, false, true);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
   const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
