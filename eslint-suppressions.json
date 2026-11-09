@@ -3125,7 +3125,7 @@
   },
   "mcp/trajectory-server/src/test/sync-issue.test.ts": {
     "@typescript-eslint/no-floating-promises": {
-      "count": 42
+      "count": 45
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
