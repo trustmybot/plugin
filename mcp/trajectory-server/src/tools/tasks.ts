@@ -924,12 +924,12 @@ export function taskTools(db: TrajectoryDB): {
           const repo = t.repo as string;
           if (repo.includes('..')) {
             throw new Error(
-              `Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`,
+              `Invalid repo "${repo}": must not contain "..". Pass a registered repo name (from repos_list).`,
             );
           }
           if (repo.startsWith('/')) {
             throw new Error(
-              `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`,
+              `Invalid repo "${repo}": must not start with "/". Pass a registered repo name (from repos_list).`,
             );
           }
           effectiveRepoName = repo;

@@ -1098,8 +1098,10 @@ describe('taskTools', () => {
     });
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
-    assert.match(data.error, /Invalid repo/);
-    assert.match(data.error, /\.\./);
+    assert.equal(
+      data.error,
+      'Invalid repo "../escape": must not contain "..". Pass a registered repo name (from repos_list).',
+    );
 
     db.close();
   });
@@ -1124,7 +1126,10 @@ describe('taskTools', () => {
     });
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
-    assert.match(data.error, /Invalid repo/);
+    assert.equal(
+      data.error,
+      'Invalid repo "/absolute/path": must not start with "/". Pass a registered repo name (from repos_list).',
+    );
 
     db.close();
   });
