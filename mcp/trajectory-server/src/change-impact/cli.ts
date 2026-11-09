@@ -1,6 +1,6 @@
 /**
  * Change-impact CLI (GH 2600), read-only:
- *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --source <S> --id <I> [--metric <id>] [--window-days D] [--max-samples M]
+ *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --source <S> --id <I> [--repo <name>] [--metric <id>] [--window-days D] [--max-samples M]
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --list [--source <S>] [--limit N]
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --sample-counts <DAYS>
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --cache
@@ -39,6 +39,7 @@ function main(): void {
       db: { type: 'string' },
       source: { type: 'string' },
       id: { type: 'string' },
+      repo: { type: 'string' },
       list: { type: 'boolean' },
       metric: { type: 'string' },
       'window-days': { type: 'string' },
@@ -66,7 +67,7 @@ function main(): void {
       values['sample-counts'] !== undefined
         ? sampleCounts(reader, Number(values['sample-counts']))
         : computeChangeImpact(reader, undefined, {
-            change: values.list ? undefined : { source: source!, id: values.id! },
+            change: values.list ? undefined : { source: source!, id: values.id!, repo: values.repo },
             source: values.list ? source : undefined,
             metric: values.metric,
             window_days: optionalInt(values['window-days']),
