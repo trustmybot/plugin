@@ -1,4 +1,4 @@
-// L1 lint: the MCP server source type-checks with tsc --noEmit, isolating type errors from the emitting build.
+// L1 lint: the MCP server and dashboard sources type-check with tsc --noEmit, isolating type errors from the emitting build.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
+const DASHBOARD = join(ROOT, 'dashboard');
 
 function resolveTsc() {
   const local = join(SERVER, 'node_modules', '.bin', 'tsc');
@@ -32,6 +33,9 @@ export function typeCheck(tsc, project) {
 
 const TSC = resolveTsc();
 const skip = TSC ? false : "tsc not found locally or on PATH — run 'bun install' first";
+const DASHBOARD_SKIP = existsSync(join(DASHBOARD, 'node_modules'))
+  ? false
+  : "dashboard deps missing — run 'bun install' in dashboard/ first";
 
 test('a type error fails the check', { skip }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'tsc-noemit-'));
@@ -49,4 +53,9 @@ test('a type error fails the check', { skip }, () => {
 test('MCP server type-checks clean', { skip, timeout: 300000 }, () => {
   const result = typeCheck(TSC, SERVER);
   assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix type errors above`);
+});
+
+test('dashboard type-checks clean', { skip: skip || DASHBOARD_SKIP, timeout: 300000 }, () => {
+  const result = typeCheck(TSC, DASHBOARD);
+  assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix dashboard type errors above`);
 });

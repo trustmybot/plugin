@@ -4,6 +4,7 @@ import { useApi, type WorldModel } from '../../api.ts';
 import { Loading } from '../../shared/Loading.tsx';
 import { Box, BoxHeader, BoxRow } from '../../ui/Box.tsx';
 import { CounterLabel } from '../../ui/CounterLabel.tsx';
+import { DriftMarkers } from './Drift.tsx';
 import { ancestors, childrenOf, childrenPath, dirName } from './paths.ts';
 
 const LINK = 'cursor-pointer text-(--fgColor-accent) hover:underline focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color)';
@@ -57,6 +58,7 @@ export function DirectoryListing({ repo, path, onSelect }: { repo: string; path:
                 {dirName(c)}
               </button>
               <span className="min-w-0 flex-1 truncate text-fg-muted" title={c.summary ?? undefined}>{c.summary}</span>
+              <DriftMarkers node={c} />
               <span className="shrink-0 text-xs text-fg-muted tabular-nums">{c.file_count} files</span>
             </BoxRow>
           ));

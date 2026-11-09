@@ -10,9 +10,10 @@
 //      - each `GH <n>` cited in a branch commit subject needs a fragment
 //        changelog.d/<n>-*.md or an entry in CHANGELOG.md.
 //
-// changelogCurrent(root, { today, baseBranch }) lints another checkout (tests).
+// changelogCurrent(root, { today, baseBranch, env }) lints another checkout (tests).
 // today defaults to TMB_CHANGELOG_TODAY, else today's UTC date (YYYY-MM-DD);
-// baseBranch defaults to TMB_PR_TARGET, else dev.
+// baseBranch defaults to TMB_PR_TARGET, else dev; env is the environment for
+// every git and fragments-lib spawn, default the inherited process.env.
 
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
@@ -29,8 +30,8 @@ const TRANSITION = ['1226', '1229', '1245', '1277', '1294', '1295'];
 const TOP_SECTION = /^## v[0-9].*$/m;
 const CITED = /GH [0-9]+/g;
 
-function run(cmd, args, cwd) {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' });
+function run(cmd, args, cwd, env) {
+  const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8' });
   return { status: r.status, stdout: r.stdout ?? '' };
 }
 
@@ -69,7 +70,7 @@ function hasFragmentFor(root, n) {
   return readdirSync(dir).some((name) => name.startsWith(prefix) && name.endsWith('.md') && name.length >= prefix.length + 3);
 }
 
-export function changelogCurrent(rootDir, { today, baseBranch } = {}) {
+export function changelogCurrent(rootDir, { today, baseBranch, env } = {}) {
   const root = resolve(rootDir);
   const TODAY = today || process.env.TMB_CHANGELOG_TODAY || new Date().toISOString().slice(0, 10);
   const BASE_BRANCH = baseBranch || process.env.TMB_PR_TARGET || 'dev';
@@ -80,8 +81,8 @@ export function changelogCurrent(rootDir, { today, baseBranch } = {}) {
     failed = true;
   };
   const finish = (code) => ({ code, output: out.length ? `${out.join('\n')}\n` : '' });
-  const git = (...args) => run('git', args, root);
-  const fragments = (...args) => run(process.execPath, ['--experimental-strip-types', '--no-warnings', LIB, ...args], root);
+  const git = (...args) => run('git', args, root, env);
+  const fragments = (...args) => run(process.execPath, ['--experimental-strip-types', '--no-warnings', LIB, ...args], root, env);
 
   // ---- 1. top section matches plugin.json ------------------------------------
 

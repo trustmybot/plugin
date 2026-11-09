@@ -21,7 +21,7 @@ These differences from real hardware are where the design decisions sit.
 3. **Write through, never write back.** Context is volatile, so a decision reaches the DB when it is made. Evicting then loses nothing.
 4. **Evict at boundaries.** A session ends when its dispatched work has returned and been closed or parked. The one timer that matters is prompt cache expiry: the next call then pays full price for the whole context, so a cold restart is usually cheaper.
 
-Since nothing in hot storage can be evicted, the `bash-output-trim` hook cuts the long output of bro's routine reads (`gh` views, lists and diffs, git read verbs, read-only `sqlite3`, and chains and pipelines of reads into filters such as `head`, `grep` and `sed -n`) to its head and tail before it enters context (GH 2193).
+Since nothing in hot storage can be evicted, a hook cuts the long output of bro's routine read-only shell commands to its head and tail before it enters context (`mcp/trajectory-server/src/hooks/bash-output-trim.ts` says which commands).
 
 ## Loading from cold
 
@@ -46,14 +46,3 @@ Ask these of any change that adds context, a tool result, a prompt line or a sto
 2. If it is hot or pinned, how many calls pay for it, and is it read often enough to earn that?
 3. If it is hot, what evicts it, and is it already in the DB by then?
 4. If it is loaded from cold, is that the smallest page, and can it be found through an index?
-
-## Status
-
-| Work | Status |
-|---|---|
-| bro's DB state restored after each compaction (GH 2275) | Shipped |
-| Concise `task_brief` by section (GH 1958) | Shipped |
-| bro's short-session prompt | **In flight (GH 2193)** |
-| Limits and cursors on the other read tools | **In flight (GH 1958)** |
-| Tool description budget for the pinned tier | **Planned (GH 2134)** |
-| `issue_update_description` mirrors to the remote | **Planned (GH 2067)** |

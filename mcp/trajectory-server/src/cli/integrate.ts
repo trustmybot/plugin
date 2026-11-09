@@ -15,12 +15,15 @@
  *      anchor, REVIEW_ANCHOR_AT_SQL) → exit 3. A head integrate made keeps the
  *      anchor it carried, so a second integrate needs no new review unless a
  *      verdict since says otherwise.
- *   2. <base> is fetched first (GH 2632): a local branch tracking a remote
- *      fetches its upstream and resolves to `<base>@{u}`; `<remote>/<x>`
- *      fetches <x>. A failed fetch, or one past 60 s (TMB_INTEGRATE_FETCH_TIMEOUT_MS
- *      overrides it), warns and keeps the local ref.
- *      <base> already an ancestor of commit_sha → print commit_sha, exit 0;
- *      nothing is recorded.
+ *   2. <base> is resolved to a sha (GH 2198). A local branch with an upstream
+ *      has that upstream fetched; the local ref is used when it equals the
+ *      upstream or is a fast-forward ahead of it, else the upstream is (one
+ *      stderr line names both). A remote-tracking ref of a configured remote is
+ *      fetched, then resolved. Any other base resolves as given, unfetched. A
+ *      failed fetch, or one past 60 s (TMB_INTEGRATE_FETCH_TIMEOUT_MS overrides
+ *      it, GH 2632) → exit 4, branch and DB unchanged. Every later step uses
+ *      the resolved sha. That sha already an ancestor of commit_sha → print
+ *      commit_sha, exit 0; nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
  *      detached at commit_sha, runs `git -c merge.renames=false rebase <base>`
  *      (no rename detection, GH 2356). A conflict is aborted
@@ -353,40 +356,52 @@ SELECT changes();`,
     return true;
   }
 
-  private fetchBase(remote: string, ref: string): boolean {
+  private fetchBase(remote: string, branch: string): void {
     const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
     const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
-    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, ref], {
+    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
       env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
       timeoutMs,
     });
     if (r.timedOut) {
-      this.say(`warning: git fetch ${remote} ${ref} timed out after ${timeoutMs} ms, using the local ${this.base}`);
-    } else if (!r.ok) {
-      const reason = r.err.split('\n').find((line) => line.trim() !== '') ?? '';
-      this.say(`warning: git fetch ${remote} ${ref} failed, using the local ${this.base}: ${reason.trim()}`);
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
     }
-    return r.ok;
+    if (!r.ok) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
+    }
   }
 
-  /** The ref <base> resolves to after fetching it: `<base>@{u}` for a local branch tracking a remote, else <base> (GH 2632); sets baseLabel. */
-  private resolveBaseRef(): string {
+  private hasRef(ref: string): boolean {
+    return this.g(['show-ref', '--verify', '-q', ref]).ok;
+  }
+
+  /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. Sets baseLabel. */
+  private resolveBase(): string {
     this.baseLabel = this.base;
-    if (this.revParse(this.repoRoot, `refs/heads/${this.base}`) !== '') {
+    const local = `refs/heads/${this.base}`;
+    if (this.hasRef(local)) {
+      const upstream = this.g(['rev-parse', '--symbolic-full-name', `${this.base}@{upstream}`]);
       const remote = this.g(['config', '--get', `branch.${this.base}.remote`]).out;
       const merge = this.g(['config', '--get', `branch.${this.base}.merge`]).out;
-      if (remote === '' || remote === '.' || merge === '' || !this.fetchBase(remote, merge)) return this.base;
-      const upstream = `${this.base}@{u}`;
-      if (this.revParse(this.repoRoot, `${upstream}^{commit}`) === '') return this.base;
-      this.baseLabel = this.g(['rev-parse', '--abbrev-ref', upstream]).out || upstream;
-      return upstream;
+      if (!upstream.ok || upstream.out === '' || remote === '' || merge === '') return this.revParse(this.repoRoot, `${local}^{commit}`);
+      if (remote !== '.') this.fetchBase(remote, merge.replace(/^refs\/heads\//, ''));
+      const localSha = this.revParse(this.repoRoot, `${local}^{commit}`);
+      const upstreamSha = this.revParse(this.repoRoot, `${upstream.out}^{commit}`);
+      if (upstreamSha === '' || localSha === upstreamSha || this.g(['merge-base', '--is-ancestor', upstreamSha, localSha]).ok) return localSha;
+      this.say(`${local} (${localSha}) is behind or diverged from ${upstream.out} (${upstreamSha}); rebasing onto ${upstream.out}`);
+      this.baseLabel = upstream.out.replace(/^refs\/remotes\//, '');
+      return upstreamSha;
     }
-    const remote = this.g(['remote'])
-      .out.split('\n')
-      .filter((name) => name !== '' && this.base.startsWith(`${name}/`))
-      .sort((a, b) => b.length - a.length)[0];
-    if (remote !== undefined) this.fetchBase(remote, `refs/heads/${this.base.slice(remote.length + 1)}`);
-    return this.base;
+    const tracking = `refs/remotes/${this.base}`;
+    if (this.hasRef(tracking)) {
+      const remote = this.g(['remote'])
+        .out.split('\n')
+        .filter((name) => name !== '' && this.base.startsWith(`${name}/`))
+        .sort((a, b) => b.length - a.length)[0];
+      if (remote !== undefined) this.fetchBase(remote, this.base.slice(remote.length + 1));
+      return this.revParse(this.repoRoot, `${tracking}^{commit}`);
+    }
+    return this.revParse(this.repoRoot, `${this.base}^{commit}`);
   }
 
   private rebasePicks(sha: string): string {
@@ -445,7 +460,7 @@ SELECT changes();`,
 
     this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
     if (this.commitSha === '') this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
-    this.baseSha = this.revParse(this.repoRoot, `${this.resolveBaseRef()}^{commit}`);
+    this.baseSha = this.resolveBase();
     if (this.baseSha === '') this.die(4, `base '${this.base}' is not a commit in ${this.repoRoot}`);
 
     if (this.g(['merge-base', '--is-ancestor', this.baseSha, this.commitSha]).ok) {
