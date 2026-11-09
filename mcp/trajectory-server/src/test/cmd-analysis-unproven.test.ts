@@ -162,6 +162,21 @@ describe('GH 1978: a backslash-newline joins the words bash joins', () => {
     const out = await run('x=a; eval touch /w/$x\\\ny');
     assert.ok(out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));
   });
+
+  for (const cmd of ['cat <<EOF\nx\nEO\\\nF\ntouch /etc/zz\nEOF', 'cat <<-EOF\nx\n\tE\\\nOF\ntouch /etc/zz\nEOF', 'cat <<EOF\nx\\\nEOF\nEOF\ntouch /etc/zz'])
+    it(`${JSON.stringify(cmd)}: a heredoc bash ends on a joined delimiter line (F753-1) lists /etc/zz or is unresolved`, async () => {
+      const out = await run(cmd);
+      assert.ok(out.includes('/etc/zz') || out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));
+    });
+
+  for (const [cmd, paths] of [
+    ["cat <<'EOF' >/w/a\nEO\\\nF\ntouch /etc/zz\nEOF", ['/w/a']],
+    ['cat <<\\EOF >/w/a\nEO\\\nF\ntouch /etc/zz\nEOF', ['/w/a']],
+    ['cat <<EOF >/w/a\nx\\\\\nEOF\ntouch /w/b', ['/w/a', '/w/b']],
+  ] as const)
+    it(`${JSON.stringify(cmd)}: a quoted delimiter or an escaped backslash keeps the body line, listing ${paths.join(' ')}`, async () => {
+      assert.deepEqual(await run(cmd), paths);
+    });
 });
 
 describe("GH 2640: a $'…' word is read as bash decodes it", () => {
@@ -177,7 +192,7 @@ describe("GH 2640: a $'…' word is read as bash decodes it", () => {
       assert.deepEqual(await run(cmd), paths);
     });
 
-  for (const cmd of ["touch $'/etc/\\x00o'", "touch $'/w/\\ca'", "touch $'/w/\\xq'"])
+  for (const cmd of ["touch $'/etc/\\x00o'", "touch $'/w/\\ca'", "touch $'/w/\\xq'", "touch $'/w/\\xf0'", "touch $'/w/\\360'"])
     it(`${cmd}: an escape whose result is unknown or a control char is unresolved`, async () => {
       const out = await run(cmd);
       assert.ok(out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));

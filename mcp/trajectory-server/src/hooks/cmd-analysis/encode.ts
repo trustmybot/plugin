@@ -57,15 +57,14 @@ const ANSI_C_DIGITS: ReadonlyMap<string, { re: RegExp; radix: number }> = new Ma
   ['U', { re: /^[0-9A-Fa-f]{1,8}/, radix: 16 }],
 ]);
 
-/** A code point bash writes as one char in every version and locale: not NUL (it ends the word), a surrogate, or past U+10FFFF. */
-const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff) ? null : String.fromCodePoint(n));
+/** A code point bash writes as one char in every version and locale: ASCII but not NUL (it ends the word). Past 0x7F `\xHH` and `\NNN` give a raw byte and `\u` a locale-dependent encoding (F753-2). */
+const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x7f ? null : String.fromCodePoint(n));
 
 /**
  * A `$'…'` body's chars as bash decodes them, null for an escape whose result
- * is unknown: `\x` / `\u` / `\U` with no hex digit, `\NNN` past 0377, a NUL,
- * an invalid code point, `\c` with no letter after it or with `\` or `?`
- * (bash versions differ), a lone trailing backslash. An escape bash does not
- * know keeps its backslash.
+ * is unknown: `\x` / `\u` / `\U` with no hex digit, a NUL, a value past 0x7F,
+ * `\c` with no letter after it or with `\` or `?` (bash versions differ), a
+ * lone trailing backslash. An escape bash does not know keeps its backslash.
  */
 export function ansiCChars(body: string): Array<string | null> {
   const out: Array<string | null> = [];
@@ -88,7 +87,7 @@ export function ansiCChars(body: string): Array<string | null> {
       i++;
     } else if (octal) {
       const n = parseInt(octal[0], 8);
-      out.push(n > 0xff ? null : ansiCPoint(n));
+      out.push(ansiCPoint(n));
       i += octal[0].length;
     } else if (digits) {
       const hex = digits.re.exec(body.slice(i + 2));
@@ -480,17 +479,39 @@ function heredocs(src: string, root: Node): Heredoc[] {
   });
 }
 
-/** The source line holding `at`, without its newline. */
-function lineAt(src: string, at: number): string {
-  const end = src.indexOf('\n', at);
-  return src.slice(src.lastIndexOf('\n', at - 1) + 1, end < 0 ? src.length : end);
+/**
+ * Where bash ends a heredoc whose body starts at `at`: the [start, stop) of
+ * the first line that is exactly `delim` once read as bash reads it, an
+ * unquoted delimiter's body lines joined across each backslash-newline the
+ * backslash is not itself escaped in, then leading tabs stripped for <<-
+ * (F753-1); null when no line is.
+ */
+function bashHeredocEnd(src: string, at: number, delim: string, joins: boolean, tabs: boolean): { start: number; stop: number } | null {
+  let start = at;
+  let text = '';
+  for (;;) {
+    const nl = src.indexOf('\n', at);
+    const stop = nl < 0 ? src.length : nl;
+    const physical = src.slice(at, stop);
+    if (joins && nl >= 0 && /\\*$/.exec(physical)![0].length % 2 === 1) {
+      text += physical.slice(0, -1);
+      at = nl + 1;
+      continue;
+    }
+    text += physical;
+    if ((tabs ? text.replace(/^\t+/, '') : text) === delim) return { start, stop };
+    if (nl < 0) return null;
+    at = start = nl + 1;
+    text = '';
+  }
 }
 
 /**
  * GH 1927: bash ends a heredoc at the first line that is exactly its
  * delimiter (the start word with quotes and backslashes removed, leading tabs
- * stripped for <<-). A heredoc tree-sitter-bash ends on another line, or past
- * a body line bash would end it on, has misread where the command resumes.
+ * stripped for <<-, an unquoted delimiter's body read across backslash-newline
+ * joins). A heredoc tree-sitter-bash ends on another line, or past a body line
+ * bash would end it on, has misread where the command resumes.
  */
 function heredocMisread(src: string, root: Node): boolean {
   return root.descendantsOfType('heredoc_redirect').some((node) => {
@@ -499,14 +520,14 @@ function heredocMisread(src: string, root: Node): boolean {
     const start = kids.find((c) => c.type === 'heredoc_start');
     const end = kids.find((c) => c.type === 'heredoc_end');
     if (!start || !end) return true;
-    const delim = src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '');
+    const word = src.slice(start.startIndex, start.endIndex);
+    const delim = word.replace(/['"\\]/g, '');
     const tabs = kids.some((c) => c.type === '<<-');
-    const line = (text: string): string => (tabs ? text.replace(/^\t+/, '') : text);
-    if (line(lineAt(src, end.startIndex)) !== delim) return true;
     const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
-    const bodyStart = src.lastIndexOf('\n', from - 1) + 1;
+    const bash = bashHeredocEnd(src, src.lastIndexOf('\n', from - 1) + 1, delim, !/['"\\]/.test(word), tabs);
     const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
-    return endStart > bodyStart && src.slice(bodyStart, endStart - 1).split('\n').some((l) => line(l) === delim);
+    const endStop = src.indexOf('\n', end.startIndex);
+    return bash === null || bash.start !== endStart || bash.stop !== (endStop < 0 ? src.length : endStop);
   });
 }
 

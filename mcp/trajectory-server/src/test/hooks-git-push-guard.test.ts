@@ -204,12 +204,47 @@ describe('git-push-guard: GH 2646 / GH 2640 a push behind a line continuation or
     assert.match(why, /^BLOCKED: ambiguous_git_subcommand: `git \\\n\$p origin dev`/);
   });
 
-  for (const command of ["git $'pu\\csh' origin dev", "git $'pu\\x00sh' origin dev", "git $'pu\\xsh' origin dev", "git $'pu\\c?sh' origin dev", "git $'\\ud800push' origin dev"])
+  for (const command of [
+    "git $'pu\\csh' origin dev",
+    "git $'pu\\x00sh' origin dev",
+    "git $'pu\\xsh' origin dev",
+    "git $'pu\\c?sh' origin dev",
+    "git $'\\ud800push' origin dev",
+    "git $'\\xf0push' origin dev",
+    "git $'\\360push' origin dev",
+    "git $'\\u00f0push' origin dev",
+  ])
     it(`${command}: an escape whose result is unknown or a control char gets the unknown-subcommand deny`, async () => {
       assert.match(reason((await gate(command)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);
     });
 
-  for (const command of ['git \\\nstatus', "echo 'a\\\nb'", "git $'status'", "echo $'a\\tb'", "echo 'pu\\\nsh'", "git $'pu\\\nsh' origin dev"])
+  for (const command of [
+    'cat <<EOF\nx\nEO\\\nF\ngit push origin dev\nEOF',
+    'cat <<-EOF\nx\n\tE\\\nOF\ngit push origin dev\nEOF',
+    'cat <<EOF\nx\nEOF\\\n\ngit push origin dev\nEOF',
+    'cat <<EOF\nx\\\nEOF\nEOF\ngit push origin dev',
+    'cat <<EOF\nx\\\\\\\nEOF\nEOF\ngit push origin dev',
+  ])
+    it(`${JSON.stringify(command)}: a heredoc bash ends on a joined delimiter line (F753-1) gets the parse deny`, async () => {
+      assert.equal(reason((await gate(command)).stdout), PARSE_REASON);
+    });
+
+  it('a body line ending in an escaped backslash does not join the delimiter line after it', async () => {
+    assert.match(reason((await gate('cat <<EOF\nx\\\\\nEOF\ngit push origin dev')).stdout), /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/);
+  });
+
+  for (const command of [
+    'git \\\nstatus',
+    "echo 'a\\\nb'",
+    "git $'status'",
+    "echo $'a\\tb'",
+    "echo 'pu\\\nsh'",
+    "git $'pu\\\nsh' origin dev",
+    "cat <<'EOF'\nEO\\\nF\ngit push origin dev\nEOF",
+    'cat <<"EOF"\nEO\\\nF\ngit push origin dev\nEOF',
+    'cat <<\\EOF\nEO\\\nF\ngit push origin dev\nEOF',
+    'cat <<EOF\nfoo \\\nbar\nEOF\ngit status',
+  ])
     it(`${JSON.stringify(command)} is allowed`, async () => {
       assert.deepEqual(await gate(command), { stdout: '', code: 0 });
     });
