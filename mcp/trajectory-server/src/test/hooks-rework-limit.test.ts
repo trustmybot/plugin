@@ -1,7 +1,7 @@
 /**
  * The rework-limit gate (GH 1738, GH 2148) on a temp trajectory DB: a swe
  * spawn is denied once the task has two review FAILs since its last pass, six
- * swe runs (budget handbacks aside), or its issue four FAILs across its tasks
+ * swe runs since its last pass (budget handbacks aside), or its issue four FAILs across its tasks
  * with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind
  * 'decision' row) on the task or its issue; no agent-written row and no Human
  * note lifts it. The agent-spawn-dispatch gate returns that deny
@@ -224,9 +224,32 @@ describe('rework-limit', () => {
       assert.deepEqual(run(f), ALLOWED);
       f.runs(1);
       const reason = denyReason(run(f).stdout);
-      assert.match(reason, /task runs: 6 swe runs of the task, budget handbacks aside \(limit 6\)/);
+      assert.match(reason, /task runs: 6 swe runs of the task since its last passing review, budget handbacks aside \(limit 6\)/);
       assert.doesNotMatch(reason, /task FAILs:|issue FAILs:/);
       assertHumanOnlyWaiver(reason, TASK_ID);
+    });
+
+    it('counts only the swe runs started after the task\'s latest pass', () => {
+      const f = fixture();
+      f.runs(4);
+      f.verdicts('pass');
+      f.runs(3);
+      f.verdicts('fail', 'pass');
+      f.runs(5);
+      assert.deepEqual(run(f), ALLOWED);
+      f.runs(1);
+      assert.match(
+        denyReason(run(f).stdout),
+        /task runs: 6 swe runs of the task since its last passing review, budget handbacks aside \(limit 6\)/,
+      );
+    });
+
+    it('a pass on another task of the issue does not reset the count', () => {
+      const f = fixture();
+      f.runs(5);
+      f.verdictsOn(OTHER_TASK_ID, 'pass');
+      f.runs(1);
+      assert.match(denyReason(run(f).stdout), /task runs: 6 swe runs of the task since its last passing review/);
     });
 
     it('does not count budget handbacks or swept orphans', () => {

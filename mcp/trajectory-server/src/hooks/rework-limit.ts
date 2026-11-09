@@ -6,7 +6,8 @@
  * a pr_monitor comment by a login named 'human' is a 'note' and never counts):
  *
  *   - task FAILs: REWORK_FAIL_LIMIT review FAILs on the task since its latest pass,
- *   - task runs: SWE_RUN_LIMIT swe runs of the task, minus budget handbacks,
+ *   - task runs: SWE_RUN_LIMIT swe runs of the task started since its latest
+ *     pass (by created_at), minus budget handbacks,
  *   - issue FAILs: ISSUE_FAIL_LIMIT review FAILs across the issue's tasks, each
  *     with no later pass on the same task.
  *
@@ -39,14 +40,17 @@ function readState(db: string, taskId: string, env: NodeJS.ProcessEnv): ReworkSt
                      WHERE (d.task_id = t.id OR (d.task_id IS NULL AND d.issue_id = t.issue_id))
                        AND d.author = 'human' AND d.kind = 'decision'),
           since AS (SELECT COALESCE(MAX(v.id), 0) AS pass_id FROM validation_attempts v, t
-                     WHERE v.task_id = t.id AND v.verdict = 'pass')
+                     WHERE v.task_id = t.id AND v.verdict = 'pass'),
+          passed AS (SELECT MAX(v.created_at) AS at FROM validation_attempts v, t
+                      WHERE v.task_id = t.id AND v.verdict = 'pass')
      SELECT json_object(
        'task_fails', (SELECT COUNT(*) FROM validation_attempts v, t, since, human
                        WHERE v.task_id = t.id AND v.verdict = 'fail' AND v.id > since.pass_id
                          AND (human.at IS NULL OR v.created_at > human.at)),
-       'task_runs', (SELECT COUNT(*) FROM agent_runs r, t, human
+       'task_runs', (SELECT COUNT(*) FROM agent_runs r, t, human, passed
                       WHERE r.task_id = t.id AND ${SWE_SPAWN_SQL} AND COALESCE(r.stop_cause, '') <> 'budget'
-                        AND (human.at IS NULL OR r.started_at > human.at)),
+                        AND (human.at IS NULL OR r.started_at > human.at)
+                        AND (passed.at IS NULL OR r.started_at > passed.at)),
        'issue_fails', (SELECT COUNT(*) FROM validation_attempts v JOIN tasks x ON x.id = v.task_id, t, human
                         WHERE x.issue_id = t.issue_id AND v.verdict = 'fail'
                           AND NOT EXISTS (SELECT 1 FROM validation_attempts p
@@ -68,7 +72,7 @@ function trippedLimits(state: ReworkState): string[] {
     tripped.push(`task FAILs: ${state.taskFails} review FAILs on the task since its last pass (limit ${REWORK_FAIL_LIMIT})`);
   }
   if (state.taskRuns >= SWE_RUN_LIMIT) {
-    tripped.push(`task runs: ${state.taskRuns} swe runs of the task, budget handbacks aside (limit ${SWE_RUN_LIMIT})`);
+    tripped.push(`task runs: ${state.taskRuns} swe runs of the task since its last passing review, budget handbacks aside (limit ${SWE_RUN_LIMIT})`);
   }
   if (state.issueFails >= ISSUE_FAIL_LIMIT) {
     tripped.push(`issue FAILs: ${state.issueFails} review FAILs across the issue's tasks (limit ${ISSUE_FAIL_LIMIT})`);
