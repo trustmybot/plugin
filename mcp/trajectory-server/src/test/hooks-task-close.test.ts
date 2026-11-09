@@ -62,6 +62,21 @@ describe('transcriptStatsOf: the .sh jq reduction', () => {
       assert.equal(transcriptStatsOf(text), '0|0|0|0|0|0||', JSON.stringify(text));
   });
 
+  it('reads a transcript file with a leading UTF-8 BOM like the plain file (GH 2112)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-bom-'));
+    try {
+      const line = jsonl({ timestamp: '2026-10-01T10:00:00Z', message: { id: 'm1', model: 'claude-opus', usage: usage(10, 5, 100, 7), content: [{ type: 'tool_use' }] } });
+      const plain = join(dir, 'plain.jsonl');
+      const bom = join(dir, 'bom.jsonl');
+      writeFileSync(plain, line);
+      writeFileSync(bom, `﻿${line}`);
+      assert.equal(transcriptStats(plain), '10|5|1|0|100|7|2026-10-01T10:00:00.000Z|claude-opus');
+      assert.equal(transcriptStats(bom), transcriptStats(plain));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('prints zeros for a missing transcript', () => {
     assert.equal(transcriptStats('/nonexistent/transcript.jsonl'), '0|0|0|0|0|0||');
   });

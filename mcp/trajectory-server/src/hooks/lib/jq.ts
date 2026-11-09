@@ -29,10 +29,11 @@ export function jsonValues(text: string, reviver?: JsonReviver): unknown[] {
 /**
  * The JSON values of a jq input stream and whether all of it parsed: jq's
  * exit status is 2 when a parse error ends the stream, whatever it printed.
+ * Like jq, a UTF-8 BOM is skipped only at the very start (RFC 8259 §8.1).
  */
 export function jsonStream(text: string): { values: unknown[]; complete: boolean } {
   const values: unknown[] = [];
-  let i = 0;
+  let i = text.startsWith('﻿') ? 1 : 0;
   for (;;) {
     while (i < text.length && /[ \t\n\r]/.test(text[i])) i += 1;
     if (i >= text.length) return { values, complete: true };
