@@ -532,7 +532,7 @@ async function mirrorIssueEdit(
   };
 }
 
-const SYNC_RETRY_HINT ='Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.';
+const SYNC_RETRY_HINT = 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.';
 const SYNC_UNKNOWN_HINT = 'The remote issue may already exist: the create\'s result was lost. Run `issue_sync_retry`; it looks for the issue by its body marker before it creates, so it adopts that issue rather than opening a duplicate. Do not re-create it by hand.';
 
 function syncFailureHint(outcomes: ReadonlyArray<SyncFailure['outcome']>): string {
