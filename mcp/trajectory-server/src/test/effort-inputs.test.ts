@@ -13,7 +13,7 @@ import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { taskTools } from '../tools/tasks.js';
 import { compositeTools } from '../tools/composites.js';
-import { configTools } from '../tools/config.js';
+import { computeEffort, configTools, pathsOverlap } from '../tools/config.js';
 import { effortAbArm } from '../effort-ab.js';
 import { CALLER_SPREAD_HIGH, effortInputs, effortTier, type EffortInputsTask } from '../effort-inputs.js';
 import { effortAbReport, formatEffortAbReport } from '../effort-ab-report.js';
@@ -60,6 +60,41 @@ function seedWorldModel(db: TrajectoryDB): void {
 
 const task = (spec: string, files: string[], extra: Partial<EffortInputsTask> = {}): EffortInputsTask => ({
   spec_body: spec, files, prompt_bearing: false, rework: false, ...extra,
+});
+
+describe('pathsOverlap normalizes by segment', () => {
+  it("SC1: '.' and './' are the repo root and overlap every path", () => {
+    assert.equal(pathsOverlap('.', 'hooks'), true);
+    assert.equal(pathsOverlap('./', 'hooks'), true);
+    assert.equal(pathsOverlap('hooks', '.'), true);
+  });
+
+  it("SC1: './' prefixes and repeated slashes are dropped", () => {
+    assert.equal(pathsOverlap('./hooks/x.ts', 'hooks'), true);
+    assert.equal(pathsOverlap('hooks//x.ts', 'hooks/'), true);
+    assert.equal(pathsOverlap('hooks/x.ts', './hooks'), true);
+  });
+
+  it('SC2: overlap stays equal paths or a path-segment prefix', () => {
+    assert.equal(pathsOverlap('hooksx/a.ts', 'hooks'), false);
+    assert.equal(pathsOverlap('hooks', 'hooks/a.ts'), true);
+    assert.equal(pathsOverlap('src/a.ts', 'hooks'), false);
+  });
+});
+
+describe('computeEffort with high_effort_paths', () => {
+  it("SC3: a '.' or './'-prefixed files[] entry raises effort to high", () => {
+    const db = tempDB();
+    try {
+      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('high_effort_paths', '["hooks"]')`);
+      const high = { effort: 'high', reason: 'high_effort_paths' };
+      assert.deepEqual(computeEffort(db, { prompt_bearing: 0, files: ['.'] }), high);
+      assert.deepEqual(computeEffort(db, { prompt_bearing: 0, files: ['./hooks/x.ts'] }), high);
+      assert.notEqual(computeEffort(db, { prompt_bearing: 0, files: ['src/a.ts'] }).reason, 'high_effort_paths');
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe('effortInputs and effortTier (GH 1904)', () => {

@@ -35,6 +35,10 @@ describe('reviewerEffortTier', () => {
     assert.deepEqual(tier(['src/hookshot.ts'], { high: ['src/hooks'] }), { effort: 'medium', reason: 'default' }, 'directory semantics');
   });
 
+  it("SC4: a './'-prefixed changed path raises the tier against its prefix", () => {
+    assert.deepEqual(tier(['./hooks/x.ts'], { high: ['hooks'] }), { effort: 'high', reason: 'high_effort_paths' });
+  });
+
   it('low for docs-only, tests-only, or docs-plus-tests', () => {
     const low = { effort: 'low', reason: 'docs_tests' };
     assert.deepEqual(tier(['README.md', 'docs/guide.txt', 'a/docs/b/c.png']), low, 'docs');
