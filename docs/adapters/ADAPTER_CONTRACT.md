@@ -129,7 +129,7 @@ Until those tokens exist, **each adapter MUST document its identity mechanism an
 
 **An adapter is conformant when the adapter-parameterized conformance suite passes** — not when a reviewer is satisfied. Sign-off by judgment does not survive contributor turnover, and it is exactly what rule 1 mechanizes away for the reference host.
 
-That suite is planned as WS7 of the v1.1.0 program. Until it exists, the following manual checklist applies, and **an adapter pull request MUST walk it item by item in its description**, naming the evidence for each:
+No such suite exists yet. Until one does, the following manual checklist applies, and **an adapter pull request MUST walk it item by item in its description**, naming the evidence for each:
 
 - [ ] **Rule 1 — Core invariance.** Full Claude Code suite green (L0–L4, plus L6 where the change touches an exercised surface); the diff touches no protected-core path.
 - [ ] **Rule 2 — Adapter isolation.** No reference to another host's directories anywhere in the diff, in either direction; no module-import-time filesystem side effect.

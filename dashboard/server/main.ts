@@ -75,6 +75,7 @@ function clampLimit(raw: string | null): number {
 const CHANGE_IMPACT_LIMIT = 20;
 const CHANGE_IMPACT_MAX_LIMIT = 100;
 const UNKNOWN_CHANGE = /^unknown change /;
+const AMBIGUOUS_CHANGE = /^ambiguous change /;
 
 function statsReader(db: DatabaseSync): StatsReader {
   return {
@@ -90,20 +91,24 @@ function statsReader(db: DatabaseSync): StatsReader {
 function changeImpact(db: DatabaseSync, p: URLSearchParams): { status: number; body: unknown } {
   const source = p.get('source');
   const id = p.get('id');
+  const repo = p.get('repo');
   const rawLimit = p.get('limit');
   if (source !== null && !CHANGE_SOURCES.includes(source as ChangeSource)) {
     return { status: 400, body: { error: `source must be one of ${CHANGE_SOURCES.join(', ')}` } };
   }
   if (id !== null && source === null) return { status: 400, body: { error: 'id needs source' } };
   if (id === '') return { status: 400, body: { error: 'id must be non-empty' } };
+  if (repo !== null && id === null) return { status: 400, body: { error: 'repo needs id' } };
+  if (repo === '') return { status: 400, body: { error: 'repo must be non-empty' } };
   if (rawLimit !== null && !/^[1-9]\d*$/.test(rawLimit)) return { status: 400, body: { error: 'limit must be a positive integer' } };
   const limit = rawLimit === null ? CHANGE_IMPACT_LIMIT : Math.min(Number(rawLimit), CHANGE_IMPACT_MAX_LIMIT);
   const reader = statsReader(db);
   try {
-    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id }, series: true }) };
+    if (id !== null) return { status: 200, body: computeChangeImpact(reader, undefined, { change: { source: source as ChangeSource, id, ...(repo === null ? {} : { repo }) }, series: true }) };
     return { status: 200, body: computeChangeImpact(reader, undefined, { ...(source === null ? {} : { source: source as ChangeSource }), limit }) };
   } catch (err) {
     if (err instanceof Error && UNKNOWN_CHANGE.test(err.message)) return { status: 404, body: { error: err.message } };
+    if (err instanceof Error && AMBIGUOUS_CHANGE.test(err.message)) return { status: 400, body: { error: err.message } };
     throw err;
   }
 }
