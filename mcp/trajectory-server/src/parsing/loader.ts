@@ -1,4 +1,4 @@
-// Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS,
+// Shared tree-sitter runtime (GH 1680): web-tree-sitter plus the TS, TSX, JS,
 // bash and python grammars, shipped as .wasm files in dist/parsing/. Nothing
 // loads at server start; the first loadParser(name) / loadParsers() call
 // imports the runtime and compiles what it asks for, and every later call

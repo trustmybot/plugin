@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
-    -- CC (no repos row yet). Relative path string (e.g. "plugin", "repos/backend").
+    -- CC (no repos row yet). Holds a registered repo name: the repo root's
+    -- basename, as listed by repos_list.
     repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     -- prompt_bearing: 1 when this task intentionally modifies agent/skill/command
     -- prompt-surface files. When 0 (default), the swe-boundary hook denies writes
