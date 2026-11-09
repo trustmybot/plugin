@@ -2325,19 +2325,19 @@
   },
   "mcp/trajectory-server/src/test/issues.test.ts": {
     "@typescript-eslint/no-floating-promises": {
-      "count": 135
+      "count": 138
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 13
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 30
+      "count": 32
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 129
+      "count": 132
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 275
+      "count": 279
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
@@ -3125,7 +3125,7 @@
   },
   "mcp/trajectory-server/src/test/sync-issue.test.ts": {
     "@typescript-eslint/no-floating-promises": {
-      "count": 39
+      "count": 42
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
