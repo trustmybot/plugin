@@ -240,24 +240,31 @@ describe('world_model_* reads fetch origin/<target> (GH 2584)', () => {
 
   it('SC3: a fetch past the cap is cut off, the read answers and the attempt is stamped', async () => {
     const fx = await fixture();
+    let settled = false;
+    let release: () => void = () => undefined;
+    const hung = new Promise<void>((resolve) => {
+      release = resolve;
+    }).then(() => {
+      settled = true;
+    });
     try {
       let aborted = false;
       const c = counting((_args, opts) => {
         opts.signal.addEventListener('abort', () => {
           aborted = true;
         });
-        return new Promise<void>(() => undefined);
+        return hung;
       });
       __setTargetFetchForTests({ runner: c.runner, timeoutMs: 50 });
-      const started = Date.now();
       const out = await read(fx, 'bro');
-      assert.ok(Date.now() - started < 4000, 'the read did not wait for the hung fetch');
+      assert.equal(settled, false, 'the read answered while the fetch was still pending');
       assert.ok(aborted, 'the hung fetch was signalled to stop');
       assert.ok(out['freshness']);
       assert.ok(fx.fetchedAt());
       await read(fx, 'bro');
       assert.equal(c.calls.length, 1);
     } finally {
+      release();
       fx.cleanup();
     }
   });
