@@ -50,7 +50,18 @@ const LITERAL_REDIRECT = /(^|[ \t])([0-9]*(>>|>\||>&|<&|<>|>|<)|&>>|&>)[ \t]*[A-
 /** A statement cut at `(` whose last word may name a function: no `=`, so no array assignment. */
 const FN_HEAD = /(^|[ \t])[^ \t=]+[ \t]*$/;
 /** Command words that may call a function the scan cannot pin (GH 2630). */
-const DYN_CALLS = new Set(['eval', 'trap', 'alias']);
+const DYN_CALLS = new Set(['eval', 'trap', 'alias', 'add-zsh-hook']);
+/** Builtins that call a function or command an option names (GH 2630): mapfile / readarray -C, compgen / complete -F and -C. */
+const CB_FLAGS = new Map<string, RegExp>([
+  ['mapfile', /C/],
+  ['readarray', /C/],
+  ['compgen', /[CF]/],
+  ['complete', /[CF]/],
+]);
+/** Functions the shell itself calls by name (GH 2630): bash and zsh command-not-found handlers and zsh hook functions and traps. */
+const HOOK_FN = /^(command_not_found_handler?|chpwd|precmd|preexec|periodic|zshexit|zshaddhistory|zsh_directory_name|TRAP[A-Z0-9]+)$/;
+/** A zsh hook array, whose entries name functions the shell calls (GH 2630). */
+const HOOK_ARRAY = /(^|[^A-Za-z0-9_])(chpwd|precmd|preexec|periodic|zshexit|zshaddhistory|zsh_directory_name)_functions([^A-Za-z0-9_]|$)/;
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 
 export interface Record {
@@ -141,6 +152,13 @@ function fnexport(name: string, args: readonly string[]): boolean {
   if (name === 'declare' || name === 'typeset') return flags.includes('f') && flags.includes('x');
   if (name === 'set') return flags.includes('a') || args.includes('allexport');
   return false;
+}
+
+/** A builtin that may call a function an option names: a flag cluster holding its callback option, or a word the shell fills in, which may be one. */
+function cbcall(name: string, args: readonly string[]): boolean {
+  const flag = CB_FLAGS.get(name);
+  if (flag === undefined) return false;
+  return args.some((a) => /[$`]/.test(a) || ENCODED.test(a) || (a.startsWith('-') && flag.test(a)));
 }
 
 /**
@@ -380,7 +398,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
   function fnopen(kind: 'u' | 'p'): void {
     const fo = falloc();
     const name = fname(fo);
-    if (frame === 'escaped' || frames.dyn || called.has(name)) flost(fo);
+    if (frame === 'escaped' || frames.dyn || called.has(name) || HOOK_FN.test(name)) flost(fo);
     const entry = cur === '-' && cwhy !== '' ? [...alts] : [cur, ...alts];
     const def: FnDef = { kind, open: true, moved: false, sp, qsp, pre: { cur, why: cwhy, alts }, entry, entered: { cur, alts }, exits: [] };
     defs[fo] = def;
@@ -470,13 +488,15 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
   /**
    * The command word of a statement under `calls`: a function call, a
    * `return` from the innermost body, or a word that may call any function:
-   * an eval, a trap, an alias, a word from a variable, or a function export,
-   * which a `bash -c` body or a script can call in a dir this scan never sees.
+   * an eval, a trap, an alias, a word from a variable, a builtin's callback
+   * option, or a function export, which a `bash -c` body or a script can call
+   * in a dir this scan never sees.
    */
   function fnword(w: readonly string[], first: number): void {
     let name = w[first];
     if (name === 'coproc') name = w.slice(first + 1).find((x) => x !== '') ?? '';
     if (DYN_CALLS.has(name) || /[$`]/.test(name) || ENCODED.test(name)) return fndyn();
+    if (cbcall(name, w.slice(first + 1))) return fndyn();
     if (fnexport(name, w.slice(first + 1))) return fndyn(false);
     if (name === 'return' && fnstack.length > 0) {
       const def = defs[fnstack[fnstack.length - 1]];
@@ -820,6 +840,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       }
       break;
     }
+    if (calls && w.some((x) => HOOK_ARRAY.test(x))) fndyn();
     if (fhead && fpend === null && first < n && w.slice(first + 1).every((x) => x === '')) {
       fpend = w[first];
       vend(true);

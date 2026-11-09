@@ -84,6 +84,35 @@ describe('git statement listing judges a function body at its call dirs (GH 2630
     }
   });
 
+  it('a function a builtin or the shell calls by name lists the body push in -', async () => {
+    for (const cmd of [
+      'cd /tmp; f() { git push origin dev; }; cd /etc; mapfile -C f -c 1 a </etc/hosts',
+      'cd /tmp; f() { git push origin dev; }; cd /etc; mapfile -tC f -c1 </etc/hosts',
+      'cd /tmp; f() { git push origin dev; }; cd /etc; mapfile "-C" f a </etc/hosts',
+      'cd /tmp; f() { git push origin dev; }; cd /etc; readarray -C f -c 1 a </etc/hosts',
+      'cd /tmp; f() { git push origin dev; }; cd /etc; compgen -F f x',
+      "cd /tmp; f() { git push origin dev; }; cd /etc; compgen -C 'f' x",
+      'cd /tmp; f() { git push origin dev; }; cd /etc; complete -F f x',
+      'cd /tmp; command_not_found_handle() { git push origin dev; }; cd /etc; zzz',
+      'cd /tmp; command_not_found_handler() { git push origin dev; }; cd /etc; zzz',
+      'cd /tmp; chpwd() { git push origin dev; }; cd /etc',
+      'cd /tmp; function TRAPEXIT { git push origin dev; }; cd /etc',
+      'cd /tmp; zshexit() { git push origin dev; }; cd /etc',
+      'cd /tmp; g() { git push origin dev; }; chpwd_functions=(g); cd /etc',
+      'cd /tmp; g() { git push origin dev; }; chpwd_functions+=(g); cd /etc',
+      'cd /tmp; g() { git push origin dev; }; typeset -a chpwd_functions=(g); cd /etc',
+      'cd /tmp; chpwd_functions=(g); g() { git push origin dev; }; cd /etc',
+      'cd /tmp; g() { git push origin dev; }; add-zsh-hook chpwd g; cd /etc',
+    ]) {
+      assert.ok((await pushDirs(cmd)).includes('-'), cmd);
+    }
+  });
+
+  it('a builtin with no callback option leaves the call dirs pinned', async () => {
+    assert.deepEqual(await pushDirs('cd /tmp; f() { git push origin dev; }; cd /etc; mapfile -t a </etc/hosts; f'), ['/tmp', '/etc']);
+    assert.deepEqual(await pushDirs('cd /tmp; f() { git push origin dev; }; compgen -c gi; f'), ['/tmp']);
+  });
+
   it('a function export calls nothing, so the dir after it stays pinned', async () => {
     assert.deepEqual(await pushDirs('cd /tmp; f() { :; }; export -f f; git push origin dev'), ['/tmp']);
     assert.deepEqual(await pushDirs('cd /tmp; set -euo pipefail; f() { git push origin dev; }; f'), ['/tmp']);
@@ -117,6 +146,12 @@ describe('git statement listing judges a function body at its call dirs (GH 2630
       for (const command of [
         `cd ${dir}; f() { git push origin dev; }; cd ${wt}; eval f`,
         `cd ${dir}; f() { git push origin dev; }; cd ${wt}; fn=f; "$fn"`,
+        `cd ${dir}; f() { git push origin dev; }; cd ${wt}; mapfile -C f -c 1 </etc/hosts`,
+        `cd ${dir}; f() { git push origin dev; }; cd ${wt}; readarray -C f -c 1 </etc/hosts`,
+        `cd ${dir}; f() { git push origin dev; }; cd ${wt}; compgen -F f x`,
+        `cd ${dir}; command_not_found_handle() { git push origin dev; }; cd ${wt}; zzz`,
+        `cd ${dir}; command_not_found_handler() { git push origin dev; }; cd ${wt}; zzz`,
+        `cd ${dir}; chpwd() { git push origin dev; }; cd ${wt}`,
       ]) {
         assert.match(await run(command), /ambiguous_git_target|push from \.claude\/worktrees\/ is forbidden/, command);
       }
