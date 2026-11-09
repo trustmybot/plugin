@@ -13,6 +13,8 @@ effort: high
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
+When a `world_model_get`, `world_model_search` or `world_model_symbol` response carries `needs_review`, work through it: re-verify, rewrite or retire each listed concept with `world_model_concept_upsert` (a concept stays listed until you do), and check each listed README still matches its directory's code, routing any fix through swe. A README is listed once, on the response delivered to you.
+
 ## 2. Triage the requirement
 
 With the world model in hand, before you commit to building — two quick questions (judgment, not a research project):
@@ -126,7 +128,7 @@ After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C
 3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn code-reviewer for the push gate with the `reviewer_spawn` that `bro_atomic_close` returned (pass it your `session_id`) — the anchors only, which the spawn-shape hook enforces. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task). The world model indexes the merged `pr_target`, so a closed task's change reaches it once its PR merges, through the fetch a world-model read makes or the reindex that follows the target branch moving. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself once that task's PR merges, so the world model indexes the new structure before the next read. Then spawn code-reviewer for the push gate with the `reviewer_spawn` that `bro_atomic_close` returned (pass it your `session_id`) — the anchors only, which the spawn-shape hook enforces. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
