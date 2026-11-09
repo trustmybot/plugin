@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -129,6 +129,16 @@ describe('swe-edit-lint (GH 2570)', () => {
     const { reason } = block(await sweEditLint(post('Write', join(dots, '.github/.foo.yml')), env));
     assert.match(reason, /`echo dot-path-linted; exit 5 # "\.github\/\.foo\.yml"` \(\.config\/tmb\/edit-lint\.json, glob \*\*\/\*\) exited 5/);
     assert.match(reason, /dot-path-linted/);
+  });
+
+  it('hands the path to the command as one literal word that bash never parses', async () => {
+    const odd = makeRepo(root, 'odd', JSON.stringify({ version: 1, lints: [{ glob: '*.txt', command: "f() { printf 'seen=[%s] n=%s\\n' \"$1\" \"$#\"; exit 6; }; f" }] }));
+    const name = '$(touch pwned) a;b"c`touch pwned2`.txt';
+    writeFileSync(join(odd, name), 'x\n');
+    const { reason } = block(await sweEditLint(post('Write', join(odd, name)), env));
+    assert.ok(reason.includes(`seen=[${name}] n=1`), reason);
+    assert.equal(existsSync(join(odd, 'pwned')), false);
+    assert.equal(existsSync(join(odd, 'pwned2')), false);
   });
 
   it('kills a command past the budget and gives a note, not a block, inside the deadline', async () => {

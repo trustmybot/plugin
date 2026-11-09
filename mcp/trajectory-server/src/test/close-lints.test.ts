@@ -114,7 +114,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         [3, STALE_DOC_REF, 0],
       ],
     );
-    assert.match(String(results[0]!.output_tail), new RegExp(`hello from ${repo}`));
+    assert.ok(String(results[0]!.output_tail).includes(`hello from ${repo}`), String(results[0]!.output_tail));
     assert.equal(reusableLintRun(target(), sha, base, run.fingerprint, env), run.runId);
     assert.equal(reusableLintRun(target(), sha, 'f'.repeat(40), run.fingerprint, env), null, 'another base is not reused');
     assert.equal(reusableLintRun(target(), sha, base, 'v1:other', env), null, 'another fingerprint is not reused');
@@ -212,7 +212,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     const before = rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0]!.n;
     const run = await runCloseLints(repo, sha, base, 30, env, target());
     assert.equal(typeof run, 'string');
-    assert.match(String(run), new RegExp(`${CLOSE_LINTS_PATH.replace(/\./g, '\\.')} at ${sha.slice(0, 12)}: `));
+    assert.ok(String(run).includes(`${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: `), String(run));
     assert.equal(rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0]!.n, before);
   });
 });

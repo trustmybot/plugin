@@ -8,7 +8,9 @@
  * `git -C <dir of the file> rev-parse --show-toplevel`. Each entry whose glob
  * matches the top-relative path (lint-fingerprint.ts matchesInput: path.matchesGlob
  * with `*` and `**` matching dot segments too, F641-1) runs, in config order, as
- * `bash -c '<command> "$1"' _ <relpath>` in <top>, lint-staged style. It is an
+ * `bash -c '<command> "$TMB_EDIT_LINT_PATH"'` in <top>, lint-staged style, the
+ * path reaching bash only through that env var so no part of it is ever parsed
+ * as shell (CodeQL js/shell-command-injection-from-environment). It is an
  * allowlist: only the repo's own commands run, and only their non-zero exit
  * blocks, with the command, its exit code and its last 20 output lines.
  *
@@ -39,6 +41,7 @@ export const GATE_NAME = 'swe-edit-lint';
 export const EDIT_LINT_FILE = '.config/tmb/edit-lint.json';
 export const EDIT_LINT_BUDGET_MS = 10_000;
 export const WRAP_UP_MS = 500;
+export const PATH_VAR = 'TMB_EDIT_LINT_PATH';
 
 const EDIT_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit']);
 const TAIL_LINES = 20;
@@ -104,7 +107,7 @@ function runLint(command: string, rel: string, cwd: string, env: NodeJS.ProcessE
       clearTimeout(timer);
       done(run);
     };
-    const child = spawn('bash', ['-c', `${command} "$1"`, '_', rel], { cwd, env: { ...env, PWD: cwd }, stdio: ['ignore', fd, fd], detached: true });
+    const child = spawn('bash', ['-c', `${command} "$${PATH_VAR}"`], { cwd, env: { ...env, PWD: cwd, [PATH_VAR]: rel }, stdio: ['ignore', fd, fd], detached: true });
     closeSync(fd);
     const timer = setTimeout(() => {
       timedOut = true;
