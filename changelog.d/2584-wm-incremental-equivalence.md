@@ -1,5 +1,2 @@
 ### Added
 - **PR checks prove the incremental world-model reindex matches a clean rebuild** (GH 2584): a new test brings one database forward with the git-range reindex and builds another from scratch at the same commit, then compares their files, symbols and edges row by row. It covers renames, moves, deletes, signature changes, name collisions and files that fail to parse, and it replays the last five commits of the plugin itself. It runs on every pull request, and the PR check now clones the full history so the replay has commits to walk.
-
-### Fixed
-- **A call the world model resolved by name now goes back to unresolved once the name stops being unique, and resolves again when it becomes unique** (GH 2615): when a second file defined a function with the same name, an incremental reindex kept the caller pointing at the first definition, and `world_model_symbol` kept listing that caller, while a clean rebuild leaves it unresolved. Deleting one of the two definitions also left the caller unresolved, even though the name was unique again. An incremental reindex now gives these edges the same targets a clean rebuild does.

@@ -75,7 +75,6 @@ function wrap(fn: Fn): Fn {
 // and remediated by running scan).
 const VALID_SCAN_SOURCES = new Set([
   'user_manual',
-  'bro_auto_post_close',
   'bro_auto_initial',
   'startup_catchup',
 ]);
@@ -1112,9 +1111,9 @@ export function scanTools(
           },
           source: {
             type: 'string',
-            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
+            enum: ['user_manual', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_initial = bro hit the registry-cold gate, and run-scan.mjs\'s default; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
