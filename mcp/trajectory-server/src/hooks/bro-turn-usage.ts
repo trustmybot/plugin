@@ -24,7 +24,8 @@
  * read would. A missing, corrupt or mismatched cursor (other transcript, file
  * shorter than the offset, changed head bytes) or a tail that does not parse
  * falls back to the full read, which rewrites the cursor. A cursor is replaced
- * only by one at or past its offset unless it no longer fits the transcript.
+ * only by one at or past its offset unless it no longer fits the transcript as
+ * it is at save time. A transcript read error writes nothing (GH 2711).
  *
  * Divergence: the .sh exits 0 without jq or the sqlite3 CLI; this gate needs
  * neither (node:sqlite writes the row).
@@ -440,10 +441,11 @@ function cursorAt(file: string, transcript: string, fd: number, size: number): C
   }
 }
 
-function saveCursor(file: string, transcript: string, fd: number, size: number, offset: number, fold: SavedFold): void {
+/** Writes the cursor unless one past <offset> fits the transcript as it is now, which a run that started later saved. */
+function saveCursor(file: string, transcript: string, fd: number, offset: number, fold: SavedFold): void {
   let tmp = '';
   try {
-    const onDisk = cursorAt(file, transcript, fd, size);
+    const onDisk = cursorAt(file, transcript, fd, fstatSync(fd).size);
     if (onDisk !== null && onDisk.offset > offset) return;
     const head = headPrint(fd, offset);
     if (head === null) return;
@@ -510,7 +512,7 @@ export function transcriptUsage(transcript: string, cursorFile: string | null): 
       from = 0;
       read = readFrom(fd, size, 0, emptyFold()) as TailRead;
     }
-    if (cursorFile !== null && read.fold !== null && read.offset > from) saveCursor(cursorFile, transcript, fd, size, read.offset, read.fold);
+    if (cursorFile !== null && read.fold !== null && read.offset > from) saveCursor(cursorFile, transcript, fd, read.offset, read.fold);
     return read.usage;
   } finally {
     closeSync(fd);
@@ -597,7 +599,12 @@ export const broTurnUsage: SyncGate = (payload, env) => {
   const sessionId = jqKeyOr(input, 'session_id', '');
   const transcript = jqKeyOr(input, 'transcript_path', '');
   if (sessionId === '' || transcript === '' || !isFile(transcript)) return ALLOW;
-  const usage = transcriptUsage(transcript, cursorPath(db, sessionId));
+  let usage: TurnUsage | null;
+  try {
+    usage = transcriptUsage(transcript, cursorPath(db, sessionId));
+  } catch {
+    return ALLOW;
+  }
   if (usage === null || !usageValid(usage)) return ALLOW;
   const r = dbWrite(db, usageSql(db, sessionId, usage, env), { env, caller: GATE_NAME });
   if (!r.ok) {
