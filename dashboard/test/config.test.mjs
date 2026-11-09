@@ -30,6 +30,8 @@ mkdirSync(process.env.HOME);
 const noop = () => {};
 const CLASSIFICATION = ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'];
 const PRIORITY = ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'];
+const EDITABLE_KEYS = ['model_prices', 'issue_area_labels', 'issue_classification_labels', 'issue_priority_labels'];
+const [PRICES_KEY, AREA_KEY, CLASSIFICATION_KEY, PRIORITY_KEY] = EDITABLE_KEYS;
 
 async function seed() {
   const { TrajectoryDB } = await import(DB_MODULE);
@@ -162,10 +164,10 @@ describe('dashboard config editing', () => {
   test('GET /api/config lists exactly the four editable keys, null when unset', async () => {
     assert.deepEqual(await getConfig(), {
       keys: [
-        { key: 'model_prices', value: {} },
-        { key: 'issue_area_labels', value: null },
-        { key: 'issue_classification_labels', value: CLASSIFICATION },
-        { key: 'issue_priority_labels', value: PRIORITY },
+        { key: PRICES_KEY, value: {} },
+        { key: AREA_KEY, value: null },
+        { key: CLASSIFICATION_KEY, value: CLASSIFICATION },
+        { key: PRIORITY_KEY, value: PRIORITY },
       ],
     });
   });
@@ -303,16 +305,16 @@ describe('settings tab', async () => {
   const web = await loadWeb();
   const config = {
     keys: [
-      { key: 'model_prices', value: { 'claude-opus-5-5': { input: 15, output: 75, cache_read: 1.5, cache_creation: 18.75 } } },
-      { key: 'issue_area_labels', value: null },
-      { key: 'issue_classification_labels', value: CLASSIFICATION },
-      { key: 'issue_priority_labels', value: PRIORITY },
+      { key: PRICES_KEY, value: { 'claude-opus-5-5': { input: 15, output: 75, cache_read: 1.5, cache_creation: 18.75 } } },
+      { key: AREA_KEY, value: null },
+      { key: CLASSIFICATION_KEY, value: CLASSIFICATION },
+      { key: PRIORITY_KEY, value: PRIORITY },
     ],
   };
 
   test('renders the four keys with their values and a Save button each', () => {
     const html = web.settings(config);
-    for (const key of ['model_prices', 'issue_area_labels', 'issue_classification_labels', 'issue_priority_labels']) {
+    for (const key of EDITABLE_KEYS) {
       assert.ok(html.includes(`data-config-key="${key}"`), `${key} section missing`);
     }
     for (const title of ['Model Prices', 'Area Labels', 'Classification Labels', 'Priority Labels']) assert.ok(html.includes(title), title);
