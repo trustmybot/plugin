@@ -6,7 +6,9 @@
  * whose delimiter is quoted mid-word (`<<E"M"`) or whose body holds a lone `$`
  * line to the end of the command, hiding the push after it inside the body.
  * The rebased-commit deny names cli.js integrate where the .sh named its
- * shell script (decision 703, GH 1692).
+ * shell script (decision 703, GH 1692). A push split by a backslash-newline
+ * (GH 2646) or spelled with `$'…'` escapes (GH 2640) is read as bash joins and
+ * decodes it; an escape whose result is unknown denies.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -164,6 +166,53 @@ describe("git-push-guard: GH 2549 an empty quoted git -C '' value still names th
     assert.match(why, /^BLOCKED: ambiguous_git_target: /);
     assert.ok(why.endsWith(' Allowed form: git -C <path> push origin dev'), why);
   });
+});
+
+describe('git-push-guard: GH 2646 / GH 2640 a push behind a line continuation or $\'…\' escape is still a push', () => {
+  let root: string;
+  let wt: string;
+  let env: NodeJS.ProcessEnv;
+  const git = (cwd: string, ...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  before(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-gpg-2646-')));
+    const repo = join(root, 'repo');
+    wt = join(repo, '.claude/worktrees/t');
+    env = { ...process.env, ...GIT_ENV, CLAUDE_PROJECT_DIR: repo, TRAJECTORY_DB_PATH: join(root, 'none.db') };
+    git(root, 'init', '-q', '-b', 'dev', repo);
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(repo, 'worktree', 'add', '-q', '-b', 'fix/x', wt);
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  const gate = async (command: string) => gitPushGuard(payload(command, wt), env);
+
+  for (const command of ['git \\\npush origin dev', 'git pu\\\nsh origin dev', 'git "pu\\\nsh" origin dev', 'git pu\\\n\\\nsh origin dev'])
+    it(`${JSON.stringify(command)} gets the worktree deny`, async () => {
+      assert.match(reason((await gate(command)).stdout), /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/);
+    });
+
+  for (const command of ["git $'\\x70ush' origin dev", "git $'\\160ush' origin dev", "git $'push' origin dev", "git $'\\u0070ush' origin dev", "git $'p\\U00000075sh' origin dev"])
+    it(`${command} gets the worktree deny`, async () => {
+      assert.match(reason((await gate(command)).stdout), /^BLOCKED: push from \.claude\/worktrees\/ is forbidden/);
+    });
+
+  it('p=push; git \\<NL>$p origin dev gets the unknown-subcommand deny, quoting the command as written', async () => {
+    const why = reason((await gate('p=push; git \\\n$p origin dev')).stdout);
+    assert.match(why, /^BLOCKED: ambiguous_git_subcommand: `git \\\n\$p origin dev`/);
+  });
+
+  for (const command of ["git $'pu\\csh' origin dev", "git $'pu\\x00sh' origin dev", "git $'pu\\xsh' origin dev", "git $'pu\\c?sh' origin dev", "git $'\\ud800push' origin dev"])
+    it(`${command}: an escape whose result is unknown or a control char gets the unknown-subcommand deny`, async () => {
+      assert.match(reason((await gate(command)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);
+    });
+
+  for (const command of ['git \\\nstatus', "echo 'a\\\nb'", "git $'status'", "echo $'a\\tb'", "echo 'pu\\\nsh'", "git $'pu\\\nsh' origin dev"])
+    it(`${JSON.stringify(command)} is allowed`, async () => {
+      assert.deepEqual(await gate(command), { stdout: '', code: 0 });
+    });
 });
 
 describe('git-push-guard: wiring', () => {

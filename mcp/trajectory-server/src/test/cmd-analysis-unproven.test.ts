@@ -7,7 +7,8 @@
  * row prints exactly its paths. A proven python program that writes through
  * a resolved name lists only what the name holds; every shape the prover does
  * not admit, and every write call with a `*` / `**` argument, still fails
- * closed (GH 1723).
+ * closed (GH 1723). A write split by a backslash-newline (GH 1978) or spelled
+ * with `$'…'` escapes (GH 2640) lists the path bash writes.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -135,6 +136,52 @@ describe('GH 2463: a call inside an f-string interpolation leaves a python progr
       assert.ok(out.some((l) => l.startsWith('UNRESOLVED:$(unproven):')), JSON.stringify(out));
     });
   }
+});
+
+describe('GH 1978: a backslash-newline joins the words bash joins', () => {
+  const run = (cmd: string): Promise<string[]> => writePaths(cmd, { cwd: '/w', root: '/w', env: { HOME: '/h' } });
+
+  for (const cmd of ['to\\\nuch /etc/o1913', 'c\\\np /dev/null /etc/o1913', 'tee\\\n /etc/o1913 </dev/null'])
+    it(`${JSON.stringify(cmd)} lists /etc/o1913 or is unproven`, async () => {
+      const out = await run(cmd);
+      assert.ok(out.includes('/etc/o1913') || out.some((l) => l.startsWith('UNRESOLVED:$(unproven):')), JSON.stringify(out));
+    });
+
+  for (const [cmd, paths] of [
+    ['touch \\\n/etc/o1913', ['/etc/o1913']],
+    ['touch /etc/o\\\n1913', ['/etc/o1913']],
+    ['x=/etc; touch $x\\\n/o1913', ['/etc/o1913']],
+    ['echo a >/etc/o\\\n1913', ['/etc/o1913']],
+    ['touch "/etc/o\\\n1913"', ['/etc/o1913']],
+  ] as const)
+    it(`${JSON.stringify(cmd)} lists ${paths.join(' ')}`, async () => {
+      assert.deepEqual(await run(cmd), paths);
+    });
+
+  it('eval of a word a backslash-newline joins to an expansion is unproven', async () => {
+    const out = await run('x=a; eval touch /w/$x\\\ny');
+    assert.ok(out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));
+  });
+});
+
+describe("GH 2640: a $'…' word is read as bash decodes it", () => {
+  const run = (cmd: string): Promise<string[]> => writePaths(cmd, { cwd: '/w', root: '/w', env: { HOME: '/h' } });
+
+  for (const [cmd, paths] of [
+    ["touch $'\\x2fetc/o'", ['/etc/o']],
+    ["touch $'\\057etc/o'", ['/etc/o']],
+    ["touch $'\\u002fetc/o'", ['/etc/o']],
+    ["touch $'/w/a\\tb'", ['/w/a\tb']],
+  ] as const)
+    it(`${cmd} lists ${JSON.stringify(paths)}`, async () => {
+      assert.deepEqual(await run(cmd), paths);
+    });
+
+  for (const cmd of ["touch $'/etc/\\x00o'", "touch $'/w/\\ca'", "touch $'/w/\\xq'"])
+    it(`${cmd}: an escape whose result is unknown or a control char is unresolved`, async () => {
+      const out = await run(cmd);
+      assert.ok(out.some((l) => l.startsWith('UNRESOLVED:')), JSON.stringify(out));
+    });
 });
 
 describe('GH 2669: a node -e program calling Buffer.byteLength is proven', () => {

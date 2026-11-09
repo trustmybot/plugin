@@ -1,0 +1,2 @@
+### Fixed
+- **git-push-guard sees a push split across a line continuation** (GH 2646): a backslash-newline (`git \` then `push origin dev` on the next line, or `git pu\` then `sh`, unquoted or inside double quotes) split the command in two for the analyzer, so the push read as an unknown command and was allowed from a worktree. The analyzer now joins the lines as bash does, and the gate's quick `push` check looks past the continuation too, so the worktree, swe and review denies fire again. Single-quoted text and heredoc bodies keep the backslash-newline, as in bash.
