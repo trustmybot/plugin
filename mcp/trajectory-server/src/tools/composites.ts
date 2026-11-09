@@ -230,6 +230,16 @@ function scopeUnchecked(e: unknown): ScopeCheck {
   };
 }
 
+// The guard briefLocations opens with: an indexed repo gets non-null locations and concepts.
+function repoIndexed(db: TrajectoryDB, repo: string): boolean {
+  if (!repo) return false;
+  const row = db.get<{ n: number }>(
+    `SELECT EXISTS (SELECT 1 FROM wm_files WHERE repo = ?) OR EXISTS (SELECT 1 FROM wm_symbols WHERE repo = ?) AS n`,
+    [repo, repo],
+  );
+  return Number(row?.n ?? 0) !== 0;
+}
+
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
 // against the project root). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
@@ -2250,7 +2260,8 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
-        const isSwe = normalizeAgent(args['agent'] as string | undefined) === 'swe';
+        const caller = normalizeAgent(args['agent'] as string | undefined);
+        const isSwe = caller === 'swe';
         const section = args['section'] ?? (isSwe ? 'core' : 'all');
         if (!isBriefSection(section)) {
           return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
@@ -2262,6 +2273,7 @@ export function compositeTools(
           );
         }
         const concise = responseFormat === 'concise';
+        const leanReviewerCore = concise && caller === 'code-reviewer';
         let trimmed = false;
         const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
@@ -2347,7 +2359,13 @@ export function compositeTools(
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
           const taskFiles = parseTaskFiles(task.files);
-          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+          let worldModel: Record<string, unknown> = {};
+          if (leanReviewerCore) {
+            trimmed ||= repoIndexed(db, repo);
+          } else {
+            const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+            worldModel = { locations, concepts: briefConcepts(db, repo, taskFiles, locations) };
+          }
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2366,8 +2384,7 @@ export function compositeTools(
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations,
-            concepts: briefConcepts(db, repo, taskFiles, locations),
+            ...worldModel,
           };
         };
 
