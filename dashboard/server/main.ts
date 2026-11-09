@@ -145,6 +145,7 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
       case 'tasks': return sendJson(res, 200, q.tasks(db));
       case 'agent-runs': return sendJson(res, 200, q.agentRuns(db));
       case 'gates': return sendJson(res, 200, q.gates(db));
+      case 'gate-board': return sendJson(res, 200, q.gateBoard(db));
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
       case 'health': return sendJson(res, 200, health(db, dbFile(db)));
