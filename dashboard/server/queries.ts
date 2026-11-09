@@ -495,6 +495,9 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
   const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
   const target = repo ?? repos[0];
   if (target === undefined) return { available: true, repos, nodes: [] };
+  const cols = columnsOf(db, 'wm_directories');
+  const behind = cols.has('commits_behind') ? 'd.commits_behind' : 'NULL';
+  const deadRefs = cols.has('dead_refs') ? 'd.dead_refs' : 'NULL';
   const nodes = all(
     db,
     `WITH RECURSIVE sub(id, path, lvl) AS (
@@ -504,7 +507,8 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
          FROM wm_directories c JOIN sub s ON c.parent_path = s.path
         WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
      )
-     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
+     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count,
+            ${behind} AS commits_behind, ${deadRefs} AS dead_refs
        FROM wm_directories d
       WHERE d.id IN (SELECT id FROM sub)
       ORDER BY d.path`,
@@ -513,7 +517,26 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
     target,
     depth,
   );
-  return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n['summary']) })) };
+  return {
+    available: true,
+    repos,
+    nodes: nodes.map((n) => ({
+      ...n,
+      summary: summaryLine(n['summary']),
+      commits_behind: n['commits_behind'] === null ? null : Number(n['commits_behind']),
+      dead_refs: parseDeadRefs(n['dead_refs']),
+    })),
+  };
+}
+
+function parseDeadRefs(raw: unknown): string[] | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 const GRAPH_KINDS = ['calls', 'imports', 'runs', 'sources', 'instantiates'];

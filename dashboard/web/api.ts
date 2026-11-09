@@ -94,6 +94,8 @@ export interface WmNode {
   parent_path: string | null;
   summary: string | null;
   file_count: number;
+  commits_behind?: number | null;
+  dead_refs?: string[] | null;
 }
 
 export interface Freshness {
