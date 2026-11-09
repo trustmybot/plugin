@@ -309,6 +309,55 @@ test('a fragment with a second section line fails validate and refuses the bump 
   assert.equal(snapshot(b), before, 'nothing changed');
 });
 
+test('a final Metric: line with a registry id passes; every other Metric: line is a problem at file:line (GH 2600)', () => {
+  const dir = join(TMP, 'validate-metric');
+  const cases = {
+    '2600-ok.md': '### Added\n- **Ok** (GH 2600): fine.\n\nMetric: swe_rework_ratio lower\n',
+    '2601-unknown.md': '### Added\n- **A** (GH 2601): a.\nMetric: nope_metric lower\n',
+    '2602-direction.md': '### Added\n- **A** (GH 2602): a.\nMetric: swe_rework_ratio down\n',
+    '2603-extra.md': '### Added\n- **A** (GH 2603): a.\nMetric: swe_rework_ratio lower please\n',
+    '2604-missing.md': '### Added\n- **A** (GH 2604): a.\nMetric: swe_rework_ratio\n',
+    '2605-not-last.md': '### Added\n- **A** (GH 2605): a.\nMetric: swe_rework_ratio lower\n  a continuation line.\n',
+    '2606-two.md': '### Added\n- **A** (GH 2606): a.\nMetric: swe_rework_ratio lower\nMetric: tokens_per_task lower\n',
+  };
+  for (const [name, text] of Object.entries(cases)) write(join(dir, name), text);
+  const ok = fragments(dir, 'validate', '2600-ok.md');
+  assert.equal(ok.status, 0, ok.stdout);
+  assert.equal(ok.stdout, '');
+  const bad = fragments(dir, 'validate', ...Object.keys(cases).slice(1));
+  assert.equal(bad.status, 1);
+  assert.deepEqual(bad.stdout.split('\n').filter(Boolean), [
+    '2601-unknown.md:3: unknown metric "nope_metric"; one of swe_rework_ratio, tokens_per_task, reworks_per_task, review_fail_rate, verification_pass_rate, hook_block_tokens_per_run, bro_tokens_per_session',
+    '2602-direction.md:3: the Metric: line must be exactly "Metric: <metric id> lower|higher" (got "Metric: swe_rework_ratio down")',
+    '2603-extra.md:3: the Metric: line must be exactly "Metric: <metric id> lower|higher" (got "Metric: swe_rework_ratio lower please")',
+    '2604-missing.md:3: the Metric: line must be exactly "Metric: <metric id> lower|higher" (got "Metric: swe_rework_ratio")',
+    '2605-not-last.md:3: the Metric: line must be the last line of the entry',
+    '2606-two.md:3: a second Metric: line; a fragment declares at most one, as its last line',
+  ]);
+});
+
+test('bump-version leaves the Metric: line out of CHANGELOG.md, entry text byte-identical (GH 2600)', () => {
+  const declared = '### Fixed\n- **Nine** (GH 9): first fragment in Fixed.\n\nMetric: swe_rework_ratio lower\n';
+  const plain = bumpRepo('bump-metric-plain');
+  addFragments(plain, ...ORDER_A);
+  const expected = bump(plain, '--dry-run', '--date', '2026-10-12', '1.1.0');
+  assert.equal(expected.status, 0, expected.stderr);
+  assert.equal(expected.stdout, EXPECTED_BLOCK);
+
+  const b = bumpRepo('bump-metric');
+  addFragments(b, ...ORDER_A.filter((f) => f !== '9-nine.md'));
+  write(join(b, 'changelog.d/9-nine.md'), declared);
+  const dry = bump(b, '--dry-run', '--date', '2026-10-12', '1.1.0');
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.equal(dry.stdout, EXPECTED_BLOCK, 'dry-run block equals the plain one');
+  assert.doesNotMatch(dry.stdout, /Metric:/);
+  const r = bump(b, '--date', '2026-10-12', '1.1.0');
+  assert.equal(r.status, 0, r.stderr);
+  const changelog = readFileSync(join(b, 'CHANGELOG.md'), 'utf8');
+  assert.equal(changelog, `# Changelog\n\nAll notable changes.\n\n${EXPECTED_BLOCK}## v1.0.0 — 2026-01-01\n\n### Added\n- **First release** (GH 1): hello.\n`);
+  assert.doesNotMatch(changelog, /Metric:/);
+});
+
 test('versions are matched literally, never as regex patterns', () => {
   const b = bumpRepo('bump-literal');
   const odd = '1.0.0+build(1)';

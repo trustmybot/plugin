@@ -17,8 +17,10 @@ import {
   type SplitSample,
 } from './providers.js';
 import { bootstrapRatioCi, hashSeed, holm, mannWhitneyU, mean, median, ratioOfMedians } from './stats.js';
+import { declaredByPr, outcomeOf, type DeclaredMetric } from './declared.js';
 
 export { METRICS, type Metric, type Sample } from './metrics.js';
+export { METRIC_LINE, declaredByPr, outcomeOf, parseDeclaredLog, type DeclaredMetric, type DeclaredOutcome, type Declaration } from './declared.js';
 export { BuildHistory, baseRef, defaultGit, gitSourceFor, type GitCommit, type GitRunner, type GitSource } from './attribution.js';
 export {
   AGENT_SURFACE_KEY,
@@ -91,6 +93,8 @@ export interface MetricImpact {
 export interface ChangeImpact extends ChangeEvent {
   measured_with: ChangeRef[];
   metrics: MetricImpact[];
+  /** Dev-mode plugin_version only: the fragments' `Metric:` lines and how the verdict bore them out; absent when none. */
+  declared?: DeclaredMetric[];
 }
 
 export interface ChangeImpactList {
@@ -183,25 +187,25 @@ function impactOf(
   const adjusted = holm(tested.map((m) => m.p as number));
   const pHolm = new Map(tested.map((m, i) => [m.metric.id, adjusted[i]!]));
 
-  const metrics: MetricImpact[] = partial
-    .filter((m) => metricFilter === undefined || m.metric.id === metricFilter)
-    .map((m) => {
-      const ph = pHolm.get(m.metric.id) ?? null;
-      return {
-        id: m.metric.id,
-        label: m.metric.label,
-        unit: m.metric.unit,
-        direction: m.metric.direction,
-        before: m.before,
-        after: m.after,
-        ratio_of_medians: m.ratio_of_medians,
-        ratio_ci: m.ratio_ci,
-        p: m.p,
-        p_holm: ph,
-        verdict: ph === null ? 'not_enough_data' : verdictOf(m.metric.direction, m.before, m.after, ph),
-        ...(m.series ? { series: m.series } : {}),
-      };
-    });
+  const all: MetricImpact[] = partial.map((m) => {
+    const ph = pHolm.get(m.metric.id) ?? null;
+    return {
+      id: m.metric.id,
+      label: m.metric.label,
+      unit: m.metric.unit,
+      direction: m.metric.direction,
+      before: m.before,
+      after: m.after,
+      ratio_of_medians: m.ratio_of_medians,
+      ratio_ci: m.ratio_ci,
+      p: m.p,
+      p_holm: ph,
+      verdict: ph === null ? 'not_enough_data' : verdictOf(m.metric.direction, m.before, m.after, ph),
+      ...(m.series ? { series: m.series } : {}),
+    };
+  });
+  const metrics = all.filter((m) => metricFilter === undefined || m.id === metricFilter);
+  const declared = declaredOf(ctx, event, all);
 
   return {
     source: event.source,
@@ -212,7 +216,16 @@ function impactOf(
     repo: event.repo,
     measured_with: provider.measuredWith(event, ctx, windowMs),
     metrics,
+    ...(declared.length > 0 ? { declared } : {}),
   };
+}
+
+function declaredOf(ctx: ProviderContext, event: ChangeEvent, metrics: MetricImpact[]): DeclaredMetric[] {
+  if (event.source !== 'plugin_version' || event.kind !== 'build') return [];
+  return (declaredByPr(ctx).get(Number(event.id)) ?? []).flatMap((d) => {
+    const m = metrics.find((x) => x.id === d.metric);
+    return m ? [{ metric: d.metric, direction: d.direction, outcome: outcomeOf(d.direction, m.direction, m.verdict) }] : [];
+  });
 }
 
 export function computeChangeImpact(
