@@ -2,7 +2,9 @@
  * SessionStart hook (GH 1692): the deterministic project inventory (plugin version, top-level dirs,
  * stacks, world model state, trajectory DB contracts, git state, open
  * issues, pending tasks, last commits) as additionalContext, plus the cold
- * world model, version skew, duplicate install and leftover user-hook notes.
+ * world model, version skew, duplicate install and leftover user-hook notes,
+ * and a Change impact line per regressed change not shown before
+ * (lib/change-impact-line.ts).
  * It never starts a scan: on a cold world model with tracked source files the
  * note points at the trajectory server's startup catch-up. Without jq it
  * prints only the Tooling line; any failure exits 0 silently.
@@ -13,6 +15,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type GateResult, type Gate } from './gate.js';
+import { changeImpactLines } from './lib/change-impact-line.js';
 import { dbPathAdvisory, dbReadBudget, haveSqlite, projectRoot, realdir, sqliteRo, stripTrailingNewlines } from './lib/db.js';
 import { gitRun } from './lib/git.js';
 import { byteCompare, commandOnPath } from './lib/host.js';
@@ -462,6 +465,7 @@ export async function sessionStartPrescanRun(env: NodeJS.ProcessEnv, root: strin
     const projects = legacyHookProjects(legacy.projects);
     suffix += `\nPlugin: ${userSettingsJson(env)} holds ${legacy.hooks.length} pre-1.1.0 TMB hook(s) (${legacyHookEntries(legacy.hooks)}) — they run in every project and can deny what this version allows; the Human removes them by hand, see ${LEGACY_USER_HOOKS_DOC}${projects ? `; projects on TMB < 1.1.0 lose them too: ${projects}` : ''}`;
   }
+  for (const line of changeImpactLines(posixDirname(db))) suffix += `\n${line}`;
 
   const inventory = stripTrailingNewlines(
     [

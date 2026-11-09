@@ -16,7 +16,7 @@ import { reconcileAtStartup } from './tools/cheatcode-reconcile.js';
 import { recordEmbeddingTransitions } from './embeddings/health.js';
 import { WorldModelGraph, GraphHolder } from './graph.js';
 import { createShutdown, installShutdownHandlers } from './shutdown.js';
-import { startStartupCatchup, sweepStaleAtStartup } from './startup-catchup.js';
+import { startChangeImpactCache, startStartupCatchup, sweepStaleAtStartup } from './startup-catchup.js';
 
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -189,6 +189,7 @@ serverLog({
 });
 sweepStaleAtStartup(db, dbPath);
 startStartupCatchup(dbPath);
+startChangeImpactCache(dbPath);
 
 process.stderr.write(`server started (db: ${dbPath})\n`);
 if (db.legacyNoPluginMeta) {

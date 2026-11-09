@@ -3,12 +3,16 @@
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --source <S> --id <I> [--metric <id>] [--window-days D] [--max-samples M]
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --list [--source <S>] [--limit N]
  *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --sample-counts <DAYS>
- * Prints the JSON result on stdout.
+ *   node --experimental-sqlite dist/change-impact/cli.js --db <path> --cache
+ * Prints the JSON result on stdout. --cache writes the regressed metrics of the
+ * list form to change-impact-regressions.json next to the DB (the trajectory
+ * server spawns it after connect, startup-catchup.ts) and prints {path, changes}.
  */
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
 import type { StatsReader } from '../tools/stats.js';
-import { computeChangeImpact, sampleCounts, type ChangeSource } from './index.js';
+import { computeChangeImpact, sampleCounts, type ChangeImpactList, type ChangeSource } from './index.js';
+import { regressionsCacheOf, writeRegressionsCache } from './regressions-cache.js';
 
 function readerFor(path: string): StatsReader & { close(): void } {
   const db = new DatabaseSync(path, { readOnly: true });
@@ -41,14 +45,22 @@ function main(): void {
       'max-samples': { type: 'string' },
       limit: { type: 'string' },
       'sample-counts': { type: 'string' },
+      cache: { type: 'boolean' },
     },
   });
   if (!values.db) throw new Error('--db <path> is required');
-  if (values['sample-counts'] === undefined && !values.list && (values.source === undefined || values.id === undefined)) {
-    throw new Error('one of --source <S> --id <I>, --list or --sample-counts <DAYS> is required');
+  if (!values.cache && values['sample-counts'] === undefined && !values.list && (values.source === undefined || values.id === undefined)) {
+    throw new Error('one of --source <S> --id <I>, --list, --sample-counts <DAYS> or --cache is required');
   }
   const reader = readerFor(values.db);
   try {
+    if (values.cache) {
+      const list = computeChangeImpact(reader) as ChangeImpactList;
+      const cache = regressionsCacheOf(list.changes);
+      const path = writeRegressionsCache(values.db, cache);
+      process.stdout.write(`${JSON.stringify({ path, changes: cache.changes.length })}\n`);
+      return;
+    }
     const source = values.source as ChangeSource | undefined;
     const result =
       values['sample-counts'] !== undefined
