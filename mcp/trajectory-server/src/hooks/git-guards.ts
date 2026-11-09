@@ -33,7 +33,7 @@ import { repoDefaultBranch, repoIsRegistered, repoNameForRoot, repoResolve } fro
 
 export const GATE_NAME = 'git-guards';
 
-const NEEDS_GUARD = /(^|[^A-Za-z0-9_./-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
+const NEEDS_GUARD = /(^|[^A-Za-z0-9_.-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
 const SPACE = '[ \\t\\n\\v\\f\\r]';
 const NONSPACE = '[^ \\t\\n\\v\\f\\r]';
 const GUARDED_SUB = /^(commit|merge|rebase|cherry-pick|push)( |$)|^(checkout -b|switch -c) /;

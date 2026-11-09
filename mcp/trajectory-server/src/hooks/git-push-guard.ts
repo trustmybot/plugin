@@ -32,6 +32,8 @@ const CONTINUATION = /\\\n/g;
 const UNQUOTE = /['"\\]/g;
 const GIT_WORD = /\bgit\b/;
 const EXPANDS = /[$`*?[{\x01-\x06\x0e-\x11\x13\x15\x16]/;
+/** An `xargs` git may take its subcommand from stdin (GH 2797). */
+const XARGS = /\bxargs\b/;
 
 export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
 export const SWE_PUSH_FIX: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report)" };
@@ -306,7 +308,7 @@ class Guard {
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
   const bare = command.replace(CONTINUATION, '').replace(UNQUOTE, '');
-  if (!bare.includes('push') && !(GIT_WORD.test(bare) && EXPANDS.test(bare))) return ALLOW;
+  if (!bare.includes('push') && !(GIT_WORD.test(bare) && (EXPANDS.test(bare) || XARGS.test(bare)))) return ALLOW;
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);
