@@ -89,7 +89,8 @@ CREATE TABLE IF NOT EXISTS repo_env (
 -- reindex_* columns describe the newest reindex: state 'running' from its
 -- start, then 'idle' with outcome 'ok' (written in the transaction that stamps
 -- repos.indexed_commit) or 'failed' with outcome 'error'. trigger is
--- read | spawn | startup | scan | hook | fetch. Timestamps are ISO-8601 UTC.
+-- read | spawn | startup | scan | hook | fetch; hook is the ref-move
+-- PostToolUse hook's reindex. Timestamps are ISO-8601 UTC.
 -- A 'running' row whose locks are gone at server start becomes 'failed'. The
 -- freshness block of world_model_*, task_brief and the dashboard reads it.
 CREATE TABLE IF NOT EXISTS wm_freshness (

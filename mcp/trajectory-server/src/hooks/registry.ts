@@ -78,6 +78,7 @@ import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-sou
 import { GATE_NAME as NO_PROSE_GATE, noProseInScratch } from './no-prose-in-scratch.js';
 import { GATE_NAME as WORKTREE_ADOPT_GATE, worktreeAdoptGuard } from './worktree-adopt-guard.js';
 import { GATE_NAME as WM_READ_GATE, wmReadBeforeProvision } from './wm-read-before-provision.js';
+import { GATE_NAME as REF_MOVE_REINDEX_GATE, refMoveReindex } from './ref-move-reindex.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -155,6 +156,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [NO_PROSE_GATE, noProseInScratch],
   [WORKTREE_ADOPT_GATE, worktreeAdoptGuard],
   [WM_READ_GATE, wmReadBeforeProvision],
+  [REF_MOVE_REINDEX_GATE, refMoveReindex],
 ]);
 
 export function findGate(name: string): Gate | undefined {
@@ -287,7 +289,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(OVERRUN_GATE, 'advisory'),
     routerGate(LIVENESS_ALERT_GATE, 'advisory'),
   ]),
-  eventGroup('PostToolUse', 'Bash', [routerGate(BASH_OUTPUT_TRIM_GATE, 'advisory'), routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory')]),
+  eventGroup('PostToolUse', 'Bash', [routerGate(BASH_OUTPUT_TRIM_GATE, 'advisory'), routerGate(FOOTER_GATE, 'advisory'), routerGate(CLEAN_MERGED_GATE, 'advisory'), routerGate(CLOSE_ISSUE_GATE, 'advisory'), routerGate(REF_MOVE_REINDEX_GATE, 'advisory')]),
   eventGroup('PostToolUse', 'Agent', [routerGate(SWE_SPAWN_BIND_GATE, 'advisory')]),
   eventGroup('PermissionDenied', 'Agent', [routerGate(SWE_SPAWN_ROLLBACK_GATE, 'advisory')]),
   eventGroup('Stop', '', [routerGate(BRO_TURN_USAGE_GATE, 'advisory')]),

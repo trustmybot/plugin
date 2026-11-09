@@ -30,13 +30,14 @@ import { insertAudit } from '../tools/audit.js';
 import { blobMd5, scannedAtNow, walkRepoAtCommit, type ScanFile, type ScanOutput } from '../tools/scan-walk.js';
 import { persistRepoReindex, type ReindexScope, type ScanError } from '../tools/scan.js';
 import { CommitContent, commitExists, diffNameStatus, lastCommitByPath, lsTree } from '../utils/git-objects.js';
-import { resolveIndexTargetRef } from '../utils/index-target.js';
+import { runGit } from '../utils/git-run.js';
+import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 
 export type ReindexMode = 'incremental' | 'full';
 export type FullReason = 'null_stamp' | 'unreachable' | 'stamp_changed' | 'mismatch' | 'scan' | 'range_failed';
 export type ReindexReason = 'ref_moved' | FullReason;
-export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn';
+export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn' | 'hook';
 // The trigger as wm_freshness and the freshness block name it (decision 2487).
 export type BlockTrigger = 'read' | 'spawn' | 'startup' | 'scan' | 'hook' | 'fetch';
 export type ReindexState = 'idle' | 'running' | 'failed';
@@ -563,6 +564,29 @@ export async function catchUpRepos(
     }
   }
   return results;
+}
+
+const REF_MOVE_FETCH_TIMEOUT_MS = 5000;
+
+// The ref-move hook's detached child (hooks/ref-move-reindex.ts): after a
+// forge merge it first fetches origin/<target branch>, which the merge moved
+// on the remote only, then brings the repo to its target without waiting for
+// a lock another process holds.
+export async function reindexOnRefMove(
+  db: TrajectoryDB,
+  graph: WorldModelGraph,
+  repo: string,
+  opts: { dbPath: string; fetch?: boolean },
+): Promise<Freshness | null> {
+  const path = repoState(db, repo)?.path;
+  if (!path) return null;
+  if (opts.fetch) {
+    runGit(path, ['fetch', '-q', 'origin', targetBranchOf(db, repo, path)], {
+      timeout: REF_MOVE_FETCH_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  }
+  return ensureFresh(db, graph, repo, { dbPath: opts.dbPath, trigger: 'hook', wait: false });
 }
 
 // Test seam: wait for any reindex this process is running.

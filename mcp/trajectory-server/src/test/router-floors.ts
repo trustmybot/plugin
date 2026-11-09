@@ -7,8 +7,9 @@
  * trajectory-gates chain member's is its chain-table budget, but
  * swe-verification-gate's is 3627 s, so its group's router timeout is the
  * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
- * the router (bash-output-trim, swe-downstream-context, wm-read-before-provision) never had a registration; it takes the 4 s of
- * the lightest advisory one, and reviewer-downstream-context, which runs git, the 6 s of a git-reading one.
+ * the router (bash-output-trim, swe-downstream-context) never had a registration; it takes the 4 s of
+ * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
+ * needs, and reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one.
  */
 export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.freeze({
   'containment-guard': 5,
@@ -26,7 +27,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'no-source-edit-from-main': 6,
   'no-prose-in-scratch': 6,
   'worktree-adopt-guard': 6,
-  'wm-read-before-provision': 4,
+  'wm-read-before-provision': 5,
   'swe-scope-fence': 6,
   'naming-lint': 4,
   'code-quality-lint': 4,
@@ -50,6 +51,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'attribution-footer': 16,
   'clean-merged-branch': 11,
   'close-issue-on-merge': 16,
+  'ref-move-reindex': 6,
   'swe-spawn-bind': 6,
   'swe-spawn-rollback': 6,
   'bro-turn-usage': 6,

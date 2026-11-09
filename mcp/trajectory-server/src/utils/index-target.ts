@@ -5,14 +5,20 @@ import type { TrajectoryDB } from '../db.js';
 import { normalizeBase, resolveRepoDefaultBranch } from './git-refs.js';
 import { resolveRefCommit } from './git-objects.js';
 
-export function targetBranchOf(db: TrajectoryDB, repo: string, repoPath: string): string {
-  let configured: string | null = null;
+function configuredBranchOf(db: TrajectoryDB, repo: string): string | null {
   try {
-    configured = db.get<{ target_branch: string | null }>(`SELECT target_branch FROM repos WHERE name = ?`, [repo])?.target_branch ?? null;
+    return db.get<{ target_branch: string | null }>(`SELECT target_branch FROM repos WHERE name = ?`, [repo])?.target_branch ?? null;
   } catch {
-    configured = null;
+    return null;
   }
+}
+
+export function targetBranchFor(repoPath: string, configured: string | null): string {
   return normalizeBase(repoPath, configured || resolveRepoDefaultBranch(repoPath));
+}
+
+export function targetBranchOf(db: TrajectoryDB, repo: string, repoPath: string): string {
+  return targetBranchFor(repoPath, configuredBranchOf(db, repo));
 }
 
 export interface IndexTarget {
@@ -24,12 +30,18 @@ export interface IndexTarget {
 // checkout sets HEAD, so the index matches the dist/ it built). ref is the
 // name the commit was resolved from: the pinned ref, origin/<branch> or HEAD.
 export function resolveIndexTargetRef(db: TrajectoryDB, repo: string, repoPath: string): IndexTarget | null {
+  return resolveIndexTarget(repoPath, () => configuredBranchOf(db, repo));
+}
+
+// resolveIndexTargetRef with the configured target branch read by the caller,
+// for the hooks, which reach the DB through sqlite3 rather than TrajectoryDB.
+export function resolveIndexTarget(repoPath: string, configured: () => string | null): IndexTarget | null {
   const pinned = process.env['TMB_WM_INDEX_TARGET'];
   if (pinned) {
     const commit = resolveRefCommit(repoPath, pinned);
     return commit ? { ref: pinned, commit } : null;
   }
-  const branch = targetBranchOf(db, repo, repoPath);
+  const branch = targetBranchFor(repoPath, configured());
   const remote = resolveRefCommit(repoPath, `refs/remotes/origin/${branch}`);
   if (remote) return { ref: `origin/${branch}`, commit: remote };
   const head = resolveRefCommit(repoPath, 'HEAD');

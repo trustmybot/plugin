@@ -18,6 +18,11 @@
 // startup_catchup from the server's connect-time catch-up, which on a warm DB
 // reindexes each known repo to its target commit instead of walking the
 // workspace (GH 2584).
+//
+// Hook mode: run-scan.mjs <project-root> hook <repo> [--fetch], spawned by the
+// ref-move-reindex PostToolUse hook, reindexes only <repo> with trigger 'hook'
+// and runs no scan_run; --fetch first fetches origin/<target branch>. A lock
+// another process holds makes it exit; the next read catches up.
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -42,7 +47,12 @@ async function main() {
   if (dbPath === ':memory:' || !existsSync(dbPath)) {
     fail(2, `no trajectory DB at ${dbPath}; nothing scanned`);
   }
-  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools } = await import(
+  const source = process.argv[3] || 'bro_auto_post_close';
+  const hookRepo = source === 'hook' ? process.argv[4] : undefined;
+  if (source === 'hook' && !hookRepo) {
+    fail(2, 'hook mode needs a repo: run-scan.mjs <project-root> hook <repo> [--fetch]; nothing scanned');
+  }
+  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools, reindexOnRefMove } = await import(
     '../../mcp/trajectory-server/dist/run-scan.js'
   );
 
@@ -53,6 +63,20 @@ async function main() {
     fail(1, `cannot open the trajectory DB at ${dbPath}: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  if (hookRepo) {
+    try {
+      const fresh = await reindexOnRefMove(db, new WorldModelGraph(db), hookRepo, {
+        dbPath,
+        fetch: process.argv.slice(5).includes('--fetch'),
+      });
+      const at = fresh?.indexed_commit?.slice(0, 12) ?? 'none';
+      console.error(`${TAG} OK — ${hookRepo}@${at} (${fresh?.mode ?? 'current'})`);
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
   try {
     // scan_run expects a GraphHolder (since #1089). This one-shot invoker runs
     // a single scan and exits, so wrap the graph as an inert holder.
@@ -60,7 +84,7 @@ async function main() {
     const result = await tools.handlers.scan_run({
       agent: 'bro',
       session_dir: projectRoot,
-      source: process.argv[3] || 'bro_auto_post_close',
+      source,
     });
     if (result.isError) {
       console.error(`${TAG} scan_run error: ${result.content?.[0]?.text ?? '?'}`);
