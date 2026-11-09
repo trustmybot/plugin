@@ -131,16 +131,18 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
 }
 
 /**
- * _tmb_cmd_statements_enc <cmd> <base> <depth> without assign, loops framed
- * (GH 2065): a statement a loop's back-edge can bring to more dirs is listed
- * once per dir. Null when the command or a body in it does not parse.
+ * _tmb_cmd_statements_enc <cmd> <base> <depth> without assign, loops and
+ * function calls framed (GH 2065, GH 2630): a statement a loop's back-edge or
+ * a call can bring to more dirs is listed once per dir. Null when the command
+ * or a body in it does not parse. An `eval` body is `escaped`: the functions
+ * it defines outlive it, so their statements run in `-`.
  */
-function listing(parser: Parser, cmd: string, base: string, depth: number, home: string): Statement[] | null {
+function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
   const encoded = encode(parser, cmd);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
-  const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, true)
+  const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
     .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
     .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt) }))
     .filter((record) => record.stmt !== '');
@@ -152,7 +154,7 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
       for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt }, () => srcAt(k)));
       continue;
     }
-    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home);
+    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home, readWords(stmt)[0] === 'eval');
     if (nested === null) return null;
     out.push(...nested);
   }
