@@ -56,6 +56,7 @@ import {
   parseSpawnNote,
   parseStoredReport,
   reportMissingIds,
+  specCommitProblem,
   specCriteriaProblem,
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
@@ -227,6 +228,16 @@ function scopeUnchecked(e: unknown): ScopeCheck {
     checked: false,
     reason: (e as Error).message.split('\n')[0] || 'git diff failed',
   };
+}
+
+// The guard briefLocations opens with: an indexed repo gets non-null locations and concepts.
+function repoIndexed(db: TrajectoryDB, repo: string): boolean {
+  if (!repo) return false;
+  const row = db.get<{ n: number }>(
+    `SELECT EXISTS (SELECT 1 FROM wm_files WHERE repo = ?) OR EXISTS (SELECT 1 FROM wm_symbols WHERE repo = ?) AS n`,
+    [repo, repo],
+  );
+  return Number(row?.n ?? 0) !== 0;
 }
 
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
@@ -841,6 +852,10 @@ type TaskBranchOutcome =
   | { kind: 'base_unresolved' }
   | { kind: 'diverged'; ref: string; baseRef: string }
   | { kind: 'git_failed'; what: string; error: unknown };
+
+function baseIsBranch(base: string, branchId: string): boolean {
+  return [branchId, `origin/${branchId}`, `refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`].includes(base);
+}
 
 // The task branch policy task_provision, task_retry and task_reopen share: a
 // missing ref is cut from resolveCutBase(base) (created); an existing local or
@@ -1592,6 +1607,8 @@ export function compositeTools(
         }
         const criteriaProblem = specCriteriaProblem(task.spec_body);
         if (criteriaProblem) return err(criteriaProblem);
+        const commitProblem = specCommitProblem(task.spec_body);
+        if (commitProblem) return err(commitProblem);
         const validateStrArray = (value: unknown, field: 'files' | 'verification'): string[] => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field} must be a non-empty array of strings.`);
@@ -1733,6 +1750,13 @@ export function compositeTools(
           repoPath,
           (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
         );
+        if (baseIsBranch(base, branchId)) {
+          return err(
+            `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
+              `would block every commit on it. Pass a different base, e.g. the PR target. ` +
+              `No branch, worktree or task row was created.`,
+          );
+        }
 
         // Branch policy (ensureTaskBranch): a new ref is created from the base
         // ('created'); an existing ref at or behind the base tip is reused; a
@@ -2145,6 +2169,8 @@ export function compositeTools(
           }
           const criteriaProblem = specCriteriaProblem(newSpec);
           if (criteriaProblem) return err(criteriaProblem);
+          const commitProblem = specCommitProblem(newSpec);
+          if (commitProblem) return err(commitProblem);
         }
         if (newFiles === undefined && newVerification === undefined && newSpec === undefined) {
           return err('task_update_spec: pass at least one of files, verification, spec_body');
@@ -2245,7 +2271,8 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
-        const isSwe = normalizeAgent(args['agent'] as string | undefined) === 'swe';
+        const caller = normalizeAgent(args['agent'] as string | undefined);
+        const isSwe = caller === 'swe';
         const section = args['section'] ?? (isSwe ? 'core' : 'all');
         if (!isBriefSection(section)) {
           return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
@@ -2257,6 +2284,7 @@ export function compositeTools(
           );
         }
         const concise = responseFormat === 'concise';
+        const leanReviewerCore = concise && caller === 'code-reviewer';
         let trimmed = false;
         const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
@@ -2342,7 +2370,13 @@ export function compositeTools(
               ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
               : null;
           const taskFiles = parseTaskFiles(task.files);
-          const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+          let worldModel: Record<string, unknown> = {};
+          if (leanReviewerCore) {
+            trimmed ||= repoIndexed(db, repo);
+          } else {
+            const locations = briefLocations(db, repo, task.spec_body ?? '', taskFiles);
+            worldModel = { locations, concepts: briefConcepts(db, repo, taskFiles, locations) };
+          }
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -2361,8 +2395,7 @@ export function compositeTools(
             spawn_note: task.spawn_note,
             checkpoint: parseStoredCheckpoint(task.checkpoint),
             last_stop,
-            locations,
-            concepts: briefConcepts(db, repo, taskFiles, locations),
+            ...worldModel,
           };
         };
 

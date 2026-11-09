@@ -246,6 +246,12 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- (subagent_session_id stays the Claude Code session). NULL until
     -- validation_record writes it, and for honor-system rows.
     reviewer_agent_id   TEXT,
+    -- reviewed_sha (v65 GH 2684): the commit_sha= anchor of the code-reviewer
+    -- spawn record-reviewer-spawn observed for the row's task and attempt. NULL
+    -- when no spawn was observed: honor-system rows and rows from before v65.
+    -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
+    -- to the nearest comma.
+    reviewed_sha        TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -407,7 +413,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 64, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 65, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

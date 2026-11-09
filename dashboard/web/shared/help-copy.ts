@@ -65,6 +65,12 @@ export const GATE_BOARD_HELP: HelpEntry = {
   uses: ['See what still blocks each branch from pushing.', 'Open a blocked task to read its failing run or finding.'],
 };
 
+export const HEALTH_HELP: HelpEntry = {
+  intro:
+    "Checks on this project's TMB database, run fresh each time the page loads: its schema version, the data contracts the trajectory doctor runs, how current the project map is, concept trust and how many rows have search vectors.",
+  uses: ['Spot a failing data contract before it breaks a session.', 'Check whether the project map trails the code.', 'See how many concepts need checking.'],
+};
+
 export const DETAIL_PAGE: Record<'issue' | 'task', string> = { issue: 'Issue Detail', task: 'Task Detail' };
 
 export function helpKey(tab: string, id: string | undefined): HelpKey {

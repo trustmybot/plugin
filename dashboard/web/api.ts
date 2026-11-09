@@ -118,6 +118,26 @@ export interface WmStatus {
   history: Row[];
 }
 
+export interface HealthContract {
+  id: string;
+  severity: 'error' | 'warn';
+  description: string;
+  ok: boolean | null;
+  skipped: string | null;
+  actual: number | null;
+  expected: { op: string; value: number };
+}
+
+export interface Health {
+  checked_at: string;
+  healthy: boolean;
+  schema: { version: number | null; target: number };
+  contracts: HealthContract[];
+  freshness: Array<{ repo: string; freshness: Freshness | null }>;
+  concepts: { by_status: Record<string, number>; steps_by_trust: Record<string, number> };
+  embeddings: Array<{ source: string; rows: number; embedded: number }>;
+}
+
 export interface WorldModel {
   available: boolean;
   repos: string[];

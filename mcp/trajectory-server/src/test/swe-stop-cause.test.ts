@@ -282,6 +282,17 @@ describe('swe-stop-cause (GH 1905)', () => {
       assert.deepEqual(hookBlockCost('', since), { blocks: 0, tokens: 0 });
     });
 
+    it('prices a block at the next assistant entry with usage, past an attachment and an api-request-blob (GH 2692)', () => {
+      const lines = [
+        toolUse('2026-10-25T10:01:00.000Z', 'toolu_1', 'Bash'),
+        toolResult('2026-10-25T10:01:01.000Z', 'toolu_1', DENY, true),
+        { timestamp: '2026-10-25T10:01:01.500Z', type: 'attachment', attachment: { type: 'hook_additional_context' } },
+        { timestamp: '2026-10-25T10:01:01.700Z', type: 'api-request-blob', message: { role: 'assistant', content: [{ type: 'text', text: 'blob' }] } },
+        reply('2026-10-25T10:01:02.000Z', { input_tokens: 2, cache_read_input_tokens: 33_942, cache_creation_input_tokens: 1_317 }),
+      ];
+      assert.deepEqual(hookBlockCost(jsonl(lines), since), { blocks: 1, tokens: 35_261 });
+    });
+
     const tokensOf = (f: Fixture) => {
       const r = new DatabaseSync(f.db);
       const out = r.prepare('SELECT hook_block_tokens FROM agent_runs WHERE task_id = ? AND spawn_id = ? ORDER BY id DESC LIMIT 1').get(TASK_ID, SWE) as {
