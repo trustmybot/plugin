@@ -71,6 +71,25 @@ describe('commit-msg-lint denies (GH 2582)', () => {
   it('lints only the first line of the message', async () => {
     await assertAdmitted("git commit -m '✨ feat(x): add y' -m 'body line that is not a subject'");
   });
+
+  for (const command of ["git commit -m $'\\xe2\\x9c\\xa8 bad subject'", "git commit -m $'\\342\\234\\250 bad subject'"]) {
+    it(`lints the UTF-8 subject ${command} spells in byte escapes (GH 2765)`, async () => {
+      const reason = await denyReason(command);
+      assert.ok(reason.includes('grammar rule'), reason);
+      assert.ok(reason.includes('Subject seen: "✨ bad subject"'), reason);
+    });
+  }
+});
+
+describe('commit-msg-lint on byte-escape subjects (GH 2765)', () => {
+  it('admits a valid subject spelled in byte escapes', async () => {
+    await assertAdmitted("git commit -m $'\\xe2\\x9c\\xa8 feat(hooks): good subject'");
+  });
+
+  for (const command of ["git commit -m $'\\xff bad subject'", "git commit -m $'\\xe2\\x9c bad'"])
+    it(`admits ${command} as unproven, an invalid UTF-8 run read as computed text`, async () => {
+      await assertAdmitted(command);
+    });
 });
 
 describe('commit-msg-lint admits (GH 2582)', () => {
