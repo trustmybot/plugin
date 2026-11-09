@@ -1305,7 +1305,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        "Creates a worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout's node_modules, runs the repo's .config/tmb/worktree-setup.json commands (a failing one returns an error naming it, and command is not run), runs command there under the verification budget (TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s; default 900 s, cap 1800 s; an over-budget command is killed and returns passed: false, timed_out: true), then removes the worktree. A repo_path outside the project is refused with outside_project.",
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under verification budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
