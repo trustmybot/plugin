@@ -16,6 +16,15 @@ const MAX_NEIGHBOURS = 3;
 const SPAN_RE = /`([^`\n]+)`/g;
 const PATH_RE = /^((?:[\w.@$-]+\/)*[\w.@$-]*[\w@$-]\.[A-Za-z0-9]+)(?::(\d+)(?:-(\d+))?)?$/;
 const IDENT_RE = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\(\))?$/;
+const FILE_EXTENSIONS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'md', 'sh', 'py', 'yml', 'yaml', 'toml', 'sql', 'css', 'html', 'txt',
+]);
+
+function isPathSpan(path: string, isIndexedPath?: (path: string) => boolean): boolean {
+  if (path.includes('/')) return true;
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  return FILE_EXTENSIONS.has(ext) || (isIndexedPath?.(path) ?? false);
+}
 
 export interface PathRef {
   path: string;
@@ -70,9 +79,9 @@ export interface BriefLocations {
 
 // Backtick spans of a spec: path-shaped spans (with an optional :L or :L-M)
 // and identifier-shaped spans (with an optional trailing ()). A span such as
-// `Class.method` matches both shapes; it is kept as both and resolves as
-// whichever the index knows.
-export function extractSpecRefs(spec: string): SpecRefs {
+// `Class.method` matches both shapes; a span with no `/` is a path only when
+// it ends in a known file extension or isIndexedPath holds it as a file.
+export function extractSpecRefs(spec: string, isIndexedPath?: (path: string) => boolean): SpecRefs {
   const paths: PathRef[] = [];
   const identifiers: string[] = [];
   const seenPaths = new Set<string>();
@@ -80,7 +89,7 @@ export function extractSpecRefs(spec: string): SpecRefs {
   for (const m of spec.matchAll(SPAN_RE)) {
     const span = m[1]!.trim();
     const p = PATH_RE.exec(span);
-    if (p) {
+    if (p && isPathSpan(p[1]!, isIndexedPath)) {
       const start = p[2] ? Number(p[2]) : undefined;
       const end = p[3] ? Number(p[3]) : start;
       const key = `${p[1]}:${start ?? ''}-${end ?? ''}`;
@@ -184,7 +193,10 @@ export function briefLocations(
   );
   if (!any || Number(any.n) === 0) return null;
 
-  const refs = extractSpecRefs(spec);
+  const refs = extractSpecRefs(
+    spec,
+    (path) => db.get('SELECT 1 FROM wm_files WHERE repo = ? AND path = ?', [repo, path]) !== undefined,
+  );
   let truncated = false;
   const files: FileLocation[] = [];
   const named = new Set<string>();
