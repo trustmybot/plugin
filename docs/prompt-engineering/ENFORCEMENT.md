@@ -211,4 +211,5 @@ A skill over about 200 lines is a signal it is doing too much. In order: apply t
 - [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) — how we author personas, skills, and commands.
 - [`RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md) — agent roles and boundaries.
 - [`FLOWS.md`](../architecture/FLOWS.md) — workflows and which gate fires when.
-- [`ERD.md`](../architecture/ERD.md) — schema; its role-by-tool matrix is the source of truth for layer 1's coverage.
+- [`ERD.md`](../architecture/ERD.md) — schema.
+- [`agent-scope.ts`](../../mcp/trajectory-server/src/middleware/agent-scope.ts) — the role-by-tool matrix, source of truth for layer 1's role checks.
