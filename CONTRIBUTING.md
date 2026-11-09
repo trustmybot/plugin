@@ -57,7 +57,7 @@ Direct commits to `dev` and `main` are blocked by `mcp/trajectory-server/src/hoo
 
 ### Dev builds
 
-Every push to `dev` runs `.github/workflows/dev-build.yml`, which stamps the manifests with a version of the form `X.Y.Z-dev.<n>.gh<PR>` (e.g. `1.2.0-dev.7.gh1594`) and force-pushes the result to `dev-build`:
+Every push to `dev` runs `.github/workflows/dev-build.yml` (its `l1` job reruns the L1 tier, [CI](#ci-github-actions)); its `stamp` job stamps the manifests with a version of the form `X.Y.Z-dev.<n>.gh<PR>` (e.g. `1.2.0-dev.7.gh1594`) and force-pushes the result to `dev-build`:
 
 - `X.Y.Z` is the release `dev` is heading for: the lowest open `vX.Y.Z` milestone above the latest stable release (the highest stable `vX.Y.Z` tag), else that release with the minor bumped. It must be above the latest release; the build fails otherwise.
 - `<n>` counts the commits merged to `dev` since the latest stable release (first-parent commits on `dev` not yet in that release; rc tags don't count), so it grows by one per merged PR and resets after each release. `n` orders builds.
@@ -105,7 +105,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
 - **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.ts`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
 
-`.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
+`.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`). Its `stamp` job stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)); it publishes and is not a gate. Its `l1` job reruns the L1 tier (`tests/run-all.ts --l1-only`) on every push to `dev`, so a merge that breaks an L1 rule turns `dev` red (GH 2651).
 
 Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.ts`) + code-reviewer + any PR checks** (rule 6 above).
 
