@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
-import { ALT, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
+import { ALT, GIT_ARGV0, GIT_VALUE_OPTION, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
 export type Statement = Record & { readonly src?: string };
@@ -208,66 +208,104 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
 /** tmb_git_subcommand <stmt>: the words from git's subcommand on, "" when <stmt> is no git command. */
 export function gitSubcommand(stmt: string): string {
   const w = readWords(stmt);
-  if (w[0] !== 'git') return '';
+  if (!GIT_ARGV0.test(w[0] ?? '')) return '';
   const k = subcommandAt(w);
   return k < w.length ? w.slice(k).join(' ') : '';
 }
 
-const VALUE_OPTIONS = ['-C', '-c', '--git-dir', '--work-tree', '--namespace'];
-const VALUE_JOINED = /^--(git-dir|work-tree|namespace)=/;
+/** git's global options that take no separate value (`git --help`); any other option word before the subcommand leaves it unknown. */
+const FLAG_OPTIONS = new Set([
+  '-p',
+  '-P',
+  '--paginate',
+  '--no-pager',
+  '--bare',
+  '--no-replace-objects',
+  '--no-lazy-fetch',
+  '--literal-pathspecs',
+  '--glob-pathspecs',
+  '--noglob-pathspecs',
+  '--icase-pathspecs',
+  '--no-optional-locks',
+  '--no-advice',
+  '--html-path',
+  '--man-path',
+  '--info-path',
+  '-v',
+  '--version',
+  '-h',
+  '--help',
+  '--exec-path',
+]);
+/** An option and its value in one word, which cannot take the next word. */
+const VALUE_JOINED = /^--[a-z][a-z0-9-]*=/;
 /** A word bash may turn into other words (a parameter, command or arithmetic expansion, a brace or glob pattern), or a redirect, which leaves git's words. */
 const NOT_LITERAL = /[$`*?[{]|^[0-9]*[<>]|^&>/;
-/** The same for a value-taking option's argument, where a parameter, command or arithmetic expansion cannot move the subcommand. */
+/** The same for a value-taking option's argument, where an expansion is judged by its source instead: inside double quotes it cannot move the subcommand. */
 const NOT_LITERAL_VALUE = /[*?[]|(^|[^$]){|^[0-9]*[<>]|^&>/;
+const EXPANSION = /[$`]/;
 
 type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src'>>);
 
 /**
  * git's subcommand in <statement> and the words after it, as gitSubcommand
- * gives them, or undefined when it is unknown (GH 2634): the subcommand word,
- * or an option word before it that is no value-taking option's argument,
- * holds an expansion, a brace or glob pattern, or is a redirect; an
- * argument of `-C` / `-c` / `--git-dir` / `--work-tree` / `--namespace`
- * (or the `=value` of the last three) only when it is a pattern or a
- * redirect. Where an unquoted $( ) or backtick cut the statement inside that
- * span, the words are read from its `src`, read only then, and a `src` that
- * is missing or does not line up leaves it unknown.
+ * gives them, or undefined when it is unknown (GH 2634, GH 2647): an option
+ * word before it that is none of git's known global options, or a
+ * subcommand word that holds an expansion, a brace or glob pattern, or is a
+ * redirect. A value-taking option's argument (or the
+ * `=value` of an `--opt=value` word) is unknown when it is a pattern or a
+ * redirect, or holds an expansion its `src` does not show inside double
+ * quotes, since bash splits an unquoted one into words that can move the
+ * subcommand (GH 2643). Where an unquoted $( ) or backtick cut the statement
+ * inside that span, the words are read from its `src`. `src` is read only
+ * when needed, and one that is missing or does not line up leaves it unknown.
  */
 export function gitSubcommandOf(statement: SubcommandInput): string | undefined {
   const { stmt, cut } = typeof statement === 'string' ? { stmt: statement, cut: undefined } : statement;
   let w = readWords(stmt);
-  if (w[0] !== 'git') return '';
-  let k = subcommandAt(w);
-  if (cut !== undefined && typeof statement !== 'string') {
-    const at = cut === 'glued' ? w.length - 1 : w.length;
-    if (k >= at) {
-      const src = statement.src;
-      const words = src === undefined ? null : sourceWords(src);
-      if (words === null || words[0]?.text !== 'git' || words.findIndex((word) => word.sub) !== at) return undefined;
-      w = words.map((word) => word.text);
-      k = subcommandAt(w);
-    }
+  if (!GIT_ARGV0.test(w[0] ?? '')) return '';
+  const at = cut === 'glued' ? w.length - 1 : w.length;
+  let words: SourceWord[] | null | undefined;
+  const aligned = (): SourceWord[] | null => {
+    if (words !== undefined) return words;
+    const src = typeof statement === 'string' ? undefined : statement.src;
+    const read = src === undefined ? null : sourceWords(src);
+    const lined = read !== null && GIT_ARGV0.test(read[0]?.text ?? '') && (cut === undefined ? read.length : read.findIndex((word) => word.sub)) === at;
+    return (words = lined ? read : null);
+  };
+  if (cut !== undefined && subcommandAt(w) >= at) {
+    const read = aligned();
+    if (read === null) return undefined;
+    w = read.map((word) => word.text);
   }
-  return spanLiteral(w) ? (k < w.length ? w.slice(k).join(' ') : '') : undefined;
+  const k = subcommandSpan(w, (j) => aligned()?.[j]?.bare ?? true);
+  return k === undefined ? undefined : k < w.length ? w.slice(k).join(' ') : '';
 }
 
-/** Whether git's words up to its subcommand are literal, each value-taking option's argument judged by NOT_LITERAL_VALUE. */
-function spanLiteral(w: readonly string[]): boolean {
+/**
+ * The index of git's subcommand in its words <w> when every word before it is
+ * one of git's known global options and literal, else undefined; a
+ * value-taking option's argument at index j that holds an expansion counts
+ * only when <bare>(j) says no unquoted one is in it.
+ */
+function subcommandSpan(w: readonly string[], bare: (j: number) => boolean): number | undefined {
+  const value = (v: string, j: number): boolean => !NOT_LITERAL_VALUE.test(v) && (!EXPANSION.test(v) || !bare(j));
   let k = 1;
   while (k < w.length) {
     const word = w[k];
-    if (VALUE_OPTIONS.includes(word)) {
-      if (k + 1 < w.length && NOT_LITERAL_VALUE.test(w[k + 1])) return false;
+    if (GIT_VALUE_OPTION.has(word)) {
+      if (k + 1 < w.length && !value(w[k + 1], k + 1)) return undefined;
       k += 2;
     } else if (VALUE_JOINED.test(word)) {
-      if (NOT_LITERAL_VALUE.test(word.replace(VALUE_JOINED, ''))) return false;
+      if (!value(word.replace(VALUE_JOINED, ''), k)) return undefined;
+      k += 1;
+    } else if (FLAG_OPTIONS.has(word)) {
       k += 1;
     } else if (word.startsWith('-')) {
-      if (NOT_LITERAL.test(word)) return false;
-      k += 1;
+      return undefined;
     } else break;
   }
-  return k >= w.length || !NOT_LITERAL.test(w[k]);
+  return k >= w.length || !NOT_LITERAL.test(w[k]) ? k : undefined;
 }
 
 /** Whether git's subcommand in <statement> is unknown: gitSubcommandOf gives undefined (GH 2634). */
@@ -280,16 +318,19 @@ function subcommandAt(w: readonly string[]): number {
   let k = 1;
   while (k < w.length) {
     const word = w[k];
-    if (VALUE_OPTIONS.includes(word)) k += 2;
+    if (GIT_VALUE_OPTION.has(word)) k += 2;
     else if (word.startsWith('-')) k += 1;
     else break;
   }
   return k;
 }
 
-/** Where each word of the first line of shell source `src` starts, with its unquoted text and whether an unquoted $( ) or backtick is in it; null at an unclosed quote or substitution. */
-function sourceWords(src: string): Array<{ start: number; text: string; sub: boolean }> | null {
-  const words: Array<{ start: number; text: string; sub: boolean }> = [];
+/** A word of shell source: where it starts, its unquoted text, whether an unquoted $( ) or backtick is in it (`sub`), and whether any unquoted expansion is (`bare`). */
+type SourceWord = { start: number; text: string; sub: boolean; bare: boolean };
+
+/** The words of the first line of shell source `src`; null at an unclosed quote or substitution. */
+function sourceWords(src: string): SourceWord[] | null {
+  const words: SourceWord[] = [];
   let i = 0;
   for (;;) {
     while (src[i] === ' ' || src[i] === '\t') i++;
@@ -297,6 +338,7 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
     const start = i;
     let text = '';
     let sub = false;
+    let bare = false;
     while (i < src.length && !/[ \t\n]/.test(src[i])) {
       const c = src[i];
       if (c === "'") {
@@ -337,33 +379,34 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
         }
         if (j >= src.length) return null;
         text += src.slice(i, j + 1);
-        sub = true;
+        sub = bare = true;
         i = j + 1;
       } else if (c === '`') {
         let j = i + 1;
         for (; j < src.length && src[j] !== '`'; j++) if (src[j] === '\\') j++;
         if (j >= src.length) return null;
         text += src.slice(i, j + 1);
-        sub = true;
+        sub = bare = true;
         i = j + 1;
       } else {
+        if (c === '$' && i + 1 < src.length && !/["' \t\n]/.test(src[i + 1])) bare = true;
         text += c;
         i++;
       }
     }
-    words.push({ start, text, sub });
+    words.push({ start, text, sub, bare });
   }
 }
 
 /** The allowed form and the quoted command of an ambiguous-target deny: from the statement's source as written when it has one that lines up with `stmt`. */
 function deniedForm(stmt: string, src: string | undefined): { what: string; allowed: string } {
-  const git = stmt === 'git' || stmt.startsWith('git ');
+  const w = readWords(stmt);
+  const git = GIT_ARGV0.test(w[0] ?? '');
   if (src !== undefined && src.trim() !== '') {
     if (!git) return { what: src, allowed: `cd <path> && ${src}` };
     const words = sourceWords(src);
-    const w = readWords(stmt);
     const k = subcommandAt(w);
-    if (words !== null && words[0]?.text === 'git' && words.length === w.length) {
+    if (words !== null && GIT_ARGV0.test(words[0]?.text ?? '') && words.length === w.length) {
       const sub = k < words.length ? src.slice(words[k].start).replace(/\s+$/, '') : '';
       return { what: src, allowed: `git -C <path>${sub === '' ? '' : ` ${sub}`}` };
     }

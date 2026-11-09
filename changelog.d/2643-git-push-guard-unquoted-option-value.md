@@ -1,0 +1,2 @@
+### Fixed
+- **git-push-guard denies an unquoted expansion in a git option's value** (GH 2643): `W='/x push'; git -C $W status` runs `git -C /x push status` after bash splits `$W`, but the guard read it as `status`. An unquoted `$` or backtick in the value of `-C`, `-c`, `--git-dir` and git's other value-taking options now leaves the subcommand unknown and the guard denies it; the double-quoted form (`git -C "$W" status`) is read as before. Quote such values to keep them allowed.

@@ -34,7 +34,10 @@ const VSEP = '\x1c';
 const VEQ = '\x1d';
 const BAD = '\x01';
 const EMPTY_WORD = "''";
-const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+/** git as argv0: the word `git` or a path ending in it (GH 2647). */
+export const GIT_ARGV0 = /^(.*\/)?git$/;
+/** git's global options that take the next word as their value (`git --help`). */
+export const GIT_VALUE_OPTION = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--attr-source', '--super-prefix', '--config-env', '--list-cmds']);
 
 const VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
 const VBAD = '*?[](){<>`';
@@ -876,8 +879,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     } else if (ok) {
       ok = VPLAIN.test(a0);
     }
-    const kept = !assign && a0 === 'git' ? gitEmptyWords(w, wq, first) : new Set<number>();
-    const gitCut: Record['cut'] = sub && a0 === 'git' ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
+    const git = GIT_ARGV0.test(a0);
+    const kept = !assign && git ? gitEmptyWords(w, wq, first) : new Set<number>();
+    const gitCut: Record['cut'] = sub && git ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
     let out = a0;
     for (let k = first + 1; k < n; k++) {
       if (w[k] !== '') out += ' ' + w[k];
@@ -934,7 +938,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       if (mk !== '' && mk !== '!') out += ' ' + mk;
     } else if (assign && a0 === 'xargs') {
       if (waspiped && pipesrc !== '') out += ' ' + pipesrc;
-    } else if (a0 === 'git') {
+    } else if (GIT_ARGV0.test(a0)) {
       for (let k = first + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (w[k] === '-C') {
@@ -949,7 +953,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
           k++;
           continue;
         }
-        if (w[k] === '-c') {
+        if (GIT_VALUE_OPTION.has(w[k])) {
           k++;
           continue;
         }

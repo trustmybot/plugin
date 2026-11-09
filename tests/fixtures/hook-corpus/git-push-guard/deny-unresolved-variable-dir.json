@@ -6,5 +6,6 @@
   "tool_input": {
     "command": "git -C $NOPE push"
   },
-  "corpus_expect": "comes through a variable"
+  "corpus_expect": "ambiguous_git_subcommand",
+  "corpus_divergent": "decision 703: an unquoted expansion in git -C's value can split into words that move the subcommand, so the TypeScript gate leaves the subcommand unknown where the .sh read push, and this golden entry is re-recorded from it (GH 2643)"
 }
