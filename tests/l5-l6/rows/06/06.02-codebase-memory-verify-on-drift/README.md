@@ -1,6 +1,6 @@
 # 06.02-codebase-memory-verify-on-drift
 
-**Source:** L5 `11-codebase-memory-verify-on-drift` (renumbered per reconciliation table). Rewritten under ADR 0002 to test the world-model substrate (now the `wm_` tables in the trajectory DB).
+**Source:** L5 `11-codebase-memory-verify-on-drift` (renumbered per reconciliation table). Rewritten to test the world-model substrate (now the `wm_` tables in the trajectory DB).
 
 **Scenario:** Existing repo + world model pre-warmed with v1's README summary + `README.md` then edited on disk to v2 (without commit). On the next code-touching ask, bro plans and dispatches; a later `scan_run` (bro's own or the server's startup catch-up) refreshes the world model from the new README.
 

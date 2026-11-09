@@ -77,7 +77,7 @@ function touchSource(dir) {
 }
 
 function lint(dir, today) {
-  return changelogCurrent(dir, { today });
+  return changelogCurrent(dir, { today, env: GIT_ENV });
 }
 
 function fragments(cwd, ...args) {
