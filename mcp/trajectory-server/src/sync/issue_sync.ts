@@ -259,6 +259,13 @@ function parseRemoteMetadata(stdout: string): { milestone: string | null; labels
   return { milestone, labels };
 }
 
+const VERIFY_STDERR_MAX = 200;
+
+function verifyFailureReason(stderr: string | null | undefined): string {
+  const line = (stderr ?? '').split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '');
+  return line ? `not_found_or_error: ${line.slice(0, VERIFY_STDERR_MAX)}` : 'not_found_or_error';
+}
+
 export async function verifyRemoteIssue(
   backend: 'gh' | 'glab',
   iid: number,
@@ -278,7 +285,7 @@ export async function verifyRemoteIssue(
       if (opts.repoSlug) args.push('-R', opts.repoSlug);
       result = spawnFn('glab', args, spawnOpts);
     }
-    if (result.status !== 0) return { ok: false, reason: 'not_found_or_error' };
+    if (result.status !== 0) return { ok: false, reason: verifyFailureReason(result.stderr) };
     if (backend === 'gh') {
       let parsed: { number?: unknown };
       try {
