@@ -119,6 +119,7 @@ interface Row {
   files_diffed: number;
   files_parsed: number;
   dirs_touched: number;
+  concepts_flagged: number;
   ms: number;
 }
 
@@ -368,10 +369,11 @@ describe('full rebuild triggers (SC4) and the wm_reindex row (SC5)', () => {
       await fx.scan('user_manual');
       assert.deepEqual([last().mode, last().reason, last().trigger], ['full', 'scan', 'scan']);
 
-      const keys = ['repo', 'mode', 'reason', 'trigger', 'from_commit', 'to_commit', 'files_diffed', 'files_parsed', 'dirs_touched', 'ms'] as const;
+      const keys = ['repo', 'mode', 'reason', 'trigger', 'from_commit', 'to_commit', 'files_diffed', 'files_parsed', 'dirs_touched', 'concepts_flagged', 'ms'] as const;
       const written = rows(fx.db).filter((r) => r.mode !== 'mismatch');
       assert.ok(written.length > 0);
       for (const r of written) for (const k of keys) assert.ok(r[k] !== null && r[k] !== undefined, `${k} in ${JSON.stringify(r)}`);
+      for (const r of written) assert.ok(Number.isInteger(r.concepts_flagged), `concepts_flagged in ${JSON.stringify(r)}`);
     } finally {
       fx.cleanup();
     }

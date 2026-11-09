@@ -41,7 +41,8 @@ function dashboardBlock(raw: DatabaseSync, repo: string): Row {
   const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
   const indexed = text(one('SELECT indexed_commit FROM repos WHERE name = ?')?.['indexed_commit']);
   const f = one('SELECT * FROM wm_freshness WHERE repo = ?') ?? {};
-  const review = one(`SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`);
+  const concepts = one(`SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`);
+  const readmes = one('SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ? AND readme_review_pending = 1');
   const targetCommit = text(f['target_commit']);
   const state = text(f['reindex_state']) ?? 'idle';
   return {
@@ -58,7 +59,7 @@ function dashboardBlock(raw: DatabaseSync, repo: string): Row {
       elapsed_ms: num(f['reindex_elapsed_ms']),
       outcome: text(f['reindex_outcome']),
     },
-    needs_review_count: Number(review?.['n'] ?? 0),
+    needs_review_count: Number(concepts?.['n'] ?? 0) + Number(readmes?.['n'] ?? 0),
   };
 }
 
@@ -154,6 +155,11 @@ describe('the freshness block contract (GH 2584 task D, SC4/SC5)', () => {
   ];
 
   const indexed = (): string => db.get<{ c: string }>(`SELECT indexed_commit AS c FROM repos WHERE name = 'app'`)!.c;
+  const markReadme = (path: string) => db.run(`UPDATE wm_directories SET readme_review_pending = 1 WHERE repo = 'app' AND path = ?`, [path]);
+  const pendingReadmes = (): number =>
+    db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = 'app' AND readme_review_pending = 1`)!.n;
+  const flagged = () =>
+    db.all<Row>(`SELECT id, name, status, status_reason FROM wm_concepts WHERE repo = 'app' AND status IN ('suspect','broken') ORDER BY id`).map((c) => ({ ...c }));
   const COLUMNS = [
     'target_ref', 'target_commit', 'reindex_state', 'reindex_mode', 'reindex_trigger', 'reindex_started_at',
     'reindex_finished_at', 'reindex_elapsed_ms', 'reindex_outcome',
@@ -201,12 +207,20 @@ describe('the freshness block contract (GH 2584 task D, SC4/SC5)', () => {
     it(`${c.name}: each of the four tools returns the 2487 block the dashboard SQL gives`, async () => {
       c.setup();
       for (const [tool, call] of calls()) {
+        markReadme('src');
+        const expected = dashboardBlock(raw, 'app');
         const out = parse(await call());
         const block = assertShape(out['freshness'], `${c.name} / ${tool}`);
-        assert.deepEqual(block, dashboardBlock(raw, 'app'), `${c.name} / ${tool}: equals the dashboard block`);
+        assert.deepEqual(block, expected, `${c.name} / ${tool}: equals the dashboard block`);
         assert.equal(block['stale'], c.stale, `${c.name} / ${tool}: stale`);
         assert.equal((block['reindex'] as Row)['state'], c.state, `${c.name} / ${tool}: state`);
-        assert.equal(block['needs_review_count'], 2, `${c.name} / ${tool}: suspect and broken concepts`);
+        assert.equal(block['needs_review_count'], 3, `${c.name} / ${tool}: suspect and broken concepts plus the pending README`);
+        if (tool !== 'task_brief') {
+          assert.deepEqual(out['needs_review'], { concepts: flagged(), readmes: [{ repo: 'app', path: 'src' }] }, `${c.name} / ${tool}: needs_review`);
+          assert.ok(!('needs_review_truncated' in out), `${c.name} / ${tool}: nothing cut`);
+          assert.equal(pendingReadmes(), 0, `${c.name} / ${tool}: a bro read clears the README it lists`);
+          assert.deepEqual(dashboardBlock(raw, 'app')['needs_review_count'], 2, `${c.name} / ${tool}: the dashboard count drops with it`);
+        }
         if (c.name === 'no row') {
           assert.deepEqual(
             { ...(block['reindex'] as Row), target_ref: block['target_ref'], target_commit: block['target_commit'] },
@@ -224,5 +238,46 @@ describe('the freshness block contract (GH 2584 task D, SC4/SC5)', () => {
     for (const section of ['verification', 'scope', 'history']) {
       assert.ok(!('freshness' in parse(await tools['task_brief']!({ agent: 'swe', task_id: taskId, section }))), section);
     }
+  });
+
+  it('needs_review lists at most 20 of each kind, needs_review_truncated gives the totals, the count all of them', async () => {
+    db.run(`UPDATE wm_directories SET readme_review_pending = 0 WHERE repo = 'app'`);
+    for (let i = 0; i < 23; i++) {
+      db.run(`INSERT INTO wm_concepts (repo, kind, name, status, created_at, updated_at) VALUES ('app', 'flow', ?, 'suspect', 't', 't')`, [`cap${i}`]);
+    }
+    for (let i = 0; i < 22; i++) {
+      const path = `cap/d${String(i).padStart(2, '0')}`;
+      db.run(
+        `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, file_count, readme_review_pending)
+         VALUES ('app', ?, 'cap', 's', 'readme', 0, 1)`,
+        [path],
+      );
+    }
+    const allFlagged = flagged();
+    assert.equal(allFlagged.length, 25);
+    const swe = parse(await tools['world_model_get']!({ agent: 'swe', repo: 'app' }));
+    const review = swe['needs_review'] as { concepts: Row[]; readmes: Row[] };
+    assert.deepEqual(review.concepts, allFlagged.slice(0, 20), 'the first 20 flagged concepts by id');
+    assert.deepEqual(
+      review.readmes,
+      Array.from({ length: 20 }, (_, i) => ({ repo: 'app', path: `cap/d${String(i).padStart(2, '0')}` })),
+      'the first 20 pending READMEs by path',
+    );
+    assert.deepEqual(swe['needs_review_truncated'], { concepts: 25, readmes: 22 });
+    assert.equal((swe['freshness'] as Row)['needs_review_count'], 47);
+    assert.deepEqual(dashboardBlock(raw, 'app')['needs_review_count'], 47);
+    assert.equal(pendingReadmes(), 22, 'a swe read clears nothing');
+
+    const bro = parse(await tools['world_model_search']!({ agent: 'bro', repo: 'app', query: 'quokka', mode: 'keyword' }));
+    assert.equal((bro['needs_review'] as { readmes: Row[] }).readmes.length, 20);
+    assert.equal(pendingReadmes(), 2, 'a bro read clears exactly the 20 it lists');
+    const next = parse(await tools['world_model_symbol']!({ agent: 'bro', id: symbolId }));
+    assert.deepEqual((next['needs_review'] as { readmes: Row[] }).readmes, [
+      { repo: 'app', path: 'cap/d20' },
+      { repo: 'app', path: 'cap/d21' },
+    ]);
+    assert.deepEqual(next['needs_review_truncated'], { concepts: 25, readmes: 2 });
+    assert.equal((next['freshness'] as Row)['needs_review_count'], 27);
+    assert.equal(pendingReadmes(), 0);
   });
 });

@@ -118,6 +118,7 @@ function record(db: TrajectoryDB, r: ShadowCompareResult, mismatches: Mismatch[]
         files_diffed: 0,
         files_parsed: 0,
         dirs_touched: 0,
+        concepts_flagged: 0,
         ms: r.ms,
       });
     }

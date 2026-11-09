@@ -687,7 +687,7 @@ async function persistScan(
   symbols: SymbolIndexStats & { error?: string };
   rename_candidates: RenameCandidate[];
   errors: ScanError[];
-  parsed_by_repo: Map<string, number>;
+  indexed_by_repo: Map<string, RepoIndexed>;
 }> {
   const now = nowISO();
   const normSession = sessionDir.replace(/\/+$/, '');
@@ -721,7 +721,7 @@ async function persistScan(
   let graphStats = emptyGraphStats();
   const symbols = emptySymbolStats();
   const errors: ScanError[] = [];
-  const parsed_by_repo = new Map<string, number>();
+  const indexed_by_repo = new Map<string, RepoIndexed>();
   const repoFiles = (r: ScanRepo) => out.files.filter((f) => f.repo === r.name);
 
   const graphPlan = graph ? await planGraph(graph, persisted, now) : null;
@@ -791,7 +791,7 @@ async function persistScan(
     if (!graph || !graphPlan) return;
     graphStats = applyGraph(graph, persisted, now, graphPlan, retired);
     reindexHooks.afterGraph?.();
-    for (const r of persisted.repos) parsed_by_repo.set(r.name, applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors));
+    for (const r of persisted.repos) indexed_by_repo.set(r.name, applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors));
     if (run) {
       for (const r of persisted.repos) {
         const target = r.commit ? { ref: r.target_ref ?? null, commit: r.commit } : undefined;
@@ -812,7 +812,7 @@ async function persistScan(
     symbols,
     rename_candidates,
     errors,
-    parsed_by_repo,
+    indexed_by_repo,
   };
 }
 
@@ -963,20 +963,27 @@ async function planRepoIndex(
   return plan;
 }
 
+interface RepoIndexed {
+  parsed: number;
+  concepts_flagged: number;
+}
+
 // One repo's symbols, symbol purposes and concepts brought up to its commit,
 // then repos.indexed_commit stamped; a repo git gave no commit was read from
 // disk and is not stamped. A stage that throws is recorded and the rest still
 // run. Synchronous: every git read is in `plan`, so a caller can run this
-// inside one db.transaction with no await in it.
+// inside one db.transaction with no await in it. Returns the files parsed and
+// concepts_flagged, the concepts whose status refreshConcepts changed.
 function applyRepoIndex(
   db: TrajectoryDB,
   r: ScanRepo,
   plan: RepoIndexPlan,
   symbols: SymbolIndexStats & { error?: string },
   errors: ScanError[],
-): number {
+): RepoIndexed {
   const paths = plan.scope?.changed;
   let parsed = 0;
+  let concepts_flagged = 0;
   try {
     if (!plan.symbols) throw plan.symbolsError;
     const repoStats = applyRepoSymbols(db, plan.symbols);
@@ -993,7 +1000,7 @@ function applyRepoIndex(
     recordScanError(errors, 'symbol_purpose', r.name, e);
   }
   try {
-    refreshConcepts(db, r.name);
+    concepts_flagged = refreshConcepts(db, r.name).changed;
   } catch (e) {
     recordScanError(errors, 'concept_refresh', r.name, e);
   }
@@ -1005,12 +1012,13 @@ function applyRepoIndex(
   if (r.commit) {
     db.run(`UPDATE repos SET indexed_commit = ?, indexed_stamp = ? WHERE name = ?`, [r.commit, indexStamp(), r.name]);
   }
-  return parsed;
+  return { parsed, concepts_flagged };
 }
 
 export interface RepoReindexStats {
   files_parsed: number;
   dirs_touched: number;
+  concepts_flagged: number;
   errors: ScanError[];
 }
 
@@ -1049,9 +1057,11 @@ export async function persistRepoReindex(
   };
   const symbols = emptySymbolStats();
   const errors: ScanError[] = [];
+  let concepts_flagged = 0;
   const stats = (graphStats: GraphStats): RepoReindexStats => ({
     files_parsed: symbols.files_parsed + symbols.files_failed,
     dirs_touched: graphStats.dirs_upserted,
+    concepts_flagged,
     errors,
   });
   const graphPlan = await planGraph(graph, persisted, now, scope, opts.reparse === true);
@@ -1064,7 +1074,7 @@ export async function persistRepoReindex(
     stampCounts();
     const graphStats = applyGraph(graph, persisted, now, graphPlan);
     reindexHooks.afterGraph?.();
-    for (const r of out.repos) applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors);
+    for (const r of out.repos) concepts_flagged += applyRepoIndex(db, r, repoPlans.get(r.name)!, symbols, errors).concepts_flagged;
     reindexHooks.afterIndex?.();
     if (scope && errors.length > 0) {
       throw new Error(`incremental reindex failed: ${errors.map((e) => `${e.stage}: ${e.error}`).join('; ')}`);
@@ -1193,10 +1203,11 @@ export function scanTools(
             for (const name of running) markReindexFailed(db, name, run);
             throw e;
           }
-          const { parsed_by_repo, ...stats } = persistedScan;
+          const { indexed_by_repo, ...stats } = persistedScan;
           const scanMs = Date.now() - started;
           for (const r of out.repos) {
-            if (!graph || !r.commit || !parsed_by_repo.has(r.name)) continue;
+            const indexed = indexed_by_repo.get(r.name);
+            if (!graph || !r.commit || !indexed) continue;
             const dirs = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [r.name]);
             recordReindex(db, {
               repo: r.name,
@@ -1206,8 +1217,9 @@ export function scanTools(
               from_commit: indexedBefore.get(r.name) ?? '',
               to_commit: r.commit,
               files_diffed: r.file_count,
-              files_parsed: parsed_by_repo.get(r.name) ?? 0,
+              files_parsed: indexed.parsed,
               dirs_touched: dirs?.n ?? 0,
+              concepts_flagged: indexed.concepts_flagged,
               ms: scanMs,
             });
           }

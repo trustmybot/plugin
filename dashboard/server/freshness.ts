@@ -33,10 +33,22 @@ function hasTable(db: DatabaseSync, name: string): boolean {
   return one(db, `SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, name) !== undefined;
 }
 
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => (c as Row)['name'] === column);
+}
+
 function freshnessReady(db: DatabaseSync): boolean {
   const n = one(db, `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('wm_freshness', 'wm_concepts')`);
   if (Number(n?.['n'] ?? 0) !== 2) return false;
-  return db.prepare('PRAGMA table_info(repos)').all().some((c) => (c as Row)['name'] === 'indexed_commit');
+  return hasColumn(db, 'repos', 'indexed_commit');
+}
+
+// Suspect or broken concepts plus READMEs pending review; a DB from before
+// wm_directories.readme_review_pending (schema v64) counts concepts only.
+function needsReviewCount(db: DatabaseSync, repo: string): number {
+  const concepts = Number(one(db, `SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`, repo)?.['n'] ?? 0);
+  if (!hasColumn(db, 'wm_directories', 'readme_review_pending')) return concepts;
+  return concepts + Number(one(db, 'SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ? AND readme_review_pending = 1', repo)?.['n'] ?? 0);
 }
 
 export function wmRepos(db: DatabaseSync): string[] {
@@ -55,7 +67,6 @@ export function freshnessBlock(db: DatabaseSync, repo: string | null): Freshness
   if (repo === null || !freshnessReady(db)) return null;
   const indexed = text(one(db, 'SELECT indexed_commit FROM repos WHERE name = ?', repo)?.['indexed_commit']);
   const f = one(db, 'SELECT * FROM wm_freshness WHERE repo = ?', repo) ?? {};
-  const review = one(db, `SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`, repo);
   const targetCommit = text(f['target_commit']);
   const state = text(f['reindex_state']) ?? 'idle';
   return {
@@ -72,7 +83,7 @@ export function freshnessBlock(db: DatabaseSync, repo: string | null): Freshness
       elapsed_ms: num(f['reindex_elapsed_ms']),
       outcome: text(f['reindex_outcome']),
     },
-    needs_review_count: Number(review?.['n'] ?? 0),
+    needs_review_count: needsReviewCount(db, repo),
   };
 }
 

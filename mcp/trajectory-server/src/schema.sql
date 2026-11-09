@@ -407,7 +407,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 63, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 64, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -783,7 +783,9 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     touching the README, commits_behind (GH 1833) counts later commits that
 --     change, other than by adding, a file the README references, dead_refs
 --     is a JSON array of repo-relative paths the README names that no longer
---     exist. All three NULL otherwise.
+--     exist. All three NULL otherwise. readme_review_pending (GH 2584) is 1
+--     once a reindex changed the README-sourced summary of an existing
+--     README row, until a world-model read lists the dir to bro.
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
@@ -845,6 +847,7 @@ CREATE TABLE IF NOT EXISTS wm_directories (
     summary_sha        TEXT,
     commits_behind     INTEGER,
     dead_refs          TEXT,
+    readme_review_pending INTEGER NOT NULL DEFAULT 0,
     UNIQUE (repo, path)
 );
 
