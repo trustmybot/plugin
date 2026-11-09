@@ -95,6 +95,8 @@ TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types t
 
 `.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
+Its `dashboard` job builds `mcp/trajectory-server` (`build:tsc`, for the `dist/db.js` that `writes.test.mjs` imports) and the dashboard (`bun run build`), then runs `node --test dashboard/test/*.test.mjs` (GH 2616). The dashboard suites stay out of `run-all.ts` L1 because they bind localhost ports, which the agent sandbox refuses (GH 2334). A test that needs a `dashboard/server/*.ts` module imports it through `dashboard/test/server-module.mjs`, which bundles it with esbuild, since the module's chain reaches `mcp/trajectory-server/src` files whose `.js` specifiers Node's type stripping does not resolve.
+
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
 a fixed-SHA artifact:
