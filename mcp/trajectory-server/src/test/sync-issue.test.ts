@@ -596,7 +596,29 @@ describe('verifyRemoteIssue (#36)', () => {
     const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: 'not found' });
     const result = await verifyRemoteIssue('gh', 999999, { spawnFn });
     assert.equal(result.ok, false);
+    assert.equal(result.reason, 'not_found_or_error: not found');
+  });
+
+  it('carries the first non-empty stderr line in the reason (GH 2772)', async () => {
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: '\n  HTTP 401: Bad credentials  \nmore' });
+    const result = await verifyRemoteIssue('gh', 42, { spawnFn });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'not_found_or_error: HTTP 401: Bad credentials');
+  });
+
+  it('keeps the bare reason when stderr is empty (GH 2772)', async () => {
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: '' });
+    const result = await verifyRemoteIssue('gh', 42, { spawnFn });
     assert.equal(result.reason, 'not_found_or_error');
+    const blank: SpawnFn = () => ({ status: 1, stdout: '', stderr: '  \n\n' });
+    assert.equal((await verifyRemoteIssue('gh', 42, { spawnFn: blank })).reason, 'not_found_or_error');
+  });
+
+  it('cuts a stderr line over 200 chars to 200 (GH 2772)', async () => {
+    const long = 'x'.repeat(250);
+    const spawnFn: SpawnFn = () => ({ status: 1, stdout: '', stderr: long });
+    const result = await verifyRemoteIssue('glab', 42, { spawnFn });
+    assert.equal(result.reason, `not_found_or_error: ${'x'.repeat(200)}`);
   });
 
   it('fails when gh view stdout is unparseable', async () => {
