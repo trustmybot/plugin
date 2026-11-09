@@ -59,6 +59,12 @@ export const HELP: Record<HelpKey, HelpEntry> = {
   },
 };
 
+export const GATE_BOARD_HELP: HelpEntry = {
+  intro:
+    'One row per branch with open tasks or work in the last 14 days. Blocked: a task failed its latest verification or review, or has an open blocking finding. Ready: every open task passed verification on its own commit and passed review. Pending: anything else.',
+  uses: ['See what still blocks each branch from pushing.', 'Open a blocked task to read its failing run or finding.'],
+};
+
 export const HEALTH_HELP: HelpEntry = {
   intro:
     "Checks on this project's TMB database, run fresh each time the page loads: its schema version, the data contracts the trajectory doctor runs, how current the project map is, concept trust and how many rows have search vectors.",
