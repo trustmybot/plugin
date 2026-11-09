@@ -160,7 +160,7 @@ Triggered four ways (`scan.ts` accepts `user_manual`, `bro_auto_initial` and `st
 |---|---|---|
 | First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
 | User typed `/scan` | `user_manual` | The slash command body passes it |
-| Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
+| Bro decides to rescan mid-session | `bro_auto_initial` | Bro calls `scan_run` after an architectural change (`tmb_planning` §6); without a `source` it records `bro_auto_initial` |
 | trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
 
 `scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
