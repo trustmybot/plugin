@@ -241,6 +241,22 @@ describe('removal deletes a TMB-owned network key only while it is still true', 
     remove(record);
     assert.deepEqual(read(), { sandbox: { autoAllowBashIfSandboxed: false } });
   });
+
+  it('a TMB-set enabled still true is removed', () => {
+    const record = writeDarwin();
+    assert.equal(record?.enabled_set, true);
+    assert.equal(read().sandbox.enabled, true);
+    edit((s) => { s.sandbox['autoAllowBashIfSandboxed'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { autoAllowBashIfSandboxed: false } });
+  });
+
+  it('enabled the Human changed to false is kept, and so is its sandbox object', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox['enabled'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { enabled: false } });
+  });
 });
 
 describe('sandboxRecommended reads the probe recorded for the platform', () => {
