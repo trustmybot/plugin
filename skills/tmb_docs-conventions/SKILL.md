@@ -7,6 +7,16 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 When editing prompt files or user-visible docs, follow these rules.
 
+## Three layers of knowledge
+
+Every fact about the codebase lives in exactly one layer.
+
+1. **Docs: architecture.** Components, their boundaries, the invariants they keep, and why they are built that way. A hand-written architecture or design doc never names a class, function, file, column or enum value; where a reader needs one, the doc points to the world model or the code. Usage docs that tell users which command or option to type may name those commands and options.
+2. **World model: relationships.** What calls, reads or changes what, plus named design ideas tied to those symbols. `/scan` and swe's completion report generate it; it is never written by hand.
+3. **Code: logic.** Self-explaining names and small units, so the code reads as its own description. A comment appears only for a why the code cannot show.
+
+A fact in the wrong layer moves to the right one; it is never copied. The one exception is a generated section guarded by a test that fails when it goes stale. When a doc drifts from the code, delete the detail rather than re-copying it.
+
 ## Docs-update expectation
 
 When functionality changes, the same PR updates the user-visible docs that describe it. The code-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
