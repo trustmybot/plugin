@@ -704,6 +704,8 @@ export interface SyncIssueUpdateFields {
   milestone?: string;
   labels?: { add: string[]; remove: string[] };
   title?: string;
+  body?: string;
+  marker?: string;
 }
 
 export interface SyncIssueUpdateOpts {
@@ -732,6 +734,15 @@ export async function syncIssueUpdate(
     for (const l of fields.labels.remove) args.push(removeFlag, l);
   }
   if (fields.title !== undefined) args.push(backend === 'gh' ? '--title' : '-t', fields.title);
+  if (fields.body !== undefined) {
+    const body = withMarker(fields.body, fields.marker);
+    if (backend === 'gh') {
+      args.push('--body-file', '-');
+      spawnOpts.input = body;
+    } else {
+      args.push('-d', body);
+    }
+  }
 
   try {
     const result = spawnFn(backend, args, spawnOpts);

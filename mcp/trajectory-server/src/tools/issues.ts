@@ -11,7 +11,7 @@ import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-s
 import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
-import type { SyncFailure } from '../sync/issue_sync.js';
+import type { SyncFailure, SyncIssueUpdateFields } from '../sync/issue_sync.js';
 import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import { syncRemotePrs } from '../sync/pr-sync.js';
 import { serverLog } from '../logger.js';
@@ -448,6 +448,90 @@ function notSyncedHint(clis: ReadonlyArray<'gh' | 'glab'>): string {
   return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
 }
 
+// Mirror a local issue edit (issue_update, issue_update_description) to every
+// synced remote the issue has an iid on; the local row is already written.
+// The leading await lets a caller's synchronous transaction around the handler
+// (dashboard/server/writes.ts callIfCurrent) commit before any gh/glab spawn.
+async function mirrorIssueEdit(
+  db: TrajectoryDB,
+  row: IssueRow,
+  fields: SyncIssueUpdateFields,
+  spawnFn: SpawnFn | undefined,
+  cwdOverride: string | undefined,
+): Promise<Record<string, unknown>> {
+  await Promise.resolve();
+  if (row.gh_iid == null && row.gl_iid == null) {
+    return { sync_skipped: true, reason: 'no_remote_iid', hint: 'The issue has no gh_iid/gl_iid; the change is local only.' };
+  }
+  const syncConfigRow = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
+  );
+  const syncConfig: string = syncConfigRow
+    ? (JSON.parse(syncConfigRow.value_json) as string)
+    : 'off';
+  if (syncConfig === 'off') {
+    return { sync_skipped: true, reason: 'issue_sync_off', hint: 'The change is local only; enable issue_sync to mirror it.' };
+  }
+  const syncCtx = resolveIssueSyncContext(db, row.repo);
+  const remoteProviders = syncCtx
+    ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
+    : null;
+  const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
+  if (backend === null || backend === 'off') {
+    return { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
+  }
+  if (syncCtx === null) {
+    return {
+      sync_failed: true,
+      reason: 'unresolvable_repo',
+      repo: row.repo,
+      backend,
+      hint: row.repo
+        ? `issue repo "${row.repo}" has no matching repos row — run /scan.`
+        : 'multiple repos registered and the issue has no repo.',
+    };
+  }
+  const reachable = syncedBackends(backend, syncCtx);
+  const targets: Array<{ cli: 'gh' | 'glab'; iid: number }> = [];
+  if (reachable.includes('gh') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
+  if (reachable.includes('glab') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
+  const wanted: Array<'gh' | 'glab'> = backend === 'both' ? ['gh', 'glab'] : [backend];
+  const unreachable = wanted.filter((cli) =>
+    !reachable.includes(cli) && (cli === 'gh' ? row.gh_iid : row.gl_iid) != null);
+  if (targets.length === 0 && unreachable.length > 0) {
+    return { sync_skipped: true, reason: 'not_synced', backend, hint: notSyncedHint(unreachable) };
+  }
+  if (targets.length === 0) {
+    return { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
+  }
+  const results = await Promise.all(targets.map(async (t) => ({
+    target: t,
+    result: await syncIssueUpdate(t.cli, t.iid, fields, {
+      spawnFn,
+      cwd: cwdOverride ?? syncCtx.cwd,
+      repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? undefined,
+    }),
+  })));
+  const failed = results.filter((r) => !r.result.ok);
+  if (failed.length === 0) {
+    return { synced: true, backends: targets.map((t) => t.cli) };
+  }
+  for (const f of failed) {
+    serverLog({ event: 'issue_sync_failed', issueId: String(row.id), backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
+  }
+  const first = failed[0]!;
+  return {
+    sync_failed: true,
+    reason: first.result.reason,
+    backend: first.target.cli,
+    failed_backends: failed.map((f) => f.target.cli),
+    exit_code: first.result.exit_code,
+    stderr: first.result.stderr?.slice(0, 4096),
+    message: first.result.message,
+    hint: 'The local row is updated; run the underlying gh/glab edit manually to mirror it.',
+  };
+}
+
 const SYNC_RETRY_HINT = 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.';
 const SYNC_UNKNOWN_HINT = 'The remote issue may already exist: the create\'s result was lost. Run `issue_sync_retry`; it looks for the issue by its body marker before it creates, so it adopts that issue rather than opening a duplicate. Do not re-create it by hand.';
 
@@ -623,7 +707,7 @@ export function issueTools(
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. Applied to the remote issue.' },
           milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
-          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists; required when several exist (repo_required otherwise).' },
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
           remote_iid: { type: 'number', description: 'Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing.' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional backend for remote_iid adoption. Defaults to the repo\'s sole configured remote.' },
@@ -725,7 +809,7 @@ export function issueTools(
     },
     {
       name: 'issue_update_description',
-      description: "Replace an issue's description, e.g. to backfill one truncated on import.",
+      description: "Replace an issue's description; issue sync mirrors it to the remote body.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -836,11 +920,19 @@ export function issueTools(
         return err(labelError);
       }
       // repo (#155): explicit arg, else the sole/managed repo when exactly one
-      // repos row exists. Null for an ambiguous multi-repo install with no
-      // selector — the FK is nullable so the insert still succeeds. Resolved
-      // before the dedup check so dedup can scope to the same repo.
+      // repos row exists. A multi-repo project with no selector is refused
+      // before any write (GH 2709); a zero-repo project stays repo-less.
+      // Resolved before the dedup check so dedup can scope to the same repo.
       const explicitRepo = (args['repo'] as string | undefined) ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
+      if (issueRepo === null) {
+        const repoNames = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+        if (repoNames.length > 1) {
+          return err(
+            `repo_required: ${repoNames.length} repos are registered (${repoNames.join(', ')}) — pass repo= on issue_create to pick one`,
+          );
+        }
+      }
       // Dedup pre-check (#91/#775): unless explicitly overridden, refuse to
       // fork a second open issue for objective-equivalent work. Deterministic
       // token-set Jaccard against OPEN issues in the SAME repo (or repo-less
@@ -978,7 +1070,7 @@ export function issueTools(
               backend,
               hint: issueRepo
                 ? `issue repo "${issueRepo}" has no matching repos row — run /scan or pass a valid repo.`
-                : 'multiple repos registered and no issue repo selected — pass repo= on issue_create.',
+                : 'no repos registered — run /scan to register this repo.',
             };
             const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row!);
@@ -1450,14 +1542,17 @@ export function issueTools(
       const issueId = requireArg(args, 'issue_id') as string;
       const description = requireArg(args, 'description') as string;
       const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
+      // _spawnFn / _cwd: test-only injection points; not in inputSchema
+      const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
+      const cwdOverride = args['_cwd'] as string | undefined;
 
       const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
       if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
         return err('description exceeds 1MB limit');
       }
 
-      const existing = db.get<{ id: number }>('SELECT id FROM issues WHERE id = ?', [issueId]);
-      if (!existing) {
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!row) {
         return err(`not_found: issue ${issueId}`);
       }
 
@@ -1467,8 +1562,19 @@ export function issueTools(
         [description, now, issueId],
       );
 
+      const syncDiagnostic = await mirrorIssueEdit(
+        db,
+        row,
+        { body: description, marker: issueSyncMarker(row.id, row.created_at) },
+        spawnFn,
+        cwdOverride,
+      );
+
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }));
+      return ok({
+        ...(redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }) as Record<string, unknown>),
+        _sync: syncDiagnostic,
+      });
     })),
 
     issue_update: requireRoles('issue_update', ['bro'], wrapHandler(async (args) => {
@@ -1554,89 +1660,16 @@ export function issueTools(
         created_at: now,
       });
 
-      let syncDiagnostic: Record<string, unknown> | undefined;
-      if (row.gh_iid == null && row.gl_iid == null) {
-        syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', hint: 'The issue has no gh_iid/gl_iid; the change is local only.' };
-      } else {
-        const syncConfigRow = db.get<{ value_json: string }>(
-          `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
-        );
-        const syncConfig: string = syncConfigRow
-          ? (JSON.parse(syncConfigRow.value_json) as string)
-          : 'off';
-        if (syncConfig === 'off') {
-          syncDiagnostic = { sync_skipped: true, reason: 'issue_sync_off', hint: 'The change is local only; enable issue_sync to mirror it.' };
-        } else {
-          const syncCtx = resolveIssueSyncContext(db, row.repo);
-          const remoteProviders = syncCtx
-            ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
-            : null;
-          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
-          if (backend === null || backend === 'off') {
-            syncDiagnostic = { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
-          } else if (syncCtx === null) {
-            syncDiagnostic = {
-              sync_failed: true,
-              reason: 'unresolvable_repo',
-              repo: row.repo,
-              backend,
-              hint: row.repo
-                ? `issue repo "${row.repo}" has no matching repos row — run /scan.`
-                : 'multiple repos registered and the issue has no repo.',
-            };
-          } else {
-            const fields: { milestone?: string; labels?: { add: string[]; remove: string[] }; title?: string } = {};
-            if (milestoneArg !== undefined) fields.milestone = milestoneArg;
-            if (labelsArg !== undefined) {
-              fields.labels = {
-                add: labelsArg.filter((l) => !previousLabels.includes(l)),
-                remove: previousLabels.filter((l) => !labelsArg.includes(l)),
-              };
-            }
-            if (objectiveArg !== undefined) fields.title = objectiveArg;
-            const reachable = syncedBackends(backend, syncCtx);
-            const targets: Array<{ cli: 'gh' | 'glab'; iid: number }> = [];
-            if (reachable.includes('gh') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
-            if (reachable.includes('glab') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
-            const wanted: Array<'gh' | 'glab'> = backend === 'both' ? ['gh', 'glab'] : [backend];
-            const unreachable = wanted.filter((cli) =>
-              !reachable.includes(cli) && (cli === 'gh' ? row.gh_iid : row.gl_iid) != null);
-            if (targets.length === 0 && unreachable.length > 0) {
-              syncDiagnostic = { sync_skipped: true, reason: 'not_synced', backend, hint: notSyncedHint(unreachable) };
-            } else if (targets.length === 0) {
-              syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
-            } else {
-              const results = await Promise.all(targets.map(async (t) => ({
-                target: t,
-                result: await syncIssueUpdate(t.cli, t.iid, fields, {
-                  spawnFn,
-                  cwd: cwdOverride ?? syncCtx.cwd,
-                  repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? undefined,
-                }),
-              })));
-              const failed = results.filter((r) => !r.result.ok);
-              if (failed.length === 0) {
-                syncDiagnostic = { synced: true, backends: targets.map((t) => t.cli) };
-              } else {
-                for (const f of failed) {
-                  serverLog({ event: 'issue_sync_failed', issueId, backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
-                }
-                const first = failed[0]!;
-                syncDiagnostic = {
-                  sync_failed: true,
-                  reason: first.result.reason,
-                  backend: first.target.cli,
-                  failed_backends: failed.map((f) => f.target.cli),
-                  exit_code: first.result.exit_code,
-                  stderr: first.result.stderr?.slice(0, 4096),
-                  message: first.result.message,
-                  hint: 'The local row is updated; run the underlying gh/glab edit manually to mirror it.',
-                };
-              }
-            }
-          }
-        }
+      const fields: SyncIssueUpdateFields = {};
+      if (milestoneArg !== undefined) fields.milestone = milestoneArg;
+      if (labelsArg !== undefined) {
+        fields.labels = {
+          add: labelsArg.filter((l) => !previousLabels.includes(l)),
+          remove: previousLabels.filter((l) => !labelsArg.includes(l)),
+        };
       }
+      if (objectiveArg !== undefined) fields.title = objectiveArg;
+      const syncDiagnostic = await mirrorIssueEdit(db, row, fields, spawnFn, cwdOverride);
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok({
