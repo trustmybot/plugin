@@ -71,6 +71,23 @@ export interface Gates {
   verifications: Row[];
 }
 
+export interface GateTask {
+  id: number;
+  title: string;
+  status: string;
+  commit_sha: string | null;
+  verification: { id: number; exit_code: number | null; timed_out: boolean; commit_sha: string | null; matches_commit: boolean } | null;
+  verdict: { id: number; verdict: string; attempt_n: number } | null;
+  open_findings: number;
+}
+
+export interface GateBranch {
+  branch_id: string;
+  state: 'ready' | 'blocked' | 'pending';
+  updated_at: string;
+  tasks: GateTask[];
+}
+
 export interface WmNode {
   repo: string;
   path: string;
