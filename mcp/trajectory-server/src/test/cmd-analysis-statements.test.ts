@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Parser } from 'web-tree-sitter';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
-import { QM, ansiCChars, decode, encode } from '../hooks/cmd-analysis/encode.js';
+import { CONTROL_SHOWN, NO_CHARGE, QM, ansiCChars, decode, encode } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements, gitSubcommand } from '../hooks/cmd-analysis/git.js';
 import { statementsEnc } from '../hooks/cmd-analysis/statements.js';
 import { GIT_ENV } from './hook-sandbox.js';
@@ -128,9 +128,8 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
     ['\\a\\b\\e\\E\\f\\n\\r\\t\\v', ['\x07', '\b', '\x1b', '\x1b', '\f', '\n', '\r', '\t', '\v']],
     ['\\101\\0101\\7', ['A', '\b', '1', '\x07']],
     ['\\x41\\x4142\\xg', ['A', 'A', '4', '2', null, 'g']],
-    ['\\u0041\\U0000007e\\x7f\\177', ['A', '~', '\x7f', '\x7f']],
-    ['\\u00e9\\U0001F600\\u', [null, null, null]],
-    ['\\x80\\xf0\\200\\377', [null, null, null, null]],
+    ['\\u00e9\\U0001F600\\u', ['é', '\u{1F600}', null]],
+    ['\\x7f\\177\\x80\\xf0\\200\\377', ['\x7f', '\x7f', null, null, null, null]],
     ['\\cA\\ca\\c?\\c\\\\', ['\x01', '\x01', null, null, null]],
     ['\\0\\x00\\u0000\\c@\\777\\ud800\\U00110000', [null, null, null, null, null, null, null]],
     ['\\q\\8\\', ['\\', 'q', '\\', '8', null]],
@@ -146,6 +145,12 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
       assert.match(encoded.text, /\$\(\)/);
       assert.doesNotMatch(encoded.text.replaceAll(QM, ''), /[\x00-\x08\x0e-\x1f]/);
     });
+
+  it('with shownControls a control char reads as CONTROL_SHOWN, an undecodable escape still as computed text', () => {
+    const shown = encode(parser, "git commit -m $'\\x01 feat\\x80'", NO_CHARGE, false, true);
+    assert.ok(shown.ok);
+    assert.equal(decode(shown.text).replaceAll(QM, ''), `git commit -m ${CONTROL_SHOWN} feat$()`);
+  });
 
   it('a word tree-sitter-bash splits at a backslash-newline is held as the joined word', () => {
     assert.ok(held('eval $x\\\ny').includes('$xy'));

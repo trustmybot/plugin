@@ -212,7 +212,6 @@ describe('git-push-guard: GH 2646 / GH 2640 a push behind a line continuation or
     "git $'\\ud800push' origin dev",
     "git $'\\xf0push' origin dev",
     "git $'\\360push' origin dev",
-    "git $'\\u00f0push' origin dev",
   ])
     it(`${command}: an escape whose result is unknown or a control char gets the unknown-subcommand deny`, async () => {
       assert.match(reason((await gate(command)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);

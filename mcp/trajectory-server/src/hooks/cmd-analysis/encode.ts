@@ -34,6 +34,8 @@ const QM_LITERAL = '$' + ENC[8] + ENC[9];
 export const DOLLAR = '\x19';
 /** An empty unquoted substitution: text the analyzers cannot know, so a word holding it reads as computed (GH 2640). */
 const COMPUTED = '$()';
+/** With `shownControls`, a control char a `$'…'` escape decodes to, which the skeleton cannot carry: U+FFFD, text the commit-message reader lints rather than skips. */
+export const CONTROL_SHOWN = '�';
 
 const ANSI_C_SIMPLE: ReadonlyMap<string, string> = new Map([
   ['a', '\x07'],
@@ -57,14 +59,18 @@ const ANSI_C_DIGITS: ReadonlyMap<string, { re: RegExp; radix: number }> = new Ma
   ['U', { re: /^[0-9A-Fa-f]{1,8}/, radix: 16 }],
 ]);
 
-/** A code point bash writes as one char in every version and locale: ASCII but not NUL (it ends the word). Past 0x7F `\xHH` and `\NNN` give a raw byte and `\u` a locale-dependent encoding (F753-2). */
-const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x7f ? null : String.fromCodePoint(n));
+/** A code point bash writes as one char in every version and locale: not NUL (it ends the word), a surrogate, or past U+10FFFF. */
+const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff) ? null : String.fromCodePoint(n));
+
+/** A `\xHH` or `\NNN` byte: past 0x7F bash writes a raw byte that is no single char (F753-2). */
+const ansiCByte = (n: number): string | null => (n > 0x7f ? null : ansiCPoint(n));
 
 /**
  * A `$'…'` body's chars as bash decodes them, null for an escape whose result
- * is unknown: `\x` / `\u` / `\U` with no hex digit, a NUL, a value past 0x7F,
- * `\c` with no letter after it or with `\` or `?` (bash versions differ), a
- * lone trailing backslash. An escape bash does not know keeps its backslash.
+ * is unknown: `\x` / `\u` / `\U` with no hex digit, a `\x` or `\NNN` byte past
+ * 0x7F, a NUL, an invalid code point, `\c` with no letter after it or with `\`
+ * or `?` (bash versions differ), a lone trailing backslash. An escape bash
+ * does not know keeps its backslash.
  */
 export function ansiCChars(body: string): Array<string | null> {
   const out: Array<string | null> = [];
@@ -87,11 +93,12 @@ export function ansiCChars(body: string): Array<string | null> {
       i++;
     } else if (octal) {
       const n = parseInt(octal[0], 8);
-      out.push(ansiCPoint(n));
+      out.push(ansiCByte(n));
       i += octal[0].length;
     } else if (digits) {
       const hex = digits.re.exec(body.slice(i + 2));
-      out.push(hex ? ansiCPoint(parseInt(hex[0], digits.radix)) : null);
+      const point = e === 'x' ? ansiCByte : ansiCPoint;
+      out.push(hex ? point(parseInt(hex[0], digits.radix)) : null);
       i += 1 + (hex ? hex[0].length : 0);
     } else if (e === 'c') {
       const x = body[i + 2];
@@ -201,6 +208,7 @@ export class Encoder {
     private readonly src: string,
     private readonly charge: Charge,
     private readonly marks = false,
+    private readonly shownControls = false,
   ) {}
 
   /** One char of quoted or escaped text; with `marks`, a `$` bash keeps literal is DOLLAR. */
@@ -241,13 +249,13 @@ export class Encoder {
     return out;
   }
 
-  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, any other control char or undecodable escape COMPUTED. */
+  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, an undecodable escape COMPUTED, any other control char COMPUTED or with `shownControls` CONTROL_SHOWN. */
   private ansiC(from: number, to: number): string {
     let out = '';
     for (const c of ansiCChars(this.src.slice(from, to))) {
       if (c === null) out += COMPUTED;
       else if (c === '\n') out += JOINER;
-      else if (c !== '\t' && /[\x00-\x1f\x7f]/.test(c)) out += COMPUTED;
+      else if (c !== '\t' && /[\x00-\x1f\x7f]/.test(c)) out += this.shownControls ? CONTROL_SHOWN : COMPUTED;
       else out += this.literal(c, true);
     }
     return out;
@@ -531,15 +539,15 @@ function heredocMisread(src: string, root: Node): boolean {
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912). */
-export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false): Encoded {
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912); `shownControls` gives a `$'…'` control char as CONTROL_SHOWN. */
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false, shownControls = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command, charge, marks);
+    const encoder = new Encoder(command, charge, marks, shownControls);
     const text = encoder.range(root, 0, command.length);
     return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, command, root), spliced: splicedWords(encoder, command, root) };
   } finally {
