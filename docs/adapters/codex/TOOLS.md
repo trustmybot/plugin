@@ -16,8 +16,7 @@ not expose the Claude registry.
 | Planning discussions | `planning_discussion_append`, `planning_discussion_list` |
 
 All planning schemas require `project_root`, reject caller-provided identity and
-provenance, and stay within the local planning contract described in
-[`CODEX_PORT.md`](../../contributing/CODEX_PORT.md). Issue creation always keeps
+provenance, and stay within the local planning contract declared in [`PARITY.md`](./PARITY.md). Issue creation always keeps
 remote synchronization off.
 
 ## `agent_materialization_get`
@@ -159,7 +158,5 @@ the other root or state codes.
 
 ## Deliberate limits
 
-Scope 4 is a single-user, single-process setup contract. It has no historical
-template catalog, force option, lock, rollback, fsync, crash recovery, or
-dynamic Marketplace identity. These limits are documented behavior, not
-features implied by the Agent ownership header.
+The setup contract's limits are declared in
+[`PARITY.md`](./PARITY.md#what-ships).
