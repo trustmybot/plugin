@@ -1,7 +1,7 @@
 /**
  * The rework-limit gate (GH 1738, GH 2148) on a temp trajectory DB: a swe
- * spawn is denied once the task has two review FAILs since its last pass, six
- * swe runs since its last pass (budget handbacks aside), or its issue four FAILs across its tasks
+ * spawn is denied once the task has two review FAILs since its last passing review, six
+ * swe runs since its last passing review (budget handbacks aside), or its issue four FAILs across its tasks
  * with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind
  * 'decision' row) on the task or its issue; no agent-written row and no Human
  * note lifts it. The agent-spawn-dispatch gate returns that deny
@@ -159,7 +159,7 @@ describe('rework-limit', () => {
       f.verdicts('fail', 'fail');
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /task 3 is at the rework limit/);
-      assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
+      assert.match(reason, /task FAILs: 2 review FAILs on the task since its last passing review \(limit 2\)/);
       assert.doesNotMatch(reason, /task runs:|issue FAILs:/);
       assertHumanOnlyWaiver(reason, TASK_ID);
     });
@@ -213,7 +213,7 @@ describe('rework-limit', () => {
       f.verdicts('fail', 'fail', 'pass', 'fail');
       assert.deepEqual(run(f), ALLOWED);
       f.verdicts('fail');
-      assert.match(denyReason(run(f).stdout), /task FAILs: 2 review FAILs on the task since its last pass/);
+      assert.match(denyReason(run(f).stdout), /task FAILs: 2 review FAILs on the task since its last passing review/);
     });
   });
 

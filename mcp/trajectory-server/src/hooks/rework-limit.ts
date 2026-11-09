@@ -5,9 +5,9 @@
  * 'human' and kind 'decision' on the task, or on its issue with task_id NULL;
  * a pr_monitor comment by a login named 'human' is a 'note' and never counts):
  *
- *   - task FAILs: REWORK_FAIL_LIMIT review FAILs on the task since its latest pass,
- *   - task runs: SWE_RUN_LIMIT swe runs of the task started since its latest
- *     pass (by created_at), minus budget handbacks,
+ *   - task FAILs: REWORK_FAIL_LIMIT review FAILs on the task since its last passing review,
+ *   - task runs: SWE_RUN_LIMIT swe runs of the task started since its last
+ *     passing review (by created_at), minus budget handbacks,
  *   - issue FAILs: ISSUE_FAIL_LIMIT review FAILs across the issue's tasks, each
  *     with no later pass on the same task.
  *
@@ -69,7 +69,7 @@ function readState(db: string, taskId: string, env: NodeJS.ProcessEnv): ReworkSt
 function trippedLimits(state: ReworkState): string[] {
   const tripped: string[] = [];
   if (state.taskFails >= REWORK_FAIL_LIMIT) {
-    tripped.push(`task FAILs: ${state.taskFails} review FAILs on the task since its last pass (limit ${REWORK_FAIL_LIMIT})`);
+    tripped.push(`task FAILs: ${state.taskFails} review FAILs on the task since its last passing review (limit ${REWORK_FAIL_LIMIT})`);
   }
   if (state.taskRuns >= SWE_RUN_LIMIT) {
     tripped.push(`task runs: ${state.taskRuns} swe runs of the task since its last passing review, budget handbacks aside (limit ${SWE_RUN_LIMIT})`);

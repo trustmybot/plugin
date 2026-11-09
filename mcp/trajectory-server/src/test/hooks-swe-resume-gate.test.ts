@@ -108,7 +108,7 @@ describe('swe-resume-gate', () => {
     f.fails(2);
     const reason = denyReason(run(f).stdout);
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
-    assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
+    assert.match(reason, /task FAILs: 2 review FAILs on the task since its last passing review \(limit 2\)/);
     assert.match(reason, /waive task 3/);
   });
 
@@ -215,6 +215,6 @@ describe('swe-resume-gate', () => {
       timeout: 30_000,
     });
     assert.equal(r.status, 0);
-    assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs on the task since its last pass/);
+    assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs on the task since its last passing review/);
   });
 });
