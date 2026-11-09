@@ -74,8 +74,10 @@ export function needsGitGuard(command: string): boolean {
   return NEEDS_GUARD.test(command) || NEEDS_GUARD.test(unquotedCommand(command)) || gitBesideExpansion(command);
 }
 
-class Denied {
-  constructor(readonly result: GateResult) {}
+class Denied extends Error {
+  constructor(readonly result: GateResult) {
+    super('git-guards denied');
+  }
 }
 
 function deny(reason: string, fix: DenyFix): Denied {

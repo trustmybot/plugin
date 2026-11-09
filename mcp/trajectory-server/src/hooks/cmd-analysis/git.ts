@@ -33,7 +33,8 @@ export type GitStatements = { ok: true; statements: Statement[] } | { ok: false 
 
 const MAX_DEPTH = 3;
 const SHELL = /^(.*\/)?(bash|sh|zsh|dash|ksh)$/;
-const ENCODED = /[\x01-\x06\x0e-\x11\x13\x15\x16]/g;
+const ENCODED_BYTE = /[\x01-\x06\x0e-\x11\x13\x15\x16]/;
+const ENCODED = new RegExp(ENCODED_BYTE.source, 'g');
 const HD_MARK = /<<[\x1a\x1e]/g;
 
 /** `read -r -a w <<< "$s"`: the first line's words. */
@@ -278,7 +279,7 @@ export function gitSubcommandUnknown(statement: SubcommandInput): boolean {
 const CONTINUATION = /\\\n/g;
 const UNQUOTE = /['"\\]/g;
 const GIT_WORD = /\bgit\b/;
-const EXPANDS = /[$`*?[{\x01-\x06\x0e-\x11\x13\x15\x16]/;
+const EXPANDS = /[$`*?[{]/;
 
 /** <command> with its line continuations joined and its quotes and backslashes dropped: the text a keyword prefilter reads, so `g''it` or `che"ck"out` is not missed (GH 2634, GH 2641). */
 export function unquotedCommand(command: string): string {
@@ -293,7 +294,7 @@ export function unquotedCommand(command: string): string {
  */
 export function gitBesideExpansion(command: string): boolean {
   const bare = unquotedCommand(command);
-  return GIT_WORD.test(bare) && EXPANDS.test(bare);
+  return GIT_WORD.test(bare) && (EXPANDS.test(bare) || ENCODED_BYTE.test(bare));
 }
 
 /** The deny reason for the git statement <what> whose subcommand is unknown, the guard unable to tell whether it <verb> (GH 2634, GH 2641). */
