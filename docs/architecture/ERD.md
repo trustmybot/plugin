@@ -1326,7 +1326,7 @@ An issue never closes over live work, and a task never reaches `closed` without 
 - **`task_update_spec`** (bro) replaces `files` / `verification` / `spec_body` of a live task with a `decision` discussion + `task_spec_amended` audit row (old→new summary); the scope fence and verification gate read the amended row on their next run.
 - **`task_recover`** sweeps on every call: a `running` task with no open swe run and no update for `TMB_STALE_RUNNING_HOURS` (default 6) becomes `failed` (`task_stale_swept`, open runs `swept_stale`); a `pending` task older than 7 days is only reported.
 
-The decision chain (Human → bro → SWE, with code-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
+The decision chain (Human → bro → SWE, with code-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (`middleware/agent-scope.ts` defines the `requireRoles` check; each tool's allowed roles are set at its `requireRoles(...)` call in `tools/*.ts`).
 
 ## Capture tables — `audit` vs `debug_trajectory`
 
