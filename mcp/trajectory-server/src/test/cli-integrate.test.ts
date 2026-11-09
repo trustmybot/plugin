@@ -347,6 +347,56 @@ describe('cli.js integrate', () => {
     assertNoTempWorktree();
   });
 
+  describe('origin base (GH 2198)', () => {
+    // setup('none'), then a bare origin whose main is one commit (m.txt) ahead of the
+    // local main and of the stale refs/remotes/origin/main, both still at base0.
+    function setupStaleOrigin(): void {
+      setup('none');
+      const bare = join(repo, '.claude/origin.git');
+      spawnSync('git', ['init', '-q', '--bare', bare], { env: GIT_ENV });
+      git('remote', 'add', 'origin', bare);
+      commitFile('m.txt', 'moved');
+      git('push', '-q', 'origin', 'main');
+      git('reset', '-q', '--hard', base0);
+      git('update-ref', 'refs/remotes/origin/main', base0);
+    }
+
+    for (const base of ['main', 'origin/main']) {
+      it(`base ${base}: fetches origin's main and rebases onto its tip`, () => {
+        setupStaleOrigin();
+        const r = integrate(base);
+        assert.equal(r.code, 0, r.err);
+        const next = r.out;
+        assert.notEqual(next, commit, 'the printed SHA is the original commit');
+        assert.equal(rev('refs/heads/main'), base0, 'the local main is untouched');
+        assert.notEqual(rev('refs/remotes/origin/main'), base0, 'origin/main was fetched');
+        assert.equal(rev(`${next}^`), rev('refs/remotes/origin/main'), "the rebased commit's parent is origin's main");
+        assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
+        assert.equal(
+          q(`SELECT source || '|' || exit_code || '|' || timed_out FROM verification_runs WHERE commit_sha = '${next}'`),
+          'manual|0|0',
+          'a passing manual run on the rebased SHA',
+        );
+        assert.match(r.err, /onto origin\/main \(/, 'the rebase line names the resolved ref');
+        assert.equal(q("SELECT json_extract(content_json, '$.base') FROM audit WHERE event_type = 'task_integrated'"), 'origin/main');
+        assertNoTempWorktree();
+      });
+    }
+
+    it('a failed fetch exits 4, nothing rebased or recorded', () => {
+      setup('clean');
+      git('remote', 'add', 'origin', join(repo, 'missing.git'));
+      const r = integrate('main');
+      assert.equal(r.code, 4, r.err);
+      assert.equal(r.out, '', 'nothing on stdout');
+      assert.match(r.err, /git fetch origin main failed/, 'stderr names the base');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+  });
+
   it('branch checked out in a worktree: exit 4 before any rebase', () => {
     setup('clean');
     git('worktree', 'add', '-q', join(repo, '.claude/worktrees/x-1'), 'feat/x-1');

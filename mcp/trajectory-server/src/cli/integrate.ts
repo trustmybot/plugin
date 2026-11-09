@@ -15,7 +15,12 @@
  *      anchor, REVIEW_ANCHOR_AT_SQL) → exit 3. A head integrate made keeps the
  *      anchor it carried, so a second integrate needs no new review unless a
  *      verdict since says otherwise.
- *   2. <base> already an ancestor of commit_sha → print commit_sha, exit 0;
+ *   2. A <base> naming a branch (refs/heads/<b> or refs/remotes/origin/<b>,
+ *      origin/<b> read as <b>) is fetched with `git fetch -q origin <b>` when
+ *      an origin remote exists (a failed or timed-out fetch → exit 4, nothing
+ *      recorded), then resolved by resolveBaseRef: origin/<b>, else <b> (GH 2198).
+ *      Any other <base> (a SHA, a tag) is used as given.
+ *      <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
  *      detached at commit_sha, runs `git rebase <base>`. A conflict is aborted
@@ -75,6 +80,7 @@ import { repoGitRoot, repoPathByName, repoSinglePath } from '../hooks/lib/repo.j
 import { runCommandSql, runFinishSql, runStartSql } from '../hooks/lib/verification-runs.js';
 import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import { HAS_PASS_SQL, REVIEW_ANCHOR_AT_SQL } from '../review-sql.js';
+import { normalizeBase, resolveBaseRef } from '../utils/git-refs.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup } from '../utils/worktree-setup.js';
 import type { CliIo } from './fallback-db.js';
@@ -84,6 +90,7 @@ const TAIL_LINES = 20;
 const TIMED_OUT_CODE = 124;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 30_000;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
 
 class Exit extends Error {
@@ -155,13 +162,15 @@ class Integration {
     throw new Exit(code);
   }
 
-  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv } = {}): GitResult {
+  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): GitResult {
     const r = spawnSync('git', ['-C', dir, ...args], {
       encoding: 'utf8',
       env: opts.env ?? this.env,
       input: opts.input,
       stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       maxBuffer: MAX_BUFFER,
+      timeout: opts.timeoutMs,
+      killSignal: 'SIGKILL',
     });
     return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '' };
   }
@@ -180,6 +189,25 @@ class Integration {
   private revParse(dir: string, rev: string): string {
     const r = this.git(dir, ['rev-parse', '--verify', '-q', rev]);
     return r.ok ? r.out : '';
+  }
+
+  /** Fetches a branch base from origin when origin exists, then names it by resolveBaseRef (origin/<b> first); any other base stays as given. */
+  private resolveBase(given: string): string {
+    const name = normalizeBase(this.repoRoot, given);
+    const namesBranch =
+      this.revParse(this.repoRoot, `refs/heads/${name}`) !== '' || this.revParse(this.repoRoot, `refs/remotes/origin/${name}`) !== '';
+    if (!namesBranch) return given;
+    if (this.g(['remote', 'get-url', 'origin']).ok) {
+      const fetched = this.git(this.repoRoot, ['fetch', '-q', 'origin', name], {
+        env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+        timeoutMs: FETCH_TIMEOUT_MS,
+      });
+      if (!fetched.ok) {
+        this.io.err(fetched.err);
+        this.die(4, `git fetch origin ${name} failed or ran past ${FETCH_TIMEOUT_MS / 1000}s; base '${given}' not resolved, nothing rebased or recorded`);
+      }
+    }
+    return resolveBaseRef(this.repoRoot, given) ?? given;
   }
 
   private record(sql: string): { ok: boolean; stdout: string } {
@@ -399,6 +427,7 @@ SELECT changes();`,
 
     this.commitSha = this.revParse(this.repoRoot, `${commitSha}^{commit}`);
     if (this.commitSha === '') this.die(4, `commit_sha of task ${this.taskId} is not a commit in ${this.repoRoot}`);
+    this.base = this.resolveBase(this.base);
     this.baseSha = this.revParse(this.repoRoot, `${this.base}^{commit}`);
     if (this.baseSha === '') this.die(4, `base '${this.base}' is not a commit in ${this.repoRoot}`);
 
