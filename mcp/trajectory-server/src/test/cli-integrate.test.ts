@@ -386,6 +386,7 @@ describe('cli.js integrate', () => {
     it('a failed fetch exits 4, nothing rebased or recorded', () => {
       setup('clean');
       git('remote', 'add', 'origin', join(repo, 'missing.git'));
+      git('update-ref', 'refs/remotes/origin/main', base0);
       const r = integrate('main');
       assert.equal(r.code, 4, r.err);
       assert.equal(r.out, '', 'nothing on stdout');
@@ -393,6 +394,20 @@ describe('cli.js integrate', () => {
       assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
       assert.equal(q('SELECT COUNT(*) FROM verification_runs'), '0', 'verification_runs rows');
       assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+
+    it('a local-only base is not fetched and rebases onto the local branch', () => {
+      setup('clean');
+      git('remote', 'add', 'origin', join(repo, 'missing.git'));
+      const r = integrate('main');
+      assert.equal(r.code, 0, r.err);
+      const next = r.out;
+      assert.notEqual(next, commit, 'the printed SHA is the original commit');
+      assert.doesNotMatch(r.err, /git fetch/, 'no fetch was run');
+      assert.equal(rev(`${next}^`), rev('refs/heads/main'), "the rebased commit's parent is the local main");
+      assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
+      assert.match(r.err, /onto main \(/, 'the rebase line names the local ref');
       assertNoTempWorktree();
     });
   });

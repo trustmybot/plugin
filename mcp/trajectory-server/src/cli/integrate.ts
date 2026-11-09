@@ -15,11 +15,12 @@
  *      anchor, REVIEW_ANCHOR_AT_SQL) → exit 3. A head integrate made keeps the
  *      anchor it carried, so a second integrate needs no new review unless a
  *      verdict since says otherwise.
- *   2. A <base> naming a branch (refs/heads/<b> or refs/remotes/origin/<b>,
- *      origin/<b> read as <b>) is fetched with `git fetch -q origin <b>` when
- *      an origin remote exists (a failed or timed-out fetch → exit 4, nothing
- *      recorded), then resolved by resolveBaseRef: origin/<b>, else <b> (GH 2198).
- *      Any other <base> (a SHA, a tag) is used as given.
+ *   2. A <base> origin carries (refs/remotes/origin/<b>, origin/<b> read as
+ *      <b>) is fetched with `git fetch -q origin <b>` when an origin remote
+ *      exists (a failed or timed-out fetch → exit 4, nothing recorded). A
+ *      branch base is then resolved by resolveBaseRef: origin/<b>, else the
+ *      local-only <b>, unfetched (GH 2198). Any other <base> (a SHA, a tag) is
+ *      used as given.
  *      <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
@@ -191,13 +192,11 @@ class Integration {
     return r.ok ? r.out : '';
   }
 
-  /** Fetches a branch base from origin when origin exists, then names it by resolveBaseRef (origin/<b> first); any other base stays as given. */
+  /** Fetches a base origin carries (refs/remotes/origin/<b>) when an origin remote exists, then names it by resolveBaseRef (origin/<b>, else local <b>); any other base stays as given. */
   private resolveBase(given: string): string {
     const name = normalizeBase(this.repoRoot, given);
-    const namesBranch =
-      this.revParse(this.repoRoot, `refs/heads/${name}`) !== '' || this.revParse(this.repoRoot, `refs/remotes/origin/${name}`) !== '';
-    if (!namesBranch) return given;
-    if (this.g(['remote', 'get-url', 'origin']).ok) {
+    const originCarries = this.revParse(this.repoRoot, `refs/remotes/origin/${name}`) !== '';
+    if (originCarries && this.g(['remote', 'get-url', 'origin']).ok) {
       const fetched = this.git(this.repoRoot, ['fetch', '-q', 'origin', name], {
         env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
         timeoutMs: FETCH_TIMEOUT_MS,
