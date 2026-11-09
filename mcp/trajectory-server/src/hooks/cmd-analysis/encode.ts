@@ -65,19 +65,55 @@ const ansiCPoint = (n: number): string | null => (n === 0 || n > 0x10ffff || (n 
 /** A `\xHH` or `\NNN` byte: past 0x7F bash writes a raw byte that is no single char (F753-2). */
 const ansiCByte = (n: number): string | null => (n > 0x7f ? null : ansiCPoint(n));
 
+const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/** The `\NNN` or `\xHH` escape at `body[i]` (a backslash) when it is one byte, with its source length. */
+function byteEscape(body: string, i: number): { n: number; len: number } | null {
+  const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+  const hex = octal || body[i + 1] !== 'x' ? null : /^[0-9A-Fa-f]{1,2}/.exec(body.slice(i + 2));
+  const b = octal ? { n: parseInt(octal[0], 8), len: 1 + octal[0].length } : hex ? { n: parseInt(hex[0], 16), len: 2 + hex[0].length } : null;
+  return b && b.n <= 0xff ? b : null;
+}
+
+/** The maximal run of byte escapes at `body[i]` decoded as UTF-8 (GH 2765), each char as `ansiCPoint` gives it; null when the run is all ASCII, and its bytes as `ansiCByte` gives them when it is not valid UTF-8. */
+function utf8Run(body: string, i: number): { chars: Array<string | null>; end: number } | null {
+  const bytes: number[] = [];
+  let end = i;
+  while (body[end] === '\\') {
+    const b = byteEscape(body, end);
+    if (b === null) break;
+    bytes.push(b.n);
+    end += b.len;
+  }
+  if (!bytes.some((n) => n > 0x7f)) return null;
+  try {
+    return { chars: [...UTF8.decode(Uint8Array.from(bytes))].map((ch) => ansiCPoint(ch.codePointAt(0)!)), end };
+  } catch {
+    return { chars: bytes.map(ansiCByte), end };
+  }
+}
+
 /**
  * A `$'…'` body's chars as bash decodes them, null for an escape whose result
  * is unknown: `\x` / `\u` / `\U` with no hex digit, a `\x` or `\NNN` byte past
  * 0x7F, a NUL, an invalid code point, `\c` with no letter after it or with `\`
  * or `?` (bash versions differ), a lone trailing backslash. An escape bash
- * does not know keeps its backslash.
+ * does not know keeps its backslash. With `utf8`, a run of adjacent byte
+ * escapes that is valid UTF-8 gives its chars, as bash in a UTF-8 locale
+ * writes them (GH 2765).
  */
-export function ansiCChars(body: string): Array<string | null> {
+export function ansiCChars(body: string, utf8 = false): Array<string | null> {
   const out: Array<string | null> = [];
   for (let i = 0; i < body.length; i++) {
     const c = body[i];
     if (c !== '\\') {
       out.push(c);
+      continue;
+    }
+    const run = utf8 ? utf8Run(body, i) : null;
+    if (run) {
+      out.push(...run.chars);
+      i = run.end - 1;
       continue;
     }
     const e = body[i + 1];
@@ -249,10 +285,10 @@ export class Encoder {
     return out;
   }
 
-  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, an undecodable escape COMPUTED, any other control char COMPUTED or with `shownControls` CONTROL_SHOWN. */
+  /** A `$'…'` body as bash decodes it (GH 2640): a newline the joiner, a tab neutral, an undecodable escape COMPUTED, any other control char COMPUTED or with `shownControls` CONTROL_SHOWN; with `shownControls` a valid UTF-8 run of byte escapes is its chars (GH 2765). */
   private ansiC(from: number, to: number): string {
     let out = '';
-    for (const c of ansiCChars(this.src.slice(from, to))) {
+    for (const c of ansiCChars(this.src.slice(from, to), this.shownControls)) {
       if (c === null) out += COMPUTED;
       else if (c === '\n') out += JOINER;
       else if (c !== '\t' && /[\x00-\x1f\x7f]/.test(c)) out += this.shownControls ? CONTROL_SHOWN : COMPUTED;
@@ -539,7 +575,7 @@ function heredocMisread(src: string, root: Node): boolean {
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912); `shownControls` gives a `$'…'` control char as CONTROL_SHOWN. */
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912); `shownControls` gives a `$'…'` control char as CONTROL_SHOWN and a valid UTF-8 run of its byte escapes as its chars (GH 2765). */
 export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false, shownControls = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
