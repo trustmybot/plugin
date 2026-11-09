@@ -170,6 +170,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
     lint('L1 lint: version sync (4 manifests agree)', 'version-sync.test.mjs'),
     lint('L1 lint: changelog top section current', 'changelog-current.test.mjs'),
+    lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs'),
     lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs'),
