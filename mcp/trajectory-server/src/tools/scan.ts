@@ -406,11 +406,12 @@ interface FilePlan {
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
 // from the indexed commit's blobs; a scoped reindex re-extracts only the files
-// whose content changed.
-async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<FilePlan> {
+// whose content changed. `reparse` ignores every stored row, swe purposes
+// included, so each row is rewritten from the walk as a clean rebuild writes it.
+async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<FilePlan> {
   const repoNames = new Set(out.repos.map((r) => r.name));
   const existing = new Map<string, FileNode>();
-  for (const r of out.repos) {
+  for (const r of reparse ? [] : out.repos) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
   const headOf = async (repo: string, rel: string): Promise<string> =>
@@ -850,8 +851,8 @@ interface GraphPlan {
   scope?: ReindexScope;
 }
 
-async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<GraphPlan> {
-  const files = await planFiles(graph, out, now, scope);
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<GraphPlan> {
+  const files = await planFiles(graph, out, now, scope, reparse);
   const dirMap = deriveDirectoryEntries(out);
   const readmes = await readReadmes(out, dirMap, scope);
   return { files, dirMap, readmes, drift: planReadmeDrift(out, dirMap, readmes), scope };
@@ -1027,8 +1028,9 @@ export const reindexHooks: { afterGraph?: () => void; afterIndex?: () => void } 
 // incremental reindex a stage that fails rolls it all back; the full rebuild
 // records the stage's error and commits the rest, as scan_run does. onApply
 // runs inside the transaction with the stage errors, once the stamp is written.
-// opts.reparse ignores the symbols_md5 stamps, so every file is parsed again:
-// the rebuild a shadow-compare mismatch forces cannot trust them.
+// opts.reparse ignores the stored wm_files rows and symbols_md5 stamps, so
+// every file row is rewritten from the walk and every file parsed again: the
+// rebuild a shadow-compare mismatch forces cannot trust them.
 export async function persistRepoReindex(
   db: TrajectoryDB,
   graph: WorldModelGraph,
@@ -1052,7 +1054,7 @@ export async function persistRepoReindex(
     dirs_touched: graphStats.dirs_upserted,
     errors,
   });
-  const graphPlan = await planGraph(graph, persisted, now, scope);
+  const graphPlan = await planGraph(graph, persisted, now, scope, opts.reparse === true);
   const repoPlans = new Map<string, RepoIndexPlan>();
   for (const r of out.repos) {
     const planned = plannedFiles(db, r.name, graphPlan.files, opts.reparse === true);

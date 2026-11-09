@@ -212,9 +212,18 @@ describe('startup_catchup runs one compare per due repo per day (SC1, SC2)', () 
 });
 
 describe('a tampered index forces a full rebuild (SC3)', () => {
-  for (const [label, tamper] of [
-    ['a deleted wm_symbols row', `DELETE FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'alpha' AND kind <> 'module'`],
-    ['an altered wm_symbols row', `UPDATE wm_symbols SET signature = 'tampered' WHERE repo = 'app' AND qualified_name = 'beta' AND kind <> 'module'`],
+  const fileRow = `WHERE repo = 'app' AND path = 'src/a.ts'`;
+  for (const [label, table, tamper] of [
+    ['a deleted wm_symbols row', 'wm_symbols', `DELETE FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'alpha' AND kind <> 'module'`],
+    ['an altered wm_symbols row', 'wm_symbols', `UPDATE wm_symbols SET signature = 'tampered' WHERE repo = 'app' AND qualified_name = 'beta' AND kind <> 'module'`],
+    ['a deleted wm_files row', 'wm_files', `DELETE FROM wm_files ${fileRow}`],
+    ['an altered wm_files.last_commit_sha', 'wm_files', `UPDATE wm_files SET last_commit_sha = '${'0'.repeat(40)}' ${fileRow}`],
+    ['an altered wm_files.purpose', 'wm_files', `UPDATE wm_files SET purpose = 'tampered' ${fileRow}`],
+    ["a wm_files.purpose_source set to 'swe'", 'wm_files', `UPDATE wm_files SET purpose_source = 'swe' ${fileRow}`],
+    ['an altered wm_files.size_bytes', 'wm_files', `UPDATE wm_files SET size_bytes = size_bytes + 1 ${fileRow}`],
+    ['an altered wm_files.dir', 'wm_files', `UPDATE wm_files SET dir = 'tampered' ${fileRow}`],
+    ['an altered wm_files.content_md5', 'wm_files', `UPDATE wm_files SET content_md5 = 'tampered' ${fileRow}`],
+    ['an altered wm_files.symbols_md5', 'wm_files', `UPDATE wm_files SET symbols_md5 = 'tampered' ${fileRow}`],
   ] as const) {
     it(`${label}: mismatch, wm_reindex mode 'mismatch', full rebuild on the next ensureFresh, then match`, async () => {
       const fx = await fixture();
@@ -229,7 +238,7 @@ describe('a tampered index forces a full rebuild (SC3)', () => {
         assert.equal(Number(changed.changes), 1);
         const bad = assertGone(await runShadowCompare(fx.db, 'app'));
         assert.equal(bad.verdict, 'mismatch');
-        assert.ok(bad.tables.includes('wm_symbols'), JSON.stringify(bad.tables));
+        assert.ok(bad.tables.includes(table), JSON.stringify(bad.tables));
         const row = compares(fx.db).at(-1)!;
         assert.deepEqual([row.verdict, row.tables], ['mismatch', bad.tables]);
         const mismatch = reindexes(fx.db).at(-1)!;
