@@ -56,10 +56,10 @@ describe('code-reviewer-spawn-note gate', () => {
     assert.match(d!.reason, /bro_atomic_close/);
     assert.match(d!.reason, /300/);
     assert.ok(
-      d!.reason.endsWith(
+      d.reason.endsWith(
         'Allowed form: the same spawn with reviewer_spawn.prompt exactly as bro_atomic_close returned it (anchors only); to add a note after close, task_reopen(spawn_note=...)',
       ),
-      d!.reason,
+      d.reason,
     );
   });
 
