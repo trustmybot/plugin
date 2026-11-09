@@ -6,10 +6,11 @@
  * assignment-only statements come out as `=<dir-token>` records, every dir
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
- * \022<dir>\022<word>… mark, and a loop's statements sit between a `{` and a
- * `}` record (GH 1944), with a last `!` record when those frames do not
- * balance. With `assign`, a dir token may also list, each after an ALT, the
- * other dirs a loop's back-edge can bring its statement to (GH 1977): a
+ * \022<dir>\022<word>… mark, and a last `!` record marks loop frames that do
+ * not balance. With `frame` (by default `assign`), a loop's statements sit
+ * between a `{` and a `}` record (GH 1944, GH 2065), and a dir token may also
+ * list, each after an ALT, the other dirs a loop's back-edge can bring its
+ * statement to (GH 1977): a
  * frame's statements run in every dir the frame can end a pass in, re-encoded
  * until those stop growing, and after its `}` the dir is the frame's entry
  * dirs plus those. A frame still growing after MAX_GROWTH runs, or a frame
@@ -137,18 +138,18 @@ interface Frames {
   lost: Set<number>;
 }
 
-export function statementsEnc(buf: string, base: string, home: string, assign: boolean, charge: Charge = NO_CHARGE): Record[] {
+export function statementsEnc(buf: string, base: string, home: string, assign: boolean, charge: Charge = NO_CHARGE, frame = assign): Record[] {
   const frames: Frames = { ext: [], runs: [], grew: new Set(), lost: new Set() };
   for (;;) {
     frames.grew.clear();
     charge(buf.length);
-    const records = scan(buf, base, home, assign, frames, charge);
+    const records = scan(buf, base, home, assign, frame, frames, charge);
     if (frames.grew.size === 0) return records;
     for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
   }
 }
 
-function scan(buf: string, base: string, home: string, assign: boolean, frames: Frames, charge: Charge): Record[] {
+function scan(buf: string, base: string, home: string, assign: boolean, frame: boolean, frames: Frames, charge: Charge): Record[] {
   const records: Record[] = [];
   let old = '-';
   let cwhy = '';
@@ -208,7 +209,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
   let wq: boolean[] = [];
 
   /**
-   * With `assign`, frames a loop's statements: `{` from its while / until or
+   * With `frame`, frames a loop's statements: `{` from its while / until or
    * from the `do` or `{` that ends a for / select header, and `}` at the done
    * or `}` that closes it. A `do` no header waits for, or a `done` / `}` that
    * does not close the innermost frame, marks the command unbalanced. A
@@ -577,7 +578,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
       }
       if (w[first] === 'while') sawwhile = true;
       if (KEYWORD.test(w[first])) {
-        if (assign && !wq[first]) loopkw(w[first]);
+        if (frame && !wq[first]) loopkw(w[first]);
         plain = false;
         first++;
         continue;
@@ -622,8 +623,8 @@ function scan(buf: string, base: string, home: string, assign: boolean, frames: 
     }
     let a0 = w[first];
     if (!args) owns = w.slice(first + 1).some((x) => x !== '') || (sub && w[n - 1] === '');
-    if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
-    else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
+    if (frame && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
+    else if (frame && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === 'export') {
       for (let k = first + 1; k < n; k++) {
