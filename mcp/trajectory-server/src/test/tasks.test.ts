@@ -43,6 +43,15 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+interface ErrorPayload {
+  error: string;
+  message: string;
+}
+
+function parseError(result: RawResult): ErrorPayload {
+  return JSON.parse(result.content[0].text) as ErrorPayload;
+}
+
 function parseBatch(result: RawResult): Array<Record<string, unknown>> {
   const raw = JSON.parse(result.content[0].text);
   return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
@@ -819,11 +828,12 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /8000/);
     assert.match(data.error, /8001/);
+    const { error } = parseError(result);
     assert.ok(
-      data.error.includes('Split into several tasks, or cite existing code/conventions instead of restating them.'),
-      data.error,
+      error.includes('Split into several tasks, or cite existing code/conventions instead of restating them.'),
+      error,
     );
-    assert.doesNotMatch(data.error, /depends_on/);
+    assert.doesNotMatch(error, /depends_on/);
 
     db.close();
   });
@@ -1100,8 +1110,10 @@ describe('taskTools', () => {
     });
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid repo/);
+    assert.match(data.error, /\.\./);
     assert.equal(
-      data.error,
+      parseError(result).error,
       'Invalid repo "../escape": must not contain "..". Pass a registered repo name (from repos_list).',
     );
 
@@ -1128,8 +1140,9 @@ describe('taskTools', () => {
     });
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid repo/);
     assert.equal(
-      data.error,
+      parseError(result).error,
       'Invalid repo "/absolute/path": must not start with "/". Pass a registered repo name (from repos_list).',
     );
 
@@ -1300,11 +1313,12 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     const data = parseResult(result);
     assert.equal(data.error, 'branch_state_violation');
+    const { message } = parseError(result);
     assert.ok(
-      data.message.includes(
+      message.includes(
         'Run intent_start first (tmb_planning section 3); it emits branch_id_proposed. task_provision creates the branch.',
       ),
-      data.message,
+      message,
     );
 
     db.close();
@@ -1322,7 +1336,7 @@ describe('taskTools', () => {
     });
 
     assert.ok(result.isError, 'Expected isError=true');
-    const data = parseResult(result);
+    const data = parseError(result);
     assert.equal(data.error, 'scope_gate_violation');
     assert.ok(
       data.message.includes(
@@ -1350,7 +1364,7 @@ describe('taskTools', () => {
     });
 
     assert.ok(result.isError, 'Expected isError=true');
-    const data = parseResult(result);
+    const data = parseError(result);
     assert.equal(data.error, 'intent_gate_violation');
     assert.ok(
       data.message.includes('Log the intent with intent_start (tmb_planning section 3) before task_create_batch.'),
