@@ -3,7 +3,7 @@
  * PreToolUse(Agent) dispatcher: it runs the nine spawn gates of CHAIN in
  * order, in-process through the gate lookup it is given, with their stderr
  * dropped. The first deny is printed verbatim and ends the run. Otherwise the
- * PREPARE steps (ensure-swe-worktree, record-swe-spawn) run fail-open, and
+ * PREPARE steps (ensure-swe-worktree, record-swe-spawn, record-reviewer-spawn) run fail-open, and
  * the gates' additionalContext parts, joined by a `---` line, come out as one
  * PreToolUse additionalContext. It always exits 0.
  *
@@ -31,7 +31,7 @@ export const CHAIN: readonly string[] = [
   'rework-limit',
 ];
 
-export const PREPARE: readonly string[] = ['ensure-swe-worktree', 'record-swe-spawn'];
+export const PREPARE: readonly string[] = ['ensure-swe-worktree', 'record-swe-spawn', 'record-reviewer-spawn'];
 
 export const CONTEXT_SEPARATOR = '\n\n---\n\n';
 
