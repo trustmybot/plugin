@@ -268,6 +268,7 @@ export function caseEnv(s: string, locale: string, extra: Record<string, string 
     PATH: `${join(s, 'bin')}:${process.env.PATH ?? ''}`,
     PGREP_STUB: 'up',
     LC_ALL: locale,
+    TZ: 'UTC',
     PWD: cwd,
   });
   for (const [key, value] of Object.entries(extra)) {
