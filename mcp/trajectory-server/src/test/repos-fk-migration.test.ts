@@ -243,7 +243,7 @@ describe('repos-centric schema (#155) — issue-scoped sync', () => {
     db.close();
   });
 
-  it('issue_create on an unresolvable multi-repo install surfaces a named error', async () => {
+  it('issue_create on an unresolvable multi-repo install refuses before writing (GH 2709)', async () => {
     const db = tempDB();
     seedRepo(db, 'a', '/ws/a', [
       { name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' },
@@ -263,9 +263,13 @@ describe('repos-centric schema (#155) — issue-scoped sync', () => {
       description: 'body',
       _spawnFn: spawn.fn,
     });
-    const created = parse(result);
-    assert.ok(created._sync, 'a sync diagnostic must be present');
-    assert.equal(created._sync.reason, 'unresolvable_repo');
+    assert.ok(result.isError, 'must error');
+    assert.match(parse(result).error, /^repo_required: 2 repos are registered \(a, b\)/);
+    assert.equal(
+      db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM issues WHERE objective = 'ambiguous repo issue'`)!.n,
+      0,
+      'no issues row written',
+    );
     assert.equal(
       spawn.calls.length,
       0,
