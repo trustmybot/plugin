@@ -299,6 +299,7 @@ export function hooksParityShard(k: number, n: number): void {
           'liveness-alert',
           'liveness-sentinel',
           'no-prose-in-scratch',
+          'record-reviewer-spawn',
           'ref-move-reindex',
           'reviewer-downstream-context',
           'rework-limit',
