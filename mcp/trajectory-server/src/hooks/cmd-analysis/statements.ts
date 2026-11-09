@@ -883,10 +883,17 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       ok = VPLAIN.test(a0);
     }
     const shown = (k: number): string => (w[k] === '' && wq[k] ? EMPTY_WORD : w[k]);
-    const live: number[] = [];
-    for (let k = first; k < n; k++) if (shown(k) !== '') live.push(k);
-    const found = gitWord(live.map(shown));
-    const gi = found === null ? -1 : live[found.at];
+    const gitAt = (from: number): number => {
+      const live: number[] = [];
+      for (let k = from; k < n; k++) if (shown(k) !== '') live.push(k);
+      const found = gitWord(live.map(shown));
+      return found === null ? -1 : live[found.at];
+    };
+    let gi = gitAt(first);
+    if (gi < 0 && wrapAt >= 0) {
+      const wrapped = gitAt(wrapAt);
+      if (wrapped >= first) gi = wrapped;
+    }
     const kept = !assign && gi >= 0 ? gitEmptyWords(w, wq, gi) : new Set<number>();
     if (!assign) for (let k = first + 1; k < gi; k++) if (w[k] === '' && wq[k]) kept.add(k);
     const gitCut: Record['cut'] = sub && gi >= 0 ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;

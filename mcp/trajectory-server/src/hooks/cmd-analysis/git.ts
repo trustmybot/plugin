@@ -250,14 +250,15 @@ type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statemen
  * span, the words are read from its `src`, read only then, and a `src` that
  * is missing or does not line up leaves it unknown. git behind wrappers or
  * by path counts (GH 2797); an unsure place (gitWord), the `wrappers` the
- * listing skipped reading another one, or an `xargs` git with no subcommand
+ * listing skipped reading another one or reaching a git the statement's own
+ * words do not (`env $X git push`), or an `xargs` git with no subcommand
  * word, which stdin supplies, leaves it unknown.
  */
 export function gitSubcommandOf(statement: SubcommandInput): string | undefined {
   const { stmt, cut, wrappers } = typeof statement === 'string' ? { stmt: statement, cut: undefined, wrappers: undefined } : statement;
   let w = readWords(stmt);
   const found = gitWord(w);
-  if (found === null) return '';
+  if (found === null) return wrappers !== undefined && gitWord([...readWords(wrappers), ...w]) !== null ? undefined : '';
   if (!found.sure) return undefined;
   let xargs = found.xargs;
   if (wrappers !== undefined) {

@@ -50,6 +50,22 @@ const WRAPPED = [
   'sudo env git push origin x',
 ];
 
+const STRIPPED_NOT_LITERAL = [
+  'env $X git push origin dev',
+  'sudo $X git push origin dev',
+  'command $X git push origin dev',
+  'time $X git push origin dev',
+  'time -p $X git push origin dev',
+  'nohup $X git push origin dev',
+  'exec $X git push origin dev',
+  'sudo -u me $X git push origin dev',
+  'env A=1 $X git push origin dev',
+  'timeout 5 $X git push origin dev',
+  'gtimeout 5 $X git push origin dev',
+  'stdbuf -o L $X git push origin dev',
+  'nice $X git push origin dev',
+];
+
 describe('git behind a wrapper or by path (GH 2797)', () => {
   it('gitSubcommand and gitSubcommandOf read git behind each wrapper and by path', () => {
     for (const stmt of WRAPPED) {
@@ -122,6 +138,18 @@ describe('git behind a wrapper or by path (GH 2797)', () => {
     assert.equal((await listed('A=1 git push'))[0].wrappers, undefined);
   });
 
+  it('a non-literal word after a wrapper the listing strips leaves a later git unknown', async () => {
+    for (const cmd of STRIPPED_NOT_LITERAL) {
+      const [stmt] = await listed(cmd);
+      assert.equal(stmt.stmt, '$X git push origin dev', cmd);
+      assert.equal(gitSubcommandOf(stmt), undefined, cmd);
+    }
+    assert.deepEqual(await subsOf('env $X echo git'), [undefined]);
+    assert.deepEqual(await subsOf('env $X echo hi'), ['']);
+    assert.deepEqual(await subsOf('env echo git push'), ['']);
+    assert.equal((await listed('env $X echo hi'))[0].wrappers, undefined);
+  });
+
   it('the listing tracks git -C, kept empty words and a cut behind a wrapper or path', async () => {
     assert.equal((await listed('doas git -C /x push'))[0].dir, '/x');
     assert.equal((await listed('/usr/bin/git -C /x push'))[0].dir, '/x');
@@ -147,6 +175,14 @@ describe('git-push-guard gates git behind a wrapper or by path (GH 2797)', () =>
   it('denies a push behind an unknown wrapper option or with an unknown subcommand as unknown', async () => {
     await withGuard(async (run) => {
       for (const command of ['env --bogus git push origin dev', 'nice -n $N git push origin dev', 'echo dev | xargs git', 'env -C . git push origin dev', '/usr/bin/git $(echo push) origin dev']) {
+        assert.match(await run(command), UNKNOWN, command);
+      }
+    });
+  });
+
+  it('denies a push behind a stripped wrapper and a non-literal word as unknown, as it denies /usr/bin/env $X git push', async () => {
+    await withGuard(async (run) => {
+      for (const command of ['/usr/bin/env $X git push origin dev', ...STRIPPED_NOT_LITERAL]) {
         assert.match(await run(command), UNKNOWN, command);
       }
     });
