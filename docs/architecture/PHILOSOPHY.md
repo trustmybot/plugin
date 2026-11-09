@@ -21,17 +21,14 @@ The two perspectives are complementary because of a context asymmetry. bro carri
 
 ## 3. Dev-vs-user-runtime boundary
 
-ONLY `docs/` is TMB-internal. It documents how *this project* is built and operated: the L0–L6 test harness, the `trustmybot/plugin` repository itself, GitHub milestones and labels, the rc and release-gate flow, the contributing guide, and the benchmark campaign. None of `docs/` ships to a user's project.
+`docs/` is TMB-internal, alongside the test harness (`tests/`), `research/` and the release and maintenance scripts. `docs/` documents how *this project* is built and operated: the L0–L6 test harness, the `trustmybot/plugin` repository itself, GitHub milestones and labels, the rc and release-gate flow, the contributing guide, and the benchmark campaign. None of it is part of the runtime a user's project uses.
 
-Everything else is the shipped runtime, and it must be about THE USER'S project and fully self-contained:
+The shipped runtime must be about THE USER'S project and fully self-contained:
 
 - `CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`
 - the user-facing MCP server code
 
 These surfaces must never reference TMB's own development process — no harness paths, no `L1`/`L5/L6` levels, no `tests/` directories, no internal milestone or release machinery. A user installing the plugin has none of that, so a prompt or hook that cites it leaks meaningless internal context and erodes trust. When a shipped surface needs to state a rule that TMB's docs also describe, it states the rule directly rather than pointing at a `docs/` file the user does not have.
-
-The #135 and #140 cleanups enforce this boundary, sweeping dev-meta leaks out of the shipped runtime and keeping the internal references where they belong, in `docs/`.
-
 ## 4. Cut entropy at handoffs
 
 TMB's trajectory exists to cut the entropy lost at each handoff: Human → bro → swe → code-reviewer → the next session. The design priority is stability first, then efficiency.
