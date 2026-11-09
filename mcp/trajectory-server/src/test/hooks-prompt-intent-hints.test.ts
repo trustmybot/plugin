@@ -1,11 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   capabilityOnAgent,
   hasNonSpace,
   hasWord,
   headlessMatch,
   pendingList,
+  promptIntentHints,
   proximityMatch,
   readPipeFields,
   splitClauses,
@@ -87,13 +91,35 @@ describe('prompt-intent-hints: text passes', () => {
 });
 
 describe('prompt-intent-hints: matchers', () => {
-  it('hasWord needs no [a-z] letter on either side', () => {
-    assert.equal(hasWord('check', 'please check it', false), true);
-    assert.equal(hasWord('check', 'checklist', false), false);
-    assert.equal(hasWord('audit', 'audit-log', false), true);
-    assert.equal(hasWord('audit', 'éaudit', false), true);
-    assert.equal(hasWord('audit', 'éaudit', true), false);
+  it('hasWord needs no Unicode letter on either side (GH 2104)', () => {
+    assert.equal(hasWord('check', 'please check it'), true);
+    assert.equal(hasWord('check', 'checklist'), false);
+    assert.equal(hasWord('audit', 'audit-log'), true);
+    assert.equal(hasWord('audit', 'éaudit'), false);
+    assert.equal(hasWord('check', 'checkż'), false);
+    assert.equal(hasWord('check', 'checkž'), false);
+    assert.equal(hasWord('audit', 'auditž'), false);
+    assert.equal(hasWord('check', 'þcheck it'), false);
+    assert.equal(hasWord('check', 'café check'), true);
+    assert.equal(hasWord('check', 'check it'), true);
+    assert.equal(hasWord('check', 'check1'), true);
+    assert.equal(hasWord('check', '_check_'), true);
   });
+
+  for (const locale of ['C', 'en_US.UTF-8']) {
+    it(`the audit hint follows the Unicode letter rule under LC_ALL=${locale} (GH 2104)`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'tmb-gh2104-'));
+      try {
+        const env = { PATH: process.env.PATH, HOME: dir, CLAUDE_PROJECT_DIR: dir, TRAJECTORY_DB_PATH: join(dir, 'none.db'), LC_ALL: locale } as NodeJS.ProcessEnv;
+        const fires = async (prompt: string): Promise<boolean> =>
+          JSON.stringify(await promptIntentHints(JSON.stringify({ prompt }), env)).includes('audit-intent hint');
+        for (const prompt of ['checkż', 'auditž', 'þcheck it']) assert.equal(await fires(prompt), false, prompt);
+        for (const prompt of ['café check', 'check it']) assert.equal(await fires(prompt), true, prompt);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 
   it('capabilityOnAgent names the agent after install/add in the same clause', () => {
     assert.equal(capabilityOnAgent('add the playwright skill to swe', ['swe', 'bro']), 'swe');
