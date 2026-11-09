@@ -181,7 +181,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 - [ ] Tests added or updated.
 - [ ] Workflow state (issues, tasks, discussions, validation) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
-- [ ] Schema change → rebuild `docs/architecture/ERD.md` + update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
+- [ ] Schema change → rebuild `docs/architecture/ERD.md` + set the role list at the tool's `requireRoles(...)` call in `mcp/trajectory-server/src/tools/` (the check lives in `middleware/agent-scope.ts`).
 - [ ] PR names the issue (`Closes #N`).
 
 ## Design principles
