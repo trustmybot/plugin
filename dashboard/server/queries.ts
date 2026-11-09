@@ -887,7 +887,7 @@ interface ModelPrice {
   cache_creation: number;
 }
 
-const PRICE_FIELDS = ['input', 'output', 'cache_read', 'cache_creation'] as const;
+export const PRICE_FIELDS = ['input', 'output', 'cache_read', 'cache_creation'] as const;
 
 // plugin_config.model_prices (USD per 1M tokens) as in the trajectory server's
 // readModelPrices: an entry counts only with all four fields numeric.
