@@ -113,8 +113,9 @@ export function changeIdOf(hasRemote: boolean, subject: string, body: string, sh
   return sha.slice(0, 12);
 }
 
-interface DevResolver {
+export interface DevResolver {
   repo: string;
+  path: string;
   history: BuildHistory;
 }
 
@@ -155,9 +156,14 @@ function resolveDevBuilds(ctx: ProviderContext, prs: number[]): DevResolver | nu
       continue;
     }
     const hits = prs.filter((pr) => history.indexOfPr(pr) !== undefined).length;
-    if (hits > 0 && (best === null || hits > best.hits)) best = { repo: row.name, history, hits };
+    if (hits > 0 && (best === null || hits > best.hits)) best = { repo: row.name, path: row.path, history, hits };
   }
-  return best && { repo: best.repo, history: best.history };
+  return best && { repo: best.repo, path: best.path, history: best.history };
+}
+
+/** The dev-build resolver when samples carry dev-build versions and a repo holds their PRs, else null (user mode). */
+export function devResolver(ctx: ProviderContext): DevResolver | null {
+  return versionState(ctx).resolver;
 }
 
 interface AttributedSample extends SplitSample {
