@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode, heredocEncoder } from './encode.js';
 import { bashParser } from './parser.js';
-import { ALT, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, statementsEnc, type Record } from './statements.js';
+import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536); `opaque` when it runs code the listing cannot read (GH 2635). */
 export type Statement = Record & { readonly src?: string; readonly opaque?: true };
@@ -61,8 +61,166 @@ interface CodeRead {
 
 const NO_CODE: CodeRead = { codes: [], check: [], stdin: false };
 const PROMPT_EXPANSION = /\$\{[^}]*@P\}/;
-/** A word naming PS4 as a variable to set: `PS4`, `-vPS4`, `PS4[i]`, or a nameref's `=PS4`. */
-const PS4_OPERAND = /(^|^-v|=)PS4(\[.*\])?$/;
+/** A `${!name=…}` or `${!name:=…}`: an assignment to the variable another one names. */
+const INDIRECT_ASSIGN = /\$\{![^}]*=/;
+const NAMEREF = /^-[A-Za-z]*n/;
+const DYNAMIC = /[$`]/;
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;
+/** Builtins that set a variable an operand names. */
+const ASSIGNER = /^(export|declare|typeset|local|readonly|read|printf|getopts|mapfile|readarray)$/;
+/** Nodes whose text bash expands, so a git argument's PS4 inside one is not plain text. */
+const EXPANDING = new Set(['expansion', 'simple_expansion', 'command_substitution', 'process_substitution', 'arithmetic_expansion']);
+
+/** The `PS4` of a variable_assignment's name, `PS4` or `PS4[i]`; null for any other name. */
+function ps4Name(assignment: Node): Node | null {
+  const name = assignment.childForFieldName('name');
+  const base = name?.type === 'subscript' ? name.childForFieldName('name') : name;
+  return base?.type === 'variable_name' && base.text === 'PS4' ? base : null;
+}
+
+/** Whether a declaration_command makes its names namerefs: `declare` / `typeset` / `local` with an option holding `n`. */
+function nameref(decl: Node): boolean {
+  const word = decl.firstChild?.text ?? '';
+  return (word === 'declare' || word === 'typeset' || word === 'local') && decl.namedChildren.some((c) => c?.type === 'word' && NAMEREF.test(c.text));
+}
+
+/**
+ * Whether shell source <cmd> may set PS4 out of the listing's sight (GH 2635,
+ * an allowlist): it writes `PS4` anywhere but as the name of an assignment
+ * (bare, before a command, behind export / declare / typeset / local /
+ * readonly but not a nameref, or an `env` assignment before its command), the
+ * plain text of a git argument, or a quoted-delimiter heredoc body; or it
+ * holds a `${!name=…}` indirect assignment. The listing checks the value of
+ * each assignment it admits.
+ */
+function hiddenPs4(parser: Parser, cmd: string): boolean {
+  if (INDIRECT_ASSIGN.test(cmd)) return true;
+  if (!cmd.includes('PS4')) return false;
+  const tree = parser.parse(cmd);
+  if (!tree) return true;
+  try {
+    const starts = new Set<number>();
+    const spans: Array<[number, number]> = [];
+    const plainText = (node: Node): void => {
+      if (EXPANDING.has(node.type)) return;
+      if (node.childCount === 0) spans.push([node.startIndex, node.endIndex]);
+      for (const child of node.children) if (child) plainText(child);
+    };
+    const walk = (node: Node): void => {
+      if (node.type === 'variable_assignment' && !(node.parent?.type === 'declaration_command' && nameref(node.parent))) {
+        const name = ps4Name(node);
+        if (name) starts.add(name.startIndex);
+      } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'git') {
+        for (const arg of node.childrenForFieldName('argument')) if (arg) plainText(arg);
+      } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'env') {
+        for (const arg of node.childrenForFieldName('argument')) {
+          if (!arg || !/^(-[A-Za-z-]*|[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?=.*)$/s.test(arg.text)) break;
+          if (PS4_WORD.test(arg.text) && !arg.text.includes('+=')) starts.add(arg.startIndex);
+        }
+      } else if (node.type === 'heredoc_redirect') {
+        const start = node.children.find((c) => c?.type === 'heredoc_start');
+        const body = node.children.find((c) => c?.type === 'heredoc_body');
+        if (start && body && /['"\\]/.test(start.text)) spans.push([body.startIndex, body.endIndex]);
+      }
+      for (const child of node.children) if (child) walk(child);
+    };
+    walk(tree.rootNode);
+    for (const m of cmd.matchAll(/PS4/g)) {
+      const at = m.index;
+      if (!starts.has(at) && !spans.some(([from, to]) => at >= from && at + 3 <= to)) return true;
+    }
+    return false;
+  } finally {
+    tree.delete();
+  }
+}
+
+/**
+ * Whether an encoded statement's words <w> name PS4 where the listing does
+ * not admit it (GH 2635): a word holding `PS4` once quotes are removed
+ * (`read P\S4`, `printf -v "PS4"`), unless the statement is git's or is
+ * itself a PS4 assignment record, or the word is a `PS4=` assignment of a
+ * declaration builtin that is no nameref.
+ */
+function ps4Word(w: readonly string[]): boolean {
+  if (w[0] === 'git' || PS4_WORD.test(w[0] ?? '')) return false;
+  const decl = DECLARE.test(w[0] ?? '') && !(w[0] !== 'export' && w[0] !== 'readonly' && w.some((x) => NAMEREF.test(x)));
+  return w.some((x, i) => {
+    const word = decode(x);
+    return word.includes('PS4') && !(decl && i > 0 && PS4_WORD.test(word));
+  });
+}
+
+/** A statement's source words past argv0, a redirect and its target dropped. */
+function operandWords(words: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 1; i < words.length; i++) {
+    const redirect = REDIRECT_WORD.exec(words[i]);
+    if (redirect && redirect[0] === words[i]) i++;
+    else if (!redirect) out.push(words[i]);
+  }
+  return out;
+}
+
+/** Whether an option cluster or operand list <w> names a variable through an expansion: an operand (the first only, unless <every>), or the value of an option in <targets>; <values> are the options that take a value. */
+function dynamicOperand(w: readonly string[], values: string, targets: string, every: boolean): boolean {
+  for (let i = 0; i < w.length; i++) {
+    const x = w[i];
+    if (x === '--') return w.slice(i + 1, every ? undefined : i + 2).some((y) => DYNAMIC.test(y));
+    if (x.length > 1 && x.startsWith('-') && !DYNAMIC.test(x)) {
+      for (let j = 1; j < x.length; j++) {
+        if (!values.includes(x[j])) continue;
+        const value = x.slice(j + 1) || (w[++i] ?? '');
+        if (targets.includes(x[j]) && DYNAMIC.test(value)) return true;
+        break;
+      }
+      continue;
+    }
+    if (DYNAMIC.test(x)) return true;
+    if (!every) return false;
+  }
+  return false;
+}
+
+/**
+ * Whether a builtin that sets a variable an operand names may set one whose
+ * name is an expansion (GH 2635), read from the statement's source words
+ * <words> as written, argv0 first, its decoded form <argv0>: a declaration
+ * builtin's name (a nameref's value too), a `read` operand or `-a` array, a
+ * `printf -v` name (or a first word that may expand to `-v`), a `getopts`
+ * name, or a `mapfile` / `readarray` array. True when <words> is null.
+ */
+function dynamicName(argv0: string, words: readonly string[] | null): boolean {
+  if (words === null) return true;
+  const ops = operandWords(words);
+  if (DECLARE.test(argv0)) {
+    const ref = argv0 !== 'export' && argv0 !== 'readonly' && ops.some((x) => NAMEREF.test(x));
+    return ops.some((x) => DYNAMIC.test(ref ? x : x.split('=')[0]));
+  }
+  switch (argv0) {
+    case 'read':
+      return dynamicOperand(ops, 'adinNptu', 'a', true);
+    case 'printf': {
+      const first = ops[0] ?? '';
+      if (DYNAMIC.test(first)) return true;
+      return first.startsWith('-v') && DYNAMIC.test(first === '-v' ? (ops[1] ?? '') : first.slice(2));
+    }
+    case 'getopts':
+      return DYNAMIC.test(ops[1] ?? '');
+    case 'mapfile':
+    case 'readarray':
+      return dynamicOperand(ops, 'dnOsuCc', '', false);
+    default:
+      return false;
+  }
+}
+
+/** Shell source <src>'s words as written, quotes and all; null when they cannot be read. */
+function rawWords(src: string | undefined): string[] | null {
+  const words = src === undefined ? null : sourceWords(src);
+  return words === null || src === undefined ? null : words.map((word) => src.slice(word.start, word.end));
+}
+
 const upTo = (k: number): number[] => Array.from({ length: k }, (_, i) => i + 1);
 /** Text the shell expands as a double-quoted word, as code that runs only its expansions. */
 const expanded = (value: string): string => `: "${value}"`;
@@ -179,11 +337,11 @@ function literalWords(stmt: string, check: readonly number[], src: () => string 
   return words !== null && words.length === w.length && check.every((i) => !words[i].expands);
 }
 
-/** The nodes a statement's source can be: a command, unless it is a redirected statement's body, a redirected statement, and an assignment (a PS4 record); children first. */
+/** The nodes a statement's source can be: a command or declaration, unless it is a redirected statement's body, a redirected statement, and an assignment (a PS4 record); children first. */
 function candidates(node: Node, out: Node[] = []): Node[] {
   for (const child of node.namedChildren) if (child) candidates(child, out);
   const body = node.parent?.type === 'redirected_statement' && node.parent.childForFieldName('body')?.id === node.id;
-  if (node.type === 'redirected_statement' || node.type === 'variable_assignment' || (node.type === 'command' && !body)) out.push(node);
+  if (node.type === 'redirected_statement' || node.type === 'variable_assignment' || ((node.type === 'command' || node.type === 'declaration_command') && !body)) out.push(node);
   return out;
 }
 
@@ -256,11 +414,14 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
  * runs later (codeOf) is listed in `-` after the statement itself, and is
  * `opaque` where it does not parse. A statement whose code cannot be read is
  * `opaque` (GH 2635): a code word that is not literal (a PS4 value that
- * expands as it is assigned, whose result `set -x` expands again), a
- * statement an unquoted $( ) or backtick cut, a shell reading stdin, a
- * `${…@P}` prompt expansion, a PS4 operand (`printf -v PS4`, `read PS4`, a
- * `declare -n` to it) that sets PS4 to text the listing cannot see, or code
- * past MAX_DEPTH; the code it can read is still listed.
+ * expands as it is assigned, whose result `set -x` expands again), a command
+ * word that is an expansion, a statement an unquoted $( ) or backtick cut
+ * (a builtin that sets a variable only when the name it sets may expand), a
+ * shell reading stdin, a `${…@P}` prompt expansion, a PS4 written other than
+ * as a literal assignment (hiddenPs4, ps4Word: `${PS4:=…}`, `printf -v PS4`,
+ * `read PS4`, a nameref), a variable name a builtin takes from an expansion
+ * (dynamicName: `declare "$X=…"`, `printf -v "$X"`, `read "$X"`, `mapfile
+ * "$X"`), or code past MAX_DEPTH; the code it can read is still listed.
  */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
@@ -269,24 +430,32 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   const out: Statement[] = [];
   const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
     .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
-    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), ...(record.cut ? { cut: record.cut } : {}) }))
+    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), tail: record.tail === true, ...(record.cut ? { cut: record.cut } : {}) }))
     .filter((record) => record.stmt !== '');
   let srcs: Array<string | undefined> | undefined;
   const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
-  for (const [k, { dir, stmt, cut }] of records.entries()) {
+  const ps4 = hiddenPs4(parser, cmd);
+  const ps4Stmts = ps4 && records.some((record) => decode(record.stmt).includes('PS4'));
+  for (const [k, { dir, stmt, tail, cut }] of records.entries()) {
     const own = (opaque: boolean): void => {
       for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(opaque ? { opaque: true as const } : {}) }, () => srcAt(k)));
     };
     const { codes, check, stdin } = dir.startsWith('=') ? NO_CODE : codeOf(stmt);
     const words = readWords(stmt);
+    const argv0 = words[0] ?? '';
     const prompt = PROMPT_EXPANSION.test(decode(stmt));
-    const setsPs4 = words[0] !== 'git' && words.slice(1).some((word) => PS4_OPERAND.test(decode(word)));
-    const cutRunner = cut !== undefined && words[0] !== 'git';
+    const assigner = ASSIGNER.test(argv0);
+    const unreadable =
+      (ps4 && (!ps4Stmts || decode(stmt).includes('PS4'))) ||
+      ps4Word(words) ||
+      (!tail && DYNAMIC.test(decode(argv0)) && !ASSIGNMENT.test(decode(argv0))) ||
+      (cut !== undefined && argv0 !== 'git' && !assigner) ||
+      (assigner && (cut !== undefined || DYNAMIC.test(decode(stmt))) && dynamicName(argv0, rawWords(srcAt(k))));
     if (codes.length === 0 || stdin || prompt || depth >= MAX_DEPTH) {
-      own(stdin || prompt || setsPs4 || cutRunner || codes.length > 0);
+      own(stdin || prompt || unreadable || codes.length > 0);
       continue;
     }
-    let opaque = setsPs4 || cutRunner || !literalWords(stmt, check, () => srcAt(k));
+    let opaque = unreadable || !literalWords(stmt, check, () => srcAt(k));
     const bodies: Statement[] = [];
     for (const code of codes) {
       const nested = listing(parser, decode(code.text).replace(/\n+$/, ''), code.later ? '-' : dir, depth + 1, home, code.later || readWords(stmt)[0] === 'eval');
@@ -427,14 +596,14 @@ function subcommandAt(w: readonly string[]): number {
 }
 
 /**
- * Where each word of the first line of shell source `src` starts, with its
+ * Where each word of the first line of shell source `src` starts and ends, with its
  * unquoted text, whether an unquoted $( ) or backtick is in it (`sub`), and
  * whether the shell may turn it into other text (`expands`: an unquoted `$`,
  * backtick, brace or glob char, or an unescaped `$` or backtick in double
  * quotes); null at an unclosed quote or substitution.
  */
-function sourceWords(src: string): Array<{ start: number; text: string; sub: boolean; expands: boolean }> | null {
-  const words: Array<{ start: number; text: string; sub: boolean; expands: boolean }> = [];
+function sourceWords(src: string): Array<{ start: number; end: number; text: string; sub: boolean; expands: boolean }> | null {
+  const words: Array<{ start: number; end: number; text: string; sub: boolean; expands: boolean }> = [];
   let i = 0;
   for (;;) {
     while (src[i] === ' ' || src[i] === '\t') i++;
@@ -499,7 +668,7 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
         i++;
       }
     }
-    words.push({ start, text, sub, expands: expands || sub });
+    words.push({ start, end: i, text, sub, expands: expands || sub });
   }
 }
 

@@ -65,11 +65,11 @@ const HOOK_ARRAY = /(^|[^A-Za-z0-9_])(chpwd|precmd|preexec|periodic|zshexit|zsha
 const FOR_HEAD = /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/;
 /** A redirect word: its operator, after an optional fd number or `{name}`; a heredoc's `<<` always carries its delimiter (GH 2635). */
 export const REDIRECT_WORD = /^([0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\})?(&>>?|<<<|<<|<>|<&|>&|>>|>\||<|>)/;
-/** Command words whose statement keeps `cut`: git (GH 2634), and the shells, eval and builtins that run a code string the git listing reads (GH 2635). */
-const CUT_KEPT = /^(git|(.*\/)?(bash|sh|zsh|dash|ksh)|eval|trap|alias|mapfile|readarray|compgen|complete)$/;
+/** Command words whose statement keeps `cut`: git (GH 2634), and the shells, eval and builtins that run a code string the git listing reads or set a variable an operand names (GH 2635). */
+const CUT_KEPT = /^(git|(.*\/)?(bash|sh|zsh|dash|ksh)|eval|trap|alias|mapfile|readarray|compgen|complete|export|declare|typeset|local|readonly|read|printf|getopts)$/;
 /** A PS4 assignment word: bash expands its value before each `set -x` trace line (GH 2635). */
 export const PS4_WORD = /^PS4(\[[^\]]*\])?\+?=/;
-const DECLARE = /^(export|declare|typeset|local|readonly)$/;
+export const DECLARE = /^(export|declare|typeset|local|readonly)$/;
 
 export interface Record {
   dir: string;

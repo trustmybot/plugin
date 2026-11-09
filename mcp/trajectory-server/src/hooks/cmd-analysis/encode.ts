@@ -10,10 +10,10 @@
  * call `mktempCall` admits is framed by QO … QC quoted or not, its body led by
  * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443). With
  * `heredocCode` (the git listing, GH 2635), the code of each $( ) or
- * backtick in an unquoted-delimiter heredoc body, found by bodySubstitutions
- * since tree-sitter-bash misses a backtick or a `<<-` body's, is encoded on
- * its own and framed by QO … QC, each after a blank, right after the
- * heredoc's delimiter; the command is not ok when one does not parse.
+ * backtick in an unquoted-delimiter heredoc body (bodyCodes: a $( ) from the
+ * parse tree, a backtick from the text) is encoded on its own and framed by
+ * QO … QC, each after a blank, right after the heredoc's delimiter; the
+ * command is not ok when one does not parse.
  */
 import type { Node, Parser } from 'web-tree-sitter';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
@@ -119,75 +119,98 @@ function specials(node: Node, out: Span[], charge: Charge, marks: boolean): Span
   return out;
 }
 
-/** The encoded skeleton of a heredoc substitution's code, or null when it does not parse. */
-export type HeredocCode = (code: string) => string | null;
+/** What the git listing reads heredoc code with: the parser, and the encoded skeleton of a substitution's code, or null when it does not parse. */
+export interface HeredocCode {
+  readonly parser: Parser;
+  readonly code: (code: string) => string | null;
+}
 
 /** A HeredocCode that encodes with <parser>, heredocs in the code read the same way. */
 export function heredocEncoder(parser: Parser, charge: Charge = NO_CHARGE): HeredocCode {
-  return (code) => {
-    const encoded = encode(parser, code, charge, false, true);
-    return encoded.ok ? encoded.text : null;
+  return {
+    parser,
+    code: (code) => {
+      const encoded = encode(parser, code, charge, false, true);
+      return encoded.ok ? encoded.text : null;
+    },
   };
 }
 
-/** How many `)` bodySubstitutions tries as a $( )'s close. */
-const MAX_CLOSES = 8;
-
-/**
- * The `)` that may close the `(` at <open> of shell source <s>, past quotes
- * and nested parens: the one that pairs it, then each later unpaired one,
- * since a `case` pattern's `)` pairs no `(`; at most MAX_CLOSES.
- */
-function closeParens(s: string, open: number): number[] {
-  const out: number[] = [];
-  let depth = 0;
-  for (let j = open; j < s.length && out.length < MAX_CLOSES; j++) {
-    const c = s[j];
-    if (c === '\\') j++;
-    else if (c === "'") {
-      j = s.indexOf("'", j + 1);
-      if (j < 0) break;
-    } else if (c === '"') {
-      for (j++; j < s.length && s[j] !== '"'; j++) if (s[j] === '\\') j++;
-    } else if (c === '(') depth++;
-    else if (c === ')' && --depth <= 0) {
-      out.push(j);
-      depth = 0;
-    }
+/** The outermost command substitutions under <node>, `$(( ))` arithmetic searched through. */
+function outerSubstitutions(node: Node, out: Node[] = []): Node[] {
+  for (const child of node.children) {
+    if (child?.type === 'command_substitution') out.push(child);
+    else if (child) outerSubstitutions(child, out);
   }
   return out;
 }
 
 /**
- * The code of each outermost $( ) and backtick in the text of an
- * unquoted-delimiter heredoc body, a backslash escaping the next char, the
- * code inside `$((` … `))` read on; null at an unclosed one. A $( ) ends at
- * the first `)` closeParens gives whose code <parses>, else at the first.
+ * The code of each outermost $( ) and backtick of an unquoted-delimiter
+ * heredoc body, <body> its heredoc_body node in the tree of <src> and
+ * [from, to) its text (GH 2635). A $( ) is the parse tree's
+ * command_substitution, so it ends where bash's parser ends it (a comment's
+ * `)` closes nothing). tree-sitter-bash reads no backtick in a body, so a
+ * backtick is read from the text outside those nodes: up to the next
+ * unescaped backtick, as bash reads it, a backslash dropped before a
+ * backtick, `$` or backslash. Null at an unclosed backtick or a $( ) that a
+ * backtick's end cuts.
  */
-export function bodySubstitutions(text: string, parses: (code: string) => boolean = () => true): string[] | null {
+export function bodyCodes(src: string, body: Node, from: number, to: number): string[] | null {
+  const subs = outerSubstitutions(body).filter((sub) => src[sub.startIndex] !== '`');
   const out: string[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+  let next = 0;
+  for (let i = from; i < to; i++) {
+    while (next < subs.length && subs[next].endIndex <= i) next++;
+    const sub = subs[next];
+    if (sub && sub.startIndex <= i) {
+      const open = sub.firstChild;
+      const close = sub.lastChild;
+      if (!open || !close || close.type !== ')') return null;
+      out.push(src.slice(open.endIndex, close.startIndex));
+      i = sub.endIndex - 1;
+      continue;
+    }
+    const c = src[i];
     if (c === '\\') i++;
     else if (c === '`') {
       let code = '';
       let j = i + 1;
-      for (; j < text.length && text[j] !== '`'; j++) {
-        if (text[j] === '\\' && /[`$\\]/.test(text[j + 1] ?? '')) j++;
-        code += text[j];
+      for (; j < to && src[j] !== '`'; j++) {
+        if (src[j] === '\\' && /[`$\\]/.test(src[j + 1] ?? '')) j++;
+        code += src[j];
       }
-      if (j >= text.length) return null;
+      if (j >= to) return null;
+      for (; next < subs.length && subs[next].startIndex < j; next++) if (subs[next].endIndex > j) return null;
       out.push(code);
       i = j;
-    } else if (c === '$' && text[i + 1] === '(' && text[i + 2] !== '(') {
-      const closes = closeParens(text, i + 1);
-      if (closes.length === 0) return null;
-      const close = closes.find((at) => parses(text.slice(i + 2, at))) ?? closes[0];
-      out.push(text.slice(i + 2, close));
-      i = close;
     }
   }
   return out;
+}
+
+/**
+ * The code of an unquoted-delimiter heredoc's body (bodyCodes), its
+ * heredoc_body <body> in <src> up to its end delimiter's line at <endLine>.
+ * A `<<-` body is read again with its leading tabs stripped, as bash strips
+ * them before it expands the body, since tree-sitter-bash parses no
+ * substitution in it; null where that does not parse.
+ */
+function heredocCodes(parser: Parser, src: string, body: Node, endLine: number, delim: string, tabs: boolean): string[] | null {
+  if (!tabs) return bodyCodes(src, body, body.startIndex, endLine);
+  const lineStart = src.lastIndexOf('\n', body.startIndex - 1) + 1;
+  const text = src.slice(lineStart, endLine).replace(/^\t+/gm, '');
+  const again = `: <<${delim}\n${text}${delim}\n`;
+  const tree = parser.parse(again);
+  if (!tree) return null;
+  try {
+    const root = tree.rootNode;
+    if (root.hasError || broken(root)) return null;
+    const node = root.descendantsOfType('heredoc_body')[0];
+    return node ? bodyCodes(again, node, node.startIndex, again.length - delim.length - 1) : [];
+  } finally {
+    tree.delete();
+  }
 }
 
 function substitutions(node: Node, out: Node[], charge: Charge): Node[] {
@@ -294,10 +317,10 @@ export class Encoder {
     if (end && this.src[dropTo] === '\n') dropTo++;
     let code = '';
     if (this.heredocCode && body && end && !/['"\\]/.test(word)) {
-      const heredocCode = this.heredocCode;
-      const subs = bodySubstitutions(this.src.slice(body.startIndex, end.startIndex), (sub) => heredocCode(sub) !== null);
+      const endLine = this.src.lastIndexOf('\n', end.startIndex - 1) + 1;
+      const subs = heredocCodes(this.heredocCode.parser, this.src, body, endLine, delim, kids.some((c) => c.type === '<<-'));
       for (const sub of subs ?? []) {
-        const text = heredocCode(sub);
+        const text = this.heredocCode.code(sub);
         if (text === null) this.failed = true;
         else code += ` ${QO}${text}${QC}`;
       }

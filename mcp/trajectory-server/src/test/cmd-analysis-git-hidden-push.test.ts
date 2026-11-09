@@ -13,7 +13,6 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cmdStatements } from '../hooks/cmd-analysis/index.js';
-import { bodySubstitutions } from '../hooks/cmd-analysis/encode.js';
 import { gitPushGuard } from '../hooks/git-push-guard.js';
 
 const UNKNOWN = /ambiguous_git_subcommand/;
@@ -129,6 +128,44 @@ describe('git-push-guard sees pushes the listing hid (GH 2635)', () => {
     ]);
   });
 
+  it('ends a heredoc $( ) where bash does, past a comment (F680-5)', async () => {
+    await expect([
+      ['cat <<EOF\n$(echo # )\ngit push origin dev\n)\nEOF', WORKTREE],
+      ['cat <<EOF\n$(echo hi # )\ngit push origin dev )\nEOF', WORKTREE],
+      ['cat <<-EOF\n\t$(true # ) x\n\tgit push origin dev\n\t)\n\tEOF', WORKTREE],
+      ['cat <<EOF\n`echo # `git push origin dev\nEOF', ''],
+      ['cat <<EOF\n`echo # `$(git push origin dev)\nEOF', WORKTREE],
+      ['cat <<EOF\n`git push \\`echo origin\\``\nEOF', WORKTREE],
+      ['cat <<EOF\n`a\ngit push origin dev\nEOF', /could not parse/],
+      ['cat <<EOF\n$(echo # )\ngit status\n)\nEOF', ''],
+      ['cat <<EOF\nx \\$(git push origin dev)\nEOF', ''],
+    ]);
+  });
+
+  it('denies a PS4 set out of sight or a variable name it cannot read (F680-6)', async () => {
+    await expect([
+      ["PS4=; : ${PS4:='$(git push origin dev)'}; set -x; true", UNKNOWN],
+      ["unset PS4; : ${PS4='$(git push origin dev)'}; set -x; true", UNKNOWN],
+      ['X=PS4; declare "$X=\\$(git push origin dev)"; set -x; true', UNKNOWN],
+      ['X=PS4; export "$X=\\$(git push origin dev)"; set -x; true', UNKNOWN],
+      ['X=PS4; printf -v "$X" %s "\\$(git push origin dev)"; set -x; true', UNKNOWN],
+      ["X=PS4; read \"$X\" <<< '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["read P\\S4 <<< '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["X=PS4; mapfile -t \"$X\" <<< '$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["declare -n p=$X; p='$(git push origin dev)'; set -x; true", UNKNOWN],
+      ["P=PS4; : ${!P:='$(git push origin dev)'}; set -x; true", UNKNOWN],
+      ['G=git; $G push origin dev', UNKNOWN],
+      ["env \"$X=\\$(git push origin dev)\" bash -xc true", UNKNOWN],
+      ['export SHA=$(git rev-parse HEAD); git push origin dev', WORKTREE],
+      ["git commit -m 'PS4 fix'; git push origin dev", WORKTREE],
+      ["PS4='+ '; export PS4; git push origin dev", UNKNOWN],
+      ["PS4='+ '; export PS4='+ '; git push origin dev", WORKTREE],
+      ['SHA=$(git rev-parse HEAD); git push origin "$SHA"', WORKTREE],
+      ['X=1; read -r Y <<< "$X"; git status', ''],
+      ['printf -v Y %s "$X"; git status', ''],
+    ]);
+  });
+
   it('denies a bash -c or eval string it cannot read when the command names push', async () => {
     await expect([
       ['bash -c "$(echo git push origin dev)"', UNKNOWN],
@@ -176,10 +213,15 @@ describe('cmdStatements marks code it cannot read (GH 2635)', () => {
     );
   });
 
-  it('reads the substitutions of a heredoc body as text', () => {
-    assert.deepEqual(bodySubstitutions('a $(b "c)") `d \\` e` \\$(f) $(( $(g) ))'), ['b "c)"', 'd ` e', 'g']);
-    assert.equal(bodySubstitutions('$(a'), null);
-    assert.deepEqual(bodySubstitutions('$(case x in a) y;; esac) z)', (code) => code.endsWith('esac')), ['case x in a) y;; esac']);
-    assert.deepEqual(bodySubstitutions('$(a) b)', () => false), ['a']);
+  it('reads a heredoc body $( ) from the parse tree and a backtick from the text (F680-5)', async () => {
+    const stmts = async (command: string): Promise<string[] | null> => {
+      const out = await cmdStatements(command, '/w', {});
+      return out.ok ? out.statements.map((s) => s.stmt) : null;
+    };
+    assert.deepEqual(await stmts('cat <<EOF\na $(b "c)") `d \\`e\\`` x \\$(f) $(( $(g) ))\nEOF'), ['b c_', 'd', 'e', 'g', 'cat <<EOF $_b_c__ $_d__e__ $___$_g____']);
+    assert.deepEqual(await stmts('cat <<EOF\n$(a # )\nb\n)\nEOF'), ['a', 'b', 'cat <<EOF $_a__b__']);
+    assert.equal(await stmts('cat <<EOF\n$(a\nEOF'), null);
+    assert.equal(await stmts('cat <<EOF\n`a\nEOF'), null);
+    assert.equal(await stmts('cat <<-EOF\n\t$(a\n\tEOF'), null);
   });
 });

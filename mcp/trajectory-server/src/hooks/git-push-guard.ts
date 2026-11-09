@@ -7,7 +7,9 @@
  * code-reviewer never push; a push from .claude/worktrees/, or from a dir the
  * guard cannot tie to one checkout, is denied; so is a git statement whose
  * subcommand is not literal text (an expansion, GH 2634), a statement that
- * runs code the listing cannot read (`opaque`, GH 2635), and a DB read error.
+ * runs code the listing cannot read (`opaque`, GH 2635: a non-literal code
+ * string or command word, a PS4 set other than by a literal assignment, a
+ * variable name a builtin takes from an expansion), and a DB read error.
  * Code a statement runs later (a trap, an alias, a `-C` callback, a PS4 that
  * `set -x` expands) is listed in `-`, so a push in it is an unresolved target.
  *
@@ -49,8 +51,8 @@ const subcommandReason = (what: string): string =>
   `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally.`;
 const SUBCOMMAND_FIX: DenyFix = { allowed: 'git -C <path> push …, or the literal subcommand it runs' };
 const opaqueReason = (what: string): string =>
-  `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
-const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>'" };
+  `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, a command word that is an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, a PS4 set other than by a literal \`PS4=\` assignment, a variable name a builtin takes from an expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
+const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>', or PS4='<literal>'" };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 
 function pushVerb(sub: string): boolean {
