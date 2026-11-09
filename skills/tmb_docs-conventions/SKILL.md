@@ -1,6 +1,6 @@
 ---
 name: tmb_docs-conventions
-description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workflow markdown) or updating user-visible docs. Carries the editing judgment — what to delete, what to preserve, and where ripples land when a rename or restructure happens.
+description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workflow markdown), updating user-visible docs, or writing or editing architecture or design docs. Carries the editing judgment and the three-layer rule — docs hold architecture, the world model holds relationships, code holds logic.
 ---
 
 # Docs Conventions — Editing Discipline
