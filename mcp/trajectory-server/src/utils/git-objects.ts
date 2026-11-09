@@ -165,6 +165,24 @@ export function lastCommitByPath(repoPath: string, range: string): Map<string, s
   return byPath;
 }
 
+// Each commit's position in `git log` default order (newest committer date
+// first), from one `git log --no-walk` call; null on a git failure, such as an
+// unknown sha.
+export function logOrder(repoPath: string, shas: Iterable<string>): Map<string, number> | null {
+  const list = [...new Set(shas)];
+  if (list.length === 0) return new Map();
+  const res = runGit(repoPath, ['log', '--no-walk', '--stdin', '--format=%H'], {
+    input: `${list.join('\n')}\n`,
+    stdio: ['pipe', 'pipe', 'ignore'],
+    maxBuffer: TREE_MAX_BUFFER,
+    timeout: TREE_TIMEOUT_MS,
+  });
+  if (gitUnanswered(res) || res.status !== 0) return null;
+  const rank = new Map<string, number>();
+  for (const line of res.stdout.split('\n')) if (line !== '' && !rank.has(line)) rank.set(line, rank.size);
+  return rank;
+}
+
 // A regular file's content at `commit`; null for a symlink (its blob is the
 // link target, not file content), a missing path or a git failure.
 export function readBlobSync(repoPath: string, commit: string, relPath: string): string | null {
