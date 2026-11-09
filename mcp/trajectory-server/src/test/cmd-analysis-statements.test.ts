@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Parser } from 'web-tree-sitter';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
-import { CONTROL_SHOWN, NO_CHARGE, QM, ansiCChars, decode, encode } from '../hooks/cmd-analysis/encode.js';
+import { CONTROL_SHOWN, NO_CHARGE, QM, ansiCChars, decode, encode, utf8Run } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements, gitSubcommand } from '../hooks/cmd-analysis/git.js';
 import { statementsEnc } from '../hooks/cmd-analysis/statements.js';
 import { GIT_ENV } from './hook-sandbox.js';
@@ -173,6 +173,30 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
       assert.deepEqual(ansiCChars(body, true), utf8);
     });
   }
+
+  for (const escape of ['\\x41', '\\101'])
+    it(`utf8Run consumes 10000 ${escape} escapes in one call, so ansiCChars with utf8 is linear (GH 2793)`, () => {
+      const body = escape.repeat(10000);
+      const all = Array<string>(10000).fill('A');
+      const run = utf8Run(body, 0);
+      assert.ok(run);
+      assert.equal(run.end, body.length);
+      assert.deepEqual(run.chars, all);
+      assert.deepEqual(ansiCChars(body, true), all);
+    });
+
+  for (const [body, chars] of [
+    ['\\x41\\101 \\xe2\\x9c\\xa8', ['A', 'A', ' ', '✨']],
+    ['\\x41\\101\\xe2\\x9c\\xa8', ['A', 'A', '✨']],
+    ['\\x41\\x42z\\xff\\x43', ['A', 'B', 'z', null, 'C']],
+    ['\\x41\\x42\\xff\\x43', ['A', 'B', null, 'C']],
+    ['\\x41\\x00\\x42', ['A', null, 'B']],
+    ['\\x41\\n\\x42\\u00e9\\101\\777\\x4', ['A', '\n', 'B', 'é', 'A', null, '\x04']],
+    ['\\x41\\x42\\', ['A', 'B', null]],
+  ] as const)
+    it(`ansiCChars(${JSON.stringify(body)}, utf8) reads an ASCII run of byte escapes as each escape alone (GH 2793)`, () => {
+      assert.deepEqual(ansiCChars(body, true), chars);
+    });
 
   it('encode without shownControls reads a byte escape past 0x7F as computed text (GH 2765)', () => {
     const plain = encode(parser, "git commit -m $'\\xe2\\x9c\\xa8 bad'");

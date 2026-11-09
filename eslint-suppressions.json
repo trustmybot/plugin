@@ -520,14 +520,6 @@
     }
   },
   "mcp/trajectory-server/src/hooks/git-guards.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 13
-    },
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/hooks/git-push-guard.ts": {
     "no-control-regex": {
       "count": 1
     }

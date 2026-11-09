@@ -37,7 +37,7 @@ Use `subagent_type='code-reviewer'` (no-namespace form resolves project-local ov
 
 Each Agent call carries `effort` equal to the configured `reviewer_effort` (default `medium`); the spawn gate denies a mismatch.
 
-Read the verdict + `mcp_available` off each task's validation row via `validation_history` (the typed source of truth) — never parse the reviewer's reply text:
+Read the verdict and `mcp_available` from each task's validation row via `validation_history`, the typed source of truth, not from the reviewer's reply text:
 - `mcp_available = 1` — the reviewer wrote `validation_record` itself.
 - `mcp_available = 0` — the reviewer wrote the row through the `tmb_review` fallback script (honor-system, MCP was unavailable).
 

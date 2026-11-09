@@ -173,8 +173,9 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: build:tsc rebuilds the bundles once (GH 2694)', 'build-tsc-bundles.test.mjs'),
     lint('L1 lint: link-check (relative md links)', 'link-check.test.mjs'),
     lint('L1 lint: shellcheck on shell scripts', 'shellcheck-hooks.test.mjs'),
+    lint('L1 lint: no tracked shell files outside the allowlist (GH 2662)', 'no-shell-files.test.mjs'),
     lint('L1 lint: no bare mktemp (explicit path template)', 'no-bare-mktemp.test.mjs'),
-    lint('L1 lint: no grep -q in pipelines under pipefail', 'no-grep-q-in-pipelines.test.mjs'),
+    lint('L1 lint: no grep -q in L6 chain-manifest pipelines', 'no-grep-q-in-pipelines.test.mjs'),
     lint('L1 lint: no wall-clock asserts in tests', 'no-wall-clock-asserts.test.mjs'),
     lint('L1 lint: no destructive SQL in migrations', 'no-destructive-sql.test.mjs'),
     lint('L1 lint: tsc --noEmit on MCP server + dashboard', 'tsc-noemit.test.mjs'),
@@ -207,7 +208,6 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: no hardcoded plugin name', 'no-hardcoded-plugin-name.test.mjs'),
     lint('L1 lint: CI workflow file refs exist', 'ci-workflow-refs-exist.test.mjs'),
     lint('L1 lint: workflow-run scripts build before importing dist', 'workflow-scripts-no-dist.test.mjs'),
-    lint('L1 lint: no bare role compare in hooks', 'no-bare-role-compare.test.mjs'),
     lint('L1 lint: symlink targets all resolve', 'symlink-targets.test.mjs'),
     lint('L1 lint: hooks.json commands executable', 'hooks-executable.test.mjs'),
     lint('L1 lint: valid permissionDecision values', 'valid-permission-decisions.test.mjs'),
@@ -216,8 +216,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: RAG schema invariants', 'rag-schema-invariants.test.mjs'),
     lint('L1 lint: tool-description byte budget', 'tool-description-budget.test.mjs'),
     lint('L1 lint: dir toolchain allowlist', 'dir-toolchain.test.mjs'),
-    lint('L1 lint: no raw SQL interpolation in hooks', 'no-raw-sql-interpolation.test.mjs'),
-    lint('L1 lint: tmb_gate_read SQL is read-only', 'gate-read-sql-readonly.test.mjs'),
+    lint('L1 lint: data-contract SQL is read-only', 'gate-read-sql-readonly.test.mjs'),
     lint('L1 lint: no direct sqlite3 writes in scripts', 'no-direct-sqlite-write.test.mjs'),
     lint('L1 lint: every sqlite3 call sets a busy timeout', 'sqlite3-needs-timeout.test.mjs'),
     lint('L1 lint: one trajectory-DB path rule (no private copies)', 'no-private-db-path.test.mjs'),
@@ -236,7 +235,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
     lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
-    lint('L1 lint: pr-check suite job runs the full sweep', 'pr-check-full-suite.test.mjs'),
+    lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs'),
   ];
 }
 

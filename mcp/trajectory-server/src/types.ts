@@ -85,6 +85,8 @@ export interface Task {
   spawn_note: string | null;
   /** GH 1905: swe's checkpoint handback (JSON {done, left, files, commit_sha?, at}), set with status running. */
   checkpoint: string | null;
+  /** GH 2225: the workflow mode (truest | agile) the shared close path stamped; NULL until closed there. */
+  workflow_mode?: string | null;
 }
 
 export interface Discussion {

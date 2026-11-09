@@ -64,10 +64,10 @@ const BODY_FILE_REASON =
 const BODY_FILE_FIX: DenyFix = { allowed: 'the same gh command with the text passed by --body, or by --body-file - on stdin' };
 
 function proseReason(target: string): string {
-  return `BLOCKED: prose file in a scratch location: ${target}. Plans, decisions, specs and drafts live in the trajectory DB: issue_create or issue_update_description for an issue and its plan; discussion_append with kind decision, analysis or note; task_update_spec or task_create_batch for a task spec.`;
+  return `BLOCKED: prose file in a scratch location: ${target}. bro records prose in the trajectory DB (issue_create, issue_update_description, discussion_append, task_update_spec). swe or code-reviewer: put the text in your final report instead.`;
 }
 
-const PROSE_FIX: DenyFix = { allowed: 'one of those trajectory DB calls for prose, or the same write to a .log file for command output' };
+const PROSE_FIX: DenyFix = { allowed: 'bro: one of those trajectory DB calls; swe or code-reviewer: the final report; for command output, the same write to a .log file' };
 
 function capture(text: string): string {
   return stripTrailingNewlines(text.replace(/\0/g, ''));

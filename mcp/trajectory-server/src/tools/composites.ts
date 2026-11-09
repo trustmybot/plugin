@@ -63,7 +63,7 @@ import {
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
-import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
+import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
@@ -459,8 +459,9 @@ export interface CloseScope {
 }
 
 // Shared close path for bro_atomic_close + task_recover: in the caller's
-// transaction, advance a task to closed (writing bro_verification_pass +
-// closing the task's open agent_runs rows) and optionally close the parent issue
+// transaction, advance a task to closed (writing bro_verification_pass,
+// stamping tasks.workflow_mode from readWorkflowMode and closing the task's
+// open agent_runs rows) and optionally close the parent issue
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
@@ -501,12 +502,12 @@ function closeTaskInTx(
     );
   }
 
-  // 3. flip task to closed.
+  // 3. flip task to closed, stamping the workflow mode it closed under.
   db.run(
     `UPDATE tasks
-        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
+        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?, workflow_mode=?
       WHERE id=?`,
-    [commitSha, now, now, task.id],
+    [commitSha, now, now, readWorkflowMode(db), task.id],
   );
 
   // 4. close every open agent_runs row of the task (bro and swe).
