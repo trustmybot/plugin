@@ -11,6 +11,9 @@
  * the ids (no SC-prefixed bullet) is legacy: specCriterionIds returns [] and
  * no report is required.
  *
+ * The same three tools refuse a spec whose `## Commit` subject commit-msg-lint
+ * would deny (specCommitProblem, GH 2667).
+ *
  * A report may also carry `concepts` (GH 1680, ADR 0002): up to five L2
  * concept proposals, checked here for shape only. scan_run applies a closed,
  * reviewed task's proposals once their anchors are in the index
@@ -23,6 +26,7 @@
  * missed or got wrong during the task; task_update_status also writes it as
  * one `wm_feedback` audit row, and validation_record takes the same shape.
  */
+import { EXPECTED_FORM, MAX_SUBJECT_CHARS, subjectViolation } from './commit-subject.js';
 import type { ConceptInput } from './world-model/concepts.js';
 
 export const CONCEPT_KINDS = ['flow', 'subsystem', 'invariant'] as const;
@@ -82,6 +86,7 @@ export interface CaseSweep {
 export type ConceptProposal = Omit<ConceptInput, 'repo'> & { repo?: string };
 
 const SECTION_RE = /^## Success Criteria\s*$/i;
+const COMMIT_SECTION_RE = /^## Commit\s*$/i;
 const SECTION_END_RE = /^#{1,2}\s/;
 const FENCE_RE = /^(```|~~~)/;
 const TOP_BULLET_RE = /^[-*+]\s+(.*)$/;
@@ -163,6 +168,55 @@ export function specCriteriaProblem(specBody: string): string | null {
     return `success_criteria_ids_duplicate: ${dups.join(', ')} appear more than once under ## Success Criteria; ids are unique within a spec.`;
   }
   return null;
+}
+
+/**
+ * The `## Commit` section's first non-empty line outside code fences, or the
+ * first non-empty line inside the fence that line opens; null when there is
+ * no such section or it holds no subject.
+ */
+function specCommitSubject(specBody: string): string | null {
+  let inFence = false;
+  let inSection = false;
+  let inSectionFence = false;
+  for (const line of specBody.split('\n')) {
+    const heading = line.trimEnd();
+    const text = line.trim();
+    const isFence = FENCE_RE.test(text);
+    if (inSectionFence) {
+      if (isFence) return null;
+      if (text !== '') return text;
+      continue;
+    }
+    if (isFence) {
+      if (inSection) inSectionFence = true;
+      else inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (inSection) {
+      if (SECTION_END_RE.test(heading)) return null;
+      if (text !== '') return text;
+      continue;
+    }
+    if (COMMIT_SECTION_RE.test(heading)) inSection = true;
+  }
+  return null;
+}
+
+/** Why a spec_body's `## Commit` subject would fail commit-msg-lint, or null when it passes or has none. */
+export function specCommitProblem(specBody: string): string | null {
+  if (process.env.TMB_SKIP_COMMIT_MSG_LINT === '1') return null;
+  const line = specCommitSubject(specBody);
+  if (line === null) return null;
+  const subject = line.replace(/^`+|`+$/g, '').trim();
+  if (subject === '') return null;
+  const violation = subjectViolation(subject);
+  if (violation === null) return null;
+  return (
+    `commit_subject_invalid: ## Commit subject "${subject}" — ${violation}. ` +
+    `Write the subject the swe will commit, in '${EXPECTED_FORM}' within ${MAX_SUBJECT_CHARS} code points.`
+  );
 }
 
 /** The spec's criterion ids in order, each once; [] for a legacy spec. */
