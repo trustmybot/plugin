@@ -554,7 +554,7 @@ function pushIntent(lowerOpen: string, ctx: Context): GateResult | null {
 
 ${pendingList(pending)}
 
-Before \`git push\`, spawn code-reviewer for each pending task via \`Agent(subagent_type='code-reviewer', isolation=)\` (no worktree — code-reviewer reviews from the main checkout). On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
+Before \`git push\`, spawn code-reviewer per pending task with the \`reviewer_spawn\` Agent call bro_atomic_close returned, passed as is (its prompt carries the anchors the spawn gates require), per tmb_push-gate. On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
 }
 
 function reonboardIntent(lower: string, ctx: Context): GateResult | null {
@@ -600,7 +600,7 @@ function resumeIntent(lowerOpen: string, ctx: Context): GateResult | null {
 
 Required workflow:
 1. Call \`task_get(task_id=${taskId})\` to load the spec.
-2. If the task has no worktree yet, call \`task_reopen(task_id=${taskId}, reason="resume planned task")\`, which creates it; then spawn SWE via \`Agent(subagent_type='swe')\` with \`task_id=${taskId}\` in the prompt. Leave the main checkout on its current branch.
+2. If the task has no worktree yet, call \`task_reopen(task_id=${taskId}, reason="resume planned task")\`, which creates it; then spawn swe: \`Agent(subagent_type='swe', effort='<tasks.effort>', prompt='task_id=${taskId}')\`. Leave the main checkout on its current branch.
 3. Do NOT call \`issue_create\` or \`task_create_batch\` — replanning is forbidden when planning_complete already exists for this work.`);
 }
 
@@ -628,7 +628,7 @@ async function hints(promptRaw: string, env: NodeJS.ProcessEnv): Promise<GateRes
     const matched = firstIncluded(lowerOpen, CONCERNS_PATTERNS);
     if (matched !== '') {
       return emit(
-        `🚨 concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request — load \`tmb_concerns-protocol\`. REQUIRED FIRST ACTION before any compliance, edit, or task creation: \`discussion_append(agent='bro', kind='note', body='Concern: …')\` recording what the request risks (or why it is pointless) and your recommendation. Then follow the protocol — hold for the Human's alignment; a documented decision is not a substitute for the Concern: record.`,
+        `🚨 concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request — load \`tmb_concerns-protocol\`. REQUIRED FIRST ACTION before any compliance, edit, or task creation: \`discussion_append(agent='bro', kind='note', body='Concern: …')\` recording what the request risks (or why it is pointless) and your recommendation. Then follow the protocol: wait for the Human's call, or, when the Human said not to ask, record the concern with the recommended default as kind='decision' and proceed.`,
       );
     }
   }

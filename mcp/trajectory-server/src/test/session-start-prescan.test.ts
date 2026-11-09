@@ -609,7 +609,7 @@ describe('session-start-prescan: the SessionStart inventory', () => {
       const nojq = noCmdPath(join(sb.dir, 'nojq'), 'jq', base.PATH ?? '');
       const r = hook({ PATH: nojq, TRAJECTORY_DB_PATH: db });
       const v = JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string; hookEventName: string } };
-      assert.equal(v.hookSpecificOutput.additionalContext, 'Tooling: jq not found — every TMB gate will deny until it is installed', 'the one Tooling line');
+      assert.equal(v.hookSpecificOutput.additionalContext, 'Tooling: jq not found, so the session inventory is skipped; gates still run. Tell the Human to install jq for the inventory.', 'the one Tooling line');
       assert.equal(v.hookSpecificOutput.hookEventName, 'SessionStart', 'a SessionStart output');
     });
   });

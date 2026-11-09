@@ -4,5 +4,5 @@
     "command": "cd @SANDBOX@/stale && gh auth login"
   },
   "corpus_cwd": "project",
-  "corpus_expect": "No remote is configured"
+  "corpus_expect": "no remote URL is configured"
 }

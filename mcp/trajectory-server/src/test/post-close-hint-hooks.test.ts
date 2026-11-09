@@ -96,8 +96,9 @@ describe('post-task-create-spawn-hint through dist/hooks.js', () => {
     const ctx = contextOf(r.stdout);
     assert.ok(ctx.includes(`task_id=42 branch_id=feat/my-feature worktree=${repoPath}/.claude/worktrees/my-feature`));
     assert.ok(ctx.includes(`task_id=43 branch_id=feat/other worktree=${repoPath}/.claude/worktrees/other`));
-    for (const phrase of ['Step 4', "spawn every created task's SWE in one turn", 'one Agent call each', 'CLAUDE_PLUGIN_ROOT', 'dist/hooks.js worktree-create'])
+    for (const phrase of ['section 5 (Spawn SWE)', "spawn every created task's SWE in one turn", 'one Agent call each', "effort='<tasks.effort>'"])
       assert.ok(ctx.includes(phrase), phrase);
+    assert.ok(!ctx.includes('worktree-create'));
     assert.ok(!ctx.includes("isolation='worktree'"));
   });
 

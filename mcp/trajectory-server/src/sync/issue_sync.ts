@@ -108,7 +108,7 @@ async function readBackVerify(
       result = spawnFn('glab', args, spawnOpts);
     }
     if (result.status !== 0) {
-      return { ok: false, reason: 'read_back_non_zero_exit' };
+      return { ok: false, reason: verifyFailureReason('read_back_non_zero_exit', result.stderr) };
     }
     if (backend === 'gh') {
       let parsed: { number?: number; url?: string };
@@ -259,6 +259,13 @@ function parseRemoteMetadata(stdout: string): { milestone: string | null; labels
   return { milestone, labels };
 }
 
+const VERIFY_STDERR_MAX = 200;
+
+function verifyFailureReason(prefix: string, stderr: string | null | undefined): string {
+  const line = (stderr ?? '').split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '');
+  return line ? `${prefix}: ${line.slice(0, VERIFY_STDERR_MAX)}` : prefix;
+}
+
 export async function verifyRemoteIssue(
   backend: 'gh' | 'glab',
   iid: number,
@@ -278,7 +285,7 @@ export async function verifyRemoteIssue(
       if (opts.repoSlug) args.push('-R', opts.repoSlug);
       result = spawnFn('glab', args, spawnOpts);
     }
-    if (result.status !== 0) return { ok: false, reason: 'not_found_or_error' };
+    if (result.status !== 0) return { ok: false, reason: verifyFailureReason('not_found_or_error', result.stderr) };
     if (backend === 'gh') {
       let parsed: { number?: unknown };
       try {
@@ -704,6 +711,8 @@ export interface SyncIssueUpdateFields {
   milestone?: string;
   labels?: { add: string[]; remove: string[] };
   title?: string;
+  body?: string;
+  marker?: string;
 }
 
 export interface SyncIssueUpdateOpts {
@@ -732,6 +741,15 @@ export async function syncIssueUpdate(
     for (const l of fields.labels.remove) args.push(removeFlag, l);
   }
   if (fields.title !== undefined) args.push(backend === 'gh' ? '--title' : '-t', fields.title);
+  if (fields.body !== undefined) {
+    const body = withMarker(fields.body, fields.marker);
+    if (backend === 'gh') {
+      args.push('--body-file', '-');
+      spawnOpts.input = body;
+    } else {
+      args.push('-d', body);
+    }
+  }
 
   try {
     const result = spawnFn(backend, args, spawnOpts);

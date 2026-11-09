@@ -1,4 +1,4 @@
-// hooks/hooks.json as L1 symbols (GH 1680, ADR 0002): one kind='hook' row per
+// hooks/hooks.json as L1 symbols (GH 1680): one kind='hook' row per
 // registered hook, qualified '<Event>#<pos>:<gate>', with run_order = event
 // rank * 100 + position so the Claude Code lifecycle order is queryable, and a
 // 'runs' edge to the gate's TypeScript module, src/hooks/<gate>.ts (GH 1692:
