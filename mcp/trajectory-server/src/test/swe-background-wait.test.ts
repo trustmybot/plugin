@@ -6,25 +6,32 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { liveBackgroundIds } from '../hooks/lib/background-wait.js';
 
-const jsonl = (...lines: Array<string | object>) => lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n';
+type Line = string | object;
 
-const start = (id: string) => ({
-  type: 'user',
-  message: {
-    role: 'user',
-    content: [
-      { tool_use_id: `toolu_${id}`, type: 'tool_result', content: `Command running in background with ID: ${id}. Output is being written to: /tmp/${id}.output.`, is_error: false },
-    ],
-  },
+const jsonl = (...lines: Array<Line | Line[]>) =>
+  lines
+    .flat()
+    .map((l) => (typeof l === 'string' ? l : JSON.stringify(l)))
+    .join('\n') + '\n';
+
+const toolUse = (useId: string, name: string, input: object = {}) => ({
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'tool_use', id: useId, name, input }] },
 });
 
-const moved = (id: string) => ({
+const startText = (id: string) => `Command running in background with ID: ${id}. Output is being written to: /tmp/${id}.output.`;
+
+const toolResult = (useId: string | undefined, content: unknown) => ({
   type: 'user',
-  message: {
-    role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: [{ type: 'text', text: `Command did not complete within its 120s timeout and was moved to the background (ID: ${id}).` }] }],
-  },
+  message: { role: 'user', content: [{ ...(useId === undefined ? {} : { tool_use_id: useId }), type: 'tool_result', content, is_error: false }] },
 });
+
+const start = (id: string) => [toolUse(`toolu_${id}`, 'Bash', { command: 'sleep 60', run_in_background: true }), toolResult(`toolu_${id}`, startText(id))];
+
+const moved = (id: string) => [
+  toolUse(`toolu_mv_${id}`, 'Bash', { command: 'sleep 600' }),
+  toolResult(`toolu_mv_${id}`, [{ type: 'text', text: `Command did not complete within its 120s timeout and was moved to the background (ID: ${id}).` }]),
+];
 
 const notificationText = (id: string, status: string) =>
   `[SYSTEM NOTIFICATION - NOT USER INPUT]\n\n<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>toolu_${id}</tool-use-id>\n<status>${status}</status>\n<summary>Background command finished</summary>\n</task-notification>`;
@@ -108,6 +115,38 @@ describe('liveBackgroundIds', () => {
   it('a foreground command moved to the background counts as a start', () => {
     assert.deepEqual(liveBackgroundIds(jsonl(moved('by4ejizgu'))), ['by4ejizgu']);
     assert.deepEqual(liveBackgroundIds(jsonl(moved('by4ejizgu'), userNotification('by4ejizgu', 'completed'))), []);
+  });
+
+  describe('only a Bash tool_result starts a run (GH 2688)', () => {
+    for (const name of ['Read', 'Grep', 'mcp__plugin_tmb_trajectory-server__task_brief']) {
+      it(`a start marker in a ${name} tool_result gives []`, () => {
+        assert.deepEqual(liveBackgroundIds(jsonl(toolUse('toolu_q', name, { file_path: '/x' }), toolResult('toolu_q', startText('bq1')))), []);
+        assert.deepEqual(liveBackgroundIds(jsonl(toolUse('toolu_q', name), toolResult('toolu_q', [{ type: 'text', text: startText('bq1') }]))), []);
+      });
+    }
+
+    it('a quoted marker beside a real Bash start gives only the Bash id', () => {
+      assert.deepEqual(liveBackgroundIds(jsonl(toolUse('toolu_r', 'Read'), toolResult('toolu_r', startText('quoted')), start('real'))), ['real']);
+    });
+
+    it('a tool_result with no tool_use_id gives no start', () => {
+      assert.deepEqual(liveBackgroundIds(jsonl(toolUse('toolu_b', 'Bash'), toolResult(undefined, startText('b1')))), []);
+    });
+
+    it('a tool_result naming an unknown tool_use id gives no start', () => {
+      assert.deepEqual(liveBackgroundIds(jsonl(toolUse('toolu_b', 'Bash'), toolResult('toolu_other', startText('b1')))), []);
+      assert.deepEqual(liveBackgroundIds(jsonl(toolResult('toolu_b', startText('b1')))), []);
+    });
+
+    it('a Bash start still ends on a task-notification or TaskStop', () => {
+      assert.deepEqual(liveBackgroundIds(jsonl(start('b1'))), ['b1']);
+      assert.deepEqual(liveBackgroundIds(jsonl(start('b1'), userNotification('b1', 'completed'))), []);
+      assert.deepEqual(liveBackgroundIds(jsonl(start('b1'), taskStop('b1'))), []);
+    });
+
+    it('a notification in a non-Bash tool_result still ends a Bash start', () => {
+      assert.deepEqual(liveBackgroundIds(jsonl(start('b1'), toolUse('toolu_r', 'Read'), toolResult('toolu_r', notificationText('b1', 'completed')))), []);
+    });
   });
 
   it('empty text gives []', () => {
