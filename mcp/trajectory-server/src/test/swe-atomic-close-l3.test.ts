@@ -257,6 +257,11 @@ describe('swe-atomic-close l3: one repo', () => {
       const lines: object[] = [
         { type: 'user', timestamp: '2026-04-01T00:00:00.000Z', message: { role: 'user', content: 'task_id=42 You are swe. Implement the spec.' } },
         {
+          type: 'assistant',
+          timestamp: '2026-04-01T00:00:00.500Z',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Bash', input: { command: 'sleep 60', run_in_background: true } }] },
+        },
+        {
           type: 'user',
           timestamp: '2026-04-01T00:00:01.000Z',
           message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'Command running in background with ID: bgw2206. Output is being written to: /tmp/bgw2206.output.' }] },
