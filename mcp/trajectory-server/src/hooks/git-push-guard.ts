@@ -14,7 +14,7 @@
  * read wherever node:sqlite works, with no sqlite3 CLI on PATH.
  */
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements, denyAmbiguousGitTarget, gitSubcommand, gitSubcommandUnknown, payloadCwd, stmtRepoRoot } from './cmd-analysis/index.js';
+import { cmdStatements, denyAmbiguousGitTarget, gitSubcommandOf, payloadCwd, stmtRepoRoot } from './cmd-analysis/index.js';
 import { DB_RETRY_FIX, dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { type DenyFix, denyResult as deny } from './lib/deny.js';
@@ -310,10 +310,11 @@ export const gitPushGuard: Gate = async (payload, env) => {
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
-  const unknown = listed.statements.find((statement) => !pushVerb(gitSubcommand(statement.stmt)) && gitSubcommandUnknown(statement));
+  const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
+  const unknown = listed.statements[subs.indexOf(undefined)];
   if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
-  const pushes = listed.statements.filter(({ stmt }) => {
-    const sub = gitSubcommand(stmt);
+  const pushes = listed.statements.filter((_, j) => {
+    const sub = subs[j] ?? '';
     return pushVerb(sub) && !FORCE.test(` ${sub} `);
   });
   if (pushes.length === 0) return ALLOW;
