@@ -97,7 +97,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
 6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the touched tests, `bun run build:tsc` and touched L1 lints locally + code-reviewer + pr-check, whose `suite` job runs the full L1–L4 sweep. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
-8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
+8. **Prompt engineering follows [`docs/prompt-engineering/ENFORCEMENT.md`](docs/prompt-engineering/ENFORCEMENT.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
 
 ## CI (GitHub Actions)
@@ -147,7 +147,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 4. On any step failure: reproduce and debug with the matching L5 row (`node --experimental-strip-types --experimental-sqlite tests/l5-l6/run-l5.ts <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.ts --from <step>`). Iterate until the chain completes. An L6 step that needs the network is made hermetic (a fixture env var or fixture file), never re-rolled until it passes.
 5. Whether the resumed 15/15 clears you to tag depends on what the fix touched:
    - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
-   - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
+   - Fix touched **runtime** (`mcp/`, `scripts/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
 
 **Phase C — rc**
 6. Tag `vX.Y.Z-rc.N` on `dev`, push — this fires the CI release-gate (L1–L4 + L6 + L0) that is the sign-off (step 8). `rc` already points at it (step 3).
