@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
 import { resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
@@ -39,7 +40,7 @@ import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
-import { joinToolchainPath, toolchainDirs } from '../hooks/swe-verification-gate.js';
+import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
@@ -69,6 +70,72 @@ import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
+const STDOUT_KEEP = 4096;
+const STDERR_KEEP = 2048;
+
+interface BudgetedRun {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
+/** `bash -c command` in cwd, async; past timeoutMs its whole process group is SIGKILLed. */
+function runBudgeted(command: string, cwd: string, timeoutMs: number): Promise<BudgetedRun> {
+  return new Promise((done) => {
+    const out: Buffer[] = [];
+    const errOut: Buffer[] = [];
+    let outBytes = 0;
+    let errBytes = 0;
+    let timedOut = false;
+    let settled = false;
+    const finish = (exitCode: number, spawnError?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const stderr = Buffer.concat(errOut).toString('utf8');
+      done({
+        stdout: Buffer.concat(out).toString('utf8'),
+        stderr: spawnError !== undefined && stderr === '' ? spawnError : stderr,
+        exitCode,
+        timedOut,
+      });
+    };
+    const child = spawn('bash', ['-c', command], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (outBytes < STDOUT_KEEP) out.push(chunk);
+      outBytes += chunk.length;
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (errBytes < STDERR_KEEP) errOut.push(chunk);
+      errBytes += chunk.length;
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // The group already exited.
+      }
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }, timeoutMs);
+    child.on('error', (e) => finish(127, e.message));
+    child.on('close', (code, signal) => finish(code ?? (signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : 1)));
+  });
+}
+
+/** The verification budget in seconds: TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s. */
+function commandBudgetS(db: TrajectoryDB): number {
+  let raw = process.env['TMB_VERIFICATION_TIMEOUT_S'] ?? '';
+  if (raw === '') {
+    const row = db.get<{ v: unknown }>(
+      `SELECT json_extract(value_json, '$') AS v FROM plugin_config WHERE key = 'verification_timeout_s'`,
+    );
+    raw = row?.v == null ? '' : String(row.v);
+  }
+  return parseBudget(raw).timeoutS;
+}
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -1237,7 +1304,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        "Creates a worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout's node_modules, runs the repo's .config/tmb/worktree-setup.json commands (a failing one returns an error naming it, and command is not run), runs command there, then removes the worktree. A repo_path outside the project is refused with outside_project.",
+        "Creates a worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, links the main checkout's node_modules, runs the repo's .config/tmb/worktree-setup.json commands (a failing one returns an error naming it, and command is not run), runs command there under the verification budget (TMB_VERIFICATION_TIMEOUT_S, else plugin_config.verification_timeout_s; default 900 s, cap 1800 s; an over-budget command is killed and returns passed: false, timed_out: true), then removes the worktree. A repo_path outside the project is refused with outside_project.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -3034,6 +3101,7 @@ export function compositeTools(
         let stdout = '';
         let stderr = '';
         let exitCode = 0;
+        let timedOut = false;
 
         try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
@@ -3055,18 +3123,11 @@ export function compositeTools(
           if (setup.error !== undefined) {
             setupFailure = setup;
           } else {
-            const result = execFileSync('bash', ['-c', command], {
-              cwd: wtPath,
-              stdio: ['ignore', 'pipe', 'pipe'],
-              timeout: 60_000,
-            });
-            stdout = result.toString('utf8');
+            ({ stdout, stderr, exitCode, timedOut } = await runBudgeted(command, wtPath, commandBudgetS(db) * 1000));
           }
         } catch (e: unknown) {
-          const spawnErr = e as { stdout?: Buffer; stderr?: Buffer; status?: number; message?: string };
-          stdout = spawnErr.stdout?.toString('utf8') ?? '';
-          stderr = spawnErr.stderr?.toString('utf8') ?? spawnErr.message ?? '';
-          exitCode = spawnErr.status ?? 1;
+          stderr = (e as Error).message ?? '';
+          exitCode = 1;
         } finally {
           try {
             execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
@@ -3090,6 +3151,7 @@ export function compositeTools(
                 worktree: wtPath,
                 exit_code: exitCode,
                 passed,
+                timed_out: timedOut,
                 stdout: stdout.slice(0, 4096),
                 stderr: stderr.slice(0, 2048),
               }),
