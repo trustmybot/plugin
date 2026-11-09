@@ -20,6 +20,7 @@ export {
   cwdState,
   denyAmbiguousGitTarget,
   gitSubcommand,
+  gitSubcommandUnknown,
   stmtRepoRoot,
   withSource,
   type GitStatements,
