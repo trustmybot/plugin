@@ -122,7 +122,7 @@ export function detectStructuralChange(
 // file + subdir names (summary_source='structural') so every node is non-empty
 // and reachable by world_model_search — README excerpts beat reading the whole
 // tree, and a structural line beats a NULL the search can never hit (#288).
-// See docs/architecture/WORLD_MODEL.md + ADR 0001.
+// See docs/architecture/WORLD_MODEL.md and GH 1680.
 const README_CANDIDATES = ['README.md', 'readme.md', 'README.rst', 'readme.rst'];
 const README_MAX_BYTES = 1024;
 const STRUCTURAL_LIST_MAX = 8;

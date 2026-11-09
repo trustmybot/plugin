@@ -408,7 +408,7 @@ test('audit_search — hybrid: no FTS-match returns results array without throwi
 
 // ---------------------------------------------------------------------------
 // world_model_search — directory-level search (replaces file_registry_search
-// post-ADR 0001). Coverage proves keyword + hybrid modes + semantic fallback.
+// since the GH 1680 world-model rewrite). Coverage proves keyword + hybrid modes + semantic fallback.
 // ---------------------------------------------------------------------------
 
 test('world_model_search — keyword: match by summary content', async (t) => {

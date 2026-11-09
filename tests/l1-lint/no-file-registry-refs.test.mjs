@@ -1,4 +1,4 @@
-// L1 lint: no live reference to file_registry / file-registry.ts in code, prompts or docs; the table was retired in schema v7 (ADR 0001), so a hit is drift back toward the pre-world-model design. CLAUDE.md is Human-owned and only warns.
+// L1 lint: no live reference to file_registry / file-registry.ts in code, prompts or docs; the table was retired in schema v7 (GH 1680), so a hit is drift back toward the pre-world-model design. CLAUDE.md is Human-owned and only warns.
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

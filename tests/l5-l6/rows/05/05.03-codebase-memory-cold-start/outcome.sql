@@ -1,4 +1,4 @@
--- 05.03-codebase-memory-cold-start (ADR 0001 — world-model rewrite of #45)
+-- 05.03-codebase-memory-cold-start (GH 1680 — world-model rewrite of #45)
 -- Existing repo + identity present + world model cold + test mode.
 -- Bro must self-fire scan_run (no Human to ask) before task_provision
 -- because the server-enforced world-model-cold gate would otherwise block.
