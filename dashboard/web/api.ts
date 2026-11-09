@@ -71,12 +71,31 @@ export interface Gates {
   verifications: Row[];
 }
 
+export interface GateTask {
+  id: number;
+  title: string;
+  status: string;
+  commit_sha: string | null;
+  verification: { id: number; exit_code: number | null; timed_out: boolean; commit_sha: string | null; matches_commit: boolean } | null;
+  verdict: { id: number; verdict: string; attempt_n: number } | null;
+  open_findings: number;
+}
+
+export interface GateBranch {
+  branch_id: string;
+  state: 'ready' | 'blocked' | 'pending';
+  updated_at: string;
+  tasks: GateTask[];
+}
+
 export interface WmNode {
   repo: string;
   path: string;
   parent_path: string | null;
   summary: string | null;
   file_count: number;
+  commits_behind?: number | null;
+  dead_refs?: string[] | null;
 }
 
 export interface Freshness {
@@ -321,6 +340,25 @@ export function useIssueWrite(id: string, action: IssueAction) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: Row) => postJson(`issues/${id}/${action}`, body),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
+  });
+}
+
+export type EditableConfigKey = 'model_prices' | 'issue_area_labels' | 'issue_classification_labels' | 'issue_priority_labels';
+
+export interface ConfigEntry {
+  key: EditableConfigKey;
+  value: unknown;
+}
+
+export interface EditableConfig {
+  keys: ConfigEntry[];
+}
+
+export function useConfigWrite(key: EditableConfigKey) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { value: unknown; expected: unknown }) => postJson(`config/${key}`, body),
     onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
   });
 }

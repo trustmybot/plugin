@@ -5,7 +5,7 @@ argument-hint: (none)
 
 # /dashboard
 
-Start the dashboard server with the Bash tool, `run_in_background: true`:
+Start the dashboard server with the Bash tool, `run_in_background: true` and `dangerouslyDisableSandbox: true` (its whole job is to listen on loopback, which the sandbox blocks by default):
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/dashboard/dist/server.mjs"
@@ -13,4 +13,4 @@ node "${CLAUDE_PLUGIN_ROOT}/dashboard/dist/server.mjs"
 
 Read its output once it prints a line starting with `http://127.0.0.1:` and tell the Human to open that URL. The server keeps running in the background until the session ends or the Human stops it.
 
-If it exits instead, report its error. If node reports the module missing, tell the Human `dashboard is not built: run (cd dashboard && bun install && bun run build)`. `EADDRINUSE` means a dashboard is already running on that port (default `http://127.0.0.1:7477/`); `TMB_DASHBOARD_PORT=0` picks a free port.
+If it exits instead, report its error. If node reports the module missing, tell the Human `dashboard is not built: run (cd dashboard && bun install && bun run build)`. `EADDRINUSE` means a dashboard is already running on that port (default `http://127.0.0.1:7477/`); `TMB_DASHBOARD_PORT=0` picks a free port. `EPERM` on listen means the sandbox blocked local binding, not a dashboard error; `sandbox.network.allowLocalBinding: true` in settings lets it run inside the sandbox.

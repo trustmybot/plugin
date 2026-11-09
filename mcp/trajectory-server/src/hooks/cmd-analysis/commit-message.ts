@@ -45,7 +45,7 @@ function inner(stmt: string): string {
 /** _tmb_cmd_statements_enc <cmd> <base> <depth>: the encoded statements with their tail flag, null when a body does not parse. */
 function statements(parser: Parser, cmd: string, base: string, depth: number, home: string): Listed[] | null {
   if (cmd.trim() === '') return [];
-  const encoded = encode(parser, cmd);
+  const encoded = encode(parser, cmd, undefined, false, true);
   if (!encoded.ok) return null;
   const out: Listed[] = [];
   for (const record of statementsEnc(encoded.text, base, home, false)) {

@@ -11,7 +11,7 @@ import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-s
 import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
-import type { SyncFailure } from '../sync/issue_sync.js';
+import type { SyncFailure, SyncIssueUpdateFields } from '../sync/issue_sync.js';
 import { reconcileRemoteCloses } from '../sync/issue-reconcile.js';
 import { syncRemotePrs } from '../sync/pr-sync.js';
 import { serverLog } from '../logger.js';
@@ -448,6 +448,90 @@ function notSyncedHint(clis: ReadonlyArray<'gh' | 'glab'>): string {
   return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
 }
 
+// Mirror a local issue edit (issue_update, issue_update_description) to every
+// synced remote the issue has an iid on; the local row is already written.
+// The leading await lets a caller's synchronous transaction around the handler
+// (dashboard/server/writes.ts callIfCurrent) commit before any gh/glab spawn.
+async function mirrorIssueEdit(
+  db: TrajectoryDB,
+  row: IssueRow,
+  fields: SyncIssueUpdateFields,
+  spawnFn: SpawnFn | undefined,
+  cwdOverride: string | undefined,
+): Promise<Record<string, unknown>> {
+  await Promise.resolve();
+  if (row.gh_iid == null && row.gl_iid == null) {
+    return { sync_skipped: true, reason: 'no_remote_iid', hint: 'The issue has no gh_iid/gl_iid; the change is local only.' };
+  }
+  const syncConfigRow = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
+  );
+  const syncConfig: string = syncConfigRow
+    ? (JSON.parse(syncConfigRow.value_json) as string)
+    : 'off';
+  if (syncConfig === 'off') {
+    return { sync_skipped: true, reason: 'issue_sync_off', hint: 'The change is local only; enable issue_sync to mirror it.' };
+  }
+  const syncCtx = resolveIssueSyncContext(db, row.repo);
+  const remoteProviders = syncCtx
+    ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
+    : null;
+  const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
+  if (backend === null || backend === 'off') {
+    return { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
+  }
+  if (syncCtx === null) {
+    return {
+      sync_failed: true,
+      reason: 'unresolvable_repo',
+      repo: row.repo,
+      backend,
+      hint: row.repo
+        ? `issue repo "${row.repo}" has no matching repos row — run /scan.`
+        : 'multiple repos registered and the issue has no repo.',
+    };
+  }
+  const reachable = syncedBackends(backend, syncCtx);
+  const targets: Array<{ cli: 'gh' | 'glab'; iid: number }> = [];
+  if (reachable.includes('gh') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
+  if (reachable.includes('glab') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
+  const wanted: Array<'gh' | 'glab'> = backend === 'both' ? ['gh', 'glab'] : [backend];
+  const unreachable = wanted.filter((cli) =>
+    !reachable.includes(cli) && (cli === 'gh' ? row.gh_iid : row.gl_iid) != null);
+  if (targets.length === 0 && unreachable.length > 0) {
+    return { sync_skipped: true, reason: 'not_synced', backend, hint: notSyncedHint(unreachable) };
+  }
+  if (targets.length === 0) {
+    return { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
+  }
+  const results = await Promise.all(targets.map(async (t) => ({
+    target: t,
+    result: await syncIssueUpdate(t.cli, t.iid, fields, {
+      spawnFn,
+      cwd: cwdOverride ?? syncCtx.cwd,
+      repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? undefined,
+    }),
+  })));
+  const failed = results.filter((r) => !r.result.ok);
+  if (failed.length === 0) {
+    return { synced: true, backends: targets.map((t) => t.cli) };
+  }
+  for (const f of failed) {
+    serverLog({ event: 'issue_sync_failed', issueId: String(row.id), backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
+  }
+  const first = failed[0]!;
+  return {
+    sync_failed: true,
+    reason: first.result.reason,
+    backend: first.target.cli,
+    failed_backends: failed.map((f) => f.target.cli),
+    exit_code: first.result.exit_code,
+    stderr: first.result.stderr?.slice(0, 4096),
+    message: first.result.message,
+    hint: 'The local row is updated; run the underlying gh/glab edit manually to mirror it.',
+  };
+}
+
 const SYNC_RETRY_HINT = 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.';
 const SYNC_UNKNOWN_HINT = 'The remote issue may already exist: the create\'s result was lost. Run `issue_sync_retry`; it looks for the issue by its body marker before it creates, so it adopts that issue rather than opening a duplicate. Do not re-create it by hand.';
 
@@ -455,19 +539,21 @@ function syncFailureHint(outcomes: ReadonlyArray<SyncFailure['outcome']>): strin
   return outcomes.includes('unknown') ? SYNC_UNKNOWN_HINT : SYNC_RETRY_HINT;
 }
 
+interface AdoptionTarget {
+  backend: 'github' | 'gitlab';
+  remoteIid: number;
+  syncCtx: IssueSyncContext | null;
+}
+
 // Remote adoption (#36). Resolve the backend for a remote_iid (explicit arg, or
-// the repo's sole configured remote) and verify the remote issue exists via
-// gh/glab before any local link is persisted. Shared by issue_create's adopt-
-// at-create path and the after-the-fact issue_adopt_remote tool. Returns the
-// resolved backend on success, or a named error on an invalid iid / ambiguous
-// backend / failed remote verification.
-async function verifyAdoptionRemote(
+// the repo's sole configured remote) without spawning gh/glab. Returns a named
+// error on an invalid iid / ambiguous or unresolved backend.
+function resolveAdoptionTarget(
   db: TrajectoryDB,
   issueRepo: string | null,
   remoteBackendArg: 'github' | 'gitlab' | undefined,
   remoteIid: number,
-  spawnFn: SpawnFn | undefined,
-): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+): { ok: true; target: AdoptionTarget } | { ok: false; error: string } {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
     return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
   }
@@ -484,6 +570,16 @@ async function verifyAdoptionRemote(
       return { ok: false, error: 'remote_backend_unresolved: repo has no configured remote — pass remote_backend' };
     }
   }
+  return { ok: true, target: { backend, remoteIid, syncCtx } };
+}
+
+// Verify the resolved remote issue exists via gh/glab before any local link is
+// persisted, and read back its milestone and labels.
+async function verifyAdoptionTarget(
+  target: AdoptionTarget,
+  spawnFn: SpawnFn | undefined,
+): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+  const { backend, remoteIid, syncCtx } = target;
   const cliBackend = backend === 'github' ? 'gh' : 'glab';
   const remote = syncCtx?.remoteFor(cliBackend);
   const verify = await verifyRemoteIssue(cliBackend, remoteIid, {
@@ -498,6 +594,19 @@ async function verifyAdoptionRemote(
     };
   }
   return { ok: true, backend, milestone: verify.milestone ?? null, labels: verify.labels ?? [] };
+}
+
+// Shared by issue_create's adopt-at-create path: resolve, then verify.
+async function verifyAdoptionRemote(
+  db: TrajectoryDB,
+  issueRepo: string | null,
+  remoteBackendArg: 'github' | 'gitlab' | undefined,
+  remoteIid: number,
+  spawnFn: SpawnFn | undefined,
+): Promise<{ ok: true; backend: 'github' | 'gitlab'; milestone: string | null; labels: string[] } | { ok: false; error: string }> {
+  const resolved = resolveAdoptionTarget(db, issueRepo, remoteBackendArg, remoteIid);
+  if (!resolved.ok) return resolved;
+  return verifyAdoptionTarget(resolved.target, spawnFn);
 }
 
 export interface RemoteCloseTarget {
@@ -725,7 +834,7 @@ export function issueTools(
     },
     {
       name: 'issue_update_description',
-      description: "Replace an issue's description, e.g. to backfill one truncated on import.",
+      description: "Replace an issue's description; issue sync mirrors it to the remote body.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1458,14 +1567,17 @@ export function issueTools(
       const issueId = requireArg(args, 'issue_id') as string;
       const description = requireArg(args, 'description') as string;
       const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
+      // _spawnFn / _cwd: test-only injection points; not in inputSchema
+      const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
+      const cwdOverride = args['_cwd'] as string | undefined;
 
       const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
       if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
         return err('description exceeds 1MB limit');
       }
 
-      const existing = db.get<{ id: number }>('SELECT id FROM issues WHERE id = ?', [issueId]);
-      if (!existing) {
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!row) {
         return err(`not_found: issue ${issueId}`);
       }
 
@@ -1475,8 +1587,19 @@ export function issueTools(
         [description, now, issueId],
       );
 
+      const syncDiagnostic = await mirrorIssueEdit(
+        db,
+        row,
+        { body: description, marker: issueSyncMarker(row.id, row.created_at) },
+        spawnFn,
+        cwdOverride,
+      );
+
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }));
+      return ok({
+        ...(redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }) as Record<string, unknown>),
+        _sync: syncDiagnostic,
+      });
     })),
 
     issue_update: requireRoles('issue_update', ['bro'], wrapHandler(async (args) => {
@@ -1562,89 +1685,16 @@ export function issueTools(
         created_at: now,
       });
 
-      let syncDiagnostic: Record<string, unknown> | undefined;
-      if (row.gh_iid == null && row.gl_iid == null) {
-        syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', hint: 'The issue has no gh_iid/gl_iid; the change is local only.' };
-      } else {
-        const syncConfigRow = db.get<{ value_json: string }>(
-          `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
-        );
-        const syncConfig: string = syncConfigRow
-          ? (JSON.parse(syncConfigRow.value_json) as string)
-          : 'off';
-        if (syncConfig === 'off') {
-          syncDiagnostic = { sync_skipped: true, reason: 'issue_sync_off', hint: 'The change is local only; enable issue_sync to mirror it.' };
-        } else {
-          const syncCtx = resolveIssueSyncContext(db, row.repo);
-          const remoteProviders = syncCtx
-            ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
-            : null;
-          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
-          if (backend === null || backend === 'off') {
-            syncDiagnostic = { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
-          } else if (syncCtx === null) {
-            syncDiagnostic = {
-              sync_failed: true,
-              reason: 'unresolvable_repo',
-              repo: row.repo,
-              backend,
-              hint: row.repo
-                ? `issue repo "${row.repo}" has no matching repos row — run /scan.`
-                : 'multiple repos registered and the issue has no repo.',
-            };
-          } else {
-            const fields: { milestone?: string; labels?: { add: string[]; remove: string[] }; title?: string } = {};
-            if (milestoneArg !== undefined) fields.milestone = milestoneArg;
-            if (labelsArg !== undefined) {
-              fields.labels = {
-                add: labelsArg.filter((l) => !previousLabels.includes(l)),
-                remove: previousLabels.filter((l) => !labelsArg.includes(l)),
-              };
-            }
-            if (objectiveArg !== undefined) fields.title = objectiveArg;
-            const reachable = syncedBackends(backend, syncCtx);
-            const targets: Array<{ cli: 'gh' | 'glab'; iid: number }> = [];
-            if (reachable.includes('gh') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
-            if (reachable.includes('glab') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
-            const wanted: Array<'gh' | 'glab'> = backend === 'both' ? ['gh', 'glab'] : [backend];
-            const unreachable = wanted.filter((cli) =>
-              !reachable.includes(cli) && (cli === 'gh' ? row.gh_iid : row.gl_iid) != null);
-            if (targets.length === 0 && unreachable.length > 0) {
-              syncDiagnostic = { sync_skipped: true, reason: 'not_synced', backend, hint: notSyncedHint(unreachable) };
-            } else if (targets.length === 0) {
-              syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
-            } else {
-              const results = await Promise.all(targets.map(async (t) => ({
-                target: t,
-                result: await syncIssueUpdate(t.cli, t.iid, fields, {
-                  spawnFn,
-                  cwd: cwdOverride ?? syncCtx.cwd,
-                  repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? undefined,
-                }),
-              })));
-              const failed = results.filter((r) => !r.result.ok);
-              if (failed.length === 0) {
-                syncDiagnostic = { synced: true, backends: targets.map((t) => t.cli) };
-              } else {
-                for (const f of failed) {
-                  serverLog({ event: 'issue_sync_failed', issueId, backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
-                }
-                const first = failed[0]!;
-                syncDiagnostic = {
-                  sync_failed: true,
-                  reason: first.result.reason,
-                  backend: first.target.cli,
-                  failed_backends: failed.map((f) => f.target.cli),
-                  exit_code: first.result.exit_code,
-                  stderr: first.result.stderr?.slice(0, 4096),
-                  message: first.result.message,
-                  hint: 'The local row is updated; run the underlying gh/glab edit manually to mirror it.',
-                };
-              }
-            }
-          }
-        }
+      const fields: SyncIssueUpdateFields = {};
+      if (milestoneArg !== undefined) fields.milestone = milestoneArg;
+      if (labelsArg !== undefined) {
+        fields.labels = {
+          add: labelsArg.filter((l) => !previousLabels.includes(l)),
+          remove: previousLabels.filter((l) => !labelsArg.includes(l)),
+        };
       }
+      if (objectiveArg !== undefined) fields.title = objectiveArg;
+      const syncDiagnostic = await mirrorIssueEdit(db, row, fields, spawnFn, cwdOverride);
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok({
@@ -1956,18 +2006,24 @@ export function issueTools(
         }
       }
 
-      const adoption = await verifyAdoptionRemote(db, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
-      if (!adoption.ok) {
-        return err(adoption.error);
+      const resolved = resolveAdoptionTarget(db, adoptRepo, remoteBackendArg, remoteIid);
+      if (!resolved.ok) {
+        return err(resolved.error);
       }
 
       // Conflict: an existing link for the same backend to a DIFFERENT iid is a
-      // hard error; re-adopting the same iid is idempotent.
-      const existingIid = adoption.backend === 'github' ? row.gh_iid : row.gl_iid;
+      // hard error, checked before any gh/glab spawn; re-adopting the same iid
+      // is idempotent.
+      const existingIid = resolved.target.backend === 'github' ? row.gh_iid : row.gl_iid;
       if (existingIid != null && existingIid !== remoteIid) {
-        return err(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+        return err(`already_linked: issue ${issueId} already has a ${resolved.target.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
+
+      const adoption = await verifyAdoptionTarget(resolved.target, spawnFn);
+      if (!adoption.ok) {
+        return err(adoption.error);
+      }
 
       const now = nowISO();
       const ghIid = adoption.backend === 'github' ? remoteIid : null;
