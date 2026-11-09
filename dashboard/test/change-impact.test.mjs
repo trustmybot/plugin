@@ -3,8 +3,9 @@
 // tokens, the third holds them) and a `repos` row whose temp git repo has two
 // CLAUDE.md commits, so both change sources list changes. Check that
 // GET /api/insights/change-impact deep-equals computeChangeImpact on the same
-// DB in its list and detail forms, its 400s and 404, that it runs in a worker
-// so /api/health answers while git is slow (GH 2618), that the DB file is
+// DB in its list and detail forms, its 400s and 404, that a throw inside the
+// worker is a 500 whose stderr log carries the worker's stack (GH 2753), that
+// it runs in a worker so /api/health answers while git is slow (GH 2618), that the DB file is
 // unchanged after the requests, and render the Change impact section to
 // static HTML.
 process.env.TZ = 'America/Los_Angeles';
@@ -85,9 +86,11 @@ function startServer(dbPath, env = {}) {
     const onData = (chunk) => {
       out += chunk;
       const url = /http:\/\/127\.0\.0\.1:\d+\//.exec(out)?.[0];
-      if (url) resolve({ url, stop: () => new Promise((done) => (child.once('exit', done), child.kill())) });
+      if (url) resolve({ url, stderr: () => err, stop: () => new Promise((done) => (child.once('exit', done), child.kill())) });
     };
     child.stdout.on('data', onData);
+    let err = '';
+    child.stderr.on('data', (chunk) => (err += chunk));
     child.stderr.on('data', onData);
     child.once('exit', (code) => reject(new Error(`server exited ${code}: ${out}`)));
   });
@@ -232,6 +235,30 @@ describe('GET /api/insights/change-impact', () => {
           [`${repo}:${shas.C2}`, `${other}:${shas.C1}`, `${other}:${shas.C2}`].sort(),
         );
       }
+    } finally {
+      await s.stop();
+    }
+  });
+
+  test('a throw inside the worker is a 500 INTERNAL_ERROR and stderr carries the worker bundle stack (GH 2753)', async () => {
+    const broken = join(tmp, 'no-agent-runs.db');
+    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    db.exec(`VACUUM INTO '${broken}'`);
+    db.close();
+    const w = new DatabaseSync(broken);
+    w.exec('DROP TABLE agent_runs');
+    w.close();
+    const s = await startServer(broken);
+    try {
+      const res = await fetch(`${s.url}api/insights/change-impact`);
+      assert.equal(res.status, 500);
+      const body = await res.json();
+      assert.deepEqual(body, { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' });
+      assert.doesNotMatch(JSON.stringify(body), /change-impact-worker|agent_runs/);
+      for (let i = 0; i < 100 && !s.stderr().includes('dashboard request failed:'); i += 1) await new Promise((r) => setTimeout(r, 10));
+      const logged = s.stderr().slice(s.stderr().indexOf('dashboard request failed:'));
+      assert.match(logged, /no such table: agent_runs/);
+      assert.match(logged, /\n\s+at .*change-impact-worker\.mjs:\d+:\d+/);
     } finally {
       await s.stop();
     }
