@@ -804,6 +804,20 @@ describe('cli.js integrate', () => {
       assert.equal(rev(`${r.out}^`), rev('main'), "the rebased commit's parent is the local main");
       assertNoTempWorktree();
     });
+
+    it('a hung fetch times out, warns and falls back to the local base', () => {
+      setup('clean');
+      git('remote', 'add', 'origin', 'ssh://hang.invalid/origin.git');
+      git('config', 'branch.main.remote', 'origin');
+      git('config', 'branch.main.merge', 'refs/heads/main');
+      const started = Date.now();
+      const r = integrate('main', { GIT_SSH_COMMAND: 'sleep 60;:', GIT_SSH_VARIANT: 'simple', TMB_INTEGRATE_FETCH_TIMEOUT_MS: '1000' });
+      assert.ok(Date.now() - started < 30_000, `the fetch did not wait out the 60 s ssh hang: ${r.err}`);
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.err, /^integrate: warning: git fetch origin refs\/heads\/main timed out after 1000 ms, using the local main$/m);
+      assert.equal(rev(`${r.out}^`), rev('main'), "the rebased commit's parent is the local main");
+      assertNoTempWorktree();
+    });
   });
 
   // GH 2356: the task renames r.txt to b.txt while main renames it to c.txt, as a

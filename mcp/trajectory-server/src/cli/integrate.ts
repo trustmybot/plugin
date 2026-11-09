@@ -17,7 +17,8 @@
  *      verdict since says otherwise.
  *   2. <base> is fetched first (GH 2632): a local branch tracking a remote
  *      fetches its upstream and resolves to `<base>@{u}`; `<remote>/<x>`
- *      fetches <x>. A failed fetch warns and keeps the local ref.
+ *      fetches <x>. A failed fetch, or one past 60 s (TMB_INTEGRATE_FETCH_TIMEOUT_MS
+ *      overrides it), warns and keeps the local ref.
  *      <base> already an ancestor of commit_sha → print commit_sha, exit 0;
  *      nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
@@ -86,6 +87,7 @@ import type { CliIo } from './fallback-db.js';
 const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
 const TIMED_OUT_CODE = 124;
+const FETCH_TIMEOUT_MS = 60_000;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
@@ -100,6 +102,7 @@ interface GitResult {
   ok: boolean;
   out: string;
   err: string;
+  timedOut: boolean;
 }
 
 function nowS(): number {
@@ -160,15 +163,17 @@ class Integration {
     throw new Exit(code);
   }
 
-  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv } = {}): GitResult {
+  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): GitResult {
     const r = spawnSync('git', ['-C', dir, ...args], {
       encoding: 'utf8',
       env: opts.env ?? this.env,
       input: opts.input,
       stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       maxBuffer: MAX_BUFFER,
+      timeout: opts.timeoutMs,
     });
-    return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '' };
+    const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+    return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '', timedOut };
   }
 
   /** A git command whose output goes to stderr, as the .sh's `>&2`. */
@@ -349,10 +354,15 @@ SELECT changes();`,
   }
 
   private fetchBase(remote: string, ref: string): boolean {
+    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
+    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
     const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, ref], {
       env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs,
     });
-    if (!r.ok) {
+    if (r.timedOut) {
+      this.say(`warning: git fetch ${remote} ${ref} timed out after ${timeoutMs} ms, using the local ${this.base}`);
+    } else if (!r.ok) {
       const reason = r.err.split('\n').find((line) => line.trim() !== '') ?? '';
       this.say(`warning: git fetch ${remote} ${ref} failed, using the local ${this.base}: ${reason.trim()}`);
     }
