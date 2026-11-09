@@ -12,6 +12,7 @@ import { conceptsApi } from './concepts.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
 import { clampHistory, freshnessFor, withFreshness, worldModelStatus, type Freshness } from './freshness.ts';
 import { cachedGraph, etagMatches, type GraphResponse } from './graph-cache.ts';
+import { dbFile, health } from './health.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { loadReleases } from './releases.ts';
@@ -143,6 +144,7 @@ async function handleApi(db: DatabaseSync, req: IncomingMessage, url: URL, res: 
       case 'gates': return sendJson(res, 200, q.gates(db));
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
+      case 'health': return sendJson(res, 200, health(db, dbFile(db)));
       case 'insights': {
         const filter = q.insightFilter(url.searchParams);
         return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, q.insights(db, filter));
