@@ -39,6 +39,8 @@ interface Fixture {
   verdictsOn(taskId: number, ...list: Verdict[]): void;
   runs(n: number, row?: { stopCause?: string | null; exitReason?: string | null }): void;
   discuss(row: { author?: string; kind?: string; taskId?: number | null }): void;
+  analysis(row?: { rootCause?: string; change?: string; taskId?: number }): number;
+  proof(eventType: 'task_spec_amended' | 'task_effort_raised', taskId?: number): number;
 }
 
 let sandbox: string;
@@ -107,7 +109,18 @@ function fixture(): Fixture {
   const discuss = ({ author = 'bro', kind = 'note', taskId = TASK_ID }: { author?: string; kind?: string; taskId?: number | null }) => {
     write('INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?)', ISSUE_ID, author, kind, 'b', tick(), taskId);
   };
-  return { db, env, verdicts: (...list) => verdictsOn(TASK_ID, ...list), verdictsOn, runs, discuss };
+  const auditRow = (eventType: string, content: Record<string, unknown>, taskId = TASK_ID): number => {
+    const w = new DatabaseSync(db);
+    const res = w
+      .prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)")
+      .run(ISSUE_ID, eventType, JSON.stringify({ task_id: taskId, ...content }), tick());
+    w.close();
+    return Number(res.lastInsertRowid);
+  };
+  const analysis = ({ rootCause = 'spec_unclear', change = 'spec_update', taskId = TASK_ID }: { rootCause?: string; change?: string; taskId?: number } = {}) =>
+    auditRow('task_rework_analysis', { root_cause: rootCause, change, fail_validation_ids: [], finding_ids: [], rationale: 'r' }, taskId);
+  const proof = (eventType: 'task_spec_amended' | 'task_effort_raised', taskId = TASK_ID) => auditRow(eventType, {}, taskId);
+  return { db, env, verdicts: (...list) => verdictsOn(TASK_ID, ...list), verdictsOn, runs, discuss, analysis, proof };
 }
 
 const payload = (subagent = 'swe', prompt = `task_id=${TASK_ID} do the thing`) =>
@@ -132,6 +145,17 @@ function assertHumanOnlyWaiver(reason: string, taskId: number): void {
   assert.doesNotMatch(reason, /decision/i);
 }
 
+/** The inner-limit deny: bro analyzes and changes; no Human waiver, no decision-row escape. */
+function assertInnerLimit(reason: string): void {
+  assert.ok(reason.includes('task_rework_analysis'), reason);
+  assert.ok(reason.includes('task_update_spec') && reason.includes('task_reopen(effort=...)'), reason);
+  assert.ok(reason.includes('task_retry') && /new task/.test(reason), reason);
+  assert.match(reason, /Human is needed only for a product decision/);
+  assert.doesNotMatch(reason, /waive task/);
+  assert.doesNotMatch(reason, /discussion_append/);
+  assert.doesNotMatch(reason, /outer ceiling/);
+}
+
 const ALLOWED = { stdout: '', code: 0 };
 
 describe('rework-limit', () => {
@@ -154,14 +178,14 @@ describe('rework-limit', () => {
   });
 
   describe('task FAILs', () => {
-    it('denies a swe spawn after two FAILs, naming the limit, its count and the Human waiver', () => {
+    it('denies a swe spawn after two FAILs, naming the limit, its count and the analysis step', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /task 3 is at the rework limit/);
       assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
       assert.doesNotMatch(reason, /task runs:|issue FAILs:/);
-      assertHumanOnlyWaiver(reason, TASK_ID);
+      assertInnerLimit(reason);
     });
 
     it('a newer kind=decision row by bro, on the task or the issue, does not lift it', () => {
@@ -325,6 +349,215 @@ describe('rework-limit', () => {
       f.discuss({ author: 'human', kind: 'decision', taskId: FRESH_TASK_ID });
       assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
       denyReason(spawnOf(f, TASK_ID).stdout);
+    });
+  });
+
+  describe('the inner limit: an analysis plus its proven change (GH 2830)', () => {
+    it('denies at two FAILs with no analysis', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /no task_rework_analysis newer than the latest FAIL/);
+      assertInnerLimit(reason);
+    });
+
+    it('denies with an analysis but no proving row', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      const id = f.analysis({ change: 'spec_update' });
+      const reason = denyReason(run(f).stdout);
+      assert.ok(reason.includes(`analysis #${id} names change spec_update, with no task_spec_amended row newer than the latest FAIL`), reason);
+      assertInnerLimit(reason);
+    });
+
+    it('denies when the proving row predates the latest FAIL', () => {
+      const f = fixture();
+      f.verdicts('fail');
+      f.proof('task_spec_amended');
+      f.proof('task_effort_raised');
+      f.verdicts('fail');
+      f.analysis({ change: 'spec_update' });
+      denyReason(run(f).stdout);
+      const g = fixture();
+      g.verdicts('fail');
+      g.proof('task_effort_raised');
+      g.verdicts('fail');
+      g.analysis({ change: 'effort_raise' });
+      assert.match(denyReason(run(g).stdout), /with no task_effort_raised row newer than the latest FAIL/);
+    });
+
+    it('denies with an analysis older than the latest FAIL, even with a newer proof', () => {
+      const f = fixture();
+      f.verdicts('fail');
+      f.analysis({ change: 'spec_update' });
+      f.verdicts('fail');
+      f.proof('task_spec_amended');
+      assert.match(denyReason(run(f).stdout), /no task_rework_analysis newer than the latest FAIL/);
+    });
+
+    for (const change of ['split', 'retry', 're_review']) {
+      it(`denies for change ${change}, whatever proof follows`, () => {
+        const f = fixture();
+        f.verdicts('fail', 'fail');
+        const id = f.analysis({ change });
+        f.proof('task_spec_amended');
+        f.proof('task_effort_raised');
+        const reason = denyReason(run(f).stdout);
+        assert.ok(reason.includes(`analysis #${id} names change ${change}, which admits no further swe run of this task`), reason);
+        assertInnerLimit(reason);
+      });
+    }
+
+    it('admits with an analysis plus a newer task_spec_amended', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
+    });
+
+    it('admits with an analysis plus a newer task_effort_raised, made before or after the analysis', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ change: 'effort_raise' });
+      f.proof('task_effort_raised');
+      assert.deepEqual(run(f), ALLOWED);
+      const g = fixture();
+      g.verdicts('fail', 'fail');
+      g.proof('task_effort_raised');
+      g.analysis({ change: 'effort_raise' });
+      assert.deepEqual(run(g), ALLOWED);
+    });
+
+    it('a proof of the other change does not admit', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_effort_raised');
+      denyReason(run(f).stdout);
+    });
+
+    it("another task's analysis and proof do not admit", () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ taskId: OTHER_TASK_ID });
+      f.proof('task_spec_amended', OTHER_TASK_ID);
+      denyReason(run(f).stdout);
+    });
+
+    it('the latest analysis decides: a later split analysis denies', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ rootCause: 'spec_unclear', change: 'spec_update' });
+      f.proof('task_spec_amended');
+      f.analysis({ rootCause: 'swe_execution', change: 'split' });
+      assert.match(denyReason(run(f).stdout), /names change split/);
+    });
+
+    it('denies again after a third FAIL until a new analysis and change', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ rootCause: 'spec_unclear', change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
+      f.verdicts('fail');
+      let reason = denyReason(run(f).stdout);
+      assert.match(reason, /task FAILs: 3 review FAILs/);
+      assert.match(reason, /no task_rework_analysis newer than the latest FAIL/);
+      assertInnerLimit(reason);
+      f.analysis({ rootCause: 'swe_execution', change: 'effort_raise' });
+      reason = denyReason(run(f).stdout);
+      assert.match(reason, /with no task_effort_raised row newer than the latest FAIL/);
+      f.proof('task_effort_raised');
+      assert.deepEqual(run(f), ALLOWED);
+    });
+
+    it('the swe-resume path shares the verdict', async () => {
+      const { sweResumeGate } = await import('../hooks/swe-resume-gate.js');
+      const f = fixture();
+      const w = new DatabaseSync(f.db);
+      w.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, exit_reason) VALUES (?, ?, 'swe', '2026-10-25T09:05:00.000Z', 'agent-x', 'completed')").run(TASK_ID, ISSUE_ID);
+      w.close();
+      const resume = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_input: { to: 'agent-x', message: 'go on' } });
+      f.verdicts('fail', 'fail');
+      assertInnerLimit(denyReason((sweResumeGate(resume, f.env) as { stdout: string }).stdout));
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(sweResumeGate(resume, f.env), ALLOWED);
+    });
+  });
+
+  describe('GH 2148 regression: no bro row lifts a limit', () => {
+    it('a newer bro discussion_append decision, on the task or the issue, lifts neither the inner limit nor the ceiling', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.discuss({ kind: 'decision' });
+      f.discuss({ kind: 'decision', taskId: null });
+      assertInnerLimit(denyReason(run(f).stdout));
+      const g = fixture();
+      g.runs(6);
+      g.discuss({ kind: 'decision' });
+      g.discuss({ kind: 'decision', taskId: null });
+      assertHumanOnlyWaiver(denyReason(run(g).stdout), TASK_ID);
+    });
+  });
+
+  describe('the outer ceiling (GH 2830)', () => {
+    const provenAnalysis = (f: Fixture, rootCause = 'spec_unclear') => {
+      const id = f.analysis({ rootCause, change: 'spec_update' });
+      f.proof('task_spec_amended');
+      return id;
+    };
+
+    it('at six runs denies even with an analysis and a proven change, listing the analysis', () => {
+      const f = fixture();
+      f.runs(6);
+      f.verdicts('fail', 'fail');
+      const id = provenAnalysis(f);
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /task runs: 6 swe runs/);
+      assert.doesNotMatch(reason, /task FAILs:/);
+      assert.match(reason, /outer ceiling/);
+      assert.ok(reason.includes(`#${id} (root_cause spec_unclear, change spec_update)`), reason);
+      assertHumanOnlyWaiver(reason, TASK_ID);
+    });
+
+    it('at four issue FAILs denies even with an analysis and a proven change', () => {
+      const f = fixture();
+      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
+      f.verdicts('fail', 'fail');
+      provenAnalysis(f);
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /issue FAILs: 4 review FAILs/);
+      assertHumanOnlyWaiver(reason, TASK_ID);
+    });
+
+    it('a second analysis with a repeated root_cause denies even with its proven change, naming both rows', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      const first = provenAnalysis(f, 'spec_wrong');
+      assert.deepEqual(run(f), ALLOWED);
+      f.verdicts('fail');
+      const second = provenAnalysis(f, 'spec_wrong');
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /repeated root cause: two task_rework_analysis rows of the task name root_cause spec_wrong/);
+      assert.ok(reason.includes(`#${first} (root_cause spec_wrong, change spec_update), #${second} (root_cause spec_wrong, change spec_update)`), reason);
+      assertHumanOnlyWaiver(reason, TASK_ID);
+    });
+
+    it('a Human waiver lifts every limit; analyses before it no longer count', () => {
+      const f = fixture();
+      f.runs(6);
+      f.verdicts('fail', 'fail');
+      provenAnalysis(f, 'environment');
+      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
+      provenAnalysis(f, 'environment');
+      denyReason(run(f).stdout);
+      f.discuss({ author: 'human', kind: 'decision' });
+      assert.deepEqual(run(f), ALLOWED);
+      f.verdicts('fail', 'fail');
+      provenAnalysis(f, 'environment');
+      assert.deepEqual(run(f), ALLOWED);
     });
   });
 

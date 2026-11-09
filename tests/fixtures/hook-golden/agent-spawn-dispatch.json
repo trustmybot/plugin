@@ -2663,7 +2663,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task 21 is at the rework limit: task FAILs: 2 review FAILs on the task since its last pass (limit 2). A further swe run would repeat an approach that keeps failing; report the task to the Human with its findings. Only the Human lifts this limit, by typing `waive task 21`. No agent action lifts it. This is policy: stop and report.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: task 21 is at the rework limit: task FAILs: 2 review FAILs on the task since its last pass (limit 2), with no task_rework_analysis newer than the latest FAIL. Analyze both FAILs with `task_rework_analysis`, then make the change it names: change=spec_update with `task_update_spec`, or change=effort_raise with `task_reopen(effort=...)`; the analysis plus that change admits the next swe run. A split or `task_retry` starts a new task with its own count instead. The Human is needed only for a product decision the spec cannot settle. Allowed form: task_rework_analysis(agent='bro', task_id=21, fail_validation_ids=[<FAIL ids>], finding_ids=['F21-<n>'], root_cause, change, rationale), then task_update_spec(task_id=21, ...) or task_reopen(task_id=21, effort=...)\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

@@ -109,7 +109,8 @@ describe('swe-resume-gate', () => {
     const reason = denyReason(run(f).stdout);
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
     assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
-    assert.match(reason, /waive task 3/);
+    assert.match(reason, /task_rework_analysis/);
+    assert.doesNotMatch(reason, /waive task/);
   });
 
   it('still denies the resume after a newer kind=decision row by bro', () => {
