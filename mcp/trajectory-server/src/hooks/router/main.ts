@@ -11,7 +11,7 @@
  * until the decision: every deadline timer is unref'd, so a wait with no live
  * handle behind it would otherwise end the process with no answer.
  */
-import { spawnSync } from 'node:child_process';
+import { type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,8 @@ import { matcherOfColumn, rowHoldsPart } from './table.js';
 export const ROUTER_MANIFEST = 'mcp/trajectory-server/dist/hooks-router.txt';
 const BUNDLE = 'mcp/trajectory-server/dist/hooks.js';
 const HOP_ENV = 'TMB_ROUTER_HOP';
+const TRANSIENT_SPAWN_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+const HOP_BACKOFF_MS = [25, 100];
 
 export interface RouterIo {
   readStdin(): string;
@@ -45,21 +47,51 @@ export interface RouterOptions extends DecideDeps {
   /** true: the headless shim's call, which yields to the plugin's own hooks (shimYields). */
   shim?: boolean;
   selfRoot?: string;
+  /** The hop's spawn, spawnSync unless a test fakes it. */
+  hopSpawn?: HopSpawn;
 }
+
+export type HopSpawn = (command: string, args: readonly string[], options: SpawnSyncOptionsWithStringEncoding) => SpawnSyncReturns<string>;
 
 function ownRoot(env: NodeJS.ProcessEnv): string {
   return installRoot(dirname(fileURLToPath(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? '';
 }
 
-function hopTo(root: string, event: string, part: string | undefined, payload: string, env: NodeJS.ProcessEnv): Emitted {
-  const r = spawnSync(process.execPath, [`${root}/${BUNDLE}`, event, ...(part === undefined ? [] : [part])], {
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function spawnErrorCode(r: SpawnSyncReturns<string>): string | undefined {
+  const error: NodeJS.ErrnoException | undefined = r.error;
+  return error?.code;
+}
+
+function isTransient(r: SpawnSyncReturns<string>): boolean {
+  const code = spawnErrorCode(r);
+  return r.signal === null && code !== undefined && TRANSIENT_SPAWN_CODES.has(code);
+}
+
+function spawnFailure(r: SpawnSyncReturns<string>): string {
+  if (r.error) return spawnErrorCode(r) ?? r.error.message;
+  if (r.signal) return `killed by ${r.signal}`;
+  return 'no exit status';
+}
+
+function hopTo(root: string, event: string, part: string | undefined, payload: string, env: NodeJS.ProcessEnv, spawn: HopSpawn): Emitted {
+  const run = (): SpawnSyncReturns<string> => spawn(process.execPath, [`${root}/${BUNDLE}`, event, ...(part === undefined ? [] : [part])], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: '1' },
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
+  let r = run();
+  for (const ms of HOP_BACKOFF_MS) {
+    if (!isTransient(r)) break;
+    sleepSync(ms);
+    r = run();
+  }
   if (r.error || r.status === null) {
-    const cause = `could not run in ${root}`;
+    const cause = `could not run in ${root} (${spawnFailure(r)})`;
     if (stdoutIsPath(event)) return { stdout: '', stderr: pathFailure(event, cause), code: 1 };
     if (!eventHoldsEnforcement(event, undefined, part)) return { stdout: '', stderr: `TMB router: ${event} ${cause} — no gate run\n`, code: 0 };
     return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause), event), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} — failing closed\n`, code: 0 };
@@ -122,7 +154,7 @@ export async function routerMain(event: string, env: NodeJS.ProcessEnv, io: Rout
     const root = activeInstall(env, io.writeStderr);
     if (root !== '' && self !== '' && canonicalDir(root) !== canonicalDir(self)) {
       if (existsSync(`${root}/${ROUTER_MANIFEST}`) && existsSync(`${root}/${BUNDLE}`) && servesCall(root, event, opts.part, tool)) {
-        const out = hopTo(root, event, opts.part, payload, env);
+        const out = hopTo(root, event, opts.part, payload, env, opts.hopSpawn ?? spawnSync);
         io.writeStderr(out.stderr);
         await io.writeStdout(out.stdout);
         return out.code;
