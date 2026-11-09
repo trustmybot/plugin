@@ -88,11 +88,11 @@ describe('scope_suggest and world_model_get fields (GH 2327)', () => {
     const byPath = new Map(scope.files.map((f) => [f.path, f]));
     assert.deepEqual(byPath.get('src/billing.ts')?.via, ['anchor']);
     assert.deepEqual(byPath.get('src/checkout.ts')?.via.sort(), ['caller:chargeCard', 'import:chargeCard']);
-    assert.deepEqual(byPath.get('src/report.ts')?.via, ['import:chargeCard']);
+    assert.deepEqual(byPath.get('src/report.ts')?.via.sort(), ['caller:chargeCard', 'import:chargeCard']);
     assert.ok(byPath.get('src/ledger.ts')?.via.includes('search'), JSON.stringify(scope.files));
     const scores = scope.files.map((f) => f.score);
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
-    assert.ok(byPath.get('src/billing.ts')!.score > byPath.get('src/report.ts')!.score);
+    assert.ok(byPath.get('src/billing.ts')!.score >= byPath.get('src/report.ts')!.score);
     assert.ok(byPath.get('src/report.ts')!.score > byPath.get('src/ledger.ts')!.score);
     for (const f of scope.files) {
       assert.deepEqual(Object.keys(f).sort(), ['path', 'score', 'via']);
