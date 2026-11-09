@@ -244,7 +244,7 @@ export const pluginVersionProvider: ChangeProvider = {
     return resolver.history
       .prs()
       .filter((p) => p.idx > lo && p.idx < hi && String(p.pr) !== event.id)
-      .map((p) => ({ source: 'plugin_version', id: String(p.pr) }));
+      .map((p) => ({ source: 'plugin_version', id: String(p.pr), repo: event.repo }));
   },
 };
 
@@ -324,7 +324,7 @@ function timeMeasuredWith(events: ChangeEvent[], event: ChangeEvent, windowMs: n
       const t = Date.parse(e.at);
       return t >= at && t <= at + windowMs;
     })
-    .map((e) => ({ source: e.source, id: e.id }));
+    .map((e) => ({ source: e.source, id: e.id, repo: e.repo }));
 }
 
 export const agentSurfaceProvider: ChangeProvider = {

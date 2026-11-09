@@ -231,7 +231,7 @@ describe('change impact — plugin_version with the dev-build resolver', () => {
     assert.equal(r.kind, 'build');
     assert.equal(r.repo, 'builds');
     assert.equal(r.at, iso(T0 + 2 * DAY));
-    assert.deepEqual(r.measured_with, [{ source: 'plugin_version', id: '103' }]);
+    assert.deepEqual(r.measured_with, [{ source: 'plugin_version', id: '103', repo: 'builds' }]);
     assert.deepEqual(r.metrics.map((m) => m.id), METRICS.map((m) => m.id));
     for (const m of r.metrics) {
       assert.deepEqual(Object.keys(m), [
@@ -465,6 +465,23 @@ describe('change impact — a ref names its repo (GH 2613)', () => {
       assert.equal(r.repo, repo);
       assert.equal(r.id, '12');
     }
+  });
+
+  it('measured_with refs carry the event\'s repo, so each resolves without ambiguity', () => {
+    const db = tempDB();
+    for (const name of ['alpha-app', 'beta-app']) {
+      const r = tempRepo('trunk');
+      r.commit(`docs: ${name} rules (#12)`, T0, 'CLAUDE.md');
+      r.commit(`docs: ${name} more rules (#13)`, T0 + DAY, 'CLAUDE.md');
+      r.g('remote', 'add', 'origin', `https://example.invalid/acme/${name}.git`);
+      db.run("INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'trunk')", [name, r.dir]);
+    }
+    const r = computeChangeImpact(db, undefined, { change: { source: 'agent_surface', id: '12', repo: 'alpha-app' } }) as ChangeImpact;
+    assert.deepEqual(
+      r.measured_with.map((c) => `${c.repo}:${c.id}`).sort(),
+      ['alpha-app:13', 'beta-app:12', 'beta-app:13'],
+    );
+    for (const ref of r.measured_with) assert.equal((computeChangeImpact(db, undefined, { change: ref }) as ChangeImpact).repo, ref.repo);
   });
 
   it('an unknown repo for a known id is unknown and names the repo (SC3)', () => {
