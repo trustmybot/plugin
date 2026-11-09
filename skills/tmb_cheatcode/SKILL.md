@@ -10,7 +10,10 @@ allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_
 
 When the Human refers to "cheatcode(s)" directly — "do the cheatcodes work", "which cheatcodes are installed", "is X already a cheatcode" — inspect the installed registry first with `cheatcode_list(agent='bro')` (the `cheatcodes` table). That's the read surface for what's on hand; it's distinct from the discovery pipeline below (search → vet → install), which is for closing a gap that nothing installed covers.
 
-Installed is not attached. A cheatcode the consuming agent can't use is still a gap — a skill missing from its `skills:`, or a tool such as `LSP` missing from its `tools:`. When the Human already named what to attach and for whom, the decision is made: drive the sequence in **Approve, install, activate**. Otherwise ask the Human with AskUserQuestion whether to attach it to <agent>; on Yes, call `cheatcode_approve` then `cheatcode_install(target=<agent>)` and check the result's `attachments`.
+Installed is not attached.
+
+- The Human already named what to attach and for whom: run **Approve, install, activate** below.
+- Otherwise, ask the Human with AskUserQuestion whether to attach it to <agent>. On Yes, run the same sequence and check the result's `attachments`.
 
 ## Is the gap real?
 

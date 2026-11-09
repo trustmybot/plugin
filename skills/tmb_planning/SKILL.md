@@ -53,7 +53,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 | Dimension | Principle |
 |---|---|
 | Dependencies | Prefer the project's existing conventions and the language's standard library over adding a new dependency |
-| Test runner | Match the repo's existing test runner and layout |
+| Test runner | Use the repo's one existing test runner and layout |
 | Storage / IO | Match the project's established pattern (location, format, lifecycle); pick the smallest thing that fits |
 | File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
 | Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
