@@ -206,7 +206,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree_path     TEXT,
     -- worktree_adopted (v54 GH 2032): 1 once adoptTaskWorktree recorded the
     -- session worktree as worktree_path and 0 for a task_provision worktree.
-    worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))
+    worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1)),
+    -- workflow_mode (v66 GH 2225): plugin_config.workflow_mode as the shared
+    -- close path read it when the task closed. NULL for open tasks and for
+    -- tasks closed before v66. Keep this comment comma-free for the same DROP
+    -- COLUMN reason.
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -414,7 +419,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 65, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 66, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
