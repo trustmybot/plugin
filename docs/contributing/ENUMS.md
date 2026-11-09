@@ -1,10 +1,14 @@
 # DB ENUM Doctrine
 
-**Source of truth for every controlled vocabulary in the trajectory DB.** Same governance rule as [`LABELS.md`](./LABELS.md): adopt established conventions where they exist; invent only when no industry analog applies.
+**The lint-guarded controlled vocabularies of the trajectory DB.** Same governance rule as [`LABELS.md`](./LABELS.md): adopt established conventions where they exist; invent only when no industry analog applies.
 
 ## Why this matters
 
 Hooks branch on these values. Skills assert on them. Bro chooses paths based on them. A typo or a silent rename breaks downstream code without a compile error. A canonical doc + a lint guard catches drift before it ships.
+
+## Every other vocabulary
+
+The tables below are the ones a lint holds against the code (see [Lint guard](#lint-guard)). Every other enumerated column is owned by its `CHECK` constraint in [`mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql), shown per column in the generated [`ERD.md`](../architecture/ERD.md); a vocabulary with no `CHECK` (such as `cheatcodes.status` or `agent_runs.agent_type`) is owned by the code that writes it. The schema version is `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
 
 ---
 
@@ -17,7 +21,7 @@ Hooks branch on these values. Skills assert on them. Bro chooses paths based on 
 | `open` | GitHub | Newly created, not yet closed |
 | `closed` | GitHub | Resolved (fixed, wontfix, duplicate, etc.) |
 
-We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes. Schema enforces via `CHECK (status IN ('open','closed'))` (v29).
+We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes. Schema enforces via `CHECK (status IN ('open','closed'))`.
 
 ### `tasks.status` — task lifecycle
 
@@ -31,7 +35,7 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 | `failed` | K8s pod phase | SWE returned with error; awaiting bro decision |
 | `escalated` | TMB | Bro escalated to Human after max retries |
 
-Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values (v29).
+Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values.
 
 ### `validation_attempts.verdict` — code-reviewer verdict at push gate
 
@@ -41,27 +45,7 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 | `fail` | TMB | Issues found; SWE re-spawn or Human override needed |
 | `escalate` | TMB | Outside code-reviewer's authority; Human decides |
 
-We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))` (v29).
-
-### `roundtables.state` — roundtable state machine
-
-| Value | Source | Meaning |
-|---|---|---|
-| `collecting` | TMB | Votes being gathered from participants |
-| `awaiting_human` | TMB | All expected votes received; pending Human ratification |
-| `closed` | TMB | Human ratified; decisions finalized |
-| `skipped` | TMB | Roundtable cancelled or consensus reached without full vote |
-
-Server enforces valid transitions: `collecting → awaiting_human → closed | skipped`. Other transitions return `is_error: true`.
-
-### `issues.remote_kind` — git remote host for issue sync
-
-| Value | Source | Meaning |
-|---|---|---|
-| `github` | TMB | GitHub (github.com or GHE) |
-| `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
-
-Mirrors `repo_remotes.provider` (see [`repo_remotes.provider`](#repo_remotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -74,7 +58,7 @@ Mirrors `repo_remotes.provider` (see [`repo_remotes.provider`](#repo_remotesprov
 | `analysis` | TMB | Consultant's structured analysis on a topic |
 | `decision` | TMB | Bro's architectural decision record (narrative form) |
 
-K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns. Schema enforces via `CHECK (kind IN ('intent','question','answer','decision','note','analysis'))` (v29).
+K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns. Schema enforces via `CHECK (kind IN ('intent','question','answer','decision','note','analysis'))`.
 
 ### `milestones.state` — milestone lifecycle
 
@@ -83,18 +67,18 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `open` | GitHub | Milestone accepting issues |
 | `closed` | GitHub | Milestone shipped or wound down |
 
-Schema enforces via `CHECK (state IN ('open','closed'))` (v29). `scan_run` imports the remote's state (GitLab `active` → `open`); `milestone_close` sets `closed`.
+Schema enforces via `CHECK (state IN ('open','closed'))`. `scan_run` imports the remote's state (GitLab `active` → `open`); `milestone_close` sets `closed`.
 
-### `milestone_default` — why `issue_create` / `intent_start` bound a milestone
-
-Returned in the created-issue payload, not stored.
+### `agent_runs.usage_source` — where a run's token values came from
 
 | Value | Meaning |
 |---|---|
-| `applied` | No milestone passed; the repo's sole open milestone was applied |
-| `explicit` | The caller passed a milestone |
-| `none_open` | No milestone passed and the repo has no open milestone (or no repo resolved); the issue stays untriaged |
-| `multiple_open` | No milestone passed and the repo has several open milestones; the issue stays untriaged and the payload lists them in `open_milestones` |
+| `transcript` | Measured by the bro Stop hook from the session transcript (bro session rows) |
+| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and code-reviewer rows) |
+| `unmeasured` | The run closed without a measurement; the four token columns are NULL |
+| `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `cli.js backfill-agent-runs` (not a live hook); never written over a `transcript` / `subagent_stop` row |
+
+`CHECK`-enforced. NULL until the run is first measured.
 
 ### `audit.from_node` — which agent or persona logged the event
 
@@ -227,184 +211,13 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `wm_tool_called` | `server` | A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`, `scope_suggest`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol` and `objective` and `anchors` for `scope_suggest`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event |
 <!-- END GENERATED audit.event_type -->
 
-**TMB-specific** — these are TMB workflow events. A new event type is added to `audit-events.ts`; the server, the hooks and this table follow from it. DBs created before schema v32 may still hold `event_type` and `from_node` values outside these sets, written by older hooks; they are not repaired.
-
-### `cheatcodes.kind` — capability kind in the unified registry
-
-| Value | Meaning |
-|---|---|
-| `skill` | A SKILL.md capability (builtin `tmb_*` or installed) |
-| `mcp` | An MCP server toolkit |
-| `plugin` | A full plugin |
-
-Schema enforces via `CHECK(kind IN ('skill','mcp','plugin'))`. The `cheatcodes` table is the single typed registry for every capability the project knows about.
-
-### `cheatcodes.origin` — provenance of the capability
-
-| Value | Meaning |
-|---|---|
-| `builtin` | Plugin-shipped `tmb_*` capability; `source_url` is NULL |
-| `marketplace` | Acquired from a registered Claude Code marketplace; `source_url` is the `<name>@<marketplace>` ref or a marketplace-relative path |
-| `external` | Acquired from a raw external repo URL (registered as a marketplace first); `source_url` carries the candidate identity. The column default for an acquired row |
-
-Provenance, not lifecycle — the install lifecycle is `status`. Schema enforces via `CHECK(origin IN ('builtin','marketplace','external'))`, plus paired `CHECK`s: `marketplace` and `external` rows require `source_url`, `builtin` rows forbid it.
-
-### `cheatcodes.scope` — where the capability lives
-
-| Value | Meaning |
-|---|---|
-| `global` | Plugin-shipped / user-wide |
-| `template` | `templates/` copied per-project on demand |
-| `project-local` | `<project>/.claude/` authored locally |
-
-Schema enforces via `CHECK(scope IN ('global','template','project-local'))`.
-
-### `agents.file_path` root marker — where an agent's prompt file ships from
-
-| Value | Meaning |
-|---|---|
-| `plugin:` | Relative to the installed plugin root (`plugin:agents/swe.md`, `plugin:templates/agents/cto.md`) |
-| `project:` | Relative to the workspace root (`project:.claude/agents/<name>.md`) |
-
-Schema enforces via `CHECK(file_path LIKE 'plugin:%' OR file_path LIKE 'project:%')` (schema v34). The backbone agents `swe` and `code-reviewer` are always `plugin:`. `agent_list` filters by `root` (`plugin`/`project`) and returns each row's absolute `resolved_path`.
-
-### `cheatcodes.status` — lifecycle
-
-Two lifecycles share the column. Acquired cheatcodes (`marketplace` / `external`):
-
-| Value | Meaning |
-|---|---|
-| `installed` | Recorded but not confirmed loaded (new installs land here) |
-| `active` | Loaded / usable (builtin skills seed here; `cheatcode_activate` advances a loaded skill here) |
-| `broken` | Recorded but failed (e.g. an uninstall whose teardown left the artifact on disk) |
-
-Builtin skills registered with `skill_register` start at `draft` and move one step at a time through `skill_promote` (`tools/skills.ts`):
-
-| Value | Meaning |
-|---|---|
-| `draft` | Registered, not yet reviewed (the `skill_register` default) |
-| `pending_review` | Submitted for review (`draft` →) |
-| `active` | Reviewed and in use (`pending_review` →) |
-| `deprecated` | Kept on record but out of use (`active` →) |
-
-No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the health-check's job, and `skill_promote` rejects any other transition. `trust_tier` is free-form text carrying the vet classification for installed rows and the curation tier (`curated`) for builtin ones.
-
-### `plugin_meta.schema_version` — DB schema version (integer)
-
-Currently `37`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
-
-### `agent_runs.usage_source` — where a run's token values came from
-
-| Value | Meaning |
-|---|---|
-| `transcript` | Measured by the bro Stop hook from the session transcript (bro session rows) |
-| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and code-reviewer rows) |
-| `unmeasured` | The run closed without a measurement; the four token columns are NULL |
-| `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `cli.js backfill-agent-runs` (not a live hook); never written over a `transcript` / `subagent_stop` row |
-
-`CHECK`-enforced. NULL until the run is first measured.
-
-**Session rule.** Bro has one row per session (`task_id` NULL): its tokens are the sum of the session transcript's main-loop assistant usage, and `started_at` / `completed_at` are the first / last main-loop message. The Stop hook rewrites these sums absolutely on every Stop. Per-task bro rows from older versions are left as they are. A swe row carries the totals of its spawn's whole transcript.
-
-**Computed total.** The total token count is not a column: `task_stats` reports `tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens` (NULL counts as 0; a never-measured spawn reports NULL).
-
-### `agent_runs.host` — the agent host that ran the run
-
-| Value | Meaning |
-|---|---|
-| `claude` | Claude Code (every row written before v33 is backfilled to `claude`) |
-| `codex` | OpenAI Codex |
-
-`CHECK`-enforced; stamped when the row opens.
-
-### `agent_runs.exit_reason` — how a run ended
-
-| Value | Set by |
-|---|---|
-| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every code-reviewer SubagentStop |
-| `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
-| `escalated` | `task_update_status` → `escalated` |
-| `swept_orphan` | `task_recover` sweeping a never-measured row; an open swe row no subagent bound (`spawn_id` NULL or `tool_use:*`) closed by the next swe spawn (`record-swe-spawn`, older than 90 s) or by `task_brief` (older than 10 min); `swe-spawn-rollback` closing the `tool_use:*` row of a spawn auto mode refused (PermissionDenied); a swe SubagentStop marking the task's other zero-token unbound rows `unmeasured` (`spawn_id` NULL rows from the spawn's window, open `tool_use:*` rows older than 90 s); v33 backfill of an `unmeasured` row. A row bound to an agent id is never swept |
-| `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
-| `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
-
-`CHECK`-enforced; NULL while the row is open (and on pre-v33 rows whose end is not derivable).
-
-### `tasks.effort` — the reasoning effort swe runs a task at
-
-| Value | Meaning |
-|---|---|
-| `low` | Least reasoning; for mechanical tasks |
-| `medium` | The default (`plugin_config.swe_default_effort` unset) |
-| `high` | Most reasoning; hooks, guards, MCP write paths, prompt-bearing tasks, rework |
-
-`CHECK`-enforced, `NOT NULL DEFAULT 'medium'`. Written by `task_create_batch` / `task_provision` (omitted → `plugin_config.swe_default_effort`); `task_reopen` / `task_retry` may change it and write `task_effort_raised` when they raise it. `require-spawn-effort` denies a swe Agent call whose `effort` differs.
-
-### `agent_runs.effort` — the effort a run was spawned at
-
-Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`medium` when unset). NULL on other agent types and on runs recorded before schema v37.
-
-### `wm_freshness.reindex_state` / `reindex_mode` / `reindex_trigger` / `reindex_outcome` — a repo's newest world-model reindex
-
-| Column | Values |
-|---|---|
-| `reindex_state` | `idle` (no reindex running; the default), `running` (written before the work starts), `failed` (the reindex threw, or the server-start sweep found a `running` row no live lock holds) |
-| `reindex_mode` | `incremental` (the git-range reindex), `full` (a whole-repo rebuild or a scan); never `mismatch`, which only a `wm_reindex` audit row written by the daily shadow compare carries (`ReindexMode` in `src/world-model/freshness.ts`; `RebuildMode` excludes it) |
-| `reindex_trigger` | `read`, `spawn`, `startup` (the internal `startup_catchup`; `wm_reindex` audit rows keep `startup_catchup`), `scan`, `hook` (the ref-move PostToolUse hook, `src/hooks/ref-move-reindex.ts`), `fetch` (a `world_model_*` read whose periodic fetch moved `origin/<target branch>`; `ReindexTrigger` in `src/world-model/freshness.ts` and `wm_reindex` audit rows use the same name) |
-| `reindex_outcome` | `ok`, `error`; NULL while `running` |
-
-`CHECK`-enforced (schema v63, GH 2584). The `freshness` block of `world_model_get`, `world_model_search`, `world_model_symbol` and `task_brief` reports them under `reindex`, with `state` `idle` and the rest NULL when the repo has no row.
-
-### Timestamp format
-
-Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC ms-ISO, the shape of `new Date().toISOString()` and `strftime('%Y-%m-%dT%H:%M:%fZ','now')`.
-
-### `agent_runs.agent_type` (open enum)
-
-Common values: `bro`, `swe`, `code-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
-
-### `repo_remotes.provider` — git host provider per remote
-
-| Value | Meaning |
-|---|---|
-| `github` | github.com or GitHub Enterprise |
-| `gitlab` | gitlab.com or self-hosted GitLab |
-| `other` | Any other host (Bitbucket, Codeberg, Azure DevOps, custom) |
-
-Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The writer (`upsertRepoRemotes`, and the v35 migration from the v34 `repos.remotes` JSON) derives the value from the URL host:
-
-- `github.com` → `github`
-- `gitlab.com` or `gitlab.<corp>.<tld>` → `gitlab`
-- everything else → `other`, except that a blank or unrecognised URL keeps a declared `github`/`gitlab` (onboard records the chosen provider before the repo has a URL)
-
-`onboard_state_get`'s `probe.detected_remotes[].provider` still reports the finer host classification (`bitbucket`, `codeberg`, `azuredev`) — it is a probe result, not a stored value.
-
-### `verification_runs.source` — who ran the verification
-
-| Value | Meaning |
-|---|---|
-| `gate` | `swe-verification-gate` ran `verification[]` on the swe close |
-| `manual` | reserved for a run recorded outside the gate; no writer yet |
-
-Schema enforces via `CHECK (source IN ('gate','manual'))`.
-
-### `verification_runs.timed_out`
-
-`1` when the run's budget ran out (its `exit_code` is then `124`, as is the command row of the command that was running); `0` otherwise. `CHECK (timed_out IN (0,1))`.
-
-### `repo_remotes.is_primary`
-
-`1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.
-
-### `repo_remotes.sync`
-
-`1` on the remotes issue and milestone sync reach — one per provider the Human chose at onboard; `0` on the rest. A new row starts at its `is_primary`; `scan_run` never changes it. `CHECK (sync IN (0,1))`.
+**TMB-specific** — these are TMB workflow events. A new event type is added to `audit-events.ts`; the server, the hooks and this table follow from it. Older DBs may still hold `event_type` and `from_node` values outside these sets, written by older hooks; they are not repaired.
 
 ---
 
 ## How to add a new ENUM value
 
-1. Open a PR that adds the value to this doc AND to the schema/code that consumes it.
+1. Open a PR that adds the value to the schema/code that consumes it, and to this doc when its column has a table here.
 2. Add a test that covers the new value's path.
 3. For `audit.event_type`, add the value to `mcp/trajectory-server/src/audit-events.ts` instead of this doc; the table above is regenerated from it.
 
@@ -412,12 +225,11 @@ Schema enforces via `CHECK (source IN ('gate','manual'))`.
 
 ## Lint guard
 
-`tests/l1-lint/enums-stable.test.mjs` compares code and this doc both ways for `audit.event_type`, `audit.from_node`, `tasks.status`, `issues.status`, `validation_attempts.verdict`, `discussions.kind`, `milestones.state` and `agent_runs.usage_source`: every value found in `mcp/trajectory-server/src/` (the `schema.sql` `CHECK` lists of the six `CHECK`-backed columns, and the literals written or compared; `src/test/` is not scanned) and `scripts/` (including the event types passed to `tmb_audit_append` / `tmb_audit_sql`) must be documented here, and every documented value must appear in code unless its row is marked `reserved`. `tests/l1-lint/enums-doc-fresh.test.mjs` fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
+[`tests/l1-lint/enums-stable.test.mjs`](../../tests/l1-lint/enums-stable.test.mjs) holds every table above against `mcp/trajectory-server/src/` and `scripts/` both ways: a value the code uses must be documented here, and a documented value must appear in code unless its row is marked `reserved`. [`tests/l1-lint/enums-doc-fresh.test.mjs`](../../tests/l1-lint/enums-doc-fresh.test.mjs) fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
 
 ---
 
 ## Related
 
-- [`LABELS.md`](./LABELS.md) — same governance rule for GH issue labels and `issue_labels` DB table (when shipped, see #38)
-- `mcp/trajectory-server/src/schema.sql` — schema source of truth
+- [`LABELS.md`](./LABELS.md) — same governance rule for GH issue labels
 - [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) — `plugin_config` key registry (different doc because keys are looser than ENUMs)

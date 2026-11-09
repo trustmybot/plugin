@@ -118,7 +118,6 @@ fi
 require_doc_contract docs/adapters/codex/PARITY.md 'BLOCKED_TMB_MCP_ISOLATION' 'child isolation failure verdict'
 require_doc_contract docs/adapters/codex/PARITY.md 'does not reproduce the custom-Agent same-name shadow' '#35289 is not the same reproduction'
 require_doc_contract docs/adapters/codex/PARITY.md 'remains an empirically tested compatibility behavior rather than a documented Codex guarantee' 'MCP shadow remains empirical'
-require_doc_contract docs/adapters/codex/SCOPE_4_PRD.md '但不是同一个复现' 'PRD distinguishes #35289 from the Agent shadow'
 require_doc_contract docs/contributing/CODEX_PORT.md 'Scope 4 host-version compatibility gate' 'host-version gate exists'
 require_doc_contract docs/contributing/CODEX_PORT.md 'fail the gate if any TMB `trajectory-server` tool is visible' 'both child tool surfaces must hide TMB MCP'
 require_doc_contract docs/contributing/CODEX_PORT.md 'start another fresh task, and confirm that both' 'removal requires a fresh task'
