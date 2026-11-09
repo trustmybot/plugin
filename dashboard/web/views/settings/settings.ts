@@ -66,7 +66,8 @@ export function pricesValue(rows: PriceRow[]): { value: Record<string, Record<Pr
 
 export const labelRows = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : []);
 
-export const labelsValue = (rows: string[]): string[] => rows.map((l) => l.trim()).filter((l) => l !== '');
+// Blank rows are sent, not dropped, so value[i] in a 422 is the row the user sees.
+export const labelsValue = (rows: string[]): string[] => rows.map((l) => l.trim());
 
 export type SaveProblem =
   | { kind: 'stale'; current: unknown }

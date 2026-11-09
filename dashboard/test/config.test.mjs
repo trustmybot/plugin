@@ -213,6 +213,34 @@ describe('dashboard config editing', () => {
     assert.equal(configSnapshot(), before);
   });
 
+  test('a key with characters outside the key alphabet is 403 policy_key, not 404', async () => {
+    const before = configSnapshot();
+    const audits = sql('SELECT COUNT(*) AS n FROM audit')[0].n;
+    for (const key of ['on%20boarded', 'issue:labels', '%6Fnboarded', 'model%5Fprices', 'model_prices%00', 'model_prices/x', '', '%E2%9C%93', '%zz']) {
+      const res = await post(key, { value: ['x'], expected: null });
+      expect(`odd key ${JSON.stringify(key)}`, res, 403, 'policy_key');
+    }
+    assert.equal(configSnapshot(), before);
+    assert.equal(sql('SELECT COUNT(*) AS n FROM audit')[0].n, audits, 'a refused key leaves no audit row');
+  });
+
+  test('a blank label row is refused at the row the user sees', async () => {
+    const { labelsValue } = await loadWeb();
+    const before = configSnapshot();
+    const rows = ['Priority: High', ' ', 'Priority: Low'];
+    const res = await post('issue_priority_labels', { value: labelsValue(rows), expected: PRIORITY });
+    expect('blank second row', res, 422, 'invalid_value');
+    assert.equal(res.json().field, 'value[1]', res.body);
+    assert.match(res.json().message, /label 2 /);
+    const first = await post('issue_priority_labels', { value: labelsValue(['', 'High', ' High ']), expected: PRIORITY });
+    expect('blank first row', first, 422, 'invalid_value');
+    assert.equal(first.json().field, 'value[0]', first.body);
+    const dup = await post('issue_priority_labels', { value: labelsValue(['High', 'Low', ' High ']), expected: PRIORITY });
+    expect('duplicate third row', dup, 422, 'invalid_value');
+    assert.equal(dup.json().field, 'value[2]', dup.body);
+    assert.equal(configSnapshot(), before);
+  });
+
   test('a bad value gets 422 invalid_value naming the field', async () => {
     const before = configSnapshot();
     const audits = sql('SELECT COUNT(*) AS n FROM audit')[0].n;
@@ -327,6 +355,6 @@ describe('settings tab', async () => {
     assert.match(web.pricesValue([{ ...rows[0], model: ' ' }]).error, /Row 1 needs a model id/);
     assert.match(web.pricesValue([rows[0], { ...rows[0], model: ' claude-opus-5-5 ' }]).error, /listed twice/);
     assert.deepEqual(web.pricesValue([]), { value: {} });
-    assert.deepEqual(web.labelsValue([' Bug ', '', 'Feature']), ['Bug', 'Feature']);
+    assert.deepEqual(web.labelsValue([' Bug ', '', 'Feature']), ['Bug', '', 'Feature']);
   });
 });

@@ -311,7 +311,7 @@ async function handleWrite(ctx: Ctx, req: IncomingMessage, url: URL, res: Server
   if (!tokenMatches(ctx.token, req.headers[TOKEN_HEADER])) {
     return sendJson(res, 403, { error: 'bad_token', message: 'missing or wrong dashboard token; reload the page' });
   }
-  const configKey = /^\/api\/config\/([A-Za-z0-9_.-]+)$/.exec(url.pathname)?.[1];
+  const configKey = /^\/api\/config\/(.*)$/.exec(url.pathname)?.[1];
   if (configKey !== undefined) {
     if (!isEditableConfigKey(configKey)) {
       return sendJson(res, 403, {
