@@ -2484,15 +2484,50 @@ describe('task_brief sections (GH 1743)', () => {
   it('bro and code-reviewer calls with no section return the full brief', async () => {
     const db = tempDB();
     const id = seed(db);
-    for (const agent of ['bro', 'code-reviewer']) {
-      assert.deepEqual(keys(await brief(db, { agent, task_id: id })), [...ALL_KEYS].sort(), agent);
-    }
+    assert.deepEqual(keys(await brief(db, { agent: 'bro', task_id: id })), [...ALL_KEYS].sort(), 'bro');
+    const lean = ALL_KEYS.filter((k) => k !== 'locations' && k !== 'concepts').sort();
+    assert.deepEqual(keys(await brief(db, { agent: 'code-reviewer', task_id: id })), lean, 'code-reviewer');
     db.run(
       `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (1, 'swe', 'note', 'n', datetime('now'))`,
     );
     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, supersedes)
             VALUES (1, 'bro', 'decision', 'B2', datetime('now', '+1 second'), (SELECT MIN(id) FROM discussions))`);
     assert.ok(keys(await brief(db, { agent: 'bro', task_id: id })).includes('task_discussions_omitted'));
+    db.close();
+  });
+
+  it('a concise code-reviewer brief omits locations and concepts; detailed keeps them; bro and swe keep them', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: 'Edit `src/a.ts` and `run()`.', files: ['src/a.ts'], verification: ['true'] });
+    db.run(`INSERT INTO wm_files (repo, path, dir, purpose, updated_at) VALUES ('app', 'src/a.ts', 'src', 'a', datetime('now'))`);
+    db.run(
+      `INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash, exported)
+       VALUES ('app', 'src/a.ts', 'function', 'run', 1, 5, 'h', 1)`,
+    );
+    const lean = ALL_KEYS.filter((k) => k !== 'locations' && k !== 'concepts').sort();
+    for (const args of [{}, { response_format: 'concise' }]) {
+      const b = parse(await brief(db, { agent: 'code-reviewer', task_id: id, ...args }));
+      const { response_format_hint, ...rest } = b;
+      assert.deepEqual(Object.keys(rest).sort(), lean, JSON.stringify(args));
+      assert.equal(typeof response_format_hint, 'string', 'the trim is flagged when locations would be non-null');
+    }
+
+    const detailed = parse(await brief(db, { agent: 'code-reviewer', task_id: id, response_format: 'detailed' }));
+    assert.ok('locations' in detailed && 'concepts' in detailed);
+    assert.notEqual(detailed['locations'], null);
+
+    for (const agent of ['bro', 'swe']) {
+      const b = parse(await brief(db, { agent, task_id: id }));
+      assert.ok('locations' in b && 'concepts' in b, agent);
+      assert.notEqual(b['locations'], null, agent);
+    }
+    db.close();
+  });
+
+  it('a concise code-reviewer brief carries no hint when the repo has no world model', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    assert.equal('response_format_hint' in parse(await brief(db, { agent: 'code-reviewer', task_id: id })), false);
     db.close();
   });
 
