@@ -532,6 +532,28 @@ describe('git-guards l3: Rule 2 splits by command class (#1070, #1073)', () => {
     has(out, 'main', 'deny message must name the target base');
   });
 
+  it('GH 2713: on a GitHub remote the recovery opens a PR with gh pr create', () => {
+    const f = taskParentRepo('["main"]', 'main');
+    git(sb.env, f.repo, 'remote', 'add', 'origin', 'git@github.com:acme/app.git');
+    const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
+    deny(out, 'commit on main must block');
+    has(out, 'Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>', 'the GitHub form');
+    hasNot(out, 'glab', 'no GitLab form on a GitHub remote');
+  });
+
+  it('GH 2713: on a GitLab remote the recovery opens an MR with glab mr create', () => {
+    const f = taskParentRepo('["main"]', 'main');
+    git(sb.env, f.repo, 'remote', 'add', 'origin', 'https://gitlab.example.com/acme/app.git');
+    const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
+    deny(out, 'commit on main must block');
+    has(
+      out,
+      'Push your feature branch and open an MR into main. Allowed form: git push origin <branch> && glab mr create --target-branch main --source-branch <branch>',
+      'the GitLab form',
+    );
+    hasNot(out, 'gh pr create', 'no GitHub form on a GitLab remote');
+  });
+
   it('#1073: git merge inside a worktree is ALLOWED (SWE integration mechanics)', () => {
     const f = worktreeRepo(sb);
     allow(guard(sb, 'cd .claude/worktrees/task-1 && git merge feat/other', { cwd: f.repo, db: f.db }), 'merge inside a task worktree must be allowed');

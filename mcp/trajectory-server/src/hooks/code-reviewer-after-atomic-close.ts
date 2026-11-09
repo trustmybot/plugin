@@ -23,9 +23,9 @@ export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_CLOSE_GATE';
 export function notClosedReason(taskId: string, status: string): string {
   return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
 
-Per tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:
+Per tmb_planning section 6 (Verify on SWE return + atomic close):
   1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
-  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
+  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls bro_atomic_close.
   3. ONLY THEN: spawn code-reviewer for the push gate.
 
 SWE returning completed does not close the trajectory task — that is bro_atomic_close.`;

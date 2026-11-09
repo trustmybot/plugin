@@ -2691,7 +2691,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Tooling: jq not found — every TMB gate will deny until it is installed\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Tooling: jq not found, so the session inventory is skipped; gates still run. Tell the Human to install jq for the inventory.\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

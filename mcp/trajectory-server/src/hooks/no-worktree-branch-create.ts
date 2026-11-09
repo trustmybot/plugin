@@ -27,7 +27,10 @@ const BRANCH_CREATE_REASON =
   'BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first, then SWE attaches the worktree to it (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.';
 const DETACH_REASON =
   "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). A plain worktree add on the named branch lets commits advance it naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
-const WORKTREE_ADD_FIX: DenyFix = { allowed: 'git branch <task.branch_id> HEAD && git worktree add <path> <task.branch_id>' };
+const WORKTREE_ADD_FIX: DenyFix = {
+  allowed:
+    'bro: git branch <task.branch_id> HEAD, then git worktree add <path> <task.branch_id>; swe: git worktree add <path> <task.branch_id> on the branch bro created, or report the missing branch to bro',
+};
 
 const REASONS: Readonly<Record<Violation, readonly [string, DenyFix]>> = {
   'branch-create': [BRANCH_CREATE_REASON, WORKTREE_ADD_FIX],

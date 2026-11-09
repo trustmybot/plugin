@@ -59,7 +59,7 @@ export function cleanupContext(rtId: string, missing: readonly string[]): string
   return `${jqCompact({
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      additionalContext: `[tmb roundtable-cleanup] roundtable_id=${rtId} closed but the following capture surfaces are missing: ${missing.join(' ')}. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.`,
+      additionalContext: `[tmb roundtable-cleanup] roundtable_id=${rtId} closed but the following capture surfaces are missing: ${missing.join(' ')}. Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').`,
     },
   })}\n`;
 }
