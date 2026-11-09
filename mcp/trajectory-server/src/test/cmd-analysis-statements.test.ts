@@ -174,6 +174,28 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
     });
   }
 
+  for (const escape of ['\\x41', '\\101'])
+    it(`ansiCChars of 10000 ${escape} escapes with utf8 is linear (GH 2793)`, () => {
+      const start = performance.now();
+      const chars = ansiCChars(escape.repeat(10000), true);
+      const ms = performance.now() - start;
+      assert.deepEqual(chars, Array<string>(10000).fill('A'));
+      assert.ok(ms < 200, `took ${ms.toFixed(0)} ms`);
+    });
+
+  for (const [body, chars] of [
+    ['\\x41\\101 \\xe2\\x9c\\xa8', ['A', 'A', ' ', '✨']],
+    ['\\x41\\101\\xe2\\x9c\\xa8', ['A', 'A', '✨']],
+    ['\\x41\\x42z\\xff\\x43', ['A', 'B', 'z', null, 'C']],
+    ['\\x41\\x42\\xff\\x43', ['A', 'B', null, 'C']],
+    ['\\x41\\x00\\x42', ['A', null, 'B']],
+    ['\\x41\\n\\x42\\u00e9\\101\\777\\x4', ['A', '\n', 'B', 'é', 'A', null, '\x04']],
+    ['\\x41\\x42\\', ['A', 'B', null]],
+  ] as const)
+    it(`ansiCChars(${JSON.stringify(body)}, utf8) reads an ASCII run of byte escapes as each escape alone (GH 2793)`, () => {
+      assert.deepEqual(ansiCChars(body, true), chars);
+    });
+
   it('encode without shownControls reads a byte escape past 0x7F as computed text (GH 2765)', () => {
     const plain = encode(parser, "git commit -m $'\\xe2\\x9c\\xa8 bad'");
     assert.ok(plain.ok);
