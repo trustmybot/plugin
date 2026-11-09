@@ -2,7 +2,9 @@
  * The task-overrun-alert gate (GH 1738) on a temp trajectory DB with a fixture
  * clock: a running task past the threshold alerts bro once, writing one
  * task_overrun_alerted audit row; a task under the threshold, a non-bro
- * caller and a second call stay silent.
+ * caller and a second call stay silent. A live swe run of bro's session past
+ * the threshold on a task that is not running alerts once per spawn_id,
+ * writing one agent_run_overrun_alerted row (GH 2190).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,6 +29,8 @@ interface Fixture {
   sweRun(taskId: number, exitReason?: string | null): void;
   fail(taskId: number, feedback: string): void;
   alertRows(taskId?: number): number;
+  liveRun(spawnId: string, taskId: number | null, startedMinAgo: number, opts?: { session?: string; completed?: boolean }): void;
+  runAlertRows(spawnId?: string): number;
 }
 
 let sandbox: string;
@@ -78,6 +82,25 @@ function fixture(): Fixture {
       const sql =
         "SELECT COUNT(*) AS n FROM audit WHERE event_type = 'task_overrun_alerted'" +
         (taskId === undefined ? '' : ` AND json_extract(content_json, '$.task_id') = ${taskId}`);
+      const n = (r.prepare(sql).get() as { n: number }).n;
+      r.close();
+      return n;
+    },
+    liveRun: (spawnId, taskId, startedMinAgo, opts = {}) =>
+      exec(
+        "INSERT INTO agent_runs (task_id, issue_id, agent_type, spawn_id, session_id, started_at, completed_at) VALUES (?, ?, 'swe', ?, ?, ?, ?)",
+        taskId,
+        ISSUE_ID,
+        spawnId,
+        opts.session ?? 's',
+        minutesAgo(startedMinAgo),
+        opts.completed ? minutesAgo(1) : null,
+      ),
+    runAlertRows: (spawnId) => {
+      const r = new DatabaseSync(db);
+      const sql =
+        "SELECT COUNT(*) AS n FROM audit WHERE event_type = 'agent_run_overrun_alerted'" +
+        (spawnId === undefined ? '' : ` AND json_extract(content_json, '$.spawn_id') = '${spawnId}'`);
       const n = (r.prepare(sql).get() as { n: number }).n;
       r.close();
       return n;
@@ -164,6 +187,77 @@ describe('task-overrun-alert', () => {
     const f = fixture();
     f.task(12, 16);
     assert.match(context(gate(broPrompt, { ...f.env, [OVERRUN_ENV]: '15' }).stdout), /task 12 has been running 16 min/);
+  });
+
+  it('alerts bro once for a live swe run on a closed task, then is silent on the next call (GH 2190)', () => {
+    const f = fixture();
+    f.task(20, 500, 'closed');
+    f.liveRun('a20', 20, 402);
+    const out = JSON.parse(gate(broPrompt, f.env).stdout);
+    assert.equal(
+      out.hookSpecificOutput.additionalContext,
+      'TMB: swe run a20 (task 20, task status closed) started 402 min ago and has not stopped. Check whether it is stuck and stop it if so.',
+    );
+    assert.equal(f.runAlertRows('a20'), 1);
+    const r = new DatabaseSync(f.db);
+    const row = r.prepare("SELECT issue_id, branch_id, from_node, content_json FROM audit WHERE event_type = 'agent_run_overrun_alerted'").get() as Record<string, unknown>;
+    r.close();
+    assert.deepEqual(JSON.parse(row.content_json as string), { spawn_id: 'a20', task_id: 20, minutes: 402 });
+    assert.equal(row.issue_id, ISSUE_ID);
+    assert.equal(row.branch_id, 'feat/20-x');
+    assert.equal(row.from_node, 'hook:task-overrun-alert');
+    assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 });
+    assert.equal(f.runAlertRows(), 1, 'the second call writes no row');
+  });
+
+  it('a live run whose task row is missing reports the task as missing, on the run\'s issue', () => {
+    const f = fixture();
+    f.liveRun('a404', null, 90);
+    assert.equal(
+      context(gate(broPrompt, f.env).stdout),
+      'TMB: swe run a404 (task none, task status missing) started 90 min ago and has not stopped. Check whether it is stuck and stop it if so.',
+    );
+    const r = new DatabaseSync(f.db);
+    const row = r.prepare("SELECT issue_id FROM audit WHERE event_type = 'agent_run_overrun_alerted'").get() as { issue_id: number };
+    r.close();
+    assert.equal(row.issue_id, ISSUE_ID, 'the run carries its own issue_id');
+  });
+
+  it('no run line for another session, a stopped run, a run under the threshold or a run on a running task', () => {
+    const f = fixture();
+    f.task(21, 500, 'closed');
+    f.task(22, 500, 'failed');
+    f.task(23, 300);
+    f.liveRun('other', 21, 400, { session: 'not-s' });
+    f.liveRun('done', 21, 400, { completed: true });
+    f.liveRun('young', 22, 59);
+    f.liveRun('onrunning', 23, 250);
+    const lines = context(gate(broPrompt, f.env).stdout).split('\n');
+    assert.deepEqual(lines.length, 1);
+    assert.match(lines[0], /^TMB: task 23 has been running 300 min/);
+    assert.equal(f.runAlertRows(), 0);
+    assert.equal(f.alertRows(23), 1);
+    assert.deepEqual(gate(broPrompt, f.env), { stdout: '', code: 0 }, 'the running task is reported once');
+  });
+
+  it('no run line for a payload with no session_id', () => {
+    const f = fixture();
+    f.task(24, 500, 'closed');
+    f.liveRun('a24', 24, 400);
+    const noSession = JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' });
+    assert.deepEqual(gate(noSession, f.env), { stdout: '', code: 0 });
+    assert.equal(f.runAlertRows(), 0);
+  });
+
+  it('task lines come before run lines in one context', () => {
+    const f = fixture();
+    f.task(25, 70);
+    f.task(26, 500, 'closed');
+    f.liveRun('a26', 26, 200);
+    const lines = context(gate(broPrompt, f.env).stdout).split('\n');
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /^TMB: task 25 has been running 70 min/);
+    assert.match(lines[1], /^TMB: swe run a26 \(task 26, task status closed\) started 200 min ago/);
   });
 
   it('is silent with no DB', () => {
