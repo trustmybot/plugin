@@ -10,12 +10,12 @@ import type { Node, Parser } from 'web-tree-sitter';
 import { gitOk, gitOut, cdPwd, isDir } from '../lib/git.js';
 import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
-import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
+import { Encoder, NO_CHARGE, decode, encode, heredocEncoder } from './encode.js';
 import { bashParser } from './parser.js';
-import { ALT, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
+import { ALT, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, statementsEnc, type Record } from './statements.js';
 
-/** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
-export type Statement = Record & { readonly src?: string };
+/** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536); `opaque` when it runs code the listing cannot read (GH 2635). */
+export type Statement = Record & { readonly src?: string; readonly opaque?: true };
 
 /** <statement> with a `src` that <get> works out on its first read, so a gate that never quotes the statement never pays for it. */
 export function withSource<T extends Record>(statement: T, get: () => string | undefined): T & { readonly src?: string } {
@@ -46,27 +46,142 @@ function readStmt(stmt: string): string {
   return stmt.replace(/^\t+|\t+$/g, '');
 }
 
-/** _tmb_cmd_inner: the encoded string `bash|sh|zsh|dash|ksh -c <s>` runs, or the rest of `eval <s>`; "" otherwise. */
-function inner(stmt: string): string {
-  const words = readWords(stmt);
-  const argv0 = words[0] ?? '';
-  if (SHELL.test(argv0)) {
-    for (let i = 1; i < words.length; i++) {
-      const w = words[i];
-      if (w === '-c' || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words[i + 1] ?? '';
-      if (!w.startsWith('-')) return '';
-    }
-    return '';
-  }
-  if (argv0 === 'eval') return (stmt.startsWith('eval') ? stmt.slice(4) : stmt).replace(/^ /, '');
-  return '';
+/** An encoded code string a statement runs, `later` when it runs at some other time, in an unknown dir. */
+interface Code {
+  readonly text: string;
+  readonly later: boolean;
 }
 
-/** The nodes a statement's source can be: a command, unless it is a redirected statement's body, and a redirected statement; children first. */
+/** The code strings a statement runs, the indices of the words that must be literal for them to be read, and whether it runs code read from stdin. */
+interface CodeRead {
+  readonly codes: Code[];
+  readonly check: number[];
+  readonly stdin: boolean;
+}
+
+const NO_CODE: CodeRead = { codes: [], check: [], stdin: false };
+const PROMPT_EXPANSION = /\$\{[^}]*@P\}/;
+const upTo = (k: number): number[] => Array.from({ length: k }, (_, i) => i + 1);
+/** Text the shell expands as a double-quoted word, as code that runs only its expansions. */
+const expanded = (value: string): string => `: "${value}"`;
+
+/** A shell's `-c` string (its first operand once an option cluster holds `c`), or stdin code: `-s`, or no operand. */
+function shellCode(w: readonly string[]): CodeRead {
+  let c = false;
+  let s = false;
+  let i = 1;
+  for (; i < w.length; i++) {
+    const x = w[i];
+    const redirect = REDIRECT_WORD.exec(x);
+    if (redirect) {
+      if (redirect[0] === x && redirect[2] !== '<<') i++;
+      continue;
+    }
+    if (x === '--' || x === '-') {
+      i++;
+      break;
+    }
+    if (!/^[-+]./.test(x)) break;
+    if (x.startsWith('--')) {
+      if (x === '--rcfile' || x === '--init-file') i++;
+      continue;
+    }
+    const flags = x.slice(1);
+    if (x[0] === '-' && flags.includes('c')) c = true;
+    if (flags.includes('s')) s = true;
+    i += (flags.match(/[oO]/g) ?? []).length;
+  }
+  if (c) return i < w.length ? { codes: [{ text: w[i], later: false }], check: upTo(i), stdin: false } : NO_CODE;
+  return { codes: [], check: [], stdin: s || i >= w.length };
+}
+
+/** The code an option of <codes> names, for a builtin whose options <values> take a value; a `W` value is a word list the shell expands. */
+function optionCode(w: readonly string[], values: string, codes: string): CodeRead {
+  const found: Code[] = [];
+  let last = 0;
+  for (let i = 1; i < w.length; i++) {
+    const x = w[i];
+    if (x === '--' || !x.startsWith('-') || x === '-') break;
+    for (let j = 1; j < x.length; j++) {
+      if (!values.includes(x[j])) continue;
+      const joined = x.slice(j + 1);
+      const value = joined === '' ? (w[++i] ?? '') : joined;
+      if (codes.includes(x[j])) {
+        found.push({ text: x[j] === 'W' ? expanded(decode(value)) : value, later: true });
+        last = i;
+      }
+      break;
+    }
+  }
+  return found.length === 0 ? NO_CODE : { codes: found, check: upTo(last), stdin: false };
+}
+
+/** `trap <action> <signal>…`: the action, unless it is `-` or a signal number, which reset the signals. */
+function trapCode(w: readonly string[]): CodeRead {
+  let i = 1;
+  while (i < w.length && /^-[lpP]+$/.test(w[i])) i++;
+  if (w[i] === '--') i++;
+  if (w.length - i < 2 || w[i] === '-' || /^[0-9]+$/.test(w[i])) return NO_CODE;
+  return { codes: [{ text: w[i], later: true }], check: upTo(i), stdin: false };
+}
+
+/** Each `name=value` of `alias`: the value runs wherever the name is a command word. */
+function aliasCode(w: readonly string[]): CodeRead {
+  const at = w.flatMap((x, i) => (i > 0 && !x.startsWith('-') && x.includes('=') ? [i] : []));
+  return at.length === 0 ? NO_CODE : { codes: at.map((i) => ({ text: w[i].slice(w[i].indexOf('=') + 1), later: true })), check: at, stdin: false };
+}
+
+/**
+ * The code strings an encoded statement runs (GH 2635): a shell's `-c`
+ * string or stdin, the rest of `eval`, a `trap` action, an `alias` value,
+ * `mapfile` / `readarray -C`, `compgen` / `complete -C` (and a `-W` word list
+ * they expand), and a PS4 value holding `$` or a backtick, which `set -x`
+ * expands before each command (its backslashes dropped, as prompt decoding
+ * turns `\$` into `$`).
+ */
+function codeOf(stmt: string): CodeRead {
+  if (PS4_WORD.test(stmt)) {
+    const value = decode(stmt.slice(stmt.indexOf('=') + 1));
+    return /[$`]/.test(value) ? { codes: [{ text: expanded(value.replace(/\\/g, '')), later: true }], check: [], stdin: false } : NO_CODE;
+  }
+  const w = readWords(stmt);
+  const argv0 = w[0] ?? '';
+  if (SHELL.test(argv0)) return shellCode(w);
+  switch (argv0) {
+    case 'eval':
+      return w.length > 1 ? { codes: [{ text: stmt.slice(4).replace(/^ /, ''), later: false }], check: upTo(w.length - 1), stdin: false } : NO_CODE;
+    case 'trap':
+      return trapCode(w);
+    case 'alias':
+      return aliasCode(w);
+    case 'mapfile':
+    case 'readarray':
+      return optionCode(w, 'dnOsuCc', 'C');
+    case 'compgen':
+    case 'complete':
+      return optionCode(w, 'oAGWFCXPS', 'CW');
+    default:
+      return NO_CODE;
+  }
+}
+
+/** A word bash may turn into other text: a parameter, command or arithmetic expansion, or a brace or glob pattern. */
+const MAY_EXPAND = /[$`*?[{]/;
+
+/** Whether the words at <check> of <stmt> are literal text, read from the statement's source <src> when the decoded word alone cannot tell. */
+function literalWords(stmt: string, check: readonly number[], src: () => string | undefined): boolean {
+  const w = readWords(stmt);
+  if (check.every((i) => !MAY_EXPAND.test(decode(w[i] ?? '')))) return true;
+  const text = src();
+  const words = text === undefined ? null : sourceWords(text);
+  return words !== null && words.length === w.length && check.every((i) => !words[i].expands);
+}
+
+/** The nodes a statement's source can be: a command, unless it is a redirected statement's body, a redirected statement, and an assignment (a PS4 record); children first. */
 function candidates(node: Node, out: Node[] = []): Node[] {
   for (const child of node.namedChildren) if (child) candidates(child, out);
   const body = node.parent?.type === 'redirected_statement' && node.parent.childForFieldName('body')?.id === node.id;
-  if (node.type === 'redirected_statement' || (node.type === 'command' && !body)) out.push(node);
+  if (node.type === 'redirected_statement' || node.type === 'variable_assignment' || (node.type === 'command' && !body)) out.push(node);
   return out;
 }
 
@@ -93,7 +208,7 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
   const tree = parser.parse(cmd);
   if (!tree) return stmts.map(() => undefined);
   try {
-    const encoder = new Encoder(cmd, NO_CHARGE);
+    const encoder = new Encoder(cmd, NO_CHARGE, false, heredocEncoder(parser));
     const listed = (node: Node, at: number): string[] =>
       statementsEnc(encoder.from(node, at), '@', home, false)
         .map((record) => readStmt(record.stmt))
@@ -135,11 +250,16 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
  * function calls framed (GH 2065, GH 2630): a statement a loop's back-edge or
  * a call can bring to more dirs is listed once per dir. Null when the command
  * or a body in it does not parse. An `eval` body is `escaped`: the functions
- * it defines outlive it, so their statements run in `-`.
+ * it defines outlive it, so their statements run in `-`. Code a statement
+ * runs later (codeOf) is listed in `-` after the statement itself, and is
+ * `opaque` where it does not parse. A statement whose code cannot be read is
+ * `opaque` (GH 2635): a code word that is not literal, a statement an
+ * unquoted $( ) or backtick cut, a shell reading stdin, a `${…@P}` prompt
+ * expansion, or code past MAX_DEPTH; the code it can read is still listed.
  */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string, escaped = false): Statement[] | null {
   if (cmd.trim() === '') return [];
-  const encoded = encode(parser, cmd);
+  const encoded = encode(parser, cmd, NO_CHARGE, false, true);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
   const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
@@ -149,14 +269,26 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   let srcs: Array<string | undefined> | undefined;
   const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
   for (const [k, { dir, stmt, cut }] of records.entries()) {
-    const body = depth < MAX_DEPTH && !dir.startsWith('=') ? inner(stmt) : '';
-    if (body === '') {
-      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}) }, () => srcAt(k)));
+    const own = (opaque: boolean): void => {
+      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(opaque ? { opaque: true as const } : {}) }, () => srcAt(k)));
+    };
+    const { codes, check, stdin } = dir.startsWith('=') ? NO_CODE : codeOf(stmt);
+    const prompt = PROMPT_EXPANSION.test(decode(stmt));
+    const cutRunner = cut !== undefined && readWords(stmt)[0] !== 'git';
+    if (codes.length === 0 || stdin || prompt || depth >= MAX_DEPTH) {
+      own(stdin || prompt || cutRunner || codes.length > 0);
       continue;
     }
-    const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home, readWords(stmt)[0] === 'eval');
-    if (nested === null) return null;
-    out.push(...nested);
+    let opaque = cutRunner || !literalWords(stmt, check, () => srcAt(k));
+    const bodies: Statement[] = [];
+    for (const code of codes) {
+      const nested = listing(parser, decode(code.text).replace(/\n+$/, ''), code.later ? '-' : dir, depth + 1, home, code.later || readWords(stmt)[0] === 'eval');
+      if (nested === null && !code.later) return null;
+      if (nested === null) opaque = true;
+      else bodies.push(...nested);
+    }
+    if (opaque || codes.some((code) => code.later)) own(opaque);
+    out.push(...bodies);
   }
   return out;
 }
@@ -200,7 +332,7 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
     else if (dir === '@') dir = state ??= await cwdState(cwd, env);
     const stmt = entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_');
-    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}) }, () => entry.src));
+    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}), ...(entry.opaque ? { opaque: entry.opaque } : {}) }, () => entry.src));
   }
   return { ok: true, statements };
 }
@@ -287,9 +419,15 @@ function subcommandAt(w: readonly string[]): number {
   return k;
 }
 
-/** Where each word of the first line of shell source `src` starts, with its unquoted text and whether an unquoted $( ) or backtick is in it; null at an unclosed quote or substitution. */
-function sourceWords(src: string): Array<{ start: number; text: string; sub: boolean }> | null {
-  const words: Array<{ start: number; text: string; sub: boolean }> = [];
+/**
+ * Where each word of the first line of shell source `src` starts, with its
+ * unquoted text, whether an unquoted $( ) or backtick is in it (`sub`), and
+ * whether the shell may turn it into other text (`expands`: an unquoted `$`,
+ * backtick, brace or glob char, or an unescaped `$` or backtick in double
+ * quotes); null at an unclosed quote or substitution.
+ */
+function sourceWords(src: string): Array<{ start: number; text: string; sub: boolean; expands: boolean }> | null {
+  const words: Array<{ start: number; text: string; sub: boolean; expands: boolean }> = [];
   let i = 0;
   for (;;) {
     while (src[i] === ' ' || src[i] === '\t') i++;
@@ -297,6 +435,7 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
     const start = i;
     let text = '';
     let sub = false;
+    let expands = false;
     while (i < src.length && !/[ \t\n]/.test(src[i])) {
       const c = src[i];
       if (c === "'") {
@@ -307,6 +446,7 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
       } else if (c === '"') {
         let j = i + 1;
         for (; j < src.length && src[j] !== '"'; j++) {
+          if (src[j] === '$' || src[j] === '`') expands = true;
           if (src[j] === '\\') j++;
           if (j < src.length) text += src[j];
         }
@@ -347,11 +487,12 @@ function sourceWords(src: string): Array<{ start: number; text: string; sub: boo
         sub = true;
         i = j + 1;
       } else {
+        if (MAY_EXPAND.test(c)) expands = true;
         text += c;
         i++;
       }
     }
-    words.push({ start, text, sub });
+    words.push({ start, text, sub, expands: expands || sub });
   }
 }
 

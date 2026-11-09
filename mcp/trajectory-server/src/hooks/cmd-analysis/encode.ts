@@ -8,7 +8,12 @@
  * when its body is data to the shell, else by HD_EXP (GH 1911). With `marks`
  * (the write-path analyzer, GH 1912), a substitution whose body is one mktemp
  * call `mktempCall` admits is framed by QO … QC quoted or not, its body led by
- * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443).
+ * MKTEMP_MARK, and each `$` bash keeps literal is DOLLAR (GH 2443). With
+ * `heredocCode` (the git listing, GH 2635), the code of each $( ) or
+ * backtick in an unquoted-delimiter heredoc body, found by bodySubstitutions
+ * since tree-sitter-bash misses a backtick or a `<<-` body's, is encoded on
+ * its own and framed by QO … QC, each after a blank, right after the
+ * heredoc's delimiter; the command is not ok when one does not parse.
  */
 import type { Node, Parser } from 'web-tree-sitter';
 import { MKTEMP_MARK, mktempCall } from './mktemp.js';
@@ -114,6 +119,64 @@ function specials(node: Node, out: Span[], charge: Charge, marks: boolean): Span
   return out;
 }
 
+/** The encoded skeleton of a heredoc substitution's code, or null when it does not parse. */
+export type HeredocCode = (code: string) => string | null;
+
+/** A HeredocCode that encodes with <parser>, heredocs in the code read the same way. */
+export function heredocEncoder(parser: Parser, charge: Charge = NO_CHARGE): HeredocCode {
+  return (code) => {
+    const encoded = encode(parser, code, charge, false, true);
+    return encoded.ok ? encoded.text : null;
+  };
+}
+
+/** Where the `)` closing the `(` at <open> of shell source <s> is, past quotes and nested parens; -1 when unclosed. */
+function closeParen(s: string, open: number): number {
+  let depth = 0;
+  for (let j = open; j < s.length; j++) {
+    const c = s[j];
+    if (c === '\\') j++;
+    else if (c === "'") {
+      j = s.indexOf("'", j + 1);
+      if (j < 0) return -1;
+    } else if (c === '"') {
+      for (j++; j < s.length && s[j] !== '"'; j++) if (s[j] === '\\') j++;
+    } else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return j;
+  }
+  return -1;
+}
+
+/**
+ * The code of each outermost $( ) and backtick in the text of an
+ * unquoted-delimiter heredoc body, a backslash escaping the next char, the
+ * code inside `$((` … `))` read on; null at an unclosed one.
+ */
+export function bodySubstitutions(text: string): string[] | null {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\\') i++;
+    else if (c === '`') {
+      let code = '';
+      let j = i + 1;
+      for (; j < text.length && text[j] !== '`'; j++) {
+        if (text[j] === '\\' && /[`$\\]/.test(text[j + 1] ?? '')) j++;
+        code += text[j];
+      }
+      if (j >= text.length) return null;
+      out.push(code);
+      i = j;
+    } else if (c === '$' && text[i + 1] === '(' && text[i + 2] !== '(') {
+      const close = closeParen(text, i + 1);
+      if (close < 0) return null;
+      out.push(text.slice(i + 2, close));
+      i = close;
+    }
+  }
+  return out;
+}
+
 function substitutions(node: Node, out: Node[], charge: Charge): Node[] {
   charge(1);
   for (const child of node.children) {
@@ -129,7 +192,11 @@ export class Encoder {
     private readonly src: string,
     private readonly charge: Charge,
     private readonly marks = false,
+    private readonly heredocCode: HeredocCode | null = null,
   ) {}
+
+  /** Whether a heredoc substitution's code did not parse or a body's substitution is unclosed. */
+  failed = false;
 
   /** One char of quoted or escaped text; with `marks`, a `$` bash keeps literal is DOLLAR. */
   private literal(c: string | undefined, dollar: boolean): string {
@@ -212,7 +279,17 @@ export class Encoder {
     const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
     if (end && this.src[dropTo] === '\n') dropTo++;
-    return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+    let code = '';
+    if (this.heredocCode && body && end && !/['"\\]/.test(word)) {
+      const subs = bodySubstitutions(this.src.slice(body.startIndex, end.startIndex));
+      for (const sub of subs ?? []) {
+        const text = this.heredocCode(sub);
+        if (text === null) this.failed = true;
+        else code += ` ${QO}${text}${QC}`;
+      }
+      if (subs === null) this.failed = true;
+    }
+    return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim + code, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
   }
 
   /** One word node, encoded as `range` encodes it inside its command. */
@@ -402,16 +479,17 @@ function heredocMisread(src: string, root: Node): boolean {
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912). */
-export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false): Encoded {
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927); `marks` frames mktemp calls (GH 1912), `heredocCode` lists heredoc substitutions (GH 2635). */
+export function encode(parser: Parser, command: string, charge: Charge = NO_CHARGE, marks = false, heredocCode = false): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
     if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
-    const encoder = new Encoder(command, charge, marks);
+    const encoder = new Encoder(command, charge, marks, heredocCode ? heredocEncoder(parser, charge) : null);
     const text = encoder.range(root, 0, command.length);
+    if (encoder.failed) return { ok: false };
     return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root), spliced: splicedWords(encoder, root) };
   } finally {
     tree.delete();
