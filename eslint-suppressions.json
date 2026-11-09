@@ -692,22 +692,9 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/activation-routine-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    }
-  },
-  "mcp/trajectory-server/src/test/agent-arg-matches-caller.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/agent-runs-backfill.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
@@ -720,17 +707,11 @@
     }
   },
   "mcp/trajectory-server/src/test/agent-runs-plugin-version.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 8
     }
   },
   "mcp/trajectory-server/src/test/agent-scope.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 30
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -756,20 +737,7 @@
       "count": 6
     }
   },
-  "mcp/trajectory-server/src/test/agent-spawn-dispatch.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/agent-wm-tools.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
   "mcp/trajectory-server/src/test/agents.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 29
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -790,17 +758,11 @@
     }
   },
   "mcp/trajectory-server/src/test/audit-events.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 12
     }
   },
   "mcp/trajectory-server/src/test/audit.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 26
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 8
     },
@@ -814,20 +776,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/bot-patterns.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 22
-    }
-  },
-  "mcp/trajectory-server/src/test/branch-guards-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 60
-    }
-  },
   "mcp/trajectory-server/src/test/branch_report_md.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -848,43 +797,21 @@
     }
   },
   "mcp/trajectory-server/src/test/brief-locations.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 30
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 15
     }
   },
   "mcp/trajectory-server/src/test/bro-sqlite-readonly.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/bro-turn-usage-incremental.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
     }
   },
   "mcp/trajectory-server/src/test/bro-turn-usage-l3.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 17
-    }
-  },
-  "mcp/trajectory-server/src/test/bro-turn-usage-overlap.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
     }
   },
   "mcp/trajectory-server/src/test/bug-report-draft.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -892,15 +819,7 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/bug-report.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 30
-    }
-  },
   "mcp/trajectory-server/src/test/caller-recall.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     },
@@ -909,17 +828,11 @@
     }
   },
   "mcp/trajectory-server/src/test/change-impact-declared.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/change-impact-session-line.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     },
@@ -931,9 +844,6 @@
     }
   },
   "mcp/trajectory-server/src/test/change-impact.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 47
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 21
     },
@@ -942,29 +852,13 @@
     }
   },
   "mcp/trajectory-server/src/test/cheatcode-activate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "no-useless-assignment": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/cheatcode-install.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 35
-    }
-  },
   "mcp/trajectory-server/src/test/cheatcode-reconcile.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 35
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/cheatcode-search.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 29
     }
   },
   "mcp/trajectory-server/src/test/cheatcode-stubs.ts": {
@@ -975,25 +869,16 @@
   "mcp/trajectory-server/src/test/cheatcode-uninstall.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 31
     }
   },
   "mcp/trajectory-server/src/test/cheatcode-vet.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 3
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 86
     }
   },
   "mcp/trajectory-server/src/test/cheatcode.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 3
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 91
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 21
@@ -1014,35 +899,7 @@
       "count": 3
     }
   },
-  "mcp/trajectory-server/src/test/classify-url.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 22
-    }
-  },
-  "mcp/trajectory-server/src/test/clean-merged-branch-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
-  "mcp/trajectory-server/src/test/cleanup-worktree-on-task-close-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-assert-sql.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 14
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-heal-mcp-cache.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 34
-    }
-  },
   "mcp/trajectory-server/src/test/cli-health.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "prefer-const": {
       "count": 4
     }
@@ -1050,76 +907,19 @@
   "mcp/trajectory-server/src/test/cli-integrate.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 42
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-maintenance-db.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-maintenance-no-db.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-prompt-author-lint.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/cli-stale-docs.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
     }
   },
   "mcp/trajectory-server/src/test/close-issue-on-merge-l3.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-cap.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
     }
   },
   "mcp/trajectory-server/src/test/cmd-analysis-diff.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 12
     }
   },
-  "mcp/trajectory-server/src/test/cmd-analysis-git-function-call.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-git-loop-cd.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-git-subcommand-expansion.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-git-subst-tail.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
   "mcp/trajectory-server/src/test/cmd-analysis-l3-helpers.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
@@ -1144,63 +944,21 @@
     }
   },
   "mcp/trajectory-server/src/test/cmd-analysis-l3.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/cmd-analysis-lazy.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-literal-dollar.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-ln-symlink.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-loop-cd.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
-  "mcp/trajectory-server/src/test/cmd-analysis-readme.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
   "mcp/trajectory-server/src/test/cmd-analysis-statements.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "no-control-regex": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/cmd-analysis-unproven.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    }
-  },
   "mcp/trajectory-server/src/test/cmd-strip-literals.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    },
     "no-control-regex": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/codex-agent-materializer.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 48
     },
@@ -1209,17 +967,11 @@
     }
   },
   "mcp/trajectory-server/src/test/codex-installed-cache.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
   "mcp/trajectory-server/src/test/codex-runtime.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 46
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     },
@@ -1227,15 +979,7 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/commit-msg-lint-deny.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    }
-  },
   "mcp/trajectory-server/src/test/completion-report.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     },
@@ -1244,9 +988,6 @@
     }
   },
   "mcp/trajectory-server/src/test/composites.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 222
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 139
     },
@@ -1267,9 +1008,6 @@
     }
   },
   "mcp/trajectory-server/src/test/config.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -1293,9 +1031,6 @@
     }
   },
   "mcp/trajectory-server/src/test/config_keys_contract.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },
@@ -1307,9 +1042,6 @@
     }
   },
   "mcp/trajectory-server/src/test/consultant-spawn-enforcement.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -1317,15 +1049,7 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/containment-guard-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 56
-    }
-  },
   "mcp/trajectory-server/src/test/containment-mktemp.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1337,9 +1061,6 @@
     }
   },
   "mcp/trajectory-server/src/test/containment-tmpdir.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1350,75 +1071,37 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/containment.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/db-concurrency-worker.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
   "mcp/trajectory-server/src/test/db-concurrency.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
   "mcp/trajectory-server/src/test/db-path-rule.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/db-path.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    }
-  },
   "mcp/trajectory-server/src/test/db-resolver-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/db-write-lib-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 32
-    }
-  },
-  "mcp/trajectory-server/src/test/db.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/deferred-tools-drift-warn.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/diff-downstream.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
   "mcp/trajectory-server/src/test/discussions.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 52
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
     },
@@ -1451,9 +1134,6 @@
     }
   },
   "mcp/trajectory-server/src/test/downstream-context.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 19
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
     },
@@ -1462,9 +1142,6 @@
     }
   },
   "mcp/trajectory-server/src/test/effort-ab.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
     },
@@ -1479,9 +1156,6 @@
     }
   },
   "mcp/trajectory-server/src/test/effort-inputs.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 17
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     },
@@ -1493,9 +1167,6 @@
     }
   },
   "mcp/trajectory-server/src/test/embedding-model.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 14
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     },
@@ -1513,17 +1184,11 @@
     }
   },
   "mcp/trajectory-server/src/test/embedding-q8.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
   "mcp/trajectory-server/src/test/embedding-transformers-source.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -1532,9 +1197,6 @@
     }
   },
   "mcp/trajectory-server/src/test/embeddings-backfill-lease.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -1543,9 +1205,6 @@
     }
   },
   "mcp/trajectory-server/src/test/embeddings.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     },
@@ -1556,15 +1215,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/ensure-gitignore.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
   "mcp/trajectory-server/src/test/ensure-mcp-deps-installed.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 53
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 22
     },
@@ -1578,44 +1229,22 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/ensure-swe-worktree-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/env-detect.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
     }
   },
   "mcp/trajectory-server/src/test/env-store.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
     }
   },
   "mcp/trajectory-server/src/test/file-purpose.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 39
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/fts-query.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    }
-  },
   "mcp/trajectory-server/src/test/gen-erd-doc.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1630,34 +1259,11 @@
     }
   },
   "mcp/trajectory-server/src/test/git-guards-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 117
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/test/git-push-guard-first-push-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
-  "mcp/trajectory-server/src/test/git-push-guard-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 58
-    }
-  },
-  "mcp/trajectory-server/src/test/git-push-guard-rebased-dist-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    }
-  },
-  "mcp/trajectory-server/src/test/git-refs.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
     }
   },
   "mcp/trajectory-server/src/test/golden.ts": {
@@ -1666,9 +1272,6 @@
     }
   },
   "mcp/trajectory-server/src/test/graph-holder.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
@@ -1691,24 +1294,13 @@
     "@typescript-eslint/no-base-to-string": {
       "count": 3
     },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/hook-content-preservation-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
     }
   },
   "mcp/trajectory-server/src/test/hook-deny-fix.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -1724,35 +1316,16 @@
     }
   },
   "mcp/trajectory-server/src/test/hook-libs-diff.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/hook-onfailure.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
-  "mcp/trajectory-server/src/test/hook-registration-fields.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
-  "mcp/trajectory-server/src/test/hook-timeout-budget.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-adopted-task.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 22
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -1761,9 +1334,6 @@
     }
   },
   "mcp/trajectory-server/src/test/hooks-agent-spawn-dispatch.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -1772,17 +1342,11 @@
     }
   },
   "mcp/trajectory-server/src/test/hooks-agent-spawn-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/hooks-askuserquestion-length-lint.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1796,15 +1360,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-bash-output-trim.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-code-reviewer-preflight.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 39
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1815,23 +1371,12 @@
       "count": 4
     }
   },
-  "mcp/trajectory-server/src/test/hooks-code-reviewer-spawn-gates.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-code-reviewer-spawn-note.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
   "mcp/trajectory-server/src/test/hooks-containment-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1845,99 +1390,22 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-doc-fresh.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-git-async.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-branch-guards-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-branch-guards.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 14
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-guards-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-guards.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
     }
   },
   "mcp/trajectory-server/src/test/hooks-git-memo.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-git-push-guard-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-push-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-git-refs.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-golden.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 30
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-health-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-health.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "no-loss-of-precision": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-jq-lib.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-lint-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-lint.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 22
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-liveness.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 38
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1945,56 +1413,17 @@
       "count": 4
     }
   },
-  "mcp/trajectory-server/src/test/hooks-merge-lifecycle-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-merge-lifecycle.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-no-prose-in-scratch.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 85
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-no-source-edit-from-main.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-no-source-edit-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
     }
   },
   "mcp/trajectory-server/src/test/hooks-node-missing-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-post-atomic-close-readme.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-promise-misuse.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -2002,137 +1431,23 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/hooks-prompt-intent-hints.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-prompt-intent-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-readme-staleness-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-record-swe-spawn.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 34
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-registration-shape.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-remote-id-guard-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-remote-id-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-reviewer-spawn-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-rework-limit.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 32
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-rework-waiver-capture.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-roundtable-hooks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-roundtable-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-run.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-scope-fence.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-session-hooks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-session-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-session-scans-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-session-scans.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 17
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-spawn-gates-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
     }
   },
   "mcp/trajectory-server/src/test/hooks-spawn-gates.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-boundary-helpers.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-boundary-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-boundary.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
     }
   },
   "mcp/trajectory-server/src/test/hooks-swe-resume-gate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -2140,51 +1455,17 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/hooks-swe-run-gates.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 36
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-run-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-scope-fence-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-scope-fence.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-swe-verification-gate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    }
-  },
   "mcp/trajectory-server/src/test/hooks-swe-verification-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/hooks-task-close-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
   "mcp/trajectory-server/src/test/hooks-task-close.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
     },
@@ -2193,9 +1474,6 @@
     }
   },
   "mcp/trajectory-server/src/test/hooks-task-overrun-alert.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },
@@ -2203,61 +1481,17 @@
       "count": 5
     }
   },
-  "mcp/trajectory-server/src/test/hooks-trajectory-chain-gates.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 32
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-trajectory-chain-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-wm-read-before-provision.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-worktree-adopt-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-worktree-lifecycle-parity.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/hooks-worktree-lifecycle.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
-  "mcp/trajectory-server/src/test/identity-resolution.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
   "mcp/trajectory-server/src/test/issue-close-remote-gate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
   "mcp/trajectory-server/src/test/issue-reconcile-remote.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 17
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 11
     }
   },
   "mcp/trajectory-server/src/test/issue-sync-idempotent.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 15
     },
@@ -2278,9 +1512,6 @@
     }
   },
   "mcp/trajectory-server/src/test/issue-update-description.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 8
     },
@@ -2301,9 +1532,6 @@
     }
   },
   "mcp/trajectory-server/src/test/issue-update.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 12
     },
@@ -2324,9 +1552,6 @@
     }
   },
   "mcp/trajectory-server/src/test/issues.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 138
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 14
     },
@@ -2346,15 +1571,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/l3-runners.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
   "mcp/trajectory-server/src/test/lifecycle.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 47
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
     },
@@ -2365,15 +1582,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/lint-hooks-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 27
-    }
-  },
   "mcp/trajectory-server/src/test/logger.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -2388,17 +1597,11 @@
     }
   },
   "mcp/trajectory-server/src/test/mcp-health-check.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/milestones.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 29
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 10
     },
@@ -2409,30 +1612,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/module-load-footprint.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/no-sh-gate-reads.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
-  "mcp/trajectory-server/src/test/no-source-edit-from-main-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 57
-    }
-  },
-  "mcp/trajectory-server/src/test/normalize-role-prefix.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
   "mcp/trajectory-server/src/test/onboard-hooks-shim.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -2443,15 +1623,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/onboard-sandbox.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    }
-  },
   "mcp/trajectory-server/src/test/onboard-scan.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -2463,9 +1635,6 @@
     }
   },
   "mcp/trajectory-server/src/test/onboard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 133
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 59
     },
@@ -2479,33 +1648,12 @@
       "count": 23
     }
   },
-  "mcp/trajectory-server/src/test/orphan-scan-sandbox.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/platform.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 26
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
-  "mcp/trajectory-server/src/test/post-close-hint-hooks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
-  "mcp/trajectory-server/src/test/pr-monitor-flow-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
   "mcp/trajectory-server/src/test/pr-monitor.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 45
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 52
     },
@@ -2526,9 +1674,6 @@
     }
   },
   "mcp/trajectory-server/src/test/pr-sync.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     },
@@ -2536,30 +1681,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/project-env.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/prompt-intent-hints-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 82
-    }
-  },
-  "mcp/trajectory-server/src/test/readme-summary.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 19
-    }
-  },
-  "mcp/trajectory-server/src/test/readonly-wal-no-shm.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
   "mcp/trajectory-server/src/test/ref-move-reindex.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -2568,9 +1690,6 @@
     }
   },
   "mcp/trajectory-server/src/test/remaining_tools.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     },
@@ -2590,28 +1709,12 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/remote-guards-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 74
-    }
-  },
   "mcp/trajectory-server/src/test/repo-default-branch.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/repo-remotes.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/repos-fk-migration.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     },
@@ -2632,32 +1735,11 @@
     }
   },
   "mcp/trajectory-server/src/test/repos.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 11
     }
   },
-  "mcp/trajectory-server/src/test/require-spawn-effort.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
-  "mcp/trajectory-server/src/test/require-task-spec.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 38
-    }
-  },
-  "mcp/trajectory-server/src/test/resolve-hook.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
   "mcp/trajectory-server/src/test/response-compaction.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -2678,9 +1760,6 @@
     }
   },
   "mcp/trajectory-server/src/test/reviewer-effort.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 14
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 10
     },
@@ -2694,33 +1773,12 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/reviewer-eval.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    }
-  },
-  "mcp/trajectory-server/src/test/reviewer-identity-observe.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    }
-  },
   "mcp/trajectory-server/src/test/reviewer-spawn-roundtrip.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
-  "mcp/trajectory-server/src/test/roundtable-auq-marker-hooks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
   "mcp/trajectory-server/src/test/roundtable.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 55
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 53
     },
@@ -2737,22 +1795,9 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/router-budgets.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 22
-    }
-  },
   "mcp/trajectory-server/src/test/router-concurrent.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/require-await": {
       "count": 3
-    }
-  },
-  "mcp/trajectory-server/src/test/router-context-size.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
     }
   },
   "mcp/trajectory-server/src/test/router-overhead.bench.ts": {
@@ -2764,25 +1809,16 @@
     "@typescript-eslint/no-base-to-string": {
       "count": 2
     },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/router.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 130
-    },
     "@typescript-eslint/require-await": {
       "count": 4
     }
   },
   "mcp/trajectory-server/src/test/rules-commands-junctions.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     },
@@ -2800,41 +1836,26 @@
     }
   },
   "mcp/trajectory-server/src/test/scan-discovery-skips.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/scan-linked-worktrees.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
   "mcp/trajectory-server/src/test/scan-non-ascii-paths.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/scan-resource-discovery.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 40
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/scan.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 60
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 35
     },
@@ -2855,9 +1876,6 @@
     }
   },
   "mcp/trajectory-server/src/test/schema-upgrade.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 201
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 15
     },
@@ -2869,9 +1887,6 @@
     }
   },
   "mcp/trajectory-server/src/test/schema.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 34
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 5
     },
@@ -2879,51 +1894,17 @@
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/session-handoff.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 34
-    }
-  },
-  "mcp/trajectory-server/src/test/session-log-capture.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "mcp/trajectory-server/src/test/session-start-persona.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/session-start-prescan.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 52
     }
   },
   "mcp/trajectory-server/src/test/shard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/shutdown.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 8
-    }
-  },
-  "mcp/trajectory-server/src/test/skill-fallback-db.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
   "mcp/trajectory-server/src/test/small-hooks-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 52
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -2931,20 +1912,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/spec-commit-subject.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
-  "mcp/trajectory-server/src/test/startup-catchup.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/stats-hook-blocks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -2962,9 +1930,6 @@
     }
   },
   "mcp/trajectory-server/src/test/stats.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -2984,68 +1949,12 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/substrate-preflight.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    }
-  },
   "mcp/trajectory-server/src/test/suite-lock.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 29
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
   },
-  "mcp/trajectory-server/src/test/swe-atomic-close-agent-runs-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 43
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-atomic-close-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 31
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-atomic-close-repos-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-background-wait.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-boundary-l3-bypass.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 13
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-boundary-l3-forge.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 31
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-boundary-l3-loops.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-boundary-l3-shapes.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-boundary-l3-surface.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 39
-    }
-  },
   "mcp/trajectory-server/src/test/swe-boundary-scratchpad.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 16
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -3056,23 +1965,12 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/swe-brief-gate-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 26
-    }
-  },
   "mcp/trajectory-server/src/test/swe-checkpoint.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 8
     }
   },
   "mcp/trajectory-server/src/test/swe-resume.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
     },
@@ -3083,50 +1981,9 @@
   "mcp/trajectory-server/src/test/swe-run-identity.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 12
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-scope-fence-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 21
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-stop-cause.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-verification-gate-findings-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 20
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-verification-gate-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 31
-    }
-  },
-  "mcp/trajectory-server/src/test/swe-verification-gate-runs-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 30
-    }
-  },
-  "mcp/trajectory-server/src/test/sync-backend.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
-    }
-  },
-  "mcp/trajectory-server/src/test/sync-default.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
     }
   },
   "mcp/trajectory-server/src/test/sync-issue.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 45
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
     },
@@ -3135,17 +1992,11 @@
     }
   },
   "mcp/trajectory-server/src/test/task-brief-concise.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 5
     }
   },
   "mcp/trajectory-server/src/test/tasks.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 97
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 13
     },
@@ -3166,22 +2017,11 @@
     }
   },
   "mcp/trajectory-server/src/test/test-run.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/tool-output-size.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/trajectory-doctor.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 59
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 20
     },
@@ -3205,32 +2045,11 @@
     }
   },
   "mcp/trajectory-server/src/test/untrusted.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
-  "mcp/trajectory-server/src/test/user-prompt-persona.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/utils-repo-paths.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    }
-  },
-  "mcp/trajectory-server/src/test/utils-test-paths.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
   "mcp/trajectory-server/src/test/validation-reviewed-sha.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 5
     },
@@ -3248,9 +2067,6 @@
     }
   },
   "mcp/trajectory-server/src/test/validation.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 62
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 17
     },
@@ -3273,15 +2089,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/verification-carry.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    }
-  },
   "mcp/trajectory-server/src/test/verification-defaults.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     },
@@ -3293,9 +2101,6 @@
     }
   },
   "mcp/trajectory-server/src/test/verification-paths.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 17
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 10
     },
@@ -3303,15 +2108,7 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/wal-gate-cases.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
   "mcp/trajectory-server/src/test/wm-equivalence.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 15
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
     }
@@ -3319,9 +2116,6 @@
   "mcp/trajectory-server/src/test/wm-freshness-contract.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 13
@@ -3331,9 +2125,6 @@
     }
   },
   "mcp/trajectory-server/src/test/wm-freshness.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 39
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 12
     },
@@ -3345,9 +2136,6 @@
     }
   },
   "mcp/trajectory-server/src/test/wm-needs-review.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 16
     },
@@ -3356,17 +2144,11 @@
     }
   },
   "mcp/trajectory-server/src/test/wm-shadow-compare.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
   "mcp/trajectory-server/src/test/wm-target-fetch.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
     },
@@ -3378,43 +2160,21 @@
     }
   },
   "mcp/trajectory-server/src/test/worktree-adopt.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 18
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/test/worktree-create-l3.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 28
     }
   },
   "mcp/trajectory-server/src/test/worktree-deps.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/worktree-readers.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
   "mcp/trajectory-server/src/test/worktree-setup.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 29
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 9
     }
   },
   "mcp/trajectory-server/src/test/world-model-checkout-lag.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 19
     },
@@ -3423,17 +2183,11 @@
     }
   },
   "mcp/trajectory-server/src/test/world-model-claim-args.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
   "mcp/trajectory-server/src/test/world-model-concepts.suite.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 23
-    },
     "@typescript-eslint/no-misused-promises": {
       "count": 4
     },
@@ -3445,25 +2199,16 @@
     }
   },
   "mcp/trajectory-server/src/test/world-model-coverage.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
     }
   },
   "mcp/trajectory-server/src/test/world-model-drift.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 25
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     }
   },
   "mcp/trajectory-server/src/test/world-model-last-scan.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 10
     },
@@ -3472,9 +2217,6 @@
     }
   },
   "mcp/trajectory-server/src/test/world-model-scope.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 11
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 11
     },
@@ -3483,25 +2225,16 @@
     }
   },
   "mcp/trajectory-server/src/test/world-model-search-rank.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
     }
   },
   "mcp/trajectory-server/src/test/world-model-state.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 6
     }
   },
   "mcp/trajectory-server/src/test/world-model-symbols.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 114
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 61
     },
@@ -3510,9 +2243,6 @@
     }
   },
   "mcp/trajectory-server/src/test/world-model-tool-calls.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 9
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 27
     },
@@ -3520,23 +2250,12 @@
       "count": 1
     }
   },
-  "mcp/trajectory-server/src/test/world-model-value-refs.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 7
-    }
-  },
   "mcp/trajectory-server/src/test/world-model.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     }
   },
   "mcp/trajectory-server/src/test/world_model.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 50
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 57
     },

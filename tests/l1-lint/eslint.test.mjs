@@ -38,6 +38,34 @@ test('a new floating promise fails the lint', { skip, timeout: 300000 }, () => {
   }
 });
 
+test('un-awaited node:test calls pass while a real floating promise still fails', { skip, timeout: 300000 }, () => {
+  const fixture = [
+    "import { describe, it, test } from 'node:test';",
+    'async function work(): Promise<void> {}',
+    "describe('suite', () => {",
+    "  it('case', () => {});",
+    '});',
+    "test('top', () => {});",
+    'work();',
+    '',
+  ].join('\n');
+  const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
+  try {
+    const file = join(dir, 'node-test.ts');
+    writeFileSync(file, fixture);
+    const result = runEslint(['--format', 'json', file]);
+    assert.equal(result.ok, false);
+    const [report] = JSON.parse(result.output);
+    const floating = report.messages.filter((m) => m.ruleId === '@typescript-eslint/no-floating-promises');
+    assert.deepEqual(
+      floating.map((m) => m.line),
+      [7],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repo lint passes against the suppressions baseline', { skip, timeout: 600000 }, () => {
   const result = runEslint([]);
   assert.ok(result.ok, `${result.output}\nEslint: FAIL — fix the violations above or remove stale suppressions`);

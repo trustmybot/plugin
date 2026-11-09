@@ -13,5 +13,13 @@ export default defineConfig(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        {
+          allowForKnownSafeCalls: [{ from: 'package', name: ['describe', 'it', 'suite', 'test'], package: 'node:test' }],
+        },
+      ],
+    },
   },
 );
