@@ -10,6 +10,7 @@ import { RepoFreshness } from '../ui/FreshnessBadge.tsx';
 import { SegmentedControl, type Segment } from '../ui/SegmentedControl.tsx';
 import { DirectoryListing } from './map/DirectoryListing.tsx';
 import { DirectoryTree } from './map/DirectoryTree.tsx';
+import { DirectoryTreemap } from './map/DirectoryTreemap.tsx';
 import { SearchField, SearchResults, useDebouncedTerm } from './map/MapSearch.tsx';
 import { ancestors } from './map/paths.ts';
 import { RepoPicker } from './map/RepoPicker.tsx';
@@ -21,6 +22,13 @@ const SCOPES: readonly Segment<MapScope>[] = [
   { value: 'concepts', label: 'Concepts' },
 ];
 
+type Layout = 'list' | 'treemap';
+
+const LAYOUTS: readonly Segment<Layout>[] = [
+  { value: 'list', label: 'List' },
+  { value: 'treemap', label: 'Treemap' },
+];
+
 function useMapQuery() {
   const hash = useSyncExternalStore(subscribeHash, currentHash, currentHash);
   return useMemo(() => parseMapQuery(hash.split('?')[1] ?? ''), [hash]);
@@ -30,6 +38,7 @@ export function ProjectMapView() {
   const [picked, setPicked] = useState('');
   const [selected, setSelected] = useState('');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(['']));
+  const [layout, setLayout] = useState<Layout>('list');
   const route = useMapQuery();
   const search = useDebouncedTerm();
   const q = useApi<WorldModel>(`world-model?${query({ repo: picked, depth: '0' })}`);
@@ -107,7 +116,16 @@ export function ProjectMapView() {
                   </nav>
                   <div className="min-w-0 space-y-4">
                     {search.term && <SearchResults term={search.term} onOpen={open} />}
-                    {root && <DirectoryListing repo={repo} path={selected} onSelect={(p) => open(repo, p)} />}
+                    {root && (
+                      <>
+                        <SegmentedControl label="Directory view" segments={LAYOUTS} value={layout} onChange={setLayout} />
+                        {layout === 'treemap' ? (
+                          <DirectoryTreemap repo={repo} path={selected} onSelect={(p) => open(repo, p)} />
+                        ) : (
+                          <DirectoryListing repo={repo} path={selected} onSelect={(p) => open(repo, p)} />
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
                 <DepGraph key={repo} repo={repo} />

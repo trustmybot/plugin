@@ -87,7 +87,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "calls": "",
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: commit-msg-lint: commit subject breaks the grammar rule: it does not match '<emoji> <type>(<scope>): <msg>' (one emoji or :shortcode:, a space, a type from feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert|research, an optional (<scope>) of [a-z0-9._/-], then ': ' and the message). Subject seen: \\\"x01 feat: odd\\\". Allowed form: the same git commit with a subject of the form '<emoji> <type>(<scope>): <msg>' in at most 72 chars, e.g. -m 'â¨ feat(hooks): add the gate'\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: commit-msg-lint: commit subject breaks the grammar rule: it does not match '<emoji> <type>(<scope>): <msg>' (one emoji or :shortcode:, a space, a type from feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert|research, an optional (<scope>) of [a-z0-9._/-], then ': ' and the message). Subject seen: \\\"ï¿½ feat: odd\\\". Allowed form: the same git commit with a subject of the form '<emoji> <type>(<scope>): <msg>' in at most 72 chars, e.g. -m 'â¨ feat(hooks): add the gate'\"}}\n"
     }
   },
   "deny-cluster-am.json": {
@@ -234,7 +234,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: commit-msg-lint: commit subject breaks the grammar rule: it does not match '<emoji> <type>(<scope>): <msg>' (one emoji or :shortcode:, a space, a type from feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert|research, an optional (<scope>) of [a-z0-9._/-], then ': ' and the message). Subject seen: \\\"x01 feat: odd\\\". Allowed form: the same git commit with a subject of the form '<emoji> <type>(<scope>): <msg>' in at most 72 chars, e.g. -m '✨ feat(hooks): add the gate'\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: commit-msg-lint: commit subject breaks the grammar rule: it does not match '<emoji> <type>(<scope>): <msg>' (one emoji or :shortcode:, a space, a type from feat|fix|improvement|refactor|docs|test|perf|chore|build|ci|style|revert|research, an optional (<scope>) of [a-z0-9._/-], then ': ' and the message). Subject seen: \\\"� feat: odd\\\". Allowed form: the same git commit with a subject of the form '<emoji> <type>(<scope>): <msg>' in at most 72 chars, e.g. -m '✨ feat(hooks): add the gate'\"}}\n"
     }
   },
   "generic/deny-cluster-am.json": {

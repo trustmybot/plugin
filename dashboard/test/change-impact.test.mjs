@@ -3,7 +3,9 @@
 // tokens, the third holds them) and a `repos` row whose temp git repo has two
 // CLAUDE.md commits, so both change sources list changes. Check that
 // GET /api/insights/change-impact deep-equals computeChangeImpact on the same
-// DB in its list and detail forms, its 400s and 404, that the DB file is
+// DB in its list and detail forms, its 400s and 404, that a throw inside the
+// worker is a 500 whose stderr log carries the worker's stack (GH 2753), that
+// it runs in a worker so /api/health answers while git is slow (GH 2618), that the DB file is
 // unchanged after the requests, and render the Change impact section to
 // static HTML.
 process.env.TZ = 'America/Los_Angeles';
@@ -12,7 +14,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -74,19 +76,21 @@ function seed() {
   db.close();
 }
 
-function startServer(dbPath) {
+function startServer(dbPath, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0' },
+      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
     const onData = (chunk) => {
       out += chunk;
       const url = /http:\/\/127\.0\.0\.1:\d+\//.exec(out)?.[0];
-      if (url) resolve({ url, stop: () => new Promise((done) => (child.once('exit', done), child.kill())) });
+      if (url) resolve({ url, stderr: () => err, stop: () => new Promise((done) => (child.once('exit', done), child.kill())) });
     };
     child.stdout.on('data', onData);
+    let err = '';
+    child.stderr.on('data', (chunk) => (err += chunk));
     child.stderr.on('data', onData);
     child.once('exit', (code) => reject(new Error(`server exited ${code}: ${out}`)));
   });
@@ -236,6 +240,30 @@ describe('GET /api/insights/change-impact', () => {
     }
   });
 
+  test('a throw inside the worker is a 500 INTERNAL_ERROR and stderr carries the worker bundle stack (GH 2753)', async () => {
+    const broken = join(tmp, 'no-agent-runs.db');
+    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    db.exec(`VACUUM INTO '${broken}'`);
+    db.close();
+    const w = new DatabaseSync(broken);
+    w.exec('DROP TABLE agent_runs');
+    w.close();
+    const s = await startServer(broken);
+    try {
+      const res = await fetch(`${s.url}api/insights/change-impact`);
+      assert.equal(res.status, 500);
+      const body = await res.json();
+      assert.deepEqual(body, { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' });
+      assert.doesNotMatch(JSON.stringify(body), /change-impact-worker|agent_runs/);
+      for (let i = 0; i < 100 && !s.stderr().includes('dashboard request failed:'); i += 1) await new Promise((r) => setTimeout(r, 10));
+      const logged = s.stderr().slice(s.stderr().indexOf('dashboard request failed:'));
+      assert.match(logged, /no such table: agent_runs/);
+      assert.match(logged, /\n\s+at .*change-impact-worker\.mjs:\d+:\d+/);
+    } finally {
+      await s.stop();
+    }
+  });
+
   test('a bad source, limit or an id without source is a 400 with an error; an unknown id is a 404', async () => {
     for (const query of ['source=nope', 'limit=0', 'limit=abc', 'limit=-3', 'limit=1.5', 'id=1.1.0', 'source=plugin_version&id=']) {
       const { status, body } = await get(query);
@@ -245,6 +273,60 @@ describe('GET /api/insights/change-impact', () => {
     const unknown = await get('source=plugin_version&id=9.9.9');
     assert.equal(unknown.status, 404);
     assert.match(unknown.body.error, /unknown change plugin_version:9\.9\.9/);
+  });
+
+  // A `git` shim first on the server's PATH sleeps 1.5 s, then runs the real
+  // git with the same argv, stdin and exit code, so a change-impact request
+  // stays in flight on git while /api/health is asked.
+  describe('runs in a worker thread (GH 2618)', () => {
+    const SHIM_DIR = join(tmp, 'slow-git');
+    const STARTED = join(tmp, 'slow-git-started');
+    let slow;
+
+    before(async () => {
+      mkdirSync(SHIM_DIR);
+      const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+      writeFileSync(
+        join(SHIM_DIR, 'git'),
+        `#!/usr/bin/env node
+const { writeFileSync } = require('node:fs');
+const { spawn } = require('node:child_process');
+writeFileSync(${JSON.stringify(STARTED)}, '');
+setTimeout(() => {
+  spawn(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: 'inherit' }).on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+}, 1500);
+`,
+        { mode: 0o755 },
+      );
+      slow = await startServer(DB_PATH, { PATH: `${SHIM_DIR}:${process.env.PATH}` });
+    });
+    after(() => slow?.stop());
+
+    test('main.ts starts the worker bundle and no longer computes change impact itself', () => {
+      const main = readFileSync(join(DASH, 'server/main.ts'), 'utf8');
+      assert.doesNotMatch(main, /computeChangeImpact\(/);
+      assert.match(main, /new Worker\(/);
+      assert.match(main, /new URL\('\.\/change-impact-worker\.mjs', import\.meta\.url\)/);
+      assert.ok(existsSync(join(DASH, 'dist/change-impact-worker.mjs')), 'bun run build emits dist/change-impact-worker.mjs');
+    });
+
+    test('/api/health answers within 500 ms while a change-impact list request waits on slow git', async () => {
+      const order = [];
+      const pending = fetch(`${slow.url}api/insights/change-impact`).then(async (res) => {
+        order.push('change-impact');
+        return { status: res.status, body: await res.json() };
+      });
+      for (let i = 0; i < 500 && !existsSync(STARTED); i += 1) await new Promise((r) => setTimeout(r, 10));
+      assert.ok(existsSync(STARTED), 'the change-impact request reached git');
+      const health = await fetch(`${slow.url}api/health`, { signal: AbortSignal.timeout(500) });
+      order.push('health');
+      assert.equal(health.status, 200);
+      await health.json();
+      const { status, body } = await pending;
+      assert.deepEqual(order, ['health', 'change-impact']);
+      assert.equal(status, 200);
+      assert.deepEqual(body, mod.compute(DB_PATH, { limit: 20 }));
+    });
   });
 
   test('the DB file is unchanged after every request', () => {

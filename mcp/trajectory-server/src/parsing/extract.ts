@@ -1,4 +1,4 @@
-// Symbol and reference extraction for the L1 structural layer (ADR 0001):
+// Symbol and reference extraction for the L1 structural layer (GH 1680):
 // TS/JS and bash through tree-sitter, SQL DDL (in .sql files and in TS string
 // literals) and Perl subs and constants through regexes. Pure functions: a
 // file's text in, its symbols and outgoing references out. Adapted from the
