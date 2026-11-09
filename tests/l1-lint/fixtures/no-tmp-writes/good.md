@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 LOG="${TMPDIR:-/tmp}/tmb-install.log"
 echo x > "$LOG"
 cat /tmp/tmb-out.log

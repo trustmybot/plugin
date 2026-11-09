@@ -7,3 +7,7 @@ Logs go to `<project>/.claude/tmb/logs/mcp-server.log` and `logs/mcp-health.log`
 The checkout sits under /plugin/ in the container.
 Run /scan to refresh the world model, or /onboard to change policy.
 The cache is ~/.claude/plugins/cache/trustmybot/tmb/1.2.0/.
+WORKDIR /plugin
+COPY . /plugin
+cd /plugin && bun install
+Check that `/plugin.json` exists next to `${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js`.
