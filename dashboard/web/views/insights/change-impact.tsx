@@ -57,6 +57,8 @@ const isShift = (m: MetricImpact) => m.verdict === 'improved' || m.verdict === '
 export const shiftsOf = (c: ChangeImpact) => c.metrics.filter(isShift).map((m) => `${m.label} ${VERDICT_TEXT[m.verdict]}`);
 
 const changeKey = (r: ChangeRef) => `${r.source}:${r.id}`;
+const rowKey = (r: ChangeRef) => (r.repo ? `${r.repo}/${changeKey(r)}` : changeKey(r));
+export const rowRef = (r: Row): ChangeRef => ({ source: r['source'] as ChangeRef['source'], id: String(r['id']), repo: (r['repo'] as string | null) ?? null });
 
 export const DECLARED_TEXT: Record<DeclaredOutcome, string> = {
   as_declared: 'moved as declared',
@@ -125,7 +127,7 @@ const listRows = (changes: ChangeImpact[]): Row[] =>
     (c) =>
       ({
         ...c,
-        key: changeKey(c),
+        key: rowKey(c),
         shifts: shiftsOf(c),
         declared_text: (c.declared ?? []).map((d) => declaredText(d, c.metrics)).join(', '),
         measured_together: c.measured_with.length,
@@ -282,13 +284,13 @@ export function ChangeImpactSection({ list, detail, source, selected, onSource, 
                 rows={listRows(l.changes)}
                 columns={listColumns(l.changes)}
                 filter={false}
-                onRowClick={(r) => onSelect({ source: r['source'] as ChangeRef['source'], id: String(r['id']) })}
+                onRowClick={(r) => onSelect(rowRef(r))}
               />
             )}
           </>
         )}
       </Loading>
-      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail key={changeKey(c)} change={c} />}</Loading>}
+      {selected && <Loading q={detail ?? { error: null }}>{(c) => <ChangeDetail key={rowKey(c)} change={c} />}</Loading>}
     </div>
   );
 }
@@ -297,7 +299,7 @@ export function useChangeImpact(): ChangeImpactProps {
   const [source, setSource] = useState('');
   const [selected, setSelected] = useState<ChangeRef | null>(null);
   const list = useApi<ChangeImpactList>(changeImpactApiPath(source), { keepPrevious: true });
-  const detail = useApi<ChangeImpact>(changeImpactApiPath(selected?.source ?? '', selected?.id ?? ''), { enabled: selected !== null });
+  const detail = useApi<ChangeImpact>(changeImpactApiPath(selected?.source ?? '', selected?.id ?? '', selected?.repo), { enabled: selected !== null });
   return {
     list,
     detail,
