@@ -40,7 +40,7 @@ Routing swe's commits through your local branch, rather than letting swe push to
 
 Branch policy is **per repo**. Each registered repo's `repos` row carries its PR target, branching model and protected branches, and is the sole source of truth; there is no global fallback. The git guards resolve the acting repo from the command's git toplevel and enforce that row's policy.
 
-Guard scoping is **registration-based**: a git operation is enforced only when its git root resolves to a registered repo. In an unregistered sibling tree the guards do nothing. `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+`/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
 ## Rebasing a reviewed task
 
