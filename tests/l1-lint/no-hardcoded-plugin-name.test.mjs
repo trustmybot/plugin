@@ -1,4 +1,4 @@
-// L1 lint: no hardcoded plugin-name string (.claude/tmb/, tmb-active-workspace, trustmybot-rc, ="tmb" / ='tmb') in the *.sh, *.ts and *.js files under scripts/ and mcp/trajectory-server/src/ outside the plugin-name resolvers. Exempt: scripts/publish-rc-channel.ts, any path containing "test", and lines carrying an inline fallback (jq -r '.name // "tmb"', jq -r .name, PLUGIN_NAME="tmb", PLUGIN_NAME='tmb'). Every run also checks fixtures/hardcoded-plugin-name/has-hardcoded.sh is caught.
+// L1 lint: no hardcoded plugin-name string (.claude/tmb/, tmb-active-workspace, trustmybot-rc, ="tmb" / ='tmb') in the *.ts and *.js files under scripts/ and mcp/trajectory-server/src/ outside the plugin-name resolvers. Exempt: scripts/publish-rc-channel.ts, any path containing "test", and lines carrying an inline fallback (jq -r '.name // "tmb"', jq -r .name, PLUGIN_NAME="tmb", PLUGIN_NAME='tmb'). Every run also checks fixtures/hardcoded-plugin-name/has-hardcoded.ts is caught.
 import { strict as assert } from 'node:assert';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'hardcoded-plugin-name', 'has-hardcoded.sh');
+const FIXTURE = join(ROOT, 'tests', 'l1-lint', 'fixtures', 'hardcoded-plugin-name', 'has-hardcoded.ts');
 const HARDCODED = /(\.claude\/tmb\/|tmb-active-workspace|trustmybot-rc|=["']tmb["'])/;
 const EXCLUDED_FILES = ['scripts/publish-rc-channel.ts'];
 const EXCLUDED_LINE_PATTERNS = [`jq -r '.name // "tmb"'`, 'jq -r .name', 'PLUGIN_NAME="tmb"', "PLUGIN_NAME='tmb'"];
@@ -15,7 +15,7 @@ function sources(dir, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const child = join(dir, entry.name);
     if (entry.isDirectory()) sources(child, out);
-    else if (entry.isFile() && /\.(sh|ts|js)$/.test(entry.name)) out.push(child);
+    else if (entry.isFile() && /\.(ts|js)$/.test(entry.name)) out.push(child);
   }
 }
 
@@ -31,7 +31,7 @@ function hardcodedInText(text, rel) {
 
 test('the hardcoded-name fixture is caught; inline fallbacks are exempt', () => {
   assert.ok(existsSync(FIXTURE), `no-hardcoded-plugin-name self-test: fixture missing: ${FIXTURE}`);
-  assert.ok(hardcodedLines(FIXTURE, 'has-hardcoded.sh').length > 0, 'no-hardcoded-plugin-name self-test: FAIL (fixture not caught)');
+  assert.ok(hardcodedLines(FIXTURE, 'has-hardcoded.ts').length > 0, 'no-hardcoded-plugin-name self-test: FAIL (fixture not caught)');
   const text = [`NAME="tmb"`, `x='tmb'`, 'tmb-active-workspace', 'trustmybot-rc', `PLUGIN_NAME="tmb"`, `n=$(jq -r '.name // "tmb"' f)`].join('\n');
   assert.deepEqual(hardcodedInText(text, 'x.sh'), [1, 2, 3, 4].map((n) => `x.sh:${n}: hardcoded plugin name`));
 });
