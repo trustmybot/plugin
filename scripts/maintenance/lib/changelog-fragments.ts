@@ -107,6 +107,12 @@ export function fragmentBody(path: string): string[] {
   return METRIC_LINE.test(body.at(-1) ?? '') ? trimBlank(body.slice(0, -1)) : body;
 }
 
+/** The fragment's final `Metric:` line as {metric, direction}, or null when it declares none. */
+export function fragmentMetric(path: string): { metric: string; direction: 'lower' | 'higher' } | null {
+  const m = METRIC_LINE.exec(trimBlank(lines(readFileSync(path, 'utf8')).slice(1)).at(-1) ?? '');
+  return m ? { metric: m[1] ?? '', direction: m[2] as 'lower' | 'higher' } : null;
+}
+
 function metricProblems(path: string, raw: string[]): string[] {
   let last = raw.length - 1;
   while (last > 0 && BLANK.test(raw[last] ?? '')) last--;
