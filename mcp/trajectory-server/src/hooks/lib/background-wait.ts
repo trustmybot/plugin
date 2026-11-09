@@ -1,7 +1,9 @@
 /**
  * The background commands a swe transcript left running (GH 2206). A start is
  * a user tool_result reading `Command running in background with ID: <id>` (or
- * a foreground command `moved to the background (ID: <id>)`); an end is a
+ * a foreground command `moved to the background (ID: <id>)`) whose
+ * `tool_use_id` names an earlier assistant `Bash` tool_use (GH 2688), so a
+ * Read, Grep or MCP result quoting the marker is no start; an end is a
  * `<task-notification>` naming `<task-id><id></task-id>` with a `<status>`, in
  * a tool_result, an `attachment.prompt` or user message content, or a
  * `TaskStop` tool_use whose `input.task_id` is the id. Lines that are not JSON
@@ -39,6 +41,7 @@ function endIds(text: string): string[] {
 export function liveBackgroundIds(transcriptText: string): string[] {
   const started: string[] = [];
   const ended = new Set<string>();
+  const bashUses = new Set<string>();
   for (const line of transcriptText.split('\n')) {
     let entry: unknown;
     try {
@@ -57,15 +60,17 @@ export function liveBackgroundIds(transcriptText: string): string[] {
       if (!Array.isArray(content)) continue;
       for (const block of content) {
         if (!isObj(block) || block.type !== 'tool_result') continue;
+        const fromBash = typeof block.tool_use_id === 'string' && bashUses.has(block.tool_use_id);
         for (const text of blockTexts(block.content)) {
-          started.push(...startIds(text));
+          if (fromBash) started.push(...startIds(text));
           endIds(text).forEach((id) => ended.add(id));
         }
       }
     } else if (message.role === 'assistant' && Array.isArray(message.content)) {
       for (const block of message.content) {
-        if (!isObj(block) || block.type !== 'tool_use' || block.name !== 'TaskStop' || !isObj(block.input)) continue;
-        if (typeof block.input.task_id === 'string') ended.add(block.input.task_id);
+        if (!isObj(block) || block.type !== 'tool_use') continue;
+        if (block.name === 'Bash' && typeof block.id === 'string') bashUses.add(block.id);
+        if (block.name === 'TaskStop' && isObj(block.input) && typeof block.input.task_id === 'string') ended.add(block.input.task_id);
       }
     }
   }

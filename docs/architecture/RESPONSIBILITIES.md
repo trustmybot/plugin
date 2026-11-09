@@ -1,218 +1,81 @@
 # Agent responsibilities
 
-What each plugin-shipped agent is **actually** instructed to do, derived from the agent prompt files + their server-enforced role boundaries. Source of truth for "if it's not here and not in a hook/skill, the agent isn't doing it."
+What each plugin-shipped agent is for, what it may and may not do, and why the roles are split this way. Exact tools, skills and model settings live in each agent's frontmatter (`agents/*.md`, `templates/agents/*.md`); the server-side role checks live in `mcp/trajectory-server/src/` (`requireRoles` in `middleware/agent-scope.ts`, called by each tool family). This page does not repeat them.
 
 ## Agent layer model
 
 Two layers determine which agents are available in a project.
 
-**Layer 1 — Workflow backbone (always global):** `swe.md` and `code-reviewer.md` ship in the plugin's `agents/` directory and are always available without any copy or onboarding step. Resolution rule: when bro spawns `swe` or `code-reviewer`, CC dispatches by name — a project-local `.claude/agents/<name>.md` wins if present; the global serves as fallback. Use `/tmb:agent-create` Template-copy mode to create a project-local override.
+**Layer 1 — Workflow backbone (always global):** `swe` and `code-reviewer` ship in the plugin's `agents/` directory and are available without any copy or onboarding step. When bro spawns one, Claude Code dispatches by name: a project-local `.claude/agents/<name>.md` wins if present, the global file is the fallback.
 
-**Layer 2 — Consultants (templates, opt-in per project):** `architect`, `cto`, `ceo`, `pm` ship in `templates/agents/` and are instantiated per-project on first use via `/tmb:agent-create` template-copy mode. From then on, the project-local copy serves the consultant.
+**Layer 2 — Consultants (templates, opt-in per project):** `architect`, `cto`, `ceo` and `pm` ship in `templates/agents/` and are instantiated per project on first use through `/tmb:agent-create`. From then on the project-local copy serves the consultant.
 
-The canonical registry for all known agents is the SQLite `agents` table in the trajectory DB — seeded at DB init with the backbone agents and consultant templates. Use `agent_list` to query it and `agent_register` to add project-local agents. This section is the prose explainer; the DB is the runtime source of truth.
+The runtime registry of known agents is the `agents` table in the trajectory DB.
 
-**Composition rule:** agent file = identity (immutable for global; project-local overrides allowed for backbone); `skills:` array = capabilities (additive via `tmb_skill-creator`); spawn prompt = task context (per-call). Never confuse layers: a "more skilled SWE" means `swe.md` plus added skills, not a different `swe.md`.
+**Composition rule:** agent file = identity; `skills:` array = capabilities (additive); spawn prompt = task context (per call). A "more skilled swe" is `swe.md` plus added skills, not a different `swe.md`.
 
 ---
 
 ## Design philosophy
 
-Three roles split by what each can be trusted to do without making its own homework, and which one stays alive when something unexpected fires:
+Three roles, split by what each can be trusted to do without marking its own homework, and by which one stays alive when something unexpected fires:
 
-- **bro** — persona on main Claude. Holds most permissions and the full picture (system design + alignment with Human). Bro does everything except coding. Only agent that talks to the Human; only one with the full `requireRoles` matrix unlocked.
-- **swe** — codes. Three reasons coding splits out:
-  1. **Token-heavy** — letting bro do it pollutes bro's strategic memory with diff noise.
-  2. **No self-homework** — the verification gate runs the spec's `verification[]` on SWE's commit and bro judges the recorded run. Same agent can't write + sign off.
-  3. **Subagents are fragile** — SWE runs as a CC subagent with narrowed `tools:` allowlist, frontmatter `disallowedTools`, fresh context. Hook denies / MCP errors mid-task can abort it. Critical state writes (workflow status, summaries, audit) stay with bro — the most permissioned + most resilient layer.
-- **code-reviewer** — independent 3rd party at push gate. Read-only on files (no Edit/Write tool). The only agent allowed to call `validation_record` — the formal sign-off the push gate consumes.
+- **bro** — the persona on the main Claude thread. Holds the full picture (system design and alignment with the Human) and the widest permissions. Bro does everything except coding, is the only agent that talks to the Human, and owns every workflow state change.
+- **swe** — codes. Coding splits out for three reasons:
+  1. **Token-heavy** — doing it in bro would fill bro's strategic context with diff noise.
+  2. **No self-homework** — the verification gate runs the spec's checks on swe's commit, and bro judges the recorded run. The agent that writes the code does not sign it off.
+  3. **Subagents are fragile** — swe runs as a subagent with a narrow tool allowlist and a fresh context; a hook deny or MCP error can end its run. Critical state writes stay with bro, the most permissioned and most resilient layer.
+- **code-reviewer** — an independent third party at the push gate. Read-only on files. The only agent whose verdict the push gate accepts.
 
 ---
 
 ## bro
 
-Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
+Source: the plugin's `CLAUDE.md` (there is no `agents/bro.md`; hooks deliver the persona).
 
-### Persistent persona behaviors
-
-- **Activation routine** — `activation-routine` UserPromptSubmit hook reads `plugin_config('onboarded')` + pending issue from the trajectory DB and injects them as `additionalContext`. Bro consumes the injected data; doesn't redundantly call those MCP tools.
-- **First-contact auto-fire** — when the hook reports `onboarded=no`, bro fires `/onboard` immediately before any reply.
-- **Welcome banner** on first activation in a session.
-- **Verify context before answering** — query trajectory DB first; branch by git-clean state; web for upstream specs; flag training-data fallbacks.
-- **Pre-authorized destructive cleanup** — when the Human's prompt names what to delete (branches, temp files, etc.), bro executes in one Bash command with no AUQ.
-- **MCP `agent: 'bro'`** on every MCP call — server rejects mismatches.
-
-### Code-touching chain
-
-1. `session-start-prescan` (auto hook — inventory) → decide
-2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
-3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + a `kind=decision` discussion when the change is architectural: new boundary/module, public API, schema, strategic stack, external side effects)
-4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`, `worktree_reused`); an existing branch is reused only at or behind the base tip — a diverged one is refused with `branch_exists_diverged` unless `reuse_existing: true`.
-5. spawn SWE against the provisioned branch + worktree
-6. SWE returns
-7. **bro verification (V1/V2/V3)**:
-   - V1 — files match the spec's `## Files`
-   - V2 — re-run the spec's `## Verification` commands inside the worktree
-   - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`).
-### Server-enforced privileges (Layer 1)
-
-Bro is the only agent allowed to call:
-- `task_provision`
-- `task_update_status` (shared with SWE; bro writes `closed`, SWE writes `completed`/`failed`)
-- `issue_create`, `issue_close`, `issue_resume`
-- `discussion_append` for `kind='intent'`
-- `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
-- `pr_monitor_comments_get` (shared with code-reviewer)
-- `issue_sync_retry`, `issue_reconcile_remote`
-- `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
-- `scan_run` (single scan-side tool)
-
-### Hooks fired on bro's behalf
-
-| Hook | When | Effect |
-|---|---|---|
-| `user-prompt-persona` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
-| `activation-routine` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
-| `session-start-persona` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block, and after a compaction the issue, live tasks and newest decision `session-handoff` recorded at PreCompact; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
-| `session-start-prescan` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
-| `ensure-gitignore` | SessionStart | Ensure `.claude/` is gitignored |
-| `no-source-edit-from-main` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
-| `no-worktree-branch-create` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
-| `branch-up-to-date-with-remote` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
-| `cleanup-worktree-on-task-close` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once code-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
-
-### Universal rules
-
-- **Bro never edits source code** — every code change goes through SWE (Layer 2 hook enforces). The guard is scoped by registration: a code edit is guarded only when its path resolves to a registered `repos` row, so unregistered sibling repos in a multi-repo workspace are outside Rule 1's scope (#592). See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
-- **Voice**: relaxed tone, action-first, no padding.
+- **Plans and routes.** Grounds each ask in the trajectory DB and the world model, proposes a branch, writes the task spec, and provisions the task together with its branch and worktree.
+- **Gates tasks.** When swe returns, bro checks the work against the spec and the recorded verification run, then closes the task. A close writes the verification audit row and the status change in one transaction.
+- **Gates pushes.** After a close, bro spawns code-reviewer, reads the verdict from its recorded row (never from reply text), integrates the base when it moved, pushes and opens the PR.
+- **Never edits source.** Every code change goes through swe; hooks deny bro's edits to registered repo source from the main checkout. Unregistered sibling repos in a multi-repo workspace are outside that guard (see [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)).
+- **Talks to the Human.** Only bro asks the Human questions and reports to them.
 
 ---
 
-## SWE (`agents/swe.md`)
+## swe
 
-Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server`, `skills: [tmb_swe-checklist]`.
+Source: `agents/swe.md`.
 
-### Spawn contract
+- **Spawn contract.** bro spawns swe with a task id; a spawn gate refuses a spawn without a valid, provisioned task. swe arrives in the task's worktree and reads its brief first.
+- **Works in the worktree only.** It edits, tests and commits on the task branch bro provisioned. It never creates branches or worktrees, never fetches, rebases or pushes, and never edits outside its worktree or the prompt surface unless the task allows it.
+- **Closes atomically.** It commits with the spec's commit message and reports completion with a typed report: each success criterion with its evidence, every path edited outside the task's files with a reason, and the review findings it fixed. The verification gate runs the spec's checks before the completion is accepted.
+- **Stops on a hook block.** A deny is a hard stop; swe reruns in the form the deny names, or closes failed and quotes the hook to bro.
+- **Hands back.** When the work will not fit its turns, it commits and returns a checkpoint so the next run resumes.
 
-- Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or the task is neither `pending` nor `running` without a live swe run (Layer 2 hook `require-task-spec` enforces).
-- bro spawns SWE with `isolation='worktree'`; the `WorktreeCreate` hook (`worktree-create`) is the sole creator — it adds the worktree at `.claude/worktrees/<slug>` on `tasks.branch_id` (bro pre-created the branch) and routes it to `tasks.repo`. SWE arrives already in the worktree.
-- **First response** (parallel batch): `task_brief(agent='swe', task_id=N)` + `Bash(cd <worktree>)`. SWE never runs `git worktree add` itself.
-
-### Work loop
-
-- Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`. `files[]` is guidance at directory granularity: a write outside it is allowed, and the first write to each such path brings a note asking the swe to list it, and why, in its report.
-- Run the tests and lints for the files it touched; the verification gate runs the spec's `verification[]` once when the swe closes and records the run for the commit (`task_brief.verification_run`).
-- Report every path edited outside `files[]` with its reason; add the changelog entry the way the repo records changes; work on the branch bro provisioned; bro integrates the base after the code-reviewer pass.
-- Optionally invoke `tmb_swe-checklist` skill when the spec's `## Verification` needs interpretation.
-
-### Atomic close
-
-Batch in one response:
-1. Commit (using the spec's `## Commit` message)
-2. `task_update_status(agent='swe', status='completed', commit_sha, report)` — `report.criteria` gives each `SC<n>` id `met` / `not_met` / `not_applicable` with its evidence, `report.extras` the paths outside `files[]` with reasons, `report.findings_fixed` the review findings the rework fixed (each probe committed as a test)
-
-### Server-enforced privileges (Layer 1)
-
-- `task_get` (all agents)
-- `task_update_status` for `completed`/`failed` (bro owns `closed`)
-- `audit_append`
-- `discussion_append` for `kind='note'`
-
-### Hooks fired against SWE actions
-
-| Hook | When | Effect |
-|---|---|---|
-| `require-task-spec` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec; a schema-touching or column-adding spec also needs `Writer:` + `Populated:` lines or a `Nullable:` line (waived by a `spec_shape_gate_waived` audit row with `from_node = 'bro'` naming the task in `content_json.task_id`, written per task by `task_create_batch` / `task_provision` with `waive_spec_shape` or by bro through `audit_append`) |
-| `git-guards`, `git-push-guard` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only), except `git merge --ff-only` of a branch onto its own remote-tracking upstream, alone or right after an exact `git switch <branch> &&` (`git pull --ff-only` is the suggested sync); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard`). |
-| `no-worktree-branch-create` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
-| `branch-up-to-date-with-remote` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
-| `swe-boundary` | PreToolUse Bash + Edit/Write | Deny push, gh/glab mutations, edits outside the worktree, the repo-root `CLAUDE.md` (always) and prompt-surface writes on a task without `prompt_bearing`; a Bash write outside `files[]` gets a once-per-path note |
-| `swe-scope-fence` | PreToolUse Edit/Write | Never denies: an Edit/Write outside `files[]` gets a once-per-path note (`<state>/locks/scope-notes/`) |
-
-### Scope is judged at close
-
-`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else the remote's default branch — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by top-level directory (root files under `<root>`) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` does not resolve, or differs from the merge-base with the target without descending from it; a task stacked on a live sibling branch, whose recorded base strictly descends from the target merge-base, reports `false`). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so code-reviewer reads bro's acceptance instead of recomputing the diff.
-
-### Forbidden
-
-- Push (any `git push`)
-- Edit outside the worktree, the repo-root `CLAUDE.md`, or the prompt surface on a task without `prompt_bearing`
-- Author the spec body (server enforces — bro-only on `task_provision`)
-- Bypass any PreToolUse hook block — STOP and surface the hook output to bro instead
+Scope is judged at close: bro's close compares the task's own commits with its declared files, and either the extras are reverted through swe or bro accepts them with a recorded reason. code-reviewer reads that record instead of recomputing it.
 
 ---
 
-## code-reviewer (`agents/code-reviewer.md`)
+## code-reviewer
 
-Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server` (no Edit/Write — read-only by design).
+Source: `agents/code-reviewer.md`.
 
-### Spawn contract
-
-- Fires at **push time** over a batch of unsigned tasks (NOT per individual task close).
-- Bro spawns one code-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
-- First action: `task_brief(agent='code-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
-- **MCP availability self-test** — pass the typed `mcp_available` boolean to `validation_record` (`true` = MCP up, `false` = honor-system fallback). It lands in the `validation_attempts.mcp_available` column; the push-gate reads the typed field from the row.
-
-### Review work
-
-For each task, trust the swe's checklist of what changed and read the records: test results from `task_brief.verification_run` (the gate's run for the exact `commit_sha`; none, failed, timed out or a different sha is a FAIL) and scope from `task_brief.scope` (`files`, `extras_accepted` — the paths outside `files[]` bro accepted at close — and `base_moved`). Re-run only commands whose record looks suspicious; spend the rest on complementary probes (adversarial inputs, dry runs on data copies, cross-file semantics, doc/code agreement, the spec's `Populated:` commands). Apply mechanical checks (delegate to `pr-review-toolkit:review-pr` if installed) + task-alignment checks (scope, success criteria met by diff, atomic-close discipline).
-
-### Sign off
-
-`validation_record(agent='code-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback, mcp_available)`. Server enforces code-reviewer-only and derives the reviewer's `subagent_session_id` and `reviewer_agent_id` from the `reviewer-identity-observe` hook row.
-
-### Server-enforced privileges (Layer 1)
-
-- `validation_record` — code-reviewer is the **only** writer
-- `issue_snapshot_md` (shared with consultants)
-- `pr_monitor_comments_get` (shared with bro)
-- `audit_append`, `discussion_append`
-
-### Hooks fired against code-reviewer actions
-
-| Hook | When | Effect |
-|---|---|---|
-| `git-push-guard` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every pushed task commit's newest `validation_attempts` row is a `pass` recorded at or after its review anchor, the first `bro_verification_pass` or `task_integrated` row for its current `commit_sha` |
-
-### Forbidden
-
-- Authoring spec bodies
-- Editing files (no Edit/Write tool — frontmatter)
+- **Spawn contract.** bro spawns one reviewer per closed task, after the close, with the task's anchors only; a preflight hook checks the anchors and the branch before the reviewer runs.
+- **Reviews from the records.** It reads the task brief, the recorded verification run and the scope record, re-runs only what looks suspicious, and spends the rest on independent probes of the diff.
+- **Signs off.** It records a typed verdict with findings. The server derives the reviewer's identity itself and refuses a verdict that is not independent of the swe that wrote the commit. The push gate admits a push only when each pushed task commit has a passing verdict.
+- **Never edits files** and never changes task status.
 
 ---
 
-## Consultants (`architect`, `cto`, `ceo`, `pm`, project-local custom)
+## Consultants
 
-Templates in `templates/agents/<name>.md`, instantiated per-project on demand via `/tmb:agent-create`. Not plugin-resident agents.
+Templates in `templates/agents/<name>.md`, instantiated per project on demand via `/tmb:agent-create`.
 
-### Server-enforced constraints (Layer 1)
-
-Consultants **cannot write workflow state**: `task_provision`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
-
-They **can write analyses**: `discussion_append(kind='analysis')`, `audit_append`. Architect specifically also gets `issue_snapshot_md`.
-
-### Spawn pattern
-
-Bro spawns consultants for second opinions; consultants return analysis as a `discussions` row; bro reports to Human; **the Human decides** — never the consultant.
+- **Cannot write workflow state** — issues, tasks, status changes and verdicts are refused by the server.
+- **Can write analyses** as discussion rows.
+- **Advise, never decide.** bro spawns consultants for second opinions, reports their analysis to the Human, and **the Human decides**.
 
 ---
 
-## Quick role × tool matrix
+## How roles are enforced
 
-Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireRoles` declarations.
-
-`requireRoles` reads the role from the `agent` argument the caller passes; the server never sees who is calling. The `agent-arg-matches-caller` PreToolUse hook closes that gap on every trajectory-server call: it compares `agent` with the hook payload's `agent_type` (the subagent's real type, after `normalizeRole`), or with `bro` when the payload has none (the main session), and denies a mismatch with an `agent_arg_mismatch` audit row. A subagent therefore cannot unlock bro's column by passing `agent='bro'`, and the main session cannot act as a subagent; a call without `agent` is left to the server, which treats it as `unknown`.
-
-| Tool | bro | swe | code-reviewer | consultants |
-|---|:---:|:---:|:---:|:---:|
-| `issue_create` / `issue_close` | ✓ | | | |
-| `task_provision` | ✓ | | | |
-| `task_reopen` / `task_update_spec` | ✓ | | | |
-| `task_update_status(closed)` | ✓ | | | |
-| `task_update_status(completed/failed)` | ✓ | ✓ | | |
-| `validation_record` | | | ✓ | |
-| `world_model_get` / `world_model_search` | ✓ | ✓ | ✓ | |
-| `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
-| `discussion_append` | any kind | note | any | analysis |
-| `audit_append`, `task_get` | ✓ | ✓ | ✓ | ✓ |
+Every trajectory-server tool declares which roles may call it, reading the role from the `agent` argument the caller passes. A PreToolUse hook compares that argument with the caller's real agent type (or `bro` for the main session) and denies a mismatch, so a subagent cannot act as bro and the main session cannot act as a subagent. The role-by-tool matrix is the `requireRoles` calls in `mcp/trajectory-server/src/tools/`; the per-agent tool allowlists are the `tools:` frontmatter in `agents/*.md`.

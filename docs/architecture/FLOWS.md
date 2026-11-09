@@ -4,37 +4,26 @@ The decision chain is **Human → bro → SWE** with two distinct gates:
 - **bro is the task gate** — closes after SWE returns + verifies.
 - **code-reviewer is the push gate** — reviews each task after `bro_atomic_close`; `git-push-guard` blocks a push whose task commits lack a passing review.
 
-All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. The full role × tool matrix lives in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
+All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. Roles live in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
 
-This file is the ground truth for the workflow, including the brand workflow hero and its animations. It describes what ships on `dev`, and marks work that has not shipped:
-
-| Marker | Meaning |
-|---|---|
-| none | Shipped on `dev` |
-| **In flight (PR N)** / **In flight (GH N)** | Being built; an open PR or a running task |
-| **Planned (GH N)** | Open issue, not started |
-
-A PR that changes a flow updates its step, loop or roadmap row here in the same PR, and moves its marker when it ships. The [Roadmap](#roadmap) lists every unshipped item with the ids it changes.
+This file is the ground truth for the workflow, including the brand workflow hero and its animations. It describes only what ships; planned work lives in its GitHub issue. A PR that changes a flow updates its step, loop or guard row here in the same PR.
 
 Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workflow hero takes its memory story from there.
 
-**Hook citations.** Every gate but one runs through the router (`node dist/hooks.js <Event> [part]`, one `hooks/hooks.json` registration per group, gates listed in `dist/hooks-router.txt`); the exception is the Stop entry `node dist/hooks.js liveness-sentinel`, whose exit 2 is an `asyncRewake` wake and not a deny. The SessionStart default and WorktreeCreate registrations prefix the router with a `command -v node` guard that names a missing node and exits 2 (GH 2215). Every gate is TypeScript, `mcp/trajectory-server/src/hooks/<gate>.ts` (built into `dist/hooks.js` and listed in `dist/hooks-gates.txt`; GH 1692). Below, `src/hooks/` means `mcp/trajectory-server/src/hooks/`.
+**Hook citations.** Every gate is TypeScript in `mcp/trajectory-server/src/hooks/<gate>.ts`, run through one router; which gates each hook event runs, and in what order, is `ROUTER_GROUPS` in `src/hooks/registry.ts`, registered by `hooks/hooks.json`. Below, `src/hooks/` means `mcp/trajectory-server/src/hooks/`, and gate lists name the gates that matter to the step, not every gate the event runs.
 
-**Layout.** Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Fresh or existing project](#part-iii--fresh-or-existing-project), [Agent task handling](#part-iv--agent-task-handling), [Extending the team](#part-v--extending-the-team) and [Reporting TMB bugs](#part-vi--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
+**Layout.** Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Agent task handling](#part-iii--agent-task-handling), [Extending the team](#part-iv--extending-the-team) and [Reporting TMB bugs](#part-v--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
 
 ## Quick index
 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
 | | **Install** | | | | |
-| 0 | Install and session start | `claude plugin install`, then every session start | — (hooks) | session markers under `.claude/tmb/sessions/` | the nine SessionStart gates, `session-start-persona`, `user-prompt-persona` |
+| 0 | Install and session start | `claude plugin install`, then every session start | — (hooks) | session markers under `.claude/tmb/sessions/` | the SessionStart gates, `session-start-persona`, `user-prompt-persona` |
 | | **Cold start** | | | | |
 | 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `repos`, `repo_remotes`, `audit` | `activation-routine` (auto-fire trigger) |
-| 7 | Scan + world-model refresh | First code-touching ask of session when the world model is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR the trajectory server connecting (`startup_catchup`) | bro (or the server's startup catch-up in background) | `repos` (SQLite) + `wm_directories` / `wm_files` (summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | none (`startup-catchup.ts` is server code, not a hook) |
-| **E** | Environment setup (ENV) — **In flight (GH 2066)** | After `scan_run`, on onboarding, a `stale` ENV, or an `env-ready` deny | bro (Human approves one bundle) | `repo_env`, `cheatcodes`, `audit` | `env-ready`, the `scan_run` PostToolUse nudge, `session-start-prescan` |
-| | **Fresh or existing project** | | | | |
-| 11 | Existing project: adopt its toolchain — **In flight (GH 2066)** | The repo already declares tools | bro | `repo_env` | — |
-| 12 | Fresh project: bootstrap a baseline — **In flight (GH 2066)** | A category has no tool, or `files[]` has an extension no ENV covers | bro → swe (bootstrap task) | `repo_env`, `tasks` | `env-ready` |
+| 7 | Scan + world-model refresh An empty world model, `/scan`, or the trajectory server connecting | bro (or the server's startup catch-up in background) | `repos`, the `wm_*` tables, `cheatcodes` (on-disk resources), `audit` | none (the startup catch-up is server code, not a hook) |
+| **E** | Environment profile (ENV) | bro needs a repo's install, test and lint commands | bro | `repo_env` | — |
 | | **Agent task handling** | | | | |
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `bro_atomic_close`; `cli.js integrate` when the base moved | `issues`, `tasks`, `discussions`, `audit`, `agent_runs`, `verification_runs`, `validation_attempts`, `review_findings` | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `code-reviewer-preflight`, `git-push-guard`, `close-issue-on-merge` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | `task_provision`'s `decision_body` (universal `decision_gate` on `task_create_batch`) |
@@ -44,13 +33,13 @@ Every flow follows the memory model in [`MEMORY.md`](MEMORY.md). The brand workf
 | 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | `wm_directories` rows (repo-relative paths; `repo` column scopes to the right inner git repo) | — |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
 | | **Extending the team** | | | | |
-| 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", a proactive reuse-check before building, OR flow E's skill search | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
+| 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", or a proactive reuse-check before building | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `cheatcodes` (skill row via `skill_register`) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | `consultant-persistence-gate` |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | | **Reporting TMB bugs** | | | | |
-| **B** | Bug report (opt-in) — **In flight (PR 2053)** | bro hits a real TMB bug and `bug_report_consent` is `yes` | bro (Human previews and approves each report) | `plugin_config`, `audit` | — |
+| **B** | Bug report (opt-in) | bro hits a real TMB bug and `bug_report_consent` is `yes` | bro (Human previews and approves each report) | `plugin_config`, `audit` | — |
 
 ---
 
@@ -67,10 +56,10 @@ Installing and restarting are the Human's actions; bro never runs them.
    ```
    The rc channel is `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` with `--scope local`. Pick one channel per Claude Code install.
 2. **What is active at once:** the `swe` and `code-reviewer` agents (shipped in `agents/`), the trajectory-server MCP tools, and the hooks in `hooks/hooks.json`. bro's persona lives in the plugin's `CLAUDE.md`, which Claude Code never loads for a plugin, so hooks deliver it.
-3. **Every session start** runs the SessionStart gates in this order: `ensure-gitignore`, `mcp-health-check`, `deferred-tools-drift-warn`, `plugin-hooks-marker`, `session-start-persona`, `session-start-prescan`, `ensure-mcp-deps-installed`, `substrate-preflight`, `orphan-scan`.
+3. **Every session start** runs the SessionStart gates (health checks, gitignore, session markers, persona, project inventory):
    - `plugin-hooks-marker` and `session-start-persona` write the session's `.plugin-hooks` and `.persona` markers;
    - `session-start-persona` injects bro's persona on startup, resume, `/clear` and compaction, and after a compaction appends the state `session-handoff` (G8b) recorded before it;
-   - `session-start-prescan` prints a stack label. **In flight (GH 2066):** it compares the ENV evidence hashes instead, marks drifted `repo_env` rows `stale` and nudges bro to run flow E.
+   - `session-start-prescan` injects the project inventory and the trajectory DB's health line.
 4. **The first prompt** runs `user-prompt-persona`, which injects the persona once when the session started before the plugin's hooks loaded. If TMB was installed mid-session, the Human fully quits and relaunches Claude Code. It also runs `activation-routine`, which starts flow 1 on a project that isn't onboarded.
 
 Everything TMB writes stays under the project root; [INSTALL.md](../reference/INSTALL.md#what-tmb-writes-and-where) lists each path.
@@ -86,14 +75,8 @@ flowchart LR
     I[0. Install] --> S[Session start hooks]
     S --> F[1. First contact /onboard]
     F --> W[7. Scan: world model]
-    W --> E[E. ENV setup]
-    E -->|existing tools| X[11. Adopt toolchain]
-    E -->|gaps or greenfield| G[12. Bootstrap baseline]
-    X --> T[2. First code-touching task]
-    G --> T
+    W --> T[2. First code-touching task]
 ```
-
-Flow E and the branches to flows 11 and 12 are **In flight (GH 2066)**. Until they ship, the first task follows flow 7 straight into flow 2.
 
 ---
 
@@ -110,9 +93,9 @@ Bro's `activation-routine` UserPromptSubmit hook (`src/hooks/activation-routine.
 | 2 | Always | Branching model + PR target, once when every repo points the same way, else per repo; on remote shape, then the Remote question (multiSelect) for the workspace | each `repos` row: `branching_model`, `target_branch`, `protected_branches`; on remote shape each repo's `repo_remotes` rows replaced from its git remotes, one remote per chosen provider marked `sync` |
 | 3 | Remote shape | Issue sync | global `issue_sync` |
 | 4 | Always | Bash sandbox | `sandbox_enforcement`; `yes` writes the sandbox block into `<project>/.claude/settings.local.json` |
-| 5 | **In flight (PR 2053)** | Opt-in TMB bug reports (flow B) | `plugin_config.bug_report_consent` (`no` default) |
+| 5 | Always | Opt-in TMB bug reports (flow B) | `plugin_config.bug_report_consent` (`no` default) |
 
-The final workspace-level `onboard_apply` writes `remote`, `issue_sync`, `sandbox_enforcement` and the `onboarded` marker in one transaction.
+The final workspace-level `onboard_apply` writes the workspace answers and the `onboarded` marker in one transaction.
 
 ```mermaid
 sequenceDiagram
@@ -138,11 +121,9 @@ sequenceDiagram
     end
     G->>H: AUQ Round 4 — Bash sandbox
     H-->>G: answer
-    opt In flight (PR 2053)
-        G->>H: AUQ Round 5 — opt-in bug reports
-        H-->>G: answer
-    end
-    G->>DB: onboard_apply(shape, remote, issue_sync, sandbox_enforcement) + onboarded
+    G->>H: AUQ Round 5 — opt-in bug reports
+    H-->>G: answer
+    G->>DB: onboard_apply(workspace answers) + onboarded
     G->>H: "Done. Settings updated: ..."
 ```
 
@@ -152,128 +133,27 @@ sequenceDiagram
 
 ### 7. Scan + world-model refresh
 
-`scan_run` is the single scan-side MCP tool. It runs the deterministic walker in `src/tools/scan-walk.ts` in-process, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+`scan_run` is the single scan-side MCP tool. It walks each registered repo deterministically and writes the **world model** tables: one row per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback) under its parent, file purposes, and the symbol index with its edges. The world-model tools read them; inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-Triggered four ways (`scan.ts` accepts `user_manual`, `bro_auto_initial` and `startup_catchup`, and records any other `source` as `bro_auto_initial`):
+A scan runs when the Human types `/scan`, when bro finds the world model empty or rescans after an architectural change, and in the background when the trajectory-server connects. Reads and task spawns also reindex a repo to its target commit on their own. Each scan records its source and whether the project's shape changed in a `deep_scan_completed` audit row; the accepted sources are in `scan_run`'s schema (`mcp/trajectory-server/src/tools/scan.ts`).
 
-| Trigger | `source` value | Who fires |
-|---|---|---|
-| First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
-| User typed `/scan` | `user_manual` | The slash command body passes it |
-| Bro decides to rescan mid-session | `bro_auto_initial` | Bro calls `scan_run` after an architectural change (`tmb_planning` §6); without a `source` it records `bro_auto_initial` |
-| trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
-
-`scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
-
-- `source` (one of the three accepted values above)
-- `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
-- `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
-
-**Resource discovery (#124/#846).** The same scan ALSO reconciles on-disk capabilities into the `cheatcodes` table: project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each resource not already tracked (matched on name+kind) is inserted as `origin='installed'`, `status='installed'`, `source_url='scan_discovered'` (distinguishing it from a pipeline install) and emits a `scan_discovered` audit row — so a cheatcode added out-of-band still becomes visible to the lifecycle flow below.
-
-**Planned (GH 1988):** the world model becomes the codebase DAG — impact reaches every downstream consumer (table readers, prompts, hooks), with measured caller recall. GH 1989 (S5) and GH 1990 (S8) build on it.
+**Resource discovery.** The same scan also reconciles on-disk capabilities into the `cheatcodes` table: project-local skills, enabled plugins and configured MCP servers. Each resource not already tracked (matched on name and kind) is inserted with a `scan_discovered` audit row, so a cheatcode added out-of-band still becomes visible to the lifecycle flow below.
 
 ---
 
-### E. Environment setup (ENV) — In flight (GH 2066)
+### E. Environment profile (ENV)
 
-Getting the environment ready is bro's job. After a scan, TMB knows each repo's world model **and** its ENV:
-- **swe** gets a ready-to-develop environment: dependencies installed, and the test, lint, format and typecheck commands with the runner prefix the repo uses;
-- **code-reviewer** gets a ready-to-review environment: the same commands, with their tools confirmed available.
+Knowing how to install, test and lint a repo is bro's job, and **no toolset is hardcoded**: bro decides from the repo's own evidence.
 
-A skill makes the decisions (`tmb_env-setup`, bro); hooks only make sure it runs. **No toolset is hardcoded**, in the skill or in code: bro decides from the repo's evidence and from research.
+- **Detect.** `env_detect` reads the repo's evidence (CI steps, task-runner targets, manifests, config files, lockfiles) and runs nothing. It reports a recorded profile as drifted when the evidence changed since it was recorded.
+- **Record.** bro resolves the commands per category and records them with `env_record`; bro's own overrides, waivers and declines survive a re-record.
+- **Read.** `env_get` returns a repo's effective commands for planning and verification.
 
-| Id | Actor | Tool or hook | Reads → writes |
-|---|---|---|---|
-| E1 | <a id="E1"></a>hook | PostToolUse `scan_run`, and SessionStart `session-start-prescan`: a repo with no ENV row, or whose evidence hash changed, gets a nudge to load `tmb_env-setup`; drifted rows become `stale`. Onboarding loads it too | evidence files → `repo_env.status` |
-| E2 | <a id="E2"></a>bro | `env_detect(repo)`: a read-only, tool-agnostic evidence collector. It returns CI `run:` steps, task-runner targets, manifest dev-dependency lists, root config files, lockfile names and file extensions. It runs no repo-defined command | the repo tree → none |
-| E3 | <a id="E3"></a>bro | Resolves each category (install, test, lint, format_check, typecheck, pre-commit, CI): a category the repo already covers follows flow 11; a gap, or a fresh project, follows flow 12 | the E2 evidence → the proposal |
-| E4 | <a id="E4"></a>bro | `tmb_cheatcode` (`cheatcode_search` → `cheatcode_vet`), per ecosystem: best-practice coding skills for **swe** and code-review skills for **code-reviewer**. Skills already attached or installed are reused | `cheatcodes` → the proposal |
-| E5 | <a id="E5"></a>bro | Probes each chosen command: `<tool> --version`, then the command on one file | none → probe results |
-| E6 | <a id="E6"></a>bro → Human | **One AUQ round** shows the profile and the **permission bundle**: toolsets (repo-local dev dependencies), system tools (the install command for the Human to run), and cheatcodes with the agent each attaches to. Each item shows why it was picked, its provenance and its vet result. The Human approves the bundle, drops single items, or declines it all | the proposal → the Human's answer |
-| E7 | <a id="E7"></a>bro | `env_record(repo, profile)`. Approved skills go through `cheatcode_approve` / `cheatcode_install` and are attached to the agent's project-local `skills:` frontmatter, with the agent body unchanged. Declined and waived items are recorded with their reason. Accepted toolset categories become a bootstrap task (flow 12) | → `repo_env`, `cheatcodes`, `audit` |
-| E8 | <a id="E8"></a>hook | Agent-spawn gate `env-ready`: denies spawning swe or code-reviewer for a task whose repo ENV isn't `ready`. The deny names the repo and points at `tmb_env-setup`. A recorded, Human-approved waiver passes | `repo_env` → allow / deny |
-
-**Where the ENV lives.**
-- **The repo is the source of truth:** tool choices and settings live in the repo's own standard files (the manifest's dev-dependency group and tool tables, linter and typechecker configs, `.pre-commit-config.yaml`, a CI workflow). Teammates, CI and editors then enforce the same rules without TMB.
-- **`repo_env` is a derived cache, per machine:** resolved commands with their `file:line` source and confidence, probe results, provenance, the evidence hash, overrides, waivers and confirmations. A fresh clone with no DB gets the same profile back from `env_detect`. One row covers one (repo, package path, ecosystem).
-- **Tools:** `env_detect(repo)` (read-only), `env_record(repo, profile)` (bro only), `env_get(repo?)`. `world_model_get` includes the ENV summary, and the activation banner shows one line of ENV status per repo.
+**Where the ENV lives.** The repo is the source of truth: tool choices live in the repo's own standard files, so teammates, CI and editors enforce the same rules without TMB. `repo_env` is a derived per-machine cache of the resolved commands, their sources and the evidence hash.
 
 ---
 
-## Part III — Fresh or existing project
-
-Flow E sends each category to one of the two flows below. A repo can use both: flow 11 for the categories it already covers and flow 12 for its gaps.
-
-### 11. Existing project: adopt its toolchain — In flight (GH 2066)
-
-bro reads the E2 evidence, strongest signal first, and adopts what the team already enforces:
-1. **CI workflows:** the commands the team actually runs.
-2. **Task runners:** `package.json` `scripts`, Makefile, justfile or Taskfile targets, `[tool.*]` script tables, tox or nox sessions.
-3. **Tool configs:** any config file at the repo root, or a config table inside a manifest.
-4. **Manifests and lockfiles:** they reveal the package manager and runner prefix, e.g. `uv.lock` → `uv run`, `pnpm-lock.yaml` → `pnpm`.
-
-These are examples of the evidence bro reasons over, not a lookup table in code.
-- **Existing choices are kept.** A formatter the repo already uses stays unless the Human asks to switch.
-- **User overrides** live in their own column, and a re-detect never overwrites them.
-- **A missing system tool** (the package manager, a compiler) is the Human's install. bro gives the exact command, or a cheatcode where one exists, inside the E6 bundle.
-
-### 12. Fresh project: bootstrap a baseline — In flight (GH 2066)
-
-A new project has nothing to detect. So when a category has no tool, or a task's `files[]` has a source extension no ENV covers, bro proposes a baseline. Each category is resolved in this order, stopping at the first step that answers:
-1. **What already exists:** tools the repo declares or configures, then tools installed on the machine, then the conventions of the other repos in this workspace.
-2. **Current best practice from the web,** when there is internet access (WebSearch / WebFetch). bro prefers the ecosystem's official docs and the tools' own docs, and records each URL and the date it was fetched.
-3. **bro's own knowledge, when offline.** The pick is marked `model_knowledge` and re-checked on the next run that has internet access.
-
-Coding and review skills resolve in the same order: already attached or installed → `cheatcode_search` → bro's knowledge, which installs nothing and only adds notes to the task brief.
-
-- **Provenance** is recorded per tool: `existing_repo` | `existing_machine` | `workspace` | `web` (URLs + fetch date) | `model_knowledge`. The E6 bundle shows it.
-- **Versions** are never chosen by TMB. The package manager resolves them at bootstrap, and the lockfile pins them.
-- **The bootstrap task** runs through flow 2 like any other task. It:
-  - adds the accepted tools as repo-local dev dependencies through the repo's own package manager, never as global installs;
-  - writes their config into the repo files;
-  - adds a pre-commit config and a CI workflow that runs the same commands;
-  - fixes or baselines what the new lint flags on existing code.
-
-  Then `env_detect` finds the tools and the ENV is `ready`.
-- **Waivers:** a waived category is recorded with its reason. `env-ready` passes it, and code-reviewer states the reduced verification in its validation record.
-- **A brand-new project's first task** can't reach swe until its baseline is bootstrapped or waived, so quality tooling arrives with the first line of code.
-
-```mermaid
-sequenceDiagram
-    participant H as Human
-    participant B as Bro
-    participant W as Web
-    participant DB as SQLite
-    participant S as swe
-
-    B->>DB: env_detect (no tool for lint, typecheck, test …)
-    B->>B: existing repo → machine → workspace
-    alt internet access
-        B->>W: best practice per category (official docs)
-        W-->>B: picks + source URLs
-    else offline
-        B->>B: model_knowledge (flagged for re-check)
-    end
-    B->>DB: cheatcode_search + cheatcode_vet (swe and code-reviewer skills)
-    B->>H: AUQ: one bundle (toolsets, system tools, skills)
-    H-->>B: approve / drop items / decline
-    B->>DB: env_record + cheatcode_install for approved skills
-    B->>S: bootstrap task (flow 2)
-    S-->>B: dev deps + config + pre-commit + CI committed
-    B->>DB: env_detect → ENV ready
-```
-
----
-
-## Part IV — Agent task handling
-
-**In flight (GH 2066): the ENV in flow 2.**
-- the worktree setup runs the ENV `install` command in swe's worktree;
-- `task_provision` (S6) adds the matching ENV commands for each `files[]` entry to `verification[]`, deduplicated;
-- `env-ready` (E8) joins the Agent-spawn gates (S7, S15);
-- `task_brief` (S8) gives swe and code-reviewer the ENV commands for their files;
-- `tmb_review` (S16) fails a task whose files an ENV command covers when the gate run for its commit didn't run that command.
+## Part III — Agent task handling
 
 ### 2. Code-touching task (canonical chain)
 
@@ -285,40 +165,40 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 
 | Id | Actor | Tool or hook | Reads → writes | Source |
 |---|---|---|---|---|
-| S1 | <a id="S1"></a>Human → bro | Chat message, then the `UserPromptSubmit` hooks: `user-prompt-persona`, `activation-routine`, `session-log-capture`, `prompt-intent-hints`, `roundtable-slash-detect`, `task-overrun-alert` (G8), `liveness-alert` (G10) | `plugin_config`, the open issue → none (the hooks inject bro's persona and the open issue) | `hooks/hooks.json` (UserPromptSubmit); `src/hooks/user-prompt-persona.ts`; `src/hooks/activation-routine.ts` |
-| S2 | <a id="S2"></a>bro | `world_model_get(depth=2)`, `world_model_search(query, mode='hybrid')`, `world_model_symbol`; each call writes one `wm_tool_called` audit row (tool, agent, task, result count, empty, latency). **In flight (PR 2010):** the row also logs the `impact` and `source` arguments (GH 1986). **Planned (GH 1988):** the world model becomes the codebase DAG, so impact reaches every downstream consumer (table readers, prompts, hooks). | `wm_directories`, `wm_files`, `wm_symbols` → audit `wm_tool_called` | `skills/tmb_planning/SKILL.md:11-13`; `docs/architecture/WORLD_MODEL.md` ("Measuring WM use") |
-| S3 | <a id="S3"></a>bro → Human | `AskUserQuestion`: which base branch; PreToolUse `askuserquestion-length-lint` | none → none (the answer stays in the transcript) | `skills/tmb_planning/SKILL.md:36`; `src/hooks/askuserquestion-length-lint.ts` |
-| S4 | <a id="S4"></a>bro → Human | `branch_id_propose`, AUQ "Proceed with branch_id X?", then `intent_start` | the Human's intent → `issues` row, `discussions` kind=intent and the planning note in one transaction; audit `branch_id_proposed` | `skills/tmb_planning/SKILL.md:38`; `composites.ts:746,813` |
-| S4′ | <a id="S4′"></a>bro (GitHub path) | `issue_create` adopts an existing GitHub issue in place of S4's `intent_start` | the GitHub issue → `issues` row with `gh_iid`; audit `issue_adopted` | `issues.ts:614` |
-| S5 | <a id="S5"></a>bro | Triage: is it actionable, reuse or build; the call rides in `task_provision`'s `decision_body`. **Planned (GH 1989):** `task_provision` / `task_create_batch` are gated until bro has run world-model impact on every code file in the task's scope. | world model → `discussions` kind=decision (written at S6) | `skills/tmb_planning/SKILL.md:30,84` |
-| S6 | <a id="S6"></a>bro | `task_provision(issue_id, branch_id, decision_body, task, base?)`; the task carries `spec_body` (Description, Success Criteria `SC<n>`, Out of Scope, Commit), typed `files[]`, `verification[]` and `effort`. A spec without `SC<n>` ids is refused, as is one whose `## Commit` subject guard G16 would deny (GH 2667), and a spec past 8 `files[]`, 8 `verification[]` commands, 5 success criteria or about 5000 characters is split into linked tasks so each fits one swe run. PostToolUse `post-task-create-spawn-hint` follows a `task_create_batch`. When bro runs in a linked git worktree (a Claude Code worktree session), `task_provision` / `task_reopen` / `task_retry` take `adopt_worktree: '<that worktree>'`: the worktree is checked (same repo, not the main checkout, tracked files clean, no live task holding it) before the branch is cut, recorded on the task (`worktree_path`, `worktree_adopted`) and switched to the task branch, and no `<repo>/.claude/worktrees/<slug>` is made; a refusal writes nothing. Guard G12 requires the arg from such a session and refuses it from any other (GH 2032). Guard G13 nudges a `task_provision` that no world-model read preceded (GH 2329). Guard G15 refuses a `verification[]` naming a test file that is neither at the base nor in `files[]`, and returns `suggested_verification` (GH 2581). Each worktree `task_provision` / `task_reopen` / `task_retry` make or reuse gets the main checkout's `node_modules` linked in, then runs the repo's opt-in `.config/tmb/worktree-setup.json` commands (GH 2054, [worktree setup](../../mcp/trajectory-server/README.md#worktree-setup)); a setup failure is reported in the result's `worktree_setup` and provisioning still succeeds. **Planned (GH 1983):** handoff fields in the spec (intent, decisions, typed scope, rabbit holes, exemplar, appetite, blocked). | `issues`, the base branch → `discussions` kind=decision, `tasks` row, git branch and worktree; audit `planning_complete` | `skills/tmb_planning/SKILL.md:100`; `composites.ts:975`; `src/hooks/post-task-create-spawn-hint.ts` |
-| S7 | <a id="S7"></a>bro → swe | `Agent(subagent_type=swe, effort, prompt "task_id=<N>")`; PreToolUse `agent-spawn-dispatch` runs its nine gates in order (`require-task-spec`, `require-spawn-effort`, `require-feature-branch-active`, `code-reviewer-no-worktree`, `code-reviewer-spawn-prompt-shape`, `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `rework-limit`), then the PREPARE steps `ensure-swe-worktree`, `record-swe-spawn` and `record-reviewer-spawn` (a code-reviewer spawn's `reviewer_spawn_observed` row, GH 2684); PostToolUse `swe-spawn-bind` binds the run to its spawn id, `swe-spawn-rollback` undoes the spawn record when the spawn fails. | `tasks` → task pending → running; `agent_runs` row opened | `skills/tmb_planning/SKILL.md:104-111`; `hooks/hooks.json` (PreToolUse/PostToolUse Agent); `src/hooks/agent-spawn-dispatch.ts` |
-| S8 | <a id="S8"></a>swe | `task_brief(task_id)`; `swe-brief-gate` denies Edit/Write and every other trajectory tool until it is fetched. The brief's `locations` gives each file the spec names its purpose and symbols with line ranges, and each named function its definition range and up to three callers and callees, so swe reads ranges instead of whole files. A brief carrying `checkpoint` is a resume (L6); `last_stop` says why the previous run stopped. **Planned (GH 1990):** swe and code-reviewer get the world-model tools, with hooks that push each edited symbol's downstream callers, behind an A/B. | `tasks`, `discussions`, `review_findings`, `verification_runs`, `wm_*` → audit `swe_brief_fetched` | `agents/swe.md:22-24`; `src/hooks/swe-brief-gate.ts`; `composites.ts:1122` |
-| S9 | <a id="S9"></a>swe | Edits, tests and commits in the worktree; tests run through `node mcp/trajectory-server/dist/test-run.js -- <argv...>` (run as given, no shell; `-- bash -c '<cmd>'` for shell syntax, GH 2438), which prints one summary line plus capped failure excerpts and writes the full output to a log. A full suite (`bun run test`, `npm test`, `tests/run-all.ts`, `node --test` with a glob or no file) first waits for a machine-wide suite slot (GH 2092; `TMB_TEST_SUITE_SLOTS`, default 1; root `/tmp/claude-<uid>/tmb-suite-lock` or `TMB_SUITE_LOCK_DIR`), printing `waiting for a suite slot: held by pid P (worktree W) for Ns` to stderr; a named test file runs straight away. Guards G1–G4 fire on each call, and G16 on each `git commit`; a deny is L1. | worktree files → commits on the task branch; `slot-<i>/holder` under the suite-lock root while a suite runs; audit `containment_denied` + `hook_denied` on a deny | `agents/swe.md`; `mcp/trajectory-server/src/test-run.ts`; `mcp/trajectory-server/src/suite-lock.ts` |
-| S10 | <a id="S10"></a>swe | `task_update_status(completed, commit_sha, report)`, where `report.criteria` gives every `SC<n>` `met` / `not_met` / `not_applicable` with evidence, `report.extras` lists edits outside `files[]`, `report.findings_fixed` names the fixed findings, and the optional `report.case_sweep` lists each bug class swept with the cases checked (GH 1955); PreToolUse `swe-verification-gate` runs `verification[]` and every blocking finding's probe in the worktree (L2), carrying forward a command whose declared inputs the rework did not touch. **Planned (GH 2001):** the gate checks the worktree is clean before it records or reuses a run. **Planned (GH 1959):** swe returns a short typed summary that points to the stored report. | `tasks.verification`, `review_findings` → `verification_runs` + `verification_run_commands`, `tasks.commit_sha`, `tasks.completion_report` | `tasks.ts:453`; `src/hooks/swe-verification-gate.ts`; `src/hooks/registry.ts` (`ROUTER_GROUPS`, trajectory-server group) |
-| S11 | <a id="S11"></a>hook | `SubagentStop` → `swe-atomic-close`: auto-completes a still-running task that has commits (unless the run wrote a checkpoint, L6), meters the run, then runs `swe-stop-cause`, which records `agent_runs.stop_cause` = `budget` (checkpoint handback) or `hook_block` (the run ended on a PreToolUse deny with no completion report; the deny text goes in `stop_detail`) and `hook_block_tokens` (the run's block-turn cost, GH 1915) and tells bro to resume or to name the block in the rework `spawn_note`. **In flight (PR 2047):** it also runs `tool-output-size`, recording each tool's returned characters and estimated tokens per run (GH 1957). | the swe transcript → `agent_runs` completed (tokens, duration, `stop_cause`, `stop_detail`, `hook_block_tokens`) | `hooks/hooks.json` (SubagentStop); `src/hooks/swe-atomic-close.ts`; `src/hooks/swe-stop-cause.ts` |
-| S12 | <a id="S12"></a>bro | Verify: `task_brief` + `git diff` of the commit, judged on the four checks: scope vs `files[]`, `verification_run` exit 0, the report covers every `SC<n>`, `world_model_get` on the changed directory | `tasks`, `verification_runs`, world model → none (`bro_verification_fail_record` on a failed check) | `skills/tmb_planning/SKILL.md:117-126` |
-| S13 | <a id="S13"></a>bro | `bro_atomic_close(task_id, …, spawn_note?, session_id?)`; refuses a close the report does not cover, or with no passing run for the closing commit. `spawn_note` (up to 300 characters) is the only prose the reviewer gets beyond its anchors. With `session_id` the result carries `reviewer_spawn` {`prompt`, `effort`, `subagent_type`}: the S15 Agent call, its prompt every anchor as `name=value` plus one line, its effort the assigned reviewer effort (GH 2582); without it, `reviewer_spawn_unavailable` names the missing input. **Planned (GH 1983):** a downstream-consumer check at close. | `tasks`, `verification_runs` → task closed; audit `bro_verification_pass` | `composites.ts:895`; `skills/tmb_planning/SKILL.md:124` |
+| S1 | <a id="S1"></a>Human → bro | Chat message, then the `UserPromptSubmit` hooks (the group in `src/hooks/registry.ts`), among them the overrun (G8) and liveness (G10) advisories | `plugin_config`, the open issue → none (the hooks inject bro's persona and the open issue) | `hooks/hooks.json` (UserPromptSubmit); `src/hooks/user-prompt-persona.ts`; `src/hooks/activation-routine.ts` |
+| S2 | <a id="S2"></a>bro | Reads the world model (`world_model_get`, `world_model_search`, `world_model_symbol`); each call writes one `wm_tool_called` audit row | `wm_*` tables → audit `wm_tool_called` | `skills/tmb_planning/SKILL.md` |
+| S3 | <a id="S3"></a>bro → Human | `AskUserQuestion`: which base branch; PreToolUse `askuserquestion-length-lint` | none → none (the answer stays in the transcript) | `skills/tmb_planning/SKILL.md`; `src/hooks/askuserquestion-length-lint.ts` |
+| S4 | <a id="S4"></a>bro → Human | `branch_id_propose`, AUQ "Proceed with branch_id X?", then `intent_start` | the Human's intent → `issues` row, `discussions` kind=intent and the planning note in one transaction; audit `branch_id_proposed` | `skills/tmb_planning/SKILL.md`; `composites.ts` |
+| S4′ | <a id="S4′"></a>bro (GitHub path) | `issue_create` adopts an existing GitHub issue in place of S4's `intent_start` | the GitHub issue → `issues` row with `gh_iid`; audit `issue_adopted` | `issues.ts` |
+| S5 | <a id="S5"></a>bro | Triage: is it actionable, reuse or build; the call rides in `task_provision`'s `decision_body` | world model → `discussions` kind=decision (written at S6) | `skills/tmb_planning/SKILL.md` |
+| S6 | <a id="S6"></a>bro | `task_provision` records the decision and the task in one call, then cuts the task branch and its worktree. The task carries a spec with `SC<n>` success criteria, typed `files[]`, `verification[]` and an effort; a spec whose `## Commit` subject G16 would deny is refused (GH 2667), and a spec too large for one swe run is split into linked tasks. A bro session already in a linked worktree adopts it instead of getting a new one (G12). A provision with no world-model read before it is nudged (G13), and `verification[]` may name only test files that exist (G15). Each worktree runs the repo's opt-in setup commands ([worktree setup](../../mcp/trajectory-server/README.md#worktree-setup)) | `issues`, the base branch → `discussions` kind=decision, `tasks` row, git branch and worktree; audit `planning_complete` | `skills/tmb_planning/SKILL.md`; `composites.ts` |
+| S7 | <a id="S7"></a>bro → swe | `Agent(subagent_type=swe, effort, prompt "task_id=<N>")`; PreToolUse `agent-spawn-dispatch` runs the spawn gates in order (the task has a spec and an effort, the branch is live, the rework limit holds; the code-reviewer gates are S15's), then records the spawn and makes sure the worktree exists; PostToolUse binds the run to its spawn, or undoes the record when the spawn fails | `tasks` → task pending → running; `agent_runs` row opened | `skills/tmb_planning/SKILL.md`; `src/hooks/agent-spawn-dispatch.ts` (the gate chain) |
+| S8 | <a id="S8"></a>swe | `task_brief(task_id)`; `swe-brief-gate` denies edits and every other trajectory tool until it is fetched. The brief resolves the files and symbols the spec names to line ranges, so swe reads ranges instead of whole files. A brief carrying a checkpoint is a resume (L6), and it says why the previous run stopped | `tasks`, `discussions`, `review_findings`, `verification_runs`, `wm_*` → audit `swe_brief_fetched` | `agents/swe.md`; `src/hooks/swe-brief-gate.ts`; `composites.ts` |
+| S9 | <a id="S9"></a>swe | Edits, tests and commits in the worktree. Tests run through the test runner wrapper, which returns a short summary and keeps the full output in a log; a full suite waits for a machine-wide suite slot so parallel worktrees don't overload the machine. Guards G1–G4 fire on each call, and G16 on each commit; a deny is L1 | worktree files → commits on the task branch; audit rows on a deny | `agents/swe.md`; `mcp/trajectory-server/src/test-run.ts`; `mcp/trajectory-server/src/suite-lock.ts` |
+| S10 | <a id="S10"></a>swe | `task_update_status(completed, commit_sha, report)`; the typed report gives every `SC<n>` a status with evidence and lists the edits outside `files[]`, the findings fixed and the bug classes swept. PreToolUse `swe-verification-gate` runs `verification[]` and every blocking finding's probe in the worktree (L2) | `tasks.verification`, `review_findings` → `verification_runs`, `tasks.commit_sha`, `tasks.completion_report` | `tasks.ts`; `src/hooks/swe-verification-gate.ts` |
+| S11 | <a id="S11"></a>hook | `SubagentStop` → `swe-atomic-close`: auto-completes a still-running task that has commits (unless the run wrote a checkpoint, L6), meters the run and its tool-output sizes, and records why the run stopped (a checkpoint handback or a hook block), telling bro to resume or to name the block in the rework note | the swe transcript → `agent_runs` completed (tokens, duration, stop cause) | `src/hooks/swe-atomic-close.ts`; `src/hooks/swe-stop-cause.ts` |
+| S12 | <a id="S12"></a>bro | Verify: `task_brief` + `git diff` of the commit, judged on the four checks: scope vs `files[]`, `verification_run` exit 0, the report covers every `SC<n>`, `world_model_get` on the changed directory | `tasks`, `verification_runs`, world model → none (`bro_verification_fail_record` on a failed check) | `skills/tmb_planning/SKILL.md` |
+| S13 | <a id="S13"></a>bro | `bro_atomic_close` refuses a close the report does not cover, or with no passing run for the closing commit. Its short spawn note is the only prose the reviewer gets beyond its anchors, and the result can carry the ready-made S15 spawn call | `tasks`, `verification_runs` → task closed; audit `bro_verification_pass` | `composites.ts`; `skills/tmb_planning/SKILL.md` |
 | S14 | <a id="S14"></a>hook | PostToolUse `bro_atomic_close` → `post-atomic-close-readme` | the closed task's README drift → audit `readme_staleness_surfaced` | `src/hooks/post-atomic-close-readme.ts` |
-| S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer, effort=reviewer_effort)`, the prompt carrying anchors only (`task_id= commit_sha= branch_id= repo= repo_path= attempt_n= subagent_session_id=`); the `agent-spawn-dispatch` gates include `code-reviewer-after-atomic-close` (the task must be closed), `code-reviewer-spawn-note` (at most `SPAWN_NOTE_MAX_CHARS` of prose beyond the anchors) and `code-reviewer-preflight` (five machine checks, L8) | `tasks`, `verification_runs`, git → `agent_runs` row opened | `skills/tmb_push-gate/SKILL.md:15-19,36`; `src/hooks/agent-spawn-dispatch.ts`; `src/hooks/code-reviewer-after-atomic-close.ts`; `src/hooks/code-reviewer-spawn-note.ts`; `src/hooks/code-reviewer-preflight.ts` |
-| S16 | <a id="S16"></a>code-reviewer | `task_brief`, `git show <sha>`, `pr_monitor_worktree` probes, then `validation_record(verdict, findings[], mcp_available)`, each finding with an optional `severity` (`blocking` by default, `nit`, `pre_existing`) and bug `class` (GH 1955): a `fail` needs a blocking finding, and a `pass` may carry nits and pre-existing ones; PreToolUse `reviewer-identity-observe` stamps the reviewer. **Planned (GH 1955):** risk-scaled reviewer effort, measured by a reviewer eval. **Planned (GH 1959):** a short typed return that points to the stored verdict. | spec, diff → `validation_attempts` (+ `review_findings` on FAIL) | `agents/code-reviewer.md`; `skills/tmb_review/SKILL.md`; `validation.ts:168`; `src/hooks/reviewer-identity-observe.ts` |
-| S17 | <a id="S17"></a>bro | `validation_history`: the verdict comes from the row, never from the reply text | `validation_attempts` → none | `skills/tmb_push-gate/SKILL.md:38` |
-| S18 | <a id="S18"></a>bro | Base moved → `cli.js integrate <task_id> <base>` rebases in a temporary worktree, runs the repo's `.config/tmb/worktree-setup.json` commands (a failure exits 1, naming the command) and reruns `verification[]` (L4 on exit 2); on exit 0 bro pushes the printed SHA, which carries the reviewed commit's pass (GH 2082); an unmoved base skips this step | `tasks`, `validation_attempts` → `verification_runs` source=manual on the rebased SHA; the task branch and `tasks.commit_sha` moved to it; audit `task_integrated`, the review anchor of the rebased SHA, carrying the reviewed SHA's anchor in `review_anchor_at` (a row without it, written before GH 2082, takes its `reviewed_sha`'s anchor, GH 2546) | `skills/tmb_planning/SKILL.md:130-136`; `mcp/trajectory-server/src/cli/integrate.ts:428` |
-| S19 | <a id="S19"></a>bro | `git push origin <feature>`; PreToolUse `git-push-guard` allows it only when each pushed task commit has a passing review for that SHA: a pass recorded at or after the review anchor of the task's current `commit_sha`, its first `bro_verification_pass` or `task_integrated` row (a rebased commit also needs a passing run for its exact SHA) | `validation_attempts`, `audit`, `verification_runs` → the remote branch | `skills/tmb_push-gate/SKILL.md:46`; `src/hooks/git-push-guard.ts` |
-| S20 | <a id="S20"></a>bro | `gh pr create --base <pr_target>` (`glab mr create` on GitLab); PostToolUse `attribution-footer` checks the PR body's attribution | none → the PR | `skills/tmb_push-gate/SKILL.md:46` |
-| S21 | <a id="S21"></a>Human | Merges the PR; once it reports `MERGED`, bro runs the post-merge cleanup. **Planned (GH 2026):** when the PR is green, bro asks with an AUQ, merge by bro (CI and the local tests pass) or merge by the Human (the PR meets a human-review condition). | GitHub → the merged PR | `skills/tmb_push-gate/SKILL.md:50-52` |
-| S22 | <a id="S22"></a>hook | PostToolUse Bash after a successful in-session `gh pr merge` / `glab mr merge`: `close-issue-on-merge` closes the branch's live tasks and each issue the PR closes by an explicit closing-ref; `clean-merged-branch` removes the merged branch and its worktree. A merge made on GitHub fires neither. | `tasks`, `validation_attempts` → tasks and issue closed; audit `issue_auto_closed_on_merge` (+ `review_gate_bypassed` for a task with no passing review) | `hooks/hooks.json` (PostToolUse Bash); `src/hooks/close-issue-on-merge.ts`; `src/hooks/clean-merged-branch.ts` |
+| S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer)`, the prompt carrying `name=value` anchors and the spawn note only; the code-reviewer spawn gates require a closed task, cap the prose and run the machine preflight (L8) | `tasks`, `verification_runs`, git → `agent_runs` row opened | `skills/tmb_push-gate/SKILL.md`; `src/hooks/agent-spawn-dispatch.ts`; `src/hooks/code-reviewer-preflight.ts` |
+| S16 | <a id="S16"></a>code-reviewer | Reads the brief and the commit, probes in a review worktree, then records a verdict with `validation_record`: a `fail` needs a blocking finding, and a `pass` may carry nits and pre-existing ones. A hook stamps the reviewer's identity on the record | spec, diff → `validation_attempts` (+ `review_findings`) | `agents/code-reviewer.md`; `skills/tmb_review/SKILL.md`; `validation.ts` |
+| S17 | <a id="S17"></a>bro | `validation_history`: the verdict comes from the row, never from the reply text | `validation_attempts` → none | `skills/tmb_push-gate/SKILL.md` |
+| S18 | <a id="S18"></a>bro | Base moved → `cli.js integrate` rebases the reviewed commit in a temporary worktree and reruns `verification[]`; a clean rebase carries the reviewed commit's pass to the new SHA, which bro pushes, and a conflict is L4. An unmoved base skips this step | `tasks`, `validation_attempts` → a verification run on the rebased SHA; the task branch moved to it; audit `task_integrated` | `skills/tmb_planning/SKILL.md`; `mcp/trajectory-server/src/cli/integrate.ts` |
+| S19 | <a id="S19"></a>bro | `git push`; PreToolUse `git-push-guard` allows it only when each pushed task commit has a passing review recorded for that commit | `validation_attempts`, `audit`, `verification_runs` → the remote branch | `skills/tmb_push-gate/SKILL.md`; `src/hooks/git-push-guard.ts` |
+| S20 | <a id="S20"></a>bro | `gh pr create --base <pr_target>` (`glab mr create` on GitLab); PostToolUse `attribution-footer` checks the PR body's attribution | none → the PR | `skills/tmb_push-gate/SKILL.md` |
+| S21 | <a id="S21"></a>Human | Merges the PR; once it reports `MERGED`, bro runs the post-merge cleanup | GitHub → the merged PR | `skills/tmb_push-gate/SKILL.md` |
+| S22 | <a id="S22"></a>hook | PostToolUse Bash after a successful in-session `gh pr merge` / `glab mr merge`: `close-issue-on-merge` closes the branch's live tasks and each issue the PR closes by an explicit closing-ref; `clean-merged-branch` removes the merged local branch and its worktree. A merge made on GitHub fires neither. | `tasks`, `validation_attempts` → tasks and issue closed; audit `issue_auto_closed_on_merge` (+ `review_gate_bypassed` for a task with no passing review) | `hooks/hooks.json` (PostToolUse Bash); `src/hooks/close-issue-on-merge.ts`; `src/hooks/clean-merged-branch.ts` |
 
 #### Loops
 
 | Id | Loop | Trigger | What happens | Source |
 |---|---|---|---|---|
-| L1 | <a id="L1"></a>Hook block → rerun | A PreToolUse hook denies a swe call, e.g. `containment-guard` on a write outside the worktree | swe reruns in the form the deny names and carries on. When the deny names none or says it is policy, swe closes `failed` with no report and quotes the hook. A run that stops on the deny without reporting is recorded `stop_cause = hook_block` (S11), and bro names the block in the rework `spawn_note`. Returns to S9. | `agents/swe.md:20`; `src/hooks/containment-guard.ts`; `src/hooks/swe-stop-cause.ts` |
+| L1 | <a id="L1"></a>Hook block → rerun | A PreToolUse hook denies a swe call, e.g. `containment-guard` on a write outside the worktree | swe reruns in the form the deny names and carries on. When the deny names none or says it is policy, swe closes `failed` with no report and quotes the hook. A run that stops on the deny without reporting is recorded `stop_cause = hook_block` (S11), and bro names the block in the rework `spawn_note`. Returns to S9. | `agents/swe.md`; `src/hooks/containment-guard.ts`; `src/hooks/swe-stop-cause.ts` |
 | L2 | <a id="L2"></a>Gate deny → fix | swe calls `task_update_status(completed)` but a `verification[]` command or an open finding's probe fails | `swe-verification-gate` denies the call, naming the command and its timing; swe fixes it and calls again. Returns to S9. | `src/hooks/swe-verification-gate.ts` |
-| L3 | <a id="L3"></a>Review FAIL → rework → re-review | code-reviewer records `fail` with findings `F<task>-<n>` | bro surfaces the FAIL and holds the push, then `task_reopen(task_id, reason, effort='high', spawn_note)` naming the finding ids; swe fixes each, commits its probe as a test, the gate re-runs every probe, and code-reviewer reviews the next attempt. Returns to S7 (or L7 when bro resumes the same swe). | `skills/tmb_planning/SKILL.md:64,140`; `skills/tmb_push-gate/SKILL.md:47`; `validation.ts:168` |
-| L4 | <a id="L4"></a>Integrate conflict → retry | The base moved and `cli.js integrate` exits 2 (conflict or patch drift) | bro records the failure (`bro_verification_fail_record`), then `task_retry` cuts a fresh task, branch and worktree from the current base with a spec that points at the reviewed commit; it goes through verify and review again. Exit 1 (`verification[]` failed on the rebased commit) reworks as L3. Returns to S7. | `skills/tmb_planning/SKILL.md:130-136`; `composites.ts:766,832` |
-| L5 | <a id="L5"></a>Rework limit | Two review FAILs on the task since its last pass, six swe runs of the task (budget handbacks aside), or four review FAILs across its issue's tasks with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind 'decision' row) on the task or its issue | The `rework-limit` spawn gate (and `swe-resume-gate` for a resume) denies a further swe run on the task, naming the limit, its count and `waive task <N>`. The issue limit also stops a `task_retry` or split task with no FAILs of its own. Only the Human lifts a limit, by typing `waive task <N>`; no agent-written row does. bro stops and reports to the Human with a proposed redesign or split; `task_retry` itself refuses a fourth retry in one lineage. Returns to S5. | `skills/tmb_planning/SKILL.md:141`; `src/hooks/rework-limit.ts`; `composites.ts` (`task_retry` retry cap) |
-| L6 | <a id="L6"></a>Checkpoint → resume | The work left won't fit in the swe run's turns | Before `maxTurns` ends the run, swe commits the work in progress and calls `task_update_status(status='running', checkpoint={done, left, files, commit_sha})` with no report. S11 keeps the task `running` and records `stop_cause = budget`; bro spawns swe again, and the brief's `checkpoint` tells it to start from `left` and not redo `done`. A move to `completed` clears the checkpoint. Returns to S7. | `agents/swe.md:22`; `tasks.ts` (`checkpoint`); `src/hooks/swe-stop-cause.ts` |
+| L3 | <a id="L3"></a>Review FAIL → rework → re-review | code-reviewer records `fail` with findings `F<task>-<n>` | bro surfaces the FAIL and holds the push, then `task_reopen(task_id, reason, effort='high', spawn_note)` naming the finding ids; swe fixes each, commits its probe as a test, the gate re-runs every probe, and code-reviewer reviews the next attempt. Returns to S7 (or L7 when bro resumes the same swe). | `skills/tmb_planning/SKILL.md`; `skills/tmb_push-gate/SKILL.md`; `validation.ts` |
+| L4 | <a id="L4"></a>Integrate conflict → retry | The base moved and `cli.js integrate` exits 2 (conflict or patch drift) | bro records the failure (`bro_verification_fail_record`), then `task_retry` cuts a fresh task, branch and worktree from the current base with a spec that points at the reviewed commit; it goes through verify and review again. Exit 1 (`verification[]` failed on the rebased commit) reworks as L3. Returns to S7. | `skills/tmb_planning/SKILL.md`; `composites.ts` |
+| L5 | <a id="L5"></a>Rework limit | Two review FAILs on the task since its last pass, six swe runs of the task (budget handbacks aside), or four review FAILs across its issue's tasks with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind 'decision' row) on the task or its issue | The `rework-limit` spawn gate (and `swe-resume-gate` for a resume) denies a further swe run on the task, naming the limit, its count and `waive task <N>`. The issue limit also stops a `task_retry` or split task with no FAILs of its own. Only the Human lifts a limit, by typing `waive task <N>`; no agent-written row does. bro stops and reports to the Human with a proposed redesign or split; `task_retry` itself refuses a fourth retry in one lineage. Returns to S5. | `skills/tmb_planning/SKILL.md`; `src/hooks/rework-limit.ts`; `composites.ts` (`task_retry` retry cap) |
+| L6 | <a id="L6"></a>Checkpoint → resume | The work left won't fit in the swe run's turns | Before `maxTurns` ends the run, swe commits the work in progress and calls `task_update_status(status='running', checkpoint={done, left, files, commit_sha})` with no report. S11 keeps the task `running` and records `stop_cause = budget`; bro spawns swe again, and the brief's `checkpoint` tells it to start from `left` and not redo `done`. A move to `completed` clears the checkpoint. Returns to S7. | `agents/swe.md`; `tasks.ts` (`checkpoint`); `src/hooks/swe-stop-cause.ts` |
 | L7 | <a id="L7"></a>Resume the same swe | bro reworks a task by `SendMessage` to the swe that wrote the commit, instead of a fresh spawn | PreToolUse `swe-resume-gate` judges the message like a fresh spawn: it denies at any of the three rework limits until the Human types `waive task <N>` (L5), and when the swe ran at an effort other than the task's current one. The resumed swe's next `task_brief` opens its own `agent_runs` row linked by `resumed_from`. Returns to S8. | `src/hooks/swe-resume-gate.ts` |
 | L8 | <a id="L8"></a>Reviewer preflight deny → fix | A code-reviewer spawn (S15) fails a machine check | `code-reviewer-preflight` denies with `{check, expected, actual}` for the first failing check: `sha_mismatch` (the branch tip is not `tasks.commit_sha`), `no_passing_run`, `base_conflict` (`git merge-tree` against the PR target; any conflicted path denies), `stale_doc_ref` (a deleted path or dropped tool name still cited in prompts or docs), `missing_changelog`. bro fixes the cause (re-close, `cli.js integrate`, or `task_reopen` for a doc or changelog fix) before any reviewer runs. Returns to S15, or to S7 through L3. | `src/hooks/code-reviewer-preflight.ts` |
 
@@ -332,24 +212,24 @@ Hooks that fire across many steps rather than at one.
 | G2 | <a id="G2"></a>`swe-boundary`, `no-source-edit-from-main` | PreToolUse Edit/Write/Bash | Deny a swe write to prompt surfaces or `CLAUDE.md`, and bro edits to registered repo source from the main checkout | `src/hooks/swe-boundary.ts`; `src/hooks/no-source-edit-from-main.ts` |
 | G3 | <a id="G3"></a>`swe-scope-fence` | PreToolUse Edit/Write | Never denies: tells swe once per path that it edited outside `files[]` and must list it in `report.extras` | `src/hooks/swe-scope-fence.ts` |
 | G4 | <a id="G4"></a>`naming-lint`, `code-quality-lint` | PreToolUse Edit/Write | Lint the written content | `src/hooks/naming-lint.ts`; `src/hooks/code-quality-lint.ts` |
-| G5 | <a id="G5"></a>Bash git guards | PreToolUse Bash | `git-guards`, `no-worktree-branch-create`, `stay-on-base-guard`, `branch-up-to-date-with-remote`, `commit-msg-lint`, `no-remote-auth-guard`, `remote-id-guard` | `src/hooks/git-guards.ts`; `src/hooks/commit-msg-lint.ts`; `scripts/hooks/<gate>.sh` |
+| G5 | <a id="G5"></a>Bash git guards | PreToolUse Bash | `git-guards`, `no-worktree-branch-create`, `stay-on-base-guard`, `branch-up-to-date-with-remote`, `commit-msg-lint`, `no-remote-auth-guard`, `remote-id-guard` | `src/hooks/git-guards.ts`; `src/hooks/commit-msg-lint.ts` |
 | G6 | <a id="G6"></a>`cleanup-worktree-on-task-close` | PostToolUse `task_update_status`, `validation_record` | Removes a closed task's worktree when nothing else needs it | `src/hooks/cleanup-worktree-on-task-close.ts` |
-| G7 | <a id="G7"></a>`bro-turn-usage` | Stop | Meters bro's own turn into its `agent_runs` session row and records bro's tool-output sizes. Runs async and does not block the turn; a lost run is recovered by the next, which re-reads the whole transcript. | `src/hooks/bro-turn-usage.ts` |
+| G7 | <a id="G7"></a>`bro-turn-usage` | Stop | Meters bro's own turn into its `agent_runs` session row and records bro's tool-output sizes. Runs async and does not block the turn; a lost run is recovered by the next, whose row always sums the whole transcript. Each run reads only the bytes appended since the last, from a per-session cursor beside the DB (`bro-turn-usage/<session_id>.json`); a missing, corrupt or mismatched cursor falls back to a full read. | `src/hooks/bro-turn-usage.ts` |
 | G8 | <a id="G8"></a>`task-overrun-alert` | UserPromptSubmit, PostToolUse trajectory-server | Tells bro once per task when a `running` task passes `TMB_TASK_OVERRUN_MIN` minutes (default 60), with its attempts and current blocker | `src/hooks/task-overrun-alert.ts` |
 | G8b | <a id="G8b"></a>`session-handoff` | PreCompact, SessionStart persona | Before each compaction of a bro session, records the session's `session_handoffs` row, re-arming one an earlier compaction consumed. The same session's SessionStart with source `compact` takes it and appends the issue, its live tasks and the issue's newest decision, read from the DB then. Startup, clear and resume take nothing. Never blocks and never prints | `src/hooks/session-handoff.ts` |
 | G9 | <a id="G9"></a>`debug-trajectory` | PreToolUse Bash/Read/Write/Edit/Agent/Skill | Records the call trajectory when debugging is on | `src/hooks/debug-trajectory.ts` |
 | G10 | <a id="G10"></a>`liveness-alert`, `liveness-sentinel` | UserPromptSubmit, PostToolUse trajectory-server; Stop (`asyncRewake`) | Reports a subagent run silent past `TMB_RUN_SILENT_MIN` minutes (default 30, scaled by load) or a hung `tail -f` watcher to bro, once per finding (`liveness_finding_reported`): during a turn as context, while idle by waking an attended session. Reports only: kills, closes and fails nothing | `src/hooks/liveness-probe.ts`; `src/hooks/liveness-alert.ts`; `src/hooks/liveness-sentinel.ts` |
 | G11 | <a id="G11"></a>`no-prose-in-scratch` | PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash | Denies every agent a prose file in `.claude/<plugin>/scratch/`, and in `/tmp` or `$TMPDIR` outside a git worktree, and a `gh issue\|pr create\|edit\|comment` reading its body from a file; the deny names the trajectory DB tools. `TMB_ALLOW_PROSE_SCRATCH=1` lifts it | `src/hooks/no-prose-in-scratch.ts` |
-| G12 | <a id="G12"></a>`worktree-adopt-guard` | PreToolUse `task_provision`, `task_reopen`, `task_retry` | An allowlist on `adopt_worktree`. The session root (`CLAUDE_PROJECT_DIR`, else the payload `cwd`) is in a linked worktree when its `git rev-parse --git-dir` differs from `--git-common-dir`. Admits a call without the arg from a root that is not linked, and a call whose arg's realpath is the root's linked-worktree top level; denies the rest, naming the worktree that may be adopted, if any. | `src/hooks/worktree-adopt-guard.ts` |
-| G13 | <a id="G13"></a>`wm-read-before-provision` | PreToolUse `task_provision` | Never denies. Silent only when the session transcript holds an assistant `world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get` or `scope_suggest` tool_use from the last 60 minutes; otherwise (no read, only older ones, or no readable transcript) it nudges bro to read the world model first (`tmb_planning` §1) and writes a `wm_read_missing_before_provision` audit row. | `src/hooks/wm-read-before-provision.ts` |
-| G15 | <a id="G15"></a>`checkVerificationPaths` (server-side, not a hook) | `task_provision`, `task_retry`, `task_reopen`, `task_update_spec` (S6, L3, L4) | An allowlist on the test files `verification[]` commands hand a test runner (`*.test.{ts,mts,js,mjs,cjs}`, `*.spec.*`, `*.suite.ts`, `test_*.py` as a file argument of `node`, `bun test`, `vitest`/`jest`/`mocha` (bare or via `npx`/`bunx`/`pnpm exec`) or `pytest`/`python -m pytest`; `bash -c '<cmd>'` is read as its own command, and a `cd <dir>` at any step sets the directory later steps resolve under, scoped to its `( … )` subshell). Words of any other program, env values and git pathspecs are never checked. A path is admitted only when `git cat-file -e <ref>:<path>` (a glob: `git ls-tree`, at least one match) proves it, or `files[]` lists it verbatim; an untracked `dist/**/*.js` is checked as its `src/**/*.ts`. The ref is the cut base for provision and retry, the task branch tip for reopen and update_spec. Anything else, or any git error, is refused with `verification_path_missing` / `verification_path_unverified` naming each path and the ref, before anything is written. Each tool also returns `suggested_verification`: up to 20 existing tests that import a `files[]` module (`wm_edges` kind `imports`), `[]` with `suggested_verification_note` when the world model has no rows for the repo; it never blocks (GH 2581). | `src/tools/verification-paths.ts` |
-| G16 | <a id="G16"></a>`commit-msg-lint` | PreToolUse Bash, at swe's commit in S9 | An allowlist on the commit subject (GH 2582): denies a `git commit -m` (`--amend` included) whose first line is not `<emoji> <type>(<scope>): <msg>` (one Extended_Pictographic emoji or a `:shortcode:`, a type from its list with `research`, an optional lowercase scope) or runs past 72 code points; the deny names the rule broken, the subject seen and the expected form. Admits `--fixup`, `--squash`, `--no-edit`, `--merge` and a commit with no visible message (`-F`, the editor). `TMB_SKIP_COMMIT_MSG_LINT=1` lifts it; a timeout or crash is skipped, as for any advisory router gate | `src/hooks/commit-msg-lint.ts` |
+| G12 | <a id="G12"></a>`worktree-adopt-guard` | PreToolUse `task_provision`, `task_reopen`, `task_retry` | An allowlist on `adopt_worktree`: a session in a linked worktree must adopt exactly that worktree, and any other session must not adopt one; the deny names the worktree that may be adopted, if any | `src/hooks/worktree-adopt-guard.ts` |
+| G13 | <a id="G13"></a>`wm-read-before-provision` | PreToolUse `task_provision` | Never denies. Nudges bro to read the world model first when the session made no recent world-model read, and writes a `wm_read_missing_before_provision` audit row | `src/hooks/wm-read-before-provision.ts` |
+| G15 | <a id="G15"></a>Verification path check (server-side, not a hook) | `task_provision`, `task_retry`, `task_reopen`, `task_update_spec` (S6, L3, L4) | An allowlist on the test files `verification[]` hands a test runner: each must exist at the task's base or branch tip, or be listed in `files[]`, or the call is refused before anything is written. Each call also suggests existing tests that import a `files[]` module, without blocking | `src/tools/verification-paths.ts` |
+| G16 | <a id="G16"></a>`commit-msg-lint` | PreToolUse Bash, at swe's commit in S9 | An allowlist on the commit subject: denies a commit message whose first line is not an emoji Conventional Commits subject of bounded length, naming the rule broken and the expected form | `src/hooks/commit-msg-lint.ts` |
 
-**Gate timing (GH 1861):** the router records each gate's ms in `hook_call`, budgets come from p99 in `src/hooks/router/budgets.json`, and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped. A group's gates run one at a time, except PreToolUse Bash and Write, which start them together and read the answer in group order.
+**Gate timing:** the router times each gate against a measured budget (`src/hooks/router/budgets.json`), and a timed-out gate is not retried: an enforcement gate denies, an advisory gate is skipped.
 
 #### Metering
 
-What each run leaves behind for `task_stats`: `agent_runs` (tokens, duration, `stop_cause`, `stop_detail`, `resumed_from`, `hook_block_tokens`), `wall_clock_ms`, `review_fail_count`, `swe_spawn_count`, `rework_count` and `reworks.fresh` / `reworks.resumed`, plus `hook_blocks` (`denials`, `gate_failures`, `by_reason`) and `hook_block_tokens` (the context tokens of the turn after each block, GH 1915) per task and per spawn. `task_stats(since=<ISO date>)` without a task returns the same counts over every swe run since then, with `hook_block_share` (block-turn tokens over the runs' `tokens_total`) and `runs_with_cost` (runs that carry the measure). **In flight (PR 2047):** `tool_output` per agent type (GH 1957), the baseline for GH 1958.
+Every agent run leaves an `agent_runs` row (tokens, duration, why it stopped, what it resumed), and every hook block and tool output is metered. `task_stats` reads them back per task or over every run since a date: spawns, reworks, review fails, hook blocks and their token cost.
 
 ```mermaid
 flowchart TD
@@ -374,11 +254,10 @@ flowchart TD
 ```
 
 **Notes**
-- `require-task-spec` blocks SWE spawn unless the `tasks` row is `pending`, or `running` with no open swe `agent_runs` row, AND has a non-empty `spec_body`. A spec that adds a column, field, tool, table or migration also needs `Writer:` + `Populated:` lines or a `Nullable:` line, unless a `spec_shape_gate_waived` row from `bro` names the task (`content_json.task_id`); `task_create_batch` / `task_provision` with `waive_spec_shape` write that row for each task they create, so no second write is needed.
-- `no-worktree-branch-create` blocks `-b/-B/--create-branch/--detach` — `task_provision` creates the branch and the worktree; the worktree attaches to the branch directly.
-- `git-push-guard` blocks the eventual push if any pushed commit's task lacks a passing `validation_attempts` row recorded at or after the review anchor (the first `bro_verification_pass` or `task_integrated` row) of its current `commit_sha`.
-- `swe-verification-gate` fires on SWE's `task_update_status(completed)`: it runs the task's typed `verification[]` commands in the task worktree, records the run in `verification_runs` / `verification_run_commands`, and denies if any fail, naming the command and its timing. A passing run for the same task, worktree HEAD and `verification[]` recorded within the hour is reused instead of re-run, and on a rework commit a command whose declared inputs (`.config/tmb/verification-inputs.json`) the rework did not touch is recorded as carried from the last passing run (GH 1950); bro and code-reviewer read the latest run from `task_brief.verification_run`. Before a run that is not reused, the worktree's opt-in `.config/tmb/worktree-setup.json` commands run with the same env and PATH (GH 2054); setup counts against the verification budget (`verification[]` gets what it leaves, and a setup that spends it denies); a setup failure denies with the failing command and its output tail, and setup is never recorded as a verification command, so reuse and command matching are unchanged. `pr_monitor_worktree` runs the same setup in its review worktree before the reviewer's command. When the task worktree does not resolve, it does NOT fail open — it denies, naming the expected `<repoRoot>/.claude/worktrees/<slug>` path (#156). An empty `verification[]` skips the gate with a warning; a `waive_verification_gate_reason` (≥10 chars) waives it with an audit row.
-- `bro_atomic_close` refuses with `verification_run_missing` when the task has a non-empty `verification[]` and neither a passing `verification_runs` row for the closing commit whose commands match the current `verification[]` nor a `verification_gate_waived` row for that commit (GH 1672). This covers the closes the swe gate never saw: a `swe-atomic-close` SubagentStop auto-complete, and a `task_update_spec` that changed `verification[]` after the run. To get a run, the swe calls `task_update_status(completed)` again on the commit; to waive, it adds `waive_verification_gate_reason` to that call.
+- A swe spawn needs a task with a spec; a spec that adds a column, field, tool, table or migration also names who writes it and when it is populated, unless bro waives the check.
+- Only `task_provision` creates task branches and worktrees; a manual branch create in a worktree is denied.
+- The verification gate runs the task's `verification[]` in its worktree and records the run; a recent passing run for the same commit is reused, and a rework carries forward the commands whose inputs it did not touch. It never fails open: an unresolved worktree denies. An empty `verification[]` skips it with a warning, and a stated reason waives it with an audit row.
+- `bro_atomic_close` refuses a close with no passing run (or recorded waiver) for the closing commit. This covers closes the gate never saw, such as an auto-complete at SubagentStop or a spec change after the run.
 
 ---
 
@@ -420,9 +299,9 @@ sequenceDiagram
     end
 ```
 
-A push made before review (by bro or the Human) hits `git-push-guard`, which denies it unless each pushed task commit's newest `validation_attempts` row is a `pass` recorded at or after the review anchor of its current `commit_sha`, the first `bro_verification_pass` or `task_integrated` row naming it; a pass for an earlier commit of the task, or one under a newer fail, does not count.
+A push made before review (by bro or the Human) hits `git-push-guard`, which denies it unless each pushed task commit's newest verdict is a `pass` for that commit; a pass for an earlier commit of the task, or one under a newer fail, does not count.
 
-`validation_record` carries a typed `mcp_available` boolean (required for code-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via `dist/cli.js validation-record-fallback` and records `mcp_available: false`). `feedback` is free-prose rationale. The reviewer's identity comes from the newest unconsumed `reviewer_identity_observed` row for `(task_id, attempt_n)` (written by the `reviewer-identity-observe` hook with the call's `tool_use_id` and `observed_at`) observed within the last 600 s; an older row is never consumed — the call fails `subagent_session_unavailable` naming the row's age, and the reviewer calls again so the hook writes a fresh row. When a row is consumed, every older unconsumed row for the same `(task_id, attempt_n)` (left by a failed or retried call) is marked superseded with the consumed row's audit id, so a routine retry leaves no orphan for `trajectory_doctor` to warn on. `validation_attempts` and `review_findings` are append-only (GH 2412): a call whose `attempt_n` already has a row, verified or honor-system, is stored as the task's highest `attempt_n` + 1, leaving the earlier row and its findings untouched, and the result and `return_line` name the stored attempt. The identity lookup stays keyed by the requested `attempt_n`. The push gate and the close paths go by the task's newest row (highest `id`): it must be a `pass`.
+Each verdict records whether the review ran with MCP access or through the honor-system CLI fallback, and the reviewer's identity comes from a hook observation of the call, never from the reviewer's own claim. Verdicts and findings are append-only: a repeated attempt is stored as a new one, and the push gate and the close paths go by the task's newest verdict.
 
 ---
 
@@ -442,11 +321,9 @@ Two FAILs on a task since its last pass, six swe runs of a task (budget handback
 
 ### 33. Multi-repo path discipline
 
-When a workspace has multiple inner git repos (siblings or submodules), each is identified by its `repos` row (path-keyed resolution; an operation matches its path against `repos.path`, or a task names its repo via `tasks.repo`). Directory node `path` properties are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing nodes. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+When a workspace has multiple inner git repos (siblings or submodules), each is identified by its `repos` row (path-keyed resolution; an operation matches its path against `repos.path`, or a task names its repo via `tasks.repo`). World-model paths are stored repo-relative: a scan never prepends the inner repo's directory. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-The L5 row `tests/l5-l6/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
-
-Registration also scopes the `no-source-edit-from-main` guard: Rule 1 only protects registered repo subtrees, so absolute edits to unregistered sibling repos are allowed. See `docs/architecture/RESPONSIBILITIES.md` (#592).
+Registration also scopes the `no-source-edit-from-main` guard: it protects only registered repo subtrees, so edits to unregistered sibling repos are allowed.
 
 ---
 
@@ -456,7 +333,7 @@ When the Human's prompt names what to delete (branches, temp files, etc.), bro e
 
 ---
 
-## Part V — Extending the team
+## Part IV — Extending the team
 
 ### 10. Cheatcode lifecycle
 
@@ -481,7 +358,7 @@ flowchart TD
   INSTALL[cheatcode_install\nmarketplace/MCP path, no seed/copy\nidempotent on name+source_url\none txn: cheatcodes row + attachments + audit]
   INSTALL -->|kind=skill or skill-contributing plugin, target set| MAT{Materialize / attach — LEGO}
   INSTALL -->|kind=mcp/pure-server plugin| AUTOATT[registration IS attachment\nscript attachment rows recorded — never an orphan]
-  INSTALL -->|kind=skill, NO target| UNATT[hard-rejected (#883) — no resolved target,\nno install; orphan can't occur]
+  INSTALL -->|kind=skill, NO target| UNATT[refused — no resolved target,\nno install; orphan can't occur]
   MAT -->|target=bro| CMD[copy → project .claude/CLAUDE.md reference]
   MAT -->|target=other| AMD[copy global agents/&lt;target&gt;.md → .claude/agents/&lt;target&gt;.md if absent\n+ add name to skills: header — idempotent]
   CMD --> ACT
@@ -493,27 +370,14 @@ flowchart TD
   LIVE --> USE[Consuming agent carries the skill in its header → invokes it]
   RESTART --> USE
   USE --> HEALTH[server start + cheatcode_reconcile\nreconcile status vs runtime; audit on drift]
-  HEALTH --> SCANP[scan_run also discovers on-disk resources\n→ cheatcodes table, source_url='scan_discovered']
+  HEALTH --> SCANP[scan_run also discovers on-disk resources\n→ cheatcodes table + scan_discovered audit]
   USE -.unused.-> UNINST{cheatcode_uninstall\nHuman-confirmed AUQ}
   UNINST -->|teardown removed| REV[reverse via marketplace/MCP path\n+ DELETE cheatcodes & attachment rows\n+ de-materialize the skills: header entry\n+ audit]
-  UNINST -->|teardown failed — honesty gate #114| BROKEN[keep row, status → broken, audit;\nreport uninstalled:false]
+  UNINST -->|teardown failed — honesty gate| BROKEN[keep row, status → broken, audit;\nreport uninstalled:false]
   UNINST -->|absent / partial| NOOP[idempotent no-op]
 ```
 
-**Phase by phase:**
-- **Trigger** — bro hits a capability wall, the Human says "cheatcode" (`prompt-intent-hints` nudges), or a proactive reuse-check before building from scratch.
-- **Search** — `cheatcode_search` (in-process, `mcp/trajectory-server/src/tools/cheatcode-search.ts`) returns ranked candidates + an audit row. No candidate fits → build it (`tmb_skill-creator` or from scratch).
-- **Vet** — `cheatcode_vet` gathers reputation/security signals + a deterministic `trust_tier` and `capabilities[]`; it reports, never decides.
-- **Approve** — `cheatcode_approve` records the per-candidate Human approval; `cheatcode-install-approval` (PreToolUse) fails closed without it. Rejected → stop.
-- **Decide consuming agent** — `target` is optional as an *input* (the Human may not name one), but for a skill it is **mandatory as an output**: a skill install MUST end attached to ≥1 agent's markdown, or it is an **orphan** — installed but bound to nothing, hence unusable. So deciding the consuming agent is mandatory for skills: if the Human named the agent, use it; otherwise bro **resolves one before install** — infer from the cheatcode's domain (coding/test/refactor/debug → `swe`; code-review/quality → `code-reviewer`; orchestration/routing → `bro`; a consultant domain → that consultant), and ask via AskUserQuestion only when genuinely ambiguous. Exception: a kind=mcp server (or a pure-server plugin) needs no target — its `claude mcp add` registration **is** its attachment, its tools are callable by any agent, so it carries no `skills:` header entry and is **not** an orphan. The mandatory-output-attachment rule applies specifically to skills and skill-contributing plugins.
-- **Install** — `cheatcode_install` installs via the marketplace/MCP path (no seed/copy), idempotent on (name, source_url); one transaction records the `cheatcodes` row + every `cheatcode_attachments` row + the `cheatcode_install`/`cheatcode_installed` audit rows. `scope` defaults to project-local. A live kind=mcp install fails closed: the candidate carries only `name` and `source_url`, and a source URL is not a run command, so it returns `installed:false` without calling `claude mcp add` (GH 1885; run-command resolution is GH 1899).
-- **Materialize / attach (LEGO)** — for a skill or skill-contributing plugin, the install writes the consuming agent's prompt surface IN THE USER PROJECT (never the plugin repo): `target=bro` → a `.claude/CLAUDE.md` reference; any other target → copy the global `agents/<target>.md` into `.claude/agents/<target>.md` (if absent) and add the cheatcode name to its `skills:` frontmatter array — idempotent, the Lego edit. This attachment is mandatory output: a skill with no target lands as an **orphan** — installed but unattached, and not usable until a target is resolved (a defect to eliminate, not a supported path). A kind=mcp server (or pure-server plugin) is exempt: its registration is its attachment, so it needs no `skills:` entry and is never an orphan.
-- **Activate** — `cheatcode_activate`: a skill is usable in-session; an MCP/plugin returns `restart_required` (loads on the next cold start).
-- **Use** — the consuming agent now carries the cheatcode in its `skills:` header and invokes it like any skill.
-- **Reconcile** — the trajectory-server (at every start, and on demand through bro's `cheatcode_reconcile` tool) checks each active/broken row's `status` against the real runtime (skill file on disk, MCP/plugin present + enabled) and audits drift. Startup always checks skill rows. It runs the `claude mcp list` / `claude plugin list --json` listings only when an active/broken mcp or plugin row exists, and then only if the CLI config fingerprint changed (a sha256 over the `mcpServers` maps, `.mcp.json`, `enabledPlugins` and `installed_plugins.json`) or `.claude/tmb/cheatcode-probe.json` is missing, corrupt or older than 24 h. `cheatcode_reconcile` always probes and refreshes that cache. `scan_run` (flow 7) discovers on-disk resources into the table (`source_url='scan_discovered'`).
-- **Uninstall** — `cheatcode_uninstall` (Human-confirmed AUQ; not PreToolUse-gated) reverses each attachment via the marketplace/MCP path, de-materializes the `skills:` header entry, and deletes the `cheatcodes` + `cheatcode_attachments` rows in one transaction. The honesty gate (#114) keeps the row and flips `status → broken` (reporting `uninstalled:false`) when a teardown fails rather than claiming a clean removal. Absent/partial → idempotent no-op.
-
-**Enforcement (#883):** (1) a skill install is **hard-rejected** without a resolved target — no orphan can land (the mcp/pure-server registration-is-attachment path needs no target and is exempt); (2) `cheatcode_uninstall` de-materializes the `skills:` header entry so no dangling reference remains. Both are enforced.
+What each stage does, the registries, the attachment rules by kind and the teardown guarantees are in [`CHEATCODES.md`](./CHEATCODES.md). Two rules hold across the diagram: a skill install with no resolved consuming agent is refused, so no orphan skill can land, and an uninstall removes the `skills:` entry it added, so no dangling reference remains.
 
 ---
 
@@ -565,38 +429,13 @@ Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, th
 
 ---
 
-## Part VI — Reporting TMB bugs
+## Part V — Reporting TMB bugs
 
-### B. Bug report (opt-in) — In flight (PR 2053)
+### B. Bug report (opt-in)
 
-GH 2034. Off by default; the Human opts in at `/onboard` Round 5 or with `onboard_apply(bug_report_consent=…)` alone.
+Off by default; the Human opts in at `/onboard` Round 5.
 
-1. bro hits a real TMB bug (`tmb_recovery` §D says when to offer one).
-2. bro calls `bug_report_draft`, which is refused unless `bug_report_consent` is `yes` or the Human asked for this report (`user_asked`). It builds the environment block from the DB, redacts tokens, key blocks, emails, git remotes, the project root, the home directory, other absolute paths and task, branch, repo and title names, renders the 12-field form with a `<!-- tmb-report v1 sig=… -->` marker, and reports `already_filed` when an earlier report carries the same signature. It never files anything.
+1. bro hits a real TMB bug; the `tmb_recovery` skill says when to offer a report.
+2. `bug_report_draft` builds a redacted draft with a signature, and says when an earlier report already carries that signature. It is refused without the Human's consent or explicit ask, and it never files anything.
 3. bro shows the Human the full draft; the Human's read is the final redaction check.
-4. Only on the Human's yes, bro files it to `trustmybot/plugin` and records a `bug_report_filed` audit row. `labels.mjs --triage` adds `Bug` and a priority from the Impact field.
-
----
-
-## Roadmap
-
-Every unshipped item that changes a flow, with the ids it touches. Most come from GH 1346 (agent-native communication and token cost); GH 1957 measures their effect.
-
-| Id | Item | Status | Changes |
-|---|---|---|---|
-| R1 | <a id="R1"></a>Tool-output size per tool and agent run: a new table and `task_stats.tool_output` | **In flight (PR 2047)**, GH 1957 | S11, G7, Metering |
-| R2 | <a id="R2"></a>Concise-by-default output and pagination on the trajectory-server read tools (`response_format: 'concise' \| 'detailed'`, a default limit and a `next` cursor); then TOON-style tabular encoding on uniform list outputs only, kept only if R1's numbers show it saves tokens and agents still parse it; JSON stays wherever a caller parses the result | **Planned (GH 1958)** | S2, S8, S16, every list/get read tool |
-| R3 | <a id="R3"></a>swe and code-reviewer return a short typed summary that points to the stored report, so bro's context grows more slowly | **Planned (GH 1959)** | S10, S12, S16, S17 |
-| R4 | <a id="R4"></a>Pilot code-as-action: a read-only typed query surface that bro and swe script, returning only results | **Planned (GH 1960)**, research | S2, S8, S12 |
-| R5 | <a id="R5"></a>Merge choice: when the PR is green, bro asks merge by bro or merge by the Human | **Planned (GH 2026)** | S21 |
-| R6 | <a id="R6"></a>Impact gate: `task_create_batch` / `task_provision` wait until bro has run world-model impact on every code file in scope | **Planned (GH 1989)** | S5, S6 |
-| R7 | <a id="R7"></a>World-model tools for swe and code-reviewer, with hooks that push each edited symbol's downstream callers, behind an A/B | **Planned (GH 1990)** | S8, S9, S16 |
-| R8 | <a id="R8"></a>World model as the codebase DAG with measured caller recall | **Planned (GH 1988)** | S2, flow 7 |
-| R9 | <a id="R9"></a>Handoff fields for swe specs and returns, and a downstream-consumer check at close | **Planned (GH 1983)** | S6, S10, S13 |
-| R10 | <a id="R10"></a>Reviewer convergence: bug-class findings, severity tiers, risk-scaled effort, a reviewer eval | **Planned (GH 1955)** | S15, S16, L3 |
-| R11 | <a id="R11"></a>The verification gate checks the worktree is clean before it records or reuses a run | **Planned (GH 2001)** | S10, L2 |
-| R13 | <a id="R13"></a>`wm_tool_called` logs the `impact` and `source` arguments | **In flight (PR 2010)**, GH 1986 | S2 |
-| R14 | <a id="R14"></a>Adopt the session's worktree when bro runs in a Claude Code worktree session: shipped as `adopt_worktree` on `task_provision` / `task_reopen` / `task_retry` with guard G12. | Shipped (GH 2032, GH 1692) | S6, S9, L3, G12 |
-| R15 | <a id="R15"></a>Opt-in TMB bug reports | **In flight (PR 2053)**, GH 2034 | flow 1 Round 5, flow B |
-| R16 | <a id="R16"></a>Every bash gate moved to TypeScript behind parity tests, and the `.sh` gates and `dispatch.sh` are deleted | Shipped (GH 1692) | S15, every gate |
-| R17 | <a id="R17"></a>Per-repo ENV profile: `tmb_env-setup`, `repo_env`, the `env-ready` gate, and a fresh-project baseline approved as one permission bundle | **In flight (GH 2066)** | flow 0, flow E, flows 11 and 12, flow 1, flow 7, S6, S7, S8, S15, S16 |
+4. Only on the Human's yes, bro files it to `trustmybot/plugin` and records a `bug_report_filed` audit row.
