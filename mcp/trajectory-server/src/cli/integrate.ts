@@ -175,7 +175,7 @@ class Integration {
       maxBuffer: MAX_BUFFER,
       timeout: opts.timeoutMs,
     });
-    const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+    const timedOut = r.error !== undefined && 'code' in r.error && r.error.code === 'ETIMEDOUT';
     return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '', timedOut };
   }
 
