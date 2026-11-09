@@ -1,0 +1,2 @@
+### Fixed
+- `pr_monitor_worktree` no longer leaves a partial `pr-review-<sha>` worktree behind when `git worktree add` fails or times out (GH 2814): it removes the worktree, prunes git's record of it and deletes any directory still left, then returns the `worktree add failed` error. Before the add it clears a leftover from an earlier run at the same path the same way, so a retry on the same commit works. The delete only ever touches `pr-review-<sha>` directly inside `<repo>/.claude/worktrees/`.

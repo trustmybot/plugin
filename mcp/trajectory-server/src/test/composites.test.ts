@@ -1,7 +1,7 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { activeFindingProbes } from '../tools/verification-runs.js';
 import { reviewFindingsActive } from '../hooks/swe-verification-gate.js';
-import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
+import { compositeTools, filesToDirs, pathInFiles, prReviewDirRemovable, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
 import { GraphHolder, type WorldModelGraph } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -1817,6 +1817,125 @@ describe('pr_monitor_worktree — containment', () => {
       assert.ok(!r.isError, JSON.stringify(parse(r)));
       assert.equal(parse(r)['worktree'], `${ws}/.claude/worktrees/pr-review-${sha}`);
       db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pr_monitor_worktree — partial and stale worktree cleanup (GH 2814)', () => {
+  const makeRepo = (): { ws: string; sha: string; git: (...a: string[]) => string } => {
+    const ws = mkdtempSync(join(tmpdir(), 'prmon-clean-'));
+    const git = (...a: string[]) => execFileSync('git', ['-C', ws, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.t');
+    git('config', 'user.name', 't');
+    writeFileSync(join(ws, 'a.txt'), 'one\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    return { ws, sha: git('rev-parse', 'HEAD'), git };
+  };
+  const monitor = async (ws: string, sha: string, command = 'pwd'): Promise<RawResult> => {
+    const db = tempDB();
+    try {
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      return await call(composites.handlers, 'pr_monitor_worktree', {
+        agent: 'code-reviewer', commit_sha: sha, repo_path: ws, command,
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const wtOf = (ws: string, sha: string): string => join(ws, '.claude', 'worktrees', `pr-review-${sha}`);
+
+  it('a failed add after files land leaves no directory and no worktree entry', async () => {
+    const { ws, sha, git } = makeRepo();
+    try {
+      const hook = join(ws, '.git', 'hooks', 'post-checkout');
+      writeFileSync(hook, '#!/bin/sh\ntouch partial-marker\nexit 1\n', { mode: 0o755 });
+      const r = await monitor(ws, sha);
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^worktree add failed/);
+      assert.equal(existsSync(wtOf(ws, sha)), false, 'partial directory removed');
+      assert.ok(!git('worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('clears a stale registered pr-review worktree, then runs the command', async () => {
+    const { ws, sha, git } = makeRepo();
+    try {
+      git('worktree', 'add', wtOf(ws, sha), sha);
+      writeFileSync(join(wtOf(ws, sha), 'leftover.txt'), 'x\n');
+      const r = await monitor(ws, sha, 'test ! -f leftover.txt');
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['passed'], true);
+      assert.equal(existsSync(wtOf(ws, sha)), false);
+      assert.ok(!git('worktree', 'list', '--porcelain').includes('pr-review-'));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('clears a stale unregistered pr-review directory, then runs the command', async () => {
+    const { ws, sha, git } = makeRepo();
+    try {
+      mkdirSync(wtOf(ws, sha), { recursive: true });
+      writeFileSync(join(wtOf(ws, sha), 'leftover.txt'), 'x\n');
+      const r = await monitor(ws, sha, 'test ! -f leftover.txt');
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['passed'], true);
+      assert.equal(existsSync(wtOf(ws, sha)), false);
+      assert.ok(!git('worktree', 'list', '--porcelain').includes('pr-review-'));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('prunes a registered pr-review worktree whose directory is gone, then runs the command', async () => {
+    const { ws, sha, git } = makeRepo();
+    try {
+      git('worktree', 'add', wtOf(ws, sha), sha);
+      rmSync(wtOf(ws, sha), { recursive: true, force: true });
+      const r = await monitor(ws, sha);
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['passed'], true);
+      assert.ok(!git('worktree', 'list', '--porcelain').includes('pr-review-'));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('never deletes a pr-review directory reached through a symlinked worktrees dir', async () => {
+    const { ws, sha } = makeRepo();
+    const outside = mkdtempSync(join(tmpdir(), 'prmon-outside-'));
+    try {
+      mkdirSync(join(outside, `pr-review-${sha}`));
+      writeFileSync(join(outside, `pr-review-${sha}`, 'keep.txt'), 'keep\n');
+      mkdirSync(join(ws, '.claude'), { recursive: true });
+      symlinkSync(outside, join(ws, '.claude', 'worktrees'));
+      const r = await monitor(ws, sha);
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^worktree add failed/);
+      assert.equal(existsSync(join(outside, `pr-review-${sha}`, 'keep.txt')), true, 'outside directory kept');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('prReviewDirRemovable admits only pr-review-<sha> directly under <repo>/.claude/worktrees', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'prmon-guard-'));
+    try {
+      mkdirSync(join(ws, '.claude', 'worktrees'), { recursive: true });
+      assert.equal(prReviewDirRemovable(ws, join(ws, '.claude', 'worktrees', 'pr-review-abc1234')), true);
+      assert.equal(prReviewDirRemovable(ws, join(ws, '.claude', 'worktrees', 'task-abc1234')), false);
+      assert.equal(prReviewDirRemovable(ws, join(ws, '.claude', 'pr-review-abc1234')), false);
+      assert.equal(prReviewDirRemovable(ws, join(ws, '.claude', 'worktrees', 'x', 'pr-review-abc1234')), false);
+      assert.equal(prReviewDirRemovable(ws, `${ws}/.claude/worktrees/../../pr-review-abc1234`), false);
+      assert.equal(prReviewDirRemovable(ws, join(tmpdir(), 'pr-review-abc1234')), false);
+      assert.equal(prReviewDirRemovable(ws, join(ws, '.claude', 'worktrees', 'pr-review-zzz')), false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
