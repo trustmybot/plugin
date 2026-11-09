@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
-import { statementsEnc, type Record } from './statements.js';
+import { ALT, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
 export type Statement = Record & { readonly src?: string };
@@ -130,13 +130,18 @@ function sources(parser: Parser, cmd: string, home: string, stmts: readonly stri
   }
 }
 
-/** _tmb_cmd_statements_enc <cmd> <base> <depth> without assign; null when the command or a body in it does not parse. */
+/**
+ * _tmb_cmd_statements_enc <cmd> <base> <depth> without assign, loops framed
+ * (GH 2065): a statement a loop's back-edge can bring to more dirs is listed
+ * once per dir. Null when the command or a body in it does not parse.
+ */
 function listing(parser: Parser, cmd: string, base: string, depth: number, home: string): Statement[] | null {
   if (cmd.trim() === '') return [];
   const encoded = encode(parser, cmd);
   if (!encoded.ok) return null;
   const out: Statement[] = [];
-  const records = statementsEnc(encoded.text, base, home, false)
+  const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, true)
+    .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
     .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt) }))
     .filter((record) => record.stmt !== '');
   let srcs: Array<string | undefined> | undefined;
@@ -144,7 +149,7 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   for (const [k, { dir, stmt }] of records.entries()) {
     const body = depth < MAX_DEPTH && !dir.startsWith('=') ? inner(stmt) : '';
     if (body === '') {
-      out.push(withSource({ dir, stmt }, () => srcAt(k)));
+      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt }, () => srcAt(k)));
       continue;
     }
     const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home);
