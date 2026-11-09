@@ -106,7 +106,8 @@ test('tests, fixtures, declarations and generated files are exempt; other types 
     'src/readme.md': 'no header\n',
     'src/data.json': '{}\n',
     'lib/outside.ts': body,
-    'dashboard/web/node_modules/pkg/index.ts': body,  };
+    'dashboard/web/node_modules/pkg/index.ts': body,
+  };
   const dir = fixture(files);
   try {
     assert.deepEqual(missingHeaders(dir, Object.keys(files)), []);
