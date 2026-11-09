@@ -379,6 +379,24 @@ describe('commits_behind counts only commits that edit, delete or rename a file 
     }
   });
 
+  it('an edit of a referenced file raises commits_behind by 1 and the add of a referenced file leaves it unchanged (GH 2173)', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'pkg/README.md', '# pkg\n\nSee [a](a.ts) and [later](later.ts).\n');
+      write(root, 'pkg/a.ts', 'a\n');
+      commit(root, 'readme');
+      assert.equal(driftOf(root, 'pkg', ['pkg'])!.commits_behind, 0);
+      write(root, 'pkg/later.ts', 'later\n');
+      commit(root, 'add later');
+      assert.equal(driftOf(root, 'pkg', ['pkg'])!.commits_behind, 0);
+      write(root, 'pkg/a.ts', 'a2\n');
+      commit(root, 'edit a');
+      assert.equal(driftOf(root, 'pkg', ['pkg'])!.commits_behind, 1);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('a README with no file refs counts no edits, adds or deletes under the dir', () => {
     const { ws, root } = repo();
     try {
