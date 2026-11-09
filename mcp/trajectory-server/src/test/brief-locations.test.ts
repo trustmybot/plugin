@@ -65,7 +65,6 @@ describe('brief locations (GH 1906)', () => {
     assert.deepEqual(refs.paths, [
       { path: 'src/a.ts', start: 12, end: 12 },
       { path: 'src/b.ts', start: 3, end: 9 },
-      { path: 'A.b' },
     ]);
     assert.deepEqual(refs.identifiers, ['fn', 'A.b']);
   });
@@ -358,6 +357,35 @@ describe('GH 2282: brief locations precision', () => {
       ['src/known.ts'],
     );
     assert.ok(!('unresolved_paths' in run(db, 'Edit `src/known.ts`.')));
+    db.close();
+  });
+
+  it('GH 2292: a no-slash dotted identifier is not an unresolved path but stays an identifier', () => {
+    const db = tempDB();
+    addFile(db, 'src/known.ts', 'known');
+    const spec = 'Fix `task_brief.locations` and `Class.method` in `src/foo.ts`; see `README.md` and `package.json`.';
+    const refs = extractSpecRefs(spec);
+    assert.deepEqual(
+      refs.paths.map((p) => p.path),
+      ['src/foo.ts', 'README.md', 'package.json'],
+    );
+    assert.ok(refs.identifiers.includes('task_brief.locations') && refs.identifiers.includes('Class.method'));
+    const loc = run(db, spec);
+    assert.deepEqual(loc.unresolved_paths, ['src/foo.ts', 'README.md', 'package.json']);
+    db.close();
+  });
+
+  it('GH 2292: a no-slash dotted span with an unknown extension resolves when the index holds that exact file', () => {
+    const db = tempDB();
+    addFile(db, 'Dockerfile.prod', 'production image');
+    const loc = run(db, 'Edit `Dockerfile.prod`, not `Other.thing`.');
+    assert.deepEqual(
+      loc.files.map((f) => f.path),
+      ['Dockerfile.prod'],
+    );
+    assert.ok(!('unresolved_paths' in loc));
+    assert.deepEqual(extractSpecRefs('`Dockerfile.prod`', (p) => p === 'Dockerfile.prod').paths, [{ path: 'Dockerfile.prod' }]);
+    assert.deepEqual(extractSpecRefs('`Dockerfile.prod`').paths, []);
     db.close();
   });
 });
