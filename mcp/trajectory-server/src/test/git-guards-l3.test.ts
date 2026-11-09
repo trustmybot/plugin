@@ -281,13 +281,22 @@ describe('git-guards l3: separator x subcommand matrix', () => {
     for (const cmd of cmds) deny(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must block: ${cmd}`);
   });
 
+  const unparsedGitWord = (cmd: string) => cmd.includes('$(') && cmd.includes('.git');
+
   it('non-git lookalikes joined by every separator are allowed', () => {
     const f = worktreeRepo(sb);
     const cmds = [
       ...ALL_SEP.flatMap((sep) => LOOKALIKES.map((l) => (sep === '' ? l : `echo prefix${sep}${l}`))),
       ...LOOKALIKES.map((l) => `echo prefix\n${l}`),
     ];
-    for (const cmd of cmds) allow(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must allow: ${cmd}`);
+    for (const cmd of cmds.filter((c) => !unparsedGitWord(c))) allow(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must allow: ${cmd}`);
+  });
+
+  it('an unclosed $( beside a git word gets the parse deny git-push-guard gives it (GH 2641)', () => {
+    const f = worktreeRepo(sb);
+    const cmds = LOOKALIKES.map((l) => `echo prefix$(${l}`).filter(unparsedGitWord);
+    assert.equal(cmds.length, 2);
+    for (const cmd of cmds) has(guard(sb, cmd, { cwd: f.repo, db: f.db }), 'could not parse this command', `must deny: ${cmd}`);
   });
 });
 

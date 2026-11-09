@@ -275,6 +275,32 @@ export function gitSubcommandUnknown(statement: SubcommandInput): boolean {
   return gitSubcommandOf(statement) === undefined;
 }
 
+const CONTINUATION = /\\\n/g;
+const UNQUOTE = /['"\\]/g;
+const GIT_WORD = /\bgit\b/;
+const EXPANDS = /[$`*?[{\x01-\x06\x0e-\x11\x13\x15\x16]/;
+
+/** <command> with its line continuations joined and its quotes and backslashes dropped: the text a keyword prefilter reads, so `g''it` or `che"ck"out` is not missed (GH 2634, GH 2641). */
+export function unquotedCommand(command: string): string {
+  return command.replace(CONTINUATION, '').replace(UNQUOTE, '');
+}
+
+/**
+ * Whether <command>, unquoted, holds a git word and an expansion, a pattern
+ * or an encoded byte: a command a keyword prefilter must hand to parsing,
+ * since only gitSubcommandOf can tell what its git statements run (GH 2634,
+ * GH 2641).
+ */
+export function gitBesideExpansion(command: string): boolean {
+  const bare = unquotedCommand(command);
+  return GIT_WORD.test(bare) && EXPANDS.test(bare);
+}
+
+/** The deny reason for the git statement <what> whose subcommand is unknown, the guard unable to tell whether it <verb> (GH 2634, GH 2641). */
+export function ambiguousSubcommandReason(what: string, verb: string): string {
+  return `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement ${verb}. Write the subcommand and git's options before it literally.`;
+}
+
 /** The index of git's subcommand in a git statement's words: past git's own options. */
 function subcommandAt(w: readonly string[]): number {
   let k = 1;
