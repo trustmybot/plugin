@@ -37,4 +37,4 @@ Group task-worthy comments by file or shared concept; one task per group. Flag t
 
 Offer the ratified groups as a multi-select — one option per group, titled by the task it would become (suffix arch-impact ones) — and let the Human pick a subset.
 
-For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
+For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run` once its PR merges to refresh the world model.
