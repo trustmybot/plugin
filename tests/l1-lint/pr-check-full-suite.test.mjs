@@ -1,4 +1,4 @@
-// L1 lint: no pr-check.yml job runs `tests/run-all.ts` without `--l1-only`, since the full L1-L4 sweep runs only at the rc release gate (GH 2805); release-gate's `tests` job uses the `./.github/actions/fetch-bge-model` composite action with no inline copy of the fetch, and CONTRIBUTING.md never tells a contributor to run the whole `tests/run-all.ts` locally (GH 2497).
+// L1 lint: no pr-check.yml job runs `tests/run-all.ts` without `--l1-only`, since the full L1-L4 sweep runs only at the rc release gate (GH 2805); pr-check.yml runs on merge_group with a concurrency group that falls back to github.ref (GH 2820); release-gate's `tests` job uses the `./.github/actions/fetch-bge-model` composite action with no inline copy of the fetch, and CONTRIBUTING.md never tells a contributor to run the whole `tests/run-all.ts` locally (GH 2497).
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -82,6 +82,16 @@ test('pr-check.yml has no job running tests/run-all.ts without --l1-only', () =>
   const text = readFileSync(PR_CHECK, 'utf8');
   assert.ok(jobBlocks(text).size > 0, 'pr-check.yml has no jobs');
   assert.deepEqual(fullSweepJobs(text), [], 'these pr-check.yml jobs run the full L1-L4 sweep, which runs only at the rc release gate');
+});
+
+test('pr-check.yml runs on merge_group with a concurrency group that falls back to github.ref', () => {
+  const text = readFileSync(PR_CHECK, 'utf8');
+  const on = /^on:\n((?: .*\n|\n)*)/m.exec(text)?.[1] ?? '';
+  assert.match(on, /^ {2}pull_request:\n {4}branches: \[dev, rc, main\]$/m);
+  assert.match(on, /^ {2}merge_group:\n {4}types: \[checks_requested\]$/m, 'pr-check.yml must run on merge_group checks_requested for the dev merge queue');
+  assert.match(text, /^ {2}group: pr-check-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}$/m, 'merge_group runs have no PR number, so the concurrency group needs the github.ref fallback');
+  assert.equal(text.match(/github\.event\.pull_request\b/g)?.length, 1, 'only the concurrency key may read github.event.pull_request');
+  for (const [name, body] of jobBlocks(text)) assert.doesNotMatch(body, /^ {4}if:/m, `job ${name} must not be skipped on merge_group`);
 });
 
 test("release-gate.yml's tests job uses fetch-bge-model with no inline copy", () => {
