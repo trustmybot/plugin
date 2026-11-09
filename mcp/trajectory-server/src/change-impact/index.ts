@@ -253,7 +253,7 @@ export function computeChangeImpact(
     const source = checkSource(opts.change.source);
     const id = opts.change.id;
     if (typeof id !== 'string' || id.length === 0) throw new Error('change.id must be a non-empty string');
-    const repo = opts.change.repo;
+    const repo = opts.change.repo ?? undefined;
     if (repo !== undefined && (typeof repo !== 'string' || repo.length === 0)) throw new Error('change.repo must be a non-empty string');
     const provider = PROVIDERS.find((p) => p.source === source)!;
     const matches = provider.list(ctx).filter((e) => e.id === id && (repo === undefined || e.repo === repo));
