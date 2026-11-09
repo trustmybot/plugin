@@ -80,10 +80,16 @@ const CHANGE_IMPACT_MAX_LIMIT = 100;
 const UNKNOWN_CHANGE = /^unknown change /;
 const AMBIGUOUS_CHANGE = /^ambiguous change /;
 
+function workerError({ error, stack }: { error: string; stack?: string }): Error {
+  const err = new Error(error);
+  if (stack !== undefined) err.stack = stack;
+  return err;
+}
+
 function runChangeImpact(job: ChangeImpactJob): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(CHANGE_IMPACT_WORKER, { workerData: job });
-    worker.once('message', (reply: ChangeImpactReply) => ('error' in reply ? reject(new Error(reply.error)) : resolve(reply.result)));
+    worker.once('message', (reply: ChangeImpactReply) => ('error' in reply ? reject(workerError(reply)) : resolve(reply.result)));
     worker.once('error', reject);
     worker.once('exit', (code) => reject(new Error(`change impact worker exited with code ${code} before replying`)));
   });
