@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Parser } from 'web-tree-sitter';
 import { bashParser } from '../hooks/cmd-analysis/parser.js';
-import { CONTROL_SHOWN, NO_CHARGE, QM, ansiCChars, decode, encode } from '../hooks/cmd-analysis/encode.js';
+import { CONTROL_SHOWN, NO_CHARGE, QM, ansiCChars, decode, encode, utf8Run } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements, gitSubcommand } from '../hooks/cmd-analysis/git.js';
 import { statementsEnc } from '../hooks/cmd-analysis/statements.js';
 import { GIT_ENV } from './hook-sandbox.js';
@@ -175,12 +175,14 @@ describe('encode joins line continuations and decodes $\'…\' as bash does (GH 
   }
 
   for (const escape of ['\\x41', '\\101'])
-    it(`ansiCChars of 10000 ${escape} escapes with utf8 is linear (GH 2793)`, () => {
-      const start = performance.now();
-      const chars = ansiCChars(escape.repeat(10000), true);
-      const ms = performance.now() - start;
-      assert.deepEqual(chars, Array<string>(10000).fill('A'));
-      assert.ok(ms < 200, `took ${ms.toFixed(0)} ms`);
+    it(`utf8Run consumes 10000 ${escape} escapes in one call, so ansiCChars with utf8 is linear (GH 2793)`, () => {
+      const body = escape.repeat(10000);
+      const all = Array<string>(10000).fill('A');
+      const run = utf8Run(body, 0);
+      assert.ok(run);
+      assert.equal(run.end, body.length);
+      assert.deepEqual(run.chars, all);
+      assert.deepEqual(ansiCChars(body, true), all);
     });
 
   for (const [body, chars] of [
