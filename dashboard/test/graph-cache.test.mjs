@@ -12,8 +12,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { cachedGraph, etagMatches, graphRollups } from '../server/graph-cache.ts';
-import { graph } from '../server/queries.ts';
+import { importServer } from './server-module.mjs';
+
+const { cachedGraph, etagMatches, graphRollups, graph, freshnessFor } = await importServer('graph-cache.ts', 'queries.ts', 'freshness.ts');
 
 const DASH = new URL('..', import.meta.url).pathname;
 const SCHEMA = join(DASH, '../mcp/trajectory-server/src/schema.sql');
@@ -151,7 +152,7 @@ describe('dashboard file graph cache', () => {
   const fresh = () => {
     const db = new DatabaseSync(dbPath, { readOnly: true });
     try {
-      return graph(db, 'plugin');
+      return { ...graph(db, 'plugin'), freshness: freshnessFor(db, 'plugin') };
     } finally {
       db.close();
     }
@@ -172,7 +173,7 @@ describe('dashboard file graph cache', () => {
     assert.notEqual(res.headers.get('etag'), oldTag);
     const body = await res.text();
     assert.notEqual(body, oldBody);
-    assert.deepEqual(JSON.parse(body), { ...fresh(), freshness: null });
+    assert.deepEqual(JSON.parse(body), fresh());
   };
 
   test('a delete+reinsert that reuses the top edge rowid misses the cache', async () => {
@@ -207,9 +208,6 @@ describe('dashboard file graph cache with repos.indexed_commit', () => {
   };
 
   before(async () => {
-    const db = new DatabaseSync(dbPath);
-    db.exec('ALTER TABLE repos ADD COLUMN indexed_commit TEXT');
-    db.close();
     server = await startServer(dbPath);
   });
   after(async () => {
