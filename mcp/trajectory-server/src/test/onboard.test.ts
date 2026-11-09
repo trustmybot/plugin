@@ -1064,6 +1064,8 @@ describe('onboard tools', () => {
       const sandboxResult = applied.sandbox as Record<string, unknown>;
       assert.deepEqual(sandboxResult.env, written.env);
       assert.equal(sandboxResult.weaker_network_isolation, true);
+      assert.equal(written.sandbox.network.allowLocalBinding, true, '/dashboard can listen on loopback');
+      assert.equal(sandboxResult.allow_local_binding, true);
 
       await call(tools.handlers, 'onboard_apply', { shape: 'local' });
       assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
@@ -1376,6 +1378,7 @@ describe('onboard tools', () => {
         'sandbox.enabled',
         'sandbox.filesystem.allowWrite',
         'sandbox.network.allowedDomains',
+        'sandbox.network.allowLocalBinding',
         'sandbox.enableWeakerNetworkIsolation',
         'env.npm_config_cache',
         'env.BUN_INSTALL_CACHE_DIR',
