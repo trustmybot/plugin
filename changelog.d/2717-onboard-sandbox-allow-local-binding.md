@@ -1,2 +1,2 @@
 ### Fixed
-- **`/dashboard` starts inside the Bash sandbox** (GH 2717): `/onboard`'s sandbox step now sets `sandbox.network.allowLocalBinding: true`, so `/dashboard` can listen on loopback and starts inside the sandbox instead of outside it.
+- **`/onboard`'s sandbox step allows loopback binding** (GH 2717): it now sets `sandbox.network.allowLocalBinding: true`, kept as you set it if already there, and removed on **No** only when TMB added it.
