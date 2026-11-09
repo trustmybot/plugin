@@ -56,6 +56,7 @@ import {
   parseSpawnNote,
   parseStoredReport,
   reportMissingIds,
+  specCommitProblem,
   specCriteriaProblem,
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
@@ -1592,6 +1593,8 @@ export function compositeTools(
         }
         const criteriaProblem = specCriteriaProblem(task.spec_body);
         if (criteriaProblem) return err(criteriaProblem);
+        const commitProblem = specCommitProblem(task.spec_body);
+        if (commitProblem) return err(commitProblem);
         const validateStrArray = (value: unknown, field: 'files' | 'verification'): string[] => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field} must be a non-empty array of strings.`);
@@ -2145,6 +2148,8 @@ export function compositeTools(
           }
           const criteriaProblem = specCriteriaProblem(newSpec);
           if (criteriaProblem) return err(criteriaProblem);
+          const commitProblem = specCommitProblem(newSpec);
+          if (commitProblem) return err(commitProblem);
         }
         if (newFiles === undefined && newVerification === undefined && newSpec === undefined) {
           return err('task_update_spec: pass at least one of files, verification, spec_body');

@@ -1750,6 +1750,46 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_create_batch spec-shape gate: refuses a ## Commit subject over 72 code points unless waive_spec_shape has a reason (GH 2667)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+    const batch = (branch_id: string, waiver: Record<string, unknown>) => call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+      ...waiver,
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{
+        branch_id,
+        description: 'long commit subject',
+        spec_body: `## Description\nd\n\n## Success Criteria\n- SC1: works\n\n## Commit\n\n⚡ improvement(tools): ${'x'.repeat(51)}`,
+        files: ['a.ts'],
+        verification: ['true'],
+      }],
+    });
+    const taskCount = () => db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c;
+
+    const refused = await batch('feat/long-subject', {});
+    assert.ok(refused.isError, 'Expected the spec-shape gate to refuse the long subject');
+    const message = String(parseResult(refused).error);
+    assert.match(message, /^Spec shape gate: task branch_id='feat\/long-subject' — commit_subject_invalid: .*73 chars/);
+    assert.match(message, /waive_spec_shape=true/);
+    assert.equal(taskCount(), 0);
+
+    const short = await batch('feat/short-reason', { waive_spec_shape: true, waive_spec_shape_reason: 'short' });
+    assert.ok(short.isError);
+    assert.equal(taskCount(), 0);
+
+    const waived = await batch('feat/waived-subject', { waive_spec_shape: true, waive_spec_shape_reason: 'subject check not under test' });
+    assert.ok(!waived.isError, JSON.stringify(parseResult(waived)));
+    assert.equal(taskCount(), 1);
+
+    db.close();
+  });
+
   it('task_create_batch waive_spec_shape: one per-task row in the require-task-spec shape on the task\'s issue, no batch-level row', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);

@@ -27,6 +27,7 @@ import {
   HANDOFFS,
   MAX_CONCEPT_PROPOSALS,
   parseCompletionReport,
+  specCommitProblem,
   specCriteriaProblem,
   specCriterionIds,
 } from '../success-criteria.js';
@@ -626,7 +627,8 @@ export function taskTools(db: TrajectoryDB): {
 
       // --- Spec-section shape gate (MCP-level enforcement) ---
       // Each spec_body must contain the ## Success Criteria H2 section, its
-      // top-level bullets each led by a unique SC<n>: id, and be ≤200 lines.
+      // top-level bullets each led by a unique SC<n>: id, a ## Commit subject
+      // commit-msg-lint admits (when present), and be ≤200 lines.
       // Waivable with waive_spec_shape_reason (≥10 chars, audited).
       const specShapeWaived = args['waive_spec_shape'] === true;
       const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '') as string;
@@ -665,10 +667,10 @@ export function taskTools(db: TrajectoryDB): {
               }],
             };
           }
-          const criteriaProblem = specCriteriaProblem(t.spec_body);
-          if (criteriaProblem) {
+          const specProblem = specCriteriaProblem(t.spec_body) ?? specCommitProblem(t.spec_body);
+          if (specProblem) {
             return err(
-              `Spec shape gate: task branch_id='${t.branch_id}' — ${criteriaProblem} ` +
+              `Spec shape gate: task branch_id='${t.branch_id}' — ${specProblem} ` +
                 `Or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (≥10 chars) for tasks without full specs.`,
             );
           }
