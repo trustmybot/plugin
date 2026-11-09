@@ -809,7 +809,7 @@ export function issueTools(
     },
     {
       name: 'issue_update_description',
-      description: "Replace an issue's description and mirror it to the linked remote issue body when issue sync is on.",
+      description: "Replace an issue's description; issue sync mirrors it to the remote body.",
       inputSchema: {
         type: 'object',
         properties: {
