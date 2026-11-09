@@ -40,13 +40,18 @@ test('a new floating promise fails the lint', { skip, timeout: 300000 }, () => {
 
 test('un-awaited node:test calls pass while a real floating promise still fails', { skip, timeout: 300000 }, () => {
   const fixture = [
-    "import { describe, it, test } from 'node:test';",
+    "import { describe, it, suite, test } from 'node:test';",
     'async function work(): Promise<void> {}',
+    'const runner = { skip: async (): Promise<void> => {} };',
     "describe('suite', () => {",
     "  it('case', () => {});",
     '});',
     "test('top', () => {});",
+    ...['describe', 'it', 'suite', 'test'].flatMap((fn) =>
+      ['skip', 'only', 'todo'].map((modifier) => `${fn}.${modifier}('${fn} ${modifier}', () => {});`),
+    ),
     'work();',
+    'runner.skip();',
     '',
   ].join('\n');
   const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
@@ -59,7 +64,7 @@ test('un-awaited node:test calls pass while a real floating promise still fails'
     const floating = report.messages.filter((m) => m.ruleId === '@typescript-eslint/no-floating-promises');
     assert.deepEqual(
       floating.map((m) => m.line),
-      [7],
+      [20, 21],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
