@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveIndexTarget } from '../utils/index-target.js';
 import { cmdStatements, gitSubcommand, stmtRepoRoot, type GitStatements } from './cmd-analysis/index.js';
 import { ALLOW, type Gate } from './gate.js';
-import { dbPath, haveSqlite, sqliteRo, sqlQuote } from './lib/db.js';
+import { dbPath, dbProjectRoot, haveSqlite, projectRoot, sqliteRo, sqlQuote } from './lib/db.js';
 import { jqInput } from './lib/jq-raw.js';
 import { mergeFailed, readMergePayload } from './lib/merge.js';
 import { installRoot, posixDirname } from './lib/project-env.js';
@@ -85,7 +85,10 @@ function launchDetached(args: readonly string[], db: string, env: NodeJS.Process
   if (env.NODE_TEST_CONTEXT) return;
   const script = runScanScript(env);
   if (script === '' || !isFile(script)) return;
+  const cwd = dbProjectRoot(db) || projectRoot(env) || (args[0] ?? '');
+  if (cwd === '') return;
   const child = spawn(process.execPath, ['--experimental-sqlite', script, ...args], {
+    cwd,
     detached: true,
     stdio: 'ignore',
     env: { ...env, TRAJECTORY_DB_PATH: db },
