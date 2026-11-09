@@ -298,23 +298,13 @@ function codePointAt(text: string, k: number): string {
   return String.fromCodePoint(text.codePointAt(k) ?? 0);
 }
 
-/**
- * Whether bash's glob `[a-z]` takes <c>: ASCII a-z under C; under a UTF-8
- * locale the collation range from a to z, which holds the Latin letters
- * other than Z and its variants.
- */
-export function globAz(c: string, utf8: boolean): boolean {
-  if (c === '') return false;
-  if (/^[a-z]$/.test(c)) return true;
-  if (!utf8) return false;
-  return /^\p{Script=Latin}$/u.test(c) && !c.normalize('NFD').startsWith('Z');
-}
+const isLetter = (c: string): boolean => /^\p{L}$/u.test(c);
 
-/** has_word <word> <text>: <word> in <text> with no [a-z] letter on either side. */
-export function hasWord(word: string, text: string, utf8: boolean): boolean {
+/** <word> in <text> with no Unicode letter on either side, in every locale. */
+export function hasWord(word: string, text: string): boolean {
   let k = text.indexOf(word);
   while (k >= 0) {
-    if (!globAz(codePointBefore(text, k), utf8) && !globAz(codePointAt(text, k + word.length), utf8)) return true;
+    if (!isLetter(codePointBefore(text, k)) && !isLetter(codePointAt(text, k + word.length))) return true;
     k = text.indexOf(word, k + 1);
   }
   return false;
@@ -532,12 +522,12 @@ function namedRole(lower: string, ctx: Context): string {
   return '';
 }
 
-function domainOf(lower: string, utf8: boolean): string {
+function domainOf(lower: string): string {
   for (const [domain, keywords] of DOMAINS) if (keywords.some((k) => lower.includes(k))) return domain;
-  return hasWord('perf', lower, utf8) ? 'perf' : '';
+  return hasWord('perf', lower) ? 'perf' : '';
 }
 
-function consultantSpawn(lower: string, ctx: Context, utf8: boolean): GateResult | null {
+function consultantSpawn(lower: string, ctx: Context): GateResult | null {
   const role = namedRole(lower, ctx);
   if (role !== '') {
     const passthrough = ctx.auditNudge(`named-role ${role}`);
@@ -546,7 +536,7 @@ function consultantSpawn(lower: string, ctx: Context, utf8: boolean): GateResult
       passthrough,
     );
   }
-  const domain = domainOf(lower, utf8);
+  const domain = domainOf(lower);
   if (domain === '' || firstIncluded(lower, ADVISORY_SHAPES) === '') return null;
   const passthrough = ctx.auditNudge(`domain ${domain}`);
   return emit(
@@ -625,7 +615,7 @@ async function hints(promptRaw: string, env: NodeJS.ProcessEnv): Promise<GateRes
     if (r) return r;
   }
   if (!disabled(env, 'TMB_DISABLE_CONSULTANT_HINT')) {
-    const r = consultantSpawn(lower, ctx, utf8);
+    const r = consultantSpawn(lower, ctx);
     if (r) return r;
   }
   if (!disabled(env, 'TMB_DISABLE_SEARCH_HINT')) {
@@ -668,7 +658,7 @@ async function hints(promptRaw: string, env: NodeJS.ProcessEnv): Promise<GateRes
     }
   }
   if (!disabled(env, 'TMB_DISABLE_AUDIT_HINT')) {
-    const matched = AUDIT_WORDS.find((word) => hasWord(word, lowerOpen, utf8));
+    const matched = AUDIT_WORDS.find((word) => hasWord(word, lowerOpen));
     if (matched !== undefined) {
       return emit(
         `🔍 audit-intent hint: the user's prompt contains '${matched}'. Load \`tmb_audit\` and work outputs-first: name the component and the invariants its outputs must satisfy, test each against live data or a dry run before reading code, and report violations architecture-first with their evidence.`,
