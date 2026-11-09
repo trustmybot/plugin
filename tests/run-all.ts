@@ -165,6 +165,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: shipped swe/code-reviewer task_brief contract (#300)', 'agent-task-brief-contract.test.mjs'),
     lint('L1 lint: skill frontmatter + name=dirname', 'skill-frontmatter.test.mjs'),
     lint('L1 lint: command frontmatter (description + argument-hint)', 'command-frontmatter.test.mjs'),
+    lint('L1 lint: frontmatter values hold no unquoted colon-space', 'frontmatter-plain-scalar.test.mjs'),
     lint('L1 lint: manifest shape (plugin/.mcp/hooks)', 'manifest-shape.test.mjs'),
     ['L1 lint: Codex Scope-4 Agent contract', ['bash', join(here, 'l1-lint', 'codex-scope4-contract.sh')]],
     lint('L1 lint: legacy reviewer name only where allowlisted (GH 1641)', 'legacy-reviewer-name.test.mjs'),
