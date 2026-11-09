@@ -76,7 +76,7 @@ describe('lintFingerprint (GH 2570)', () => {
       .split('\n')
       .map((line) => {
         const [meta, path] = line.split('\t');
-        return { path: path!, oid: meta!.split(' ')[2]! };
+        return { path, oid: meta.split(' ')[2] };
       })
       .filter((e) => e.path === CLOSE_LINTS_PATH || e.path === 'package.json' || /^src\/.*\.ts$/.test(e.path));
     const got = await fp(sha);

@@ -2061,9 +2061,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
     }
   },
   "mcp/trajectory-server/src/test/validation.test.ts": {

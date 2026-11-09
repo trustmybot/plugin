@@ -196,8 +196,8 @@ describe('builtin lints (GH 2570)', () => {
     const r = repoFixture();
     const bogus = 'f'.repeat(40);
     const [changelog, stale] = await builtinLints(r.repo, bogus, r.base, r.env);
-    assert.equal(changelog!.exitCode, 1);
-    assert.match(changelog!.output, /actual: git diff failed: /);
-    assert.equal(stale!.exitCode, 1);
+    assert.equal(changelog.exitCode, 1);
+    assert.match(changelog.output, /actual: git diff failed: /);
+    assert.equal(stale.exitCode, 1);
   });
 });

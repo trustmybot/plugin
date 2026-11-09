@@ -23,10 +23,15 @@ const TASK = '5151';
 function rows(db: string, sql: string): Record<string, unknown>[] {
   const d = new DatabaseSync(db, { timeout: 5000 });
   try {
-    return d.prepare(sql).all() as Record<string, unknown>[];
+    return d.prepare(sql).all();
   } finally {
     d.close();
   }
+}
+
+function ran(run: CloseLintsRun | string): CloseLintsRun {
+  if (typeof run === 'string') assert.fail(run);
+  return run;
 }
 
 describe('close lints (GH 2570)', () => {
@@ -66,9 +71,9 @@ describe('close lints (GH 2570)', () => {
     const head = rows(db, `SELECT commit_sha, base_sha, fingerprint, source, exit_code, finished_at FROM lint_runs WHERE id = ${run.runId}`);
     const results = rows(db, `SELECT ordinal, name, exit_code, elapsed_s, output_tail FROM lint_run_results WHERE run_id = ${run.runId} ORDER BY ordinal`);
     assert.equal(head.length, 1);
-    for (const col of ['commit_sha', 'base_sha', 'fingerprint', 'source', 'exit_code']) assert.notEqual(head[0]![col], null, `lint_runs.${col}`);
+    for (const col of ['commit_sha', 'base_sha', 'fingerprint', 'source', 'exit_code']) assert.notEqual(head[0][col], null, `lint_runs.${col}`);
     for (const r of results) for (const col of ['name', 'exit_code', 'elapsed_s', 'output_tail']) assert.notEqual(r[col], null, `lint_run_results.${col}`);
-    return { head: head[0]!, results };
+    return { head: head[0], results };
   }
 
   before(() => {
@@ -84,7 +89,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
   });
 
   after(() => {
-    const counts = rows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0]!;
+    const counts = rows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0];
     assert.ok(Number(counts.runs) > 0, 'lint_runs has rows');
     assert.ok(Number(counts.results) > 0, 'lint_run_results has rows');
     rmSync(dir, { recursive: true, force: true });
@@ -92,8 +97,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   it('records a passing config lint then both built-ins as one gate run with exit 0, in order', async () => {
     const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: config([{ name: 'greet', command: 'echo hello from $PWD' }]) });
-    const run = await runCloseLints(repo, sha, base, 30, env, target());
-    assert.ok(typeof run !== 'string', String(run));
+    const run = ran(await runCloseLints(repo, sha, base, 30, env, target()));
     assert.equal(run.exitCode, 0);
     assert.deepEqual(run.failures, []);
     assert.equal(run.fingerprint, await lintFingerprint(repo, sha, ['src/**'], env));
@@ -114,7 +118,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         [3, STALE_DOC_REF, 0],
       ],
     );
-    assert.ok(String(results[0]!.output_tail).includes(`hello from ${repo}`), String(results[0]!.output_tail));
+    assert.ok(String(results[0].output_tail).includes(`hello from ${repo}`), String(results[0].output_tail));
     assert.equal(reusableLintRun(target(), sha, base, run.fingerprint, env), run.runId);
     assert.equal(reusableLintRun(target(), sha, 'f'.repeat(40), run.fingerprint, env), null, 'another base is not reused');
     assert.equal(reusableLintRun(target(), sha, base, 'v1:other', env), null, 'another fingerprint is not reused');
@@ -128,8 +132,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         { name: 'counts', command: script },
       ]),
     });
-    const run = await runCloseLints(repo, sha, base, 30, env, target());
-    assert.ok(typeof run !== 'string', String(run));
+    const run = ran(await runCloseLints(repo, sha, base, 30, env, target()));
     assert.equal(run.exitCode, 3);
     assert.deepEqual(
       run.failures.map((f) => [f.name, f.exitCode]),
@@ -146,7 +149,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         [STALE_DOC_REF, 0],
       ],
     );
-    assert.match(String(results[1]!.output_tail), /line 30$/);
+    assert.match(String(results[1].output_tail), /line 30$/);
     const text = describeFailures(run);
     assert.match(text, /^Lint counts exited 3\.\nOutput \(last 15 lines\):\nline 16\n/);
     assert.ok(!text.includes('line 15\n'), text);
@@ -155,8 +158,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   it('runs exactly the two built-ins, fingerprinted over no inputs, when the repo has no close-lints.json', async () => {
     const { repo, base, sha } = repoAt({});
-    const run = await runCloseLints(repo, sha, base, 30, env, target());
-    assert.ok(typeof run !== 'string', String(run));
+    const run = ran(await runCloseLints(repo, sha, base, 30, env, target()));
     assert.equal(run.exitCode, 0);
     assert.equal(run.fingerprint, await lintFingerprint(repo, sha, [], env));
     const { head, results } = recorded(run);
@@ -169,8 +171,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   it('records a failing run when the built-in missing_changelog fails', async () => {
     const { repo, sha } = repoAt({});
-    const run = await runCloseLints(repo, sha, sha, 30, env, target());
-    assert.ok(typeof run !== 'string', String(run));
+    const run = ran(await runCloseLints(repo, sha, sha, 30, env, target()));
     assert.equal(run.exitCode, 1);
     assert.deepEqual(
       run.failures.map((f) => f.name),
@@ -186,8 +187,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         { name: 'later', command: 'true' },
       ]),
     });
-    const run = await runCloseLints(repo, sha, base, 1, env, target());
-    assert.ok(typeof run !== 'string', String(run));
+    const run = ran(await runCloseLints(repo, sha, base, 1, env, target()));
     assert.equal(run.exitCode, LINT_TIMED_OUT);
     const { head, results } = recorded(run);
     assert.equal(head.exit_code, LINT_TIMED_OUT);
@@ -200,8 +200,8 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
         [STALE_DOC_REF, 0],
       ],
     );
-    assert.match(String(results[0]!.output_tail), /started\nkilled at the 1s close-lint budget/);
-    assert.match(String(results[1]!.output_tail), /budget ran out before `true` started/);
+    assert.match(String(results[0].output_tail), /started\nkilled at the 1s close-lint budget/);
+    assert.match(String(results[1].output_tail), /budget ran out before `true` started/);
     const text = describeFailures(run);
     assert.match(text, /Lint slow exited 124 \(timed out\)\./);
     assert.match(text, /Lint later exited 124 \(timed out\)\./);
@@ -209,10 +209,10 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   it('returns why, with nothing run or recorded, for a malformed close-lints.json', async () => {
     const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: '{"version":1,"lints":"nope"}' });
-    const before = rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0]!.n;
+    const before = rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0].n;
     const run = await runCloseLints(repo, sha, base, 30, env, target());
-    assert.equal(typeof run, 'string');
-    assert.ok(String(run).includes(`${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: `), String(run));
-    assert.equal(rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0]!.n, before);
+    if (typeof run !== 'string') assert.fail(`expected a reason, got lint run ${run.runId}`);
+    assert.ok(run.includes(`${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: `), run);
+    assert.equal(rows(db, 'SELECT COUNT(*) AS n FROM lint_runs')[0].n, before);
   });
 });

@@ -202,10 +202,10 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
       ).run(TASK_ID, recorded, NOW, NOW);
       if (recordedSha === 'tip') {
         const plan = await closeLintsPlan(repo, tip, env);
-        assert.equal(typeof plan, 'object', String(plan));
+        if (typeof plan === 'string') assert.fail(plan);
         const { lastInsertRowid } = w
           .prepare("INSERT INTO lint_runs (task_id, commit_sha, base_sha, fingerprint, source, started_at, finished_at, exit_code) VALUES (?, ?, ?, ?, 'gate', ?, ?, 0)")
-          .run(TASK_ID, tip, git('merge-base', 'dev', tip), (plan as { fingerprint: string }).fingerprint, NOW, NOW);
+          .run(TASK_ID, tip, git('merge-base', 'dev', tip), plan.fingerprint, NOW, NOW);
         for (const [i, name] of [MISSING_CHANGELOG, STALE_DOC_REF].entries()) {
           w.prepare("INSERT INTO lint_run_results (run_id, ordinal, name, exit_code, elapsed_s, output_tail) VALUES (?, ?, ?, 0, 0, '')").run(lastInsertRowid, i + 1, name);
         }

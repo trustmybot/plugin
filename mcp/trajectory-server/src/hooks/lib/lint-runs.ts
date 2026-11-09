@@ -82,7 +82,7 @@ export function parseCloseLints(text: string): CloseLints | string {
   if (!Array.isArray(inputs) || !inputs.every(nonEmpty)) return 'fingerprint_inputs must be an array of non-empty glob strings';
   return {
     lints: (lints as CloseLint[]).map((l) => ({ name: l.name, command: l.command })),
-    fingerprint_inputs: [...(inputs as string[])],
+    fingerprint_inputs: [...inputs],
   };
 }
 

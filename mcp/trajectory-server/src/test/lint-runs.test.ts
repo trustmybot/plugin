@@ -19,7 +19,7 @@ import { childEnv, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js
 function sqlRows(db: string, sql: string): Record<string, unknown>[] {
   const d = new DatabaseSync(db, { timeout: 5000 });
   try {
-    return d.prepare(sql).all() as Record<string, unknown>[];
+    return d.prepare(sql).all();
   } finally {
     d.close();
   }
@@ -80,7 +80,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     finish(run, 1);
 
     const rows = sqlRows(db, `SELECT commit_sha, base_sha, fingerprint, source, exit_code, finished_at FROM lint_runs WHERE id = ${run}`);
-    assert.deepEqual({ ...rows[0], finished_at: typeof rows[0]!.finished_at }, {
+    assert.deepEqual({ ...rows[0], finished_at: typeof rows[0].finished_at }, {
       commit_sha: SHA,
       base_sha: BASE,
       fingerprint: FP,
@@ -88,12 +88,12 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
       exit_code: 1,
       finished_at: 'string',
     });
-    const counts = sqlRows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0]!;
+    const counts = sqlRows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0];
     assert.ok(Number(counts.runs) > 0 && Number(counts.results) > 0, 'both tables are populated');
     const nulls = sqlRows(
       db,
       `SELECT COUNT(*) AS n FROM lint_run_results WHERE run_id = ${run} AND (name IS NULL OR exit_code IS NULL OR elapsed_s IS NULL OR output_tail IS NULL)`,
-    )[0]!;
+    )[0];
     assert.equal(Number(nulls.n), 0, 'every named result column is set');
 
     const latest = latestLintRun(db, TASK, SHA, env);
@@ -151,7 +151,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     const passed = start('swept', 'gate', ago(LINT_RUN_STALE_S + 300));
     finish(passed, 0, ago(LINT_RUN_STALE_S + 200));
     start(SHA);
-    const stamp = (id: string) => sqlRows(db, `SELECT exit_code, finished_at FROM lint_runs WHERE id = ${id}`)[0]!;
+    const stamp = (id: string) => sqlRows(db, `SELECT exit_code, finished_at FROM lint_runs WHERE id = ${id}`)[0];
     assert.equal(stamp(killed).exit_code, 137, 'the killed run is swept to 137');
     assert.ok(String(stamp(killed).finished_at) > String(stamp(passed).finished_at), 'the sweep stamps the killed run finished after the passing one');
     const latest = latestLintRun(db, TASK, 'swept', env);
@@ -161,7 +161,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
 
   it('deleting the task cascades to its runs and results', () => {
     sqlExec(db, `PRAGMA foreign_keys = ON; DELETE FROM tasks WHERE id = ${TASK};`);
-    const counts = sqlRows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0]!;
+    const counts = sqlRows(db, 'SELECT (SELECT COUNT(*) FROM lint_runs) AS runs, (SELECT COUNT(*) FROM lint_run_results) AS results')[0];
     assert.deepEqual({ ...counts }, { runs: 0, results: 0 });
   });
 

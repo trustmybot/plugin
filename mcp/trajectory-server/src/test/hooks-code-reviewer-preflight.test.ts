@@ -437,7 +437,7 @@ describe('code-reviewer-preflight', () => {
       const sha = await f.record({ exit: 0 }, null);
       const id = await f.lint(sha, { fingerprint: 'v1:recorded' });
       const plan = await closeLintsPlan(f.repo, sha, f.env);
-      assert.ok(typeof plan !== 'string', String(plan));
+      if (typeof plan === 'string') assert.fail(plan);
       assert.deepEqual(denial((await run(f)).stdout), {
         check: 'stale_lint_record',
         expected: `the lint run's fingerprint is the close-lints fingerprint of ${sha}`,
