@@ -56,6 +56,7 @@ const FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'packa
 const USAGE = `Usage: ${process.argv[1] ?? 'bump-version.ts'} [--dry-run] [--date YYYY-MM-DD] [--impact-db <path>] [--version-only] <new-version>`;
 const IMPACT_CLI = 'mcp/trajectory-server/dist/change-impact/cli.js';
 const PR_SUBJECT = /\(#(\d+)\)\s*$/;
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 class Exit extends Error {
   readonly code: number;
@@ -152,7 +153,7 @@ function assembleBlock(changelog: string[], fragments: string[], o: Options, imp
 
 /** The PR whose commit added <fragment>: the newest adding commit whose subject ends `(#N)`, else null. */
 function fragmentPr(fragment: string): number | null {
-  const r = spawnSync('git', ['log', '--diff-filter=A', '--format=%s', '--', fragment], { encoding: 'utf8' });
+  const r = spawnSync('git', ['log', '--diff-filter=A', '--format=%s', '--', fragment], { cwd: ROOT, encoding: 'utf8' });
   if (r.error || r.status !== 0) die(`Error: git log failed for ${fragment}: ${r.error?.message ?? r.stderr.trim()}`);
   for (const subject of lines(r.stdout)) {
     const m = PR_SUBJECT.exec(subject);
@@ -188,6 +189,7 @@ function measuredImpact(fragments: string[], db: string): string[] {
   const impacts: PrImpact[] = [];
   for (const [pr, declared] of declaredByPr) {
     const r = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', IMPACT_CLI, '--db', db, '--source', 'plugin_version', '--id', String(pr)], {
+      cwd: ROOT,
       encoding: 'utf8',
     });
     if (r.error) die(`Error: change-impact CLI failed for #${pr}: ${r.error.message}; nothing was changed`);
@@ -256,7 +258,7 @@ function isFile(path: string): boolean {
 
 function main(argv: string[]): void {
   const o = parseArgs(argv);
-  process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), '../..'));
+  process.chdir(ROOT);
 
   let fragments: string[] = [];
   let block = '';
