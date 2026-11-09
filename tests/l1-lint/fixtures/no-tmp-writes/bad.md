@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 echo x > /tmp/tmb-out.log # VIOLATION
 echo y >> "/var/tmp/claude.log" # VIOLATION
 mkdir -p /tmp/tmb-state # VIOLATION
