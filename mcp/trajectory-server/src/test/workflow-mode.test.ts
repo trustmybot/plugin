@@ -18,8 +18,8 @@ type RawResult = { content: Array<{ type: string; text: string }>; isError?: boo
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 
 const call = async (handlers: Handlers, name: string, args: Record<string, unknown>): Promise<RawResult> =>
-  (await handlers[name]!(args)) as RawResult;
-const parse = (r: RawResult) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
+  (await handlers[name](args)) as RawResult;
+const parse = (r: RawResult) => JSON.parse(r.content[0].text) as Record<string, unknown>;
 const NOW = '2026-11-09T12:00:00.000Z';
 
 const storeMode = (db: TrajectoryDB, valueJson: string): void => {
