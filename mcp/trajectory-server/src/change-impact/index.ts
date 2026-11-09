@@ -53,6 +53,14 @@ export interface ChangeImpactOptions {
   window_days?: number;
   max_samples?: number;
   limit?: number;
+  series?: boolean;
+}
+
+/** One UTC day of one side's samples. */
+export interface DayPoint {
+  day: string;
+  n: number;
+  median: number;
 }
 
 export interface SideStats {
@@ -77,6 +85,7 @@ export interface MetricImpact {
   p: number | null;
   p_holm: number | null;
   verdict: Verdict;
+  series?: { before: DayPoint[]; after: DayPoint[] };
 }
 
 export interface ChangeImpact extends ChangeEvent {
@@ -114,6 +123,20 @@ function side(samples: SplitSample[], unattributed: number): { values: number[];
   };
 }
 
+function daily(samples: SplitSample[]): DayPoint[] {
+  const byDay = new Map<string, number[]>();
+  for (const s of samples) {
+    const day = new Date(s.t).toISOString().slice(0, 10);
+    const values = byDay.get(day);
+    if (values) values.push(s.value);
+    else byDay.set(day, [s.value]);
+  }
+  return [...byDay.keys()].sort().map((day) => {
+    const values = byDay.get(day)!;
+    return { day, n: values.length, median: median(values)! };
+  });
+}
+
 function verdictOf(direction: 'lower' | 'higher', before: SideStats, after: SideStats, pHolm: number): Verdict {
   if (pHolm >= ALPHA) return 'no_change';
   let shift = (after.median ?? 0) - (before.median ?? 0);
@@ -129,6 +152,7 @@ function impactOf(
   windowDays: number,
   maxSamples: number,
   metricFilter: string | undefined,
+  series: boolean,
 ): ChangeImpact {
   const at = Date.parse(event.at);
   const windowMs = windowDays * DAY_MS;
@@ -138,11 +162,15 @@ function impactOf(
   const partial = METRICS.map((metric) => {
     const split = provider.split(event, ctx, metric);
     const unattributed = split.unattributed.filter(inWindow);
-    const b = side(split.before.filter(inWindow).sort(nearest).slice(0, maxSamples), unattributed.filter((s) => s.t < at).length);
-    const a = side(split.after.filter(inWindow).sort(nearest).slice(0, maxSamples), unattributed.filter((s) => s.t >= at).length);
+    const kept = (samples: SplitSample[]) => samples.filter(inWindow).sort(nearest).slice(0, maxSamples);
+    const beforeSamples = kept(split.before);
+    const afterSamples = kept(split.after);
+    const b = side(beforeSamples, unattributed.filter((s) => s.t < at).length);
+    const a = side(afterSamples, unattributed.filter((s) => s.t >= at).length);
     const enough = b.stats.n >= MIN_SAMPLES && a.stats.n >= MIN_SAMPLES;
     return {
       metric,
+      series: series ? { before: daily(beforeSamples), after: daily(afterSamples) } : undefined,
       before: b.stats,
       after: a.stats,
       ratio_of_medians: ratioOfMedians(b.values, a.values),
@@ -171,6 +199,7 @@ function impactOf(
         p: m.p,
         p_holm: ph,
         verdict: ph === null ? 'not_enough_data' : verdictOf(m.metric.direction, m.before, m.after, ph),
+        ...(m.series ? { series: m.series } : {}),
       };
     });
 
@@ -214,7 +243,7 @@ export function computeChangeImpact(
     const provider = PROVIDERS.find((p) => p.source === source)!;
     const event = provider.list(ctx).find((e) => e.id === id);
     if (!event) throw new Error(`unknown change ${source}:${id}`);
-    return impactOf(ctx, provider, event, windowDays, maxSamples, opts.metric);
+    return impactOf(ctx, provider, event, windowDays, maxSamples, opts.metric, opts.series === true);
   }
   const filter = opts.source === undefined ? undefined : checkSource(opts.source);
   const listed = PROVIDERS.map((provider) => ({ provider, events: provider.list(ctx) }));
@@ -224,7 +253,7 @@ export function computeChangeImpact(
     .flatMap((l) => l.events.map((event) => ({ provider: l.provider, event })))
     .sort((a, b) => Date.parse(b.event.at) - Date.parse(a.event.at))
     .slice(0, limit);
-  return { sources, changes: recent.map((r) => impactOf(ctx, r.provider, r.event, windowDays, maxSamples, opts.metric)) };
+  return { sources, changes: recent.map((r) => impactOf(ctx, r.provider, r.event, windowDays, maxSamples, opts.metric, opts.series === true)) };
 }
 
 /** Samples per metric started within the last <days> days of <now>. */
