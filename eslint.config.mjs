@@ -17,7 +17,13 @@ export default defineConfig(
       '@typescript-eslint/no-floating-promises': [
         'error',
         {
-          allowForKnownSafeCalls: [{ from: 'package', name: ['describe', 'it', 'suite', 'test'], package: 'node:test' }],
+          allowForKnownSafeCalls: [
+            {
+              from: 'package',
+              name: ['describe', 'it', 'suite', 'test', 'skip', 'only', 'todo'],
+              package: 'node:test',
+            },
+          ],
         },
       ],
     },
