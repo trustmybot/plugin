@@ -55,6 +55,17 @@ test('MCP server type-checks clean', { skip, timeout: 300000 }, () => {
   assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix type errors above`);
 });
 
+test('MCP server type-check skips eslint fixture dirs', { skip, timeout: 300000 }, () => {
+  const dir = mkdtempSync(join(SERVER, 'src', 'eslint-fixture-'));
+  try {
+    writeFileSync(join(dir, 'bad.ts'), 'const n: number = "not a number";\nexport { n };\n');
+    const result = typeCheck(TSC, SERVER);
+    assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — the server tsconfig must exclude src/eslint-fixture-*`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('dashboard type-checks clean', { skip: skip || DASHBOARD_SKIP, timeout: 300000 }, () => {
   const result = typeCheck(TSC, DASHBOARD);
   assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix dashboard type errors above`);

@@ -10,6 +10,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ESLINT = join(ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const skip = existsSync(ESLINT) ? false : "eslint not installed — run 'bun install' first";
 
+function makeFixtureDir() {
+  const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
+  writeFileSync(
+    join(dir, 'tsconfig.json'),
+    JSON.stringify({ extends: '../../tsconfig.json', compilerOptions: { rootDir: '.' }, include: ['*.ts'], exclude: [] }),
+  );
+  return dir;
+}
+
 function runEslint(args) {
   try {
     const output = execFileSync(process.execPath, [ESLINT, ...args], {
@@ -26,7 +35,7 @@ function runEslint(args) {
 
 test('a new floating promise fails the lint', { skip, timeout: 300000 }, () => {
   const fixture = 'async function work(): Promise<void> {}\nexport function run(): void {\n  work();\n}\n';
-  const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
+  const dir = makeFixtureDir();
   try {
     const file = join(dir, 'floating.ts');
     writeFileSync(file, fixture);
@@ -54,7 +63,7 @@ test('un-awaited node:test calls pass while a real floating promise still fails'
     'runner.skip();',
     '',
   ].join('\n');
-  const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
+  const dir = makeFixtureDir();
   try {
     const file = join(dir, 'node-test.ts');
     writeFileSync(file, fixture);
