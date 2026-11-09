@@ -119,6 +119,8 @@ export interface ReindexRow {
   files_diffed: number;
   files_parsed: number;
   dirs_touched: number;
+  // The concepts whose status or reason the reindex's refreshConcepts changed.
+  concepts_flagged: number;
   ms: number;
 }
 
@@ -178,7 +180,11 @@ export function freshnessBlock(db: TrajectoryDB, repo: string | null): Freshness
        FROM wm_freshness WHERE repo = ?`,
     [repo],
   );
-  const review = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken')`, [repo]);
+  const review = db.get<{ n: number }>(
+    `SELECT (SELECT COUNT(*) FROM wm_concepts WHERE repo = ? AND status IN ('suspect','broken'))
+          + (SELECT COUNT(*) FROM wm_directories WHERE repo = ? AND readme_review_pending = 1) AS n`,
+    [repo, repo],
+  );
   const targetCommit = f?.target_commit ?? null;
   const state = f?.reindex_state ?? 'idle';
   const elapsed = f?.reindex_elapsed_ms;
@@ -457,6 +463,7 @@ async function reindexLocked(
         files_diffed: out.files.length,
         files_parsed: stats.files_parsed,
         dirs_touched: stats.dirs_touched,
+        concepts_flagged: stats.concepts_flagged,
         ms: Date.now() - started,
       });
     } finally {
@@ -486,7 +493,7 @@ async function reindexRange(
   from: string,
   to: string,
   onApply: (errors: ScanError[]) => void,
-): Promise<{ files_diffed: number; files_parsed: number; dirs_touched: number } | null> {
+): Promise<{ files_diffed: number; files_parsed: number; dirs_touched: number; concepts_flagged: number } | null> {
   const tree = lsTree(repoPath, to);
   const diff = tree ? diffNameStatus(repoPath, from, to) : null;
   if (!tree || !diff) return null;
@@ -538,7 +545,7 @@ async function reindexRange(
       contents: new Map([[repo, content]]),
     };
     const stats = await persistRepoReindex(db, graph, out, scope, onApply);
-    return { files_diffed: diff.length, files_parsed: stats.files_parsed, dirs_touched: stats.dirs_touched };
+    return { files_diffed: diff.length, files_parsed: stats.files_parsed, dirs_touched: stats.dirs_touched, concepts_flagged: stats.concepts_flagged };
   } finally {
     content.close();
   }

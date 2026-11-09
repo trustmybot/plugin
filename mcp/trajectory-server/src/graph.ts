@@ -297,11 +297,19 @@ export class WorldModelGraph {
     return new Map(rows.map((r) => [r.id, toFileNode(r)]));
   }
 
+  // An existing README row whose README-sourced summary changes is flagged
+  // readme_review_pending for bro (GH 2584); the flag survives until a read
+  // delivers it. A new row, or a switch to a structural summary, never sets it.
   upsertDirectory(node: Omit<DirectoryNode, 'key'>): void {
     this.db.run(
       `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, path) DO UPDATE SET
+         readme_review_pending = CASE
+           WHEN wm_directories.summary_source = 'readme' AND excluded.summary_source = 'readme'
+                AND wm_directories.summary IS NOT excluded.summary THEN 1
+           ELSE wm_directories.readme_review_pending
+         END,
          parent_path = excluded.parent_path,
          summary = excluded.summary,
          summary_source = excluded.summary_source,
