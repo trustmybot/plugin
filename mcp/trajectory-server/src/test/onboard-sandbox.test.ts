@@ -132,7 +132,7 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
     const network = read().sandbox.network;
     assert.equal(network.allowLocalBinding, true);
     assert.equal(network.allowedDomains[0], 'example.com', 'the existing domain is kept first');
-    assert.ok(network.allowedDomains.includes('github.com'));
+    assert.equal(network.allowedDomains.filter((d: string) => d === 'github.com').length, 1);
   });
 
   it('with no settings file at all, it creates the network object with allowLocalBinding', () => {
