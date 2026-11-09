@@ -343,3 +343,22 @@ export function useIssueWrite(id: string, action: IssueAction) {
     onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
   });
 }
+
+export type EditableConfigKey = 'model_prices' | 'issue_area_labels' | 'issue_classification_labels' | 'issue_priority_labels';
+
+export interface ConfigEntry {
+  key: EditableConfigKey;
+  value: unknown;
+}
+
+export interface EditableConfig {
+  keys: ConfigEntry[];
+}
+
+export function useConfigWrite(key: EditableConfigKey) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { value: unknown; expected: unknown }) => postJson(`config/${key}`, body),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
+  });
+}
