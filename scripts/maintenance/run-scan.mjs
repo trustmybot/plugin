@@ -17,7 +17,8 @@
 // The source is scan_run's audit `source`: bro_auto_post_close by default,
 // startup_catchup from the server's connect-time catch-up, which on a warm DB
 // reindexes each known repo to its target commit instead of walking the
-// workspace (GH 2584).
+// workspace (GH 2584). The invoker then waits for the daily shadow compare
+// scan_run started in the background before it closes the DB.
 //
 // Hook mode: run-scan.mjs <project-root> hook <repo> [--fetch], spawned by the
 // ref-move-reindex PostToolUse hook, reindexes only <repo> with trigger 'hook'
@@ -52,7 +53,7 @@ async function main() {
   if (source === 'hook' && !hookRepo) {
     fail(2, 'hook mode needs a repo: run-scan.mjs <project-root> hook <repo> [--fetch]; nothing scanned');
   }
-  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools, reindexOnRefMove } = await import(
+  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools, reindexOnRefMove, shadowCompareIdle } = await import(
     '../../mcp/trajectory-server/dist/run-scan.js'
   );
 
@@ -102,6 +103,7 @@ async function main() {
         `${summary.dirs_upserted} dirs upserted, ${summary.dirs_retired ?? 0} retired`,
     );
   } finally {
+    await shadowCompareIdle();
     db.close();
   }
 }

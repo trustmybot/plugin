@@ -13,107 +13,21 @@ import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
+import { compare, describeMismatch, multisetMinus, snapshot, WM_TABLES } from '../world-model/equivalence.js';
 import { ensureFresh, reindexIdle } from '../world-model/freshness.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-type Table = 'wm_files' | 'wm_symbols' | 'wm_edges';
-
-const TABLES: readonly Table[] = ['wm_files', 'wm_symbols', 'wm_edges'];
-
-// Columns left out of the comparison: surrogate ids and write timestamps.
-// wm_edges.src_id and dst_id are compared through the path, kind and name of
-// the symbols they point at.
-const DROPPED_COLUMNS: Readonly<Record<Table, readonly string[]>> = {
-  wm_files: ['id', 'updated_at'],
-  wm_symbols: ['id'],
-  wm_edges: ['src_id', 'dst_id'],
-};
-
 const REPLAY_COMMITS = 5;
-const MISMATCH_LISTING_CAP = 20;
 const PIN_TARGET = 'TMB_WM_INDEX_TARGET';
 
 const git = (cwd: string, ...a: string[]) =>
   execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString().trim();
 
-function compared(db: TrajectoryDB, table: Table): string[] {
-  const dropped = new Set(DROPPED_COLUMNS[table]);
-  return db
-    .all<{ name: string }>(`SELECT name FROM pragma_table_info(?) ORDER BY cid`, [table])
-    .map((c) => c.name)
-    .filter((c) => !dropped.has(c));
-}
-
-function normalizedRows(db: TrajectoryDB, repo: string, table: Table): string[] {
-  const cols = compared(db, table);
-  if (table === 'wm_edges') {
-    const sql = `SELECT ${cols.map((c) => `e.${c}`).join(', ')},
-                        s.path AS src_path, s.kind AS src_kind, s.qualified_name AS src_name,
-                        d.path AS dst_path, d.kind AS dst_kind, d.qualified_name AS dst_qualified_name,
-                        (e.dst_id IS NOT NULL AND d.id IS NULL) AS dst_dangling
-                   FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id LEFT JOIN wm_symbols d ON d.id = e.dst_id
-                  WHERE s.repo = ?`;
-    return db.all<Record<string, unknown>>(sql, [repo]).map((r) => JSON.stringify(r)).sort();
-  }
-  return db
-    .all<Record<string, unknown>>(`SELECT ${cols.join(', ')} FROM ${table} WHERE repo = ?`, [repo])
-    .map((r) => JSON.stringify(r))
-    .sort();
-}
-
-type Snapshot = Record<Table, string[]>;
-
-function snapshot(db: TrajectoryDB, repo: string): Snapshot {
-  return {
-    wm_files: normalizedRows(db, repo, 'wm_files'),
-    wm_symbols: normalizedRows(db, repo, 'wm_symbols'),
-    wm_edges: normalizedRows(db, repo, 'wm_edges'),
-  };
-}
-
-interface Mismatch {
-  table: Table;
-  onlyA: string[];
-  onlyB: string[];
-}
-
-function multisetMinus(xs: string[], ys: string[]): string[] {
-  const left = new Map<string, number>();
-  for (const y of ys) left.set(y, (left.get(y) ?? 0) + 1);
-  const out: string[] = [];
-  for (const x of xs) {
-    const n = left.get(x) ?? 0;
-    if (n > 0) left.set(x, n - 1);
-    else out.push(x);
-  }
-  return out;
-}
-
-function compare(a: Snapshot, b: Snapshot): Mismatch[] {
-  return TABLES.map((table) => ({ table, onlyA: multisetMinus(a[table], b[table]), onlyB: multisetMinus(b[table], a[table]) })).filter(
-    (m) => m.onlyA.length > 0 || m.onlyB.length > 0,
-  );
-}
-
-function listing(rows: string[]): string {
-  const shown = rows.slice(0, MISMATCH_LISTING_CAP).map((r) => `    ${r}`);
-  if (rows.length > MISMATCH_LISTING_CAP) shown.push(`    … ${rows.length - MISMATCH_LISTING_CAP} more`);
-  return shown.join('\n');
-}
-
-function describeMismatch(label: string, mismatches: Mismatch[]): string {
-  const parts = mismatches.map(
-    (m) => `${m.table}: ${m.onlyA.length} only in A (incremental), ${m.onlyB.length} only in B (clean rebuild)\n` +
-      `  only in A:\n${listing(m.onlyA)}\n  only in B:\n${listing(m.onlyB)}`,
-  );
-  return `${label}: incremental index differs from the clean rebuild\n${parts.join('\n')}`;
-}
-
 function assertEquivalent(a: TrajectoryDB, b: TrajectoryDB, repo: string, label: string): void {
   const sa = snapshot(a, repo);
   const sb = snapshot(b, repo);
-  for (const table of TABLES) {
+  for (const table of WM_TABLES) {
     assert.ok(sa[table].length > 0, `${label}: A has no ${table} rows`);
     assert.ok(sb[table].length > 0, `${label}: B has no ${table} rows`);
   }

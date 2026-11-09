@@ -38,6 +38,7 @@ import {
   triggerOfSource,
   type ReindexRun,
 } from '../world-model/freshness.js';
+import { startShadowCompare } from '../world-model/shadow-compare.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes, type Remote } from '../repos/remotes.js';
@@ -405,11 +406,12 @@ interface FilePlan {
 // survives a content change. A stored file whose read failed (md5 '') keeps its
 // row, so a failed read never counts as a content change (GH 2242). Heads come
 // from the indexed commit's blobs; a scoped reindex re-extracts only the files
-// whose content changed.
-async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<FilePlan> {
+// whose content changed. `reparse` ignores every stored row, swe purposes
+// included, so each row is rewritten from the walk as a clean rebuild writes it.
+async function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<FilePlan> {
   const repoNames = new Set(out.repos.map((r) => r.name));
   const existing = new Map<string, FileNode>();
-  for (const r of out.repos) {
+  for (const r of reparse ? [] : out.repos) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
   const headOf = async (repo: string, rel: string): Promise<string> =>
@@ -849,8 +851,8 @@ interface GraphPlan {
   scope?: ReindexScope;
 }
 
-async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope): Promise<GraphPlan> {
-  const files = await planFiles(graph, out, now, scope);
+async function planGraph(graph: WorldModelGraph, out: ScanOutput, now: string, scope?: ReindexScope, reparse = false): Promise<GraphPlan> {
+  const files = await planFiles(graph, out, now, scope, reparse);
   const dirMap = deriveDirectoryEntries(out);
   const readmes = await readReadmes(out, dirMap, scope);
   return { files, dirMap, readmes, drift: planReadmeDrift(out, dirMap, readmes), scope };
@@ -898,8 +900,8 @@ function applyGraph(
 
 // A repo's wm_files rows as they stand once applyGraph has run `plan`: its
 // planned nodes, each keeping the stored symbols_md5 (upsertFile leaves it),
-// NULL for a new row.
-function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<IndexedFile & { purpose_source: string }> {
+// NULL for a new row or when `reparse` drops every stamp.
+function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan, reparse = false): Array<IndexedFile & { purpose_source: string }> {
   const stored = new Map(
     db
       .all<{ path: string; symbols_md5: string | null }>(`SELECT path, symbols_md5 FROM wm_files WHERE repo = ?`, [repo])
@@ -913,7 +915,7 @@ function plannedFiles(db: TrajectoryDB, repo: string, plan: FilePlan): Array<Ind
         path,
         content_md5: n.content_md5,
         size_bytes: n.size_bytes,
-        symbols_md5: stored.get(path) ?? null,
+        symbols_md5: reparse ? null : stored.get(path) ?? null,
         purpose_source: n.purpose_source,
       };
     });
@@ -1026,12 +1028,16 @@ export const reindexHooks: { afterGraph?: () => void; afterIndex?: () => void } 
 // incremental reindex a stage that fails rolls it all back; the full rebuild
 // records the stage's error and commits the rest, as scan_run does. onApply
 // runs inside the transaction with the stage errors, once the stamp is written.
+// opts.reparse ignores the stored wm_files rows and symbols_md5 stamps, so
+// every file row is rewritten from the walk and every file parsed again: the
+// rebuild a shadow-compare mismatch forces cannot trust them.
 export async function persistRepoReindex(
   db: TrajectoryDB,
   graph: WorldModelGraph,
   out: ScanOutput,
   scope?: ReindexScope,
   onApply?: (errors: ScanError[]) => void,
+  opts: { reparse?: boolean } = {},
 ): Promise<RepoReindexStats> {
   const now = nowISO();
   const persisted: ScanOutput = { ...out, files: persistedFiles(out.files, new Set()) };
@@ -1048,10 +1054,10 @@ export async function persistRepoReindex(
     dirs_touched: graphStats.dirs_upserted,
     errors,
   });
-  const graphPlan = await planGraph(graph, persisted, now, scope);
+  const graphPlan = await planGraph(graph, persisted, now, scope, opts.reparse === true);
   const repoPlans = new Map<string, RepoIndexPlan>();
   for (const r of out.repos) {
-    const planned = plannedFiles(db, r.name, graphPlan.files);
+    const planned = plannedFiles(db, r.name, graphPlan.files, opts.reparse === true);
     repoPlans.set(r.name, await planRepoIndex(db, r, repoFiles(r), out.contents?.get(r.name), planned, scope));
   }
   return db.transaction(() => {
@@ -1098,7 +1104,7 @@ export function scanTools(
             type: 'string',
             enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_initial', 'startup_catchup'],
             description:
-              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace. Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
+              'Who fired this scan. user_manual = the user typed /scan (full rebuild of every repo); bro_auto_post_close = run-scan.mjs\'s default; bro_auto_initial = bro hit the registry-cold gate; startup_catchup = the server\'s connect-time catch-up, which on a warm DB reindexes each known repo to its target commit instead of walking the workspace, then starts the daily shadow compare of at most one repo in the background (result `shadow_compare`: its name or null). Reads and task spawns reindex on their own. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
@@ -1140,10 +1146,12 @@ export function scanTools(
 
         // startup_catchup on a warm DB brings each known repo to its target
         // (git-range scope, full-repo only when the stamp needs it) and runs no
-        // workspace discovery (GH 2584).
+        // workspace discovery (GH 2584). Then the daily shadow compare of at
+        // most one repo starts in the background, not awaited.
         if (source === 'startup_catchup' && graph && db.get(`SELECT 1 FROM repos LIMIT 1`)) {
           const results = await catchUpRepos(db, graph, { dbPath, trigger: 'startup_catchup' });
-          return ok({ source, repos: results });
+          const shadowCompare = startShadowCompare(db);
+          return ok({ source, repos: results, shadow_compare: shadowCompare });
         }
 
         // #339: lock file prevents concurrent scans. Lock lives beside the DB.

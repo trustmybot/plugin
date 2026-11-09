@@ -37,7 +37,10 @@ import { runGit } from '../utils/git-run.js';
 import { resolveIndexTargetRef, targetBranchOf } from '../utils/index-target.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
 
-export type ReindexMode = 'incremental' | 'full';
+// A wm_reindex row's mode: a reindex ran ('incremental', 'full'), or the daily
+// shadow compare found the index differs from a clean rebuild ('mismatch').
+export type ReindexMode = 'incremental' | 'full' | 'mismatch';
+export type RebuildMode = Exclude<ReindexMode, 'mismatch'>;
 export type FullReason = 'null_stamp' | 'unreachable' | 'stamp_changed' | 'mismatch' | 'scan' | 'range_failed';
 export type ReindexReason = 'ref_moved' | FullReason;
 export type ReindexTrigger = 'read' | 'startup_catchup' | 'scan' | 'spawn' | 'hook' | 'fetch';
@@ -57,7 +60,7 @@ export interface Freshness {
   // Paths whose cards may be out of date because another process is still
   // reindexing them; 'all' marks every path.
   stale: 'all' | ReadonlySet<string>;
-  mode?: ReindexMode;
+  mode?: RebuildMode;
 }
 
 export interface FreshnessOptions {
@@ -77,7 +80,7 @@ export interface FreshnessBlock {
   stale: boolean;
   reindex: {
     state: ReindexState;
-    mode: ReindexMode | null;
+    mode: RebuildMode | null;
     trigger: BlockTrigger | null;
     started_at: string | null;
     finished_at: string | null;
@@ -91,7 +94,7 @@ interface FreshnessRow {
   target_ref: string | null;
   target_commit: string | null;
   reindex_state: ReindexState;
-  reindex_mode: ReindexMode | null;
+  reindex_mode: RebuildMode | null;
   reindex_trigger: BlockTrigger | null;
   reindex_started_at: string | null;
   reindex_finished_at: string | null;
@@ -101,7 +104,7 @@ interface FreshnessRow {
 
 // One reindex as wm_freshness records it.
 export interface ReindexRun {
-  mode: ReindexMode;
+  mode: RebuildMode;
   trigger: ReindexTrigger;
   startedMs: number;
 }
@@ -126,7 +129,7 @@ interface RepoState {
 }
 
 const NOTHING: ReadonlySet<string> = new Set();
-const inflight = new Map<string, Promise<ReindexMode | undefined>>();
+const inflight = new Map<string, Promise<RebuildMode | undefined>>();
 
 export function indexStamp(): string {
   return `${EXTRACTOR_VERSION}:${TARGET_SCHEMA_VERSION}`;
@@ -150,7 +153,10 @@ export function recordReindex(db: TrajectoryDB, row: ReindexRow): void {
     issue_id: -1,
     from_node: 'system',
     event_type: 'wm_reindex',
-    summary: `World model of ${row.repo} reindexed to ${row.to_commit.slice(0, 12)} (${row.mode}, ${row.reason}, ${row.trigger}): ${row.files_diffed} paths diffed, ${row.files_parsed} parsed, ${row.dirs_touched} dirs in ${row.ms} ms`,
+    summary:
+      row.mode === 'mismatch'
+        ? `World model of ${row.repo} at ${row.to_commit.slice(0, 12)} differs from a clean rebuild (shadow compare, ${row.trigger}); the next reindex rebuilds it in full`
+        : `World model of ${row.repo} reindexed to ${row.to_commit.slice(0, 12)} (${row.mode}, ${row.reason}, ${row.trigger}): ${row.files_diffed} paths diffed, ${row.files_parsed} parsed, ${row.dirs_touched} dirs in ${row.ms} ms`,
     content_json: JSON.stringify(row),
     repo: row.repo,
   });
@@ -293,7 +299,8 @@ function repoState(db: TrajectoryDB, repo: string): RepoState | null {
   return db.get<RepoState>(`SELECT path, indexed_commit, indexed_stamp FROM repos WHERE name = ?`, [repo]) ?? null;
 }
 
-// A mismatch verdict (the shadow rebuild's) with no full rebuild after it.
+// A mismatch verdict (the daily shadow compare's, shadow-compare.ts) with no
+// full rebuild after it.
 function mismatchPending(db: TrajectoryDB, repo: string): boolean {
   const row = db.get<{ mode: string | null }>(
     `SELECT json_extract(content_json, '$.mode') AS mode FROM audit
@@ -326,7 +333,7 @@ export function diffPaths(repoPath: string, from: string | null, to: string | nu
   return diff === null ? 'all' : new Set(diff.map((d) => d.path));
 }
 
-function fresh(repo: string, commit: string | null, target: string | null, mode?: ReindexMode): Freshness {
+function fresh(repo: string, commit: string | null, target: string | null, mode?: RebuildMode): Freshness {
   return { repo, indexed_commit: commit, target_commit: target, stale: NOTHING, ...(mode ? { mode } : {}) };
 }
 
@@ -392,7 +399,7 @@ export async function ensureFresh(
   const shared = run.then((mode) => mode ?? undefined);
   shared.catch(() => undefined);
   inflight.set(repo, shared);
-  let mode: ReindexMode | null | undefined;
+  let mode: RebuildMode | null | undefined;
   try {
     mode = await run;
   } finally {
@@ -411,7 +418,7 @@ async function reindexLocked(
   repo: string,
   target: string,
   trigger: ReindexTrigger,
-): Promise<ReindexMode | undefined> {
+): Promise<RebuildMode | undefined> {
   const state = repoState(db, repo);
   if (!state || current(db, repo, state, target)) return undefined;
   const started = Date.now();
@@ -439,7 +446,7 @@ async function reindexLocked(
         files: out.files,
         contents: out.content ? new Map([[repo, out.content]]) : new Map(),
       };
-      const stats = await persistRepoReindex(db, graph, output, undefined, finish);
+      const stats = await persistRepoReindex(db, graph, output, undefined, finish, { reparse: reason === 'mismatch' });
       recordReindex(db, {
         repo,
         mode: 'full',
@@ -541,7 +548,7 @@ export interface CatchUpResult {
   repo: string;
   indexed_commit: string | null;
   target_commit: string | null;
-  mode: ReindexMode | null;
+  mode: RebuildMode | null;
   held: boolean;
 }
 
