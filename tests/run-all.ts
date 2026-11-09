@@ -235,6 +235,7 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: /onboard option wording is plain language', 'onboard-option-wording.test.mjs'),
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
     lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
+    lint('L1 lint: pr-check suite job runs the full sweep', 'pr-check-full-suite.test.mjs'),
   ];
 }
 
