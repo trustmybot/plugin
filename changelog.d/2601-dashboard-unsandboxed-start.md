@@ -1,2 +1,0 @@
-### Fixed
-- **`/dashboard` starts on the first try in the Bash sandbox** (GH 2601): the sandbox blocks binding to loopback by default, so every start failed with `listen EPERM` and was retried unsandboxed at the cost of one extra prompt. `/dashboard` now starts the server outside the sandbox, and reads an `EPERM` on listen as the sandbox, naming `sandbox.network.allowLocalBinding: true` for keeping it inside.

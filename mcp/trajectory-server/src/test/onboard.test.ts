@@ -37,6 +37,23 @@ function parse(result: unknown): Record<string, unknown> {
   return JSON.parse(r.content[0].text) as Record<string, unknown>;
 }
 
+interface ProjectSettings {
+  model?: string;
+  env?: Record<string, string>;
+  hooks?: { PreToolUse?: Array<{ matcher?: string; hooks: Array<{ command: string; _tmb_project?: string }> }> };
+  sandbox?: {
+    enabled?: boolean;
+    enableWeakerNetworkIsolation?: boolean;
+    excludedCommands?: string[];
+    filesystem?: { allowWrite?: string[] };
+    network?: { allowedDomains?: string[]; allowLocalBinding?: boolean };
+  };
+}
+
+function readSettings(path: string): ProjectSettings {
+  return JSON.parse(readFileSync(path, 'utf8')) as ProjectSettings;
+}
+
 const GIT_ISOLATED_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 const remoteRepoDirs: string[] = [];
 after(() => {
@@ -1086,13 +1103,13 @@ describe('onboard tools', () => {
       const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
       const applied = data.applied as Record<string, unknown>;
       assert.equal(applied.sandbox_enforcement, 'yes');
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
       assert.equal(written.model, 'x', 'other keys kept');
-      assert.equal(written.sandbox.enabled, true);
-      assert.equal(written.sandbox.filesystem.allowWrite[0], '/user/own', 'the user entry is kept first');
-      assert.ok(written.sandbox.filesystem.allowWrite.includes(proj), 'the project is writable');
-      assert.equal(written.sandbox.filesystem.allowWrite.length, 3, 'project + model cache added');
-      assert.equal(written.sandbox.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
+      assert.equal(written.sandbox?.enabled, true);
+      assert.equal(written.sandbox?.filesystem?.allowWrite?.[0], '/user/own', 'the user entry is kept first');
+      assert.ok(written.sandbox?.filesystem?.allowWrite?.includes(proj), 'the project is writable');
+      assert.equal(written.sandbox?.filesystem?.allowWrite?.length, 3, 'project + model cache added');
+      assert.equal(written.sandbox?.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
       assert.deepEqual(written.env, {
         npm_config_cache: join(proj, '.claude', 'tmb', 'cache', 'npm'),
         BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun'),
@@ -1103,6 +1120,8 @@ describe('onboard tools', () => {
       const sandboxResult = applied.sandbox as Record<string, unknown>;
       assert.deepEqual(sandboxResult.env, written.env);
       assert.equal(sandboxResult.weaker_network_isolation, true);
+      assert.equal(written.sandbox?.network?.allowLocalBinding, true, '/dashboard can listen on loopback');
+      assert.equal(sandboxResult.allow_local_binding, true);
 
       await call(tools.handlers, 'onboard_apply', { shape: 'local' });
       assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
@@ -1124,7 +1143,8 @@ describe('onboard tools', () => {
       const { base, proj, dbPath, settings } = project();
       const tools = onboardTools(db, dbPath, { platform: 'linux' });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
+      assert.ok(written.sandbox);
       assert.equal(written.sandbox.enableWeakerNetworkIsolation, undefined);
       assert.deepEqual(written.env, sandboxToolEnv(join(proj, '.claude', 'tmb', 'cache')));
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
@@ -1144,11 +1164,11 @@ describe('onboard tools', () => {
       writeFileSync(settings, JSON.stringify(user));
       const tools = onboardTools(db, dbPath, { platform: 'darwin' });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      assert.equal(written.env.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
-      assert.equal(written.env.FOO, 'bar');
-      assert.equal(written.env.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
-      assert.equal(written.sandbox.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
+      const written = readSettings(settings);
+      assert.equal(written.env?.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
+      assert.equal(written.env?.FOO, 'bar');
+      assert.equal(written.env?.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
+      assert.equal(written.sandbox?.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
       const record = sandboxRecord(db);
       assert.deepEqual(record.env, { BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun') });
       assert.equal(record.weaker_network_isolation_set, false);
@@ -1226,9 +1246,9 @@ describe('onboard tools', () => {
         }),
       );
       assert.equal(data.ok, true);
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      assert.deepEqual(written.sandbox.excludedCommands, ['docker'], 'the user excludedCommands is kept');
-      assert.deepEqual(written.sandbox.network.allowedDomains, [
+      const written = readSettings(settings);
+      assert.deepEqual(written.sandbox?.excludedCommands, ['docker'], 'the user excludedCommands is kept');
+      assert.deepEqual(written.sandbox?.network?.allowedDomains, [
         'example.org',
         'github.com',
         'api.github.com',
@@ -1260,9 +1280,10 @@ describe('onboard tools', () => {
       const db = tempDB();
       const { base, dbPath, settings } = project();
       await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'Yes (Recommended)' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      const written = readSettings(settings);
+      assert.ok(written.sandbox);
       assert.equal(written.sandbox.excludedCommands, undefined);
-      assert.deepEqual(written.sandbox.network.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
+      assert.deepEqual(written.sandbox.network?.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -1385,7 +1406,7 @@ describe('onboard tools', () => {
       assert.equal((applied.headless_shim as Record<string, unknown>).written, true);
       const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
       assert.equal((state.current as Record<string, unknown>).headless_enforcement, 'yes');
-      const entries = JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse.flatMap((g: { hooks: unknown[] }) => g.hooks);
+      const entries = readSettings(settings).hooks?.PreToolUse?.flatMap((g) => g.hooks) ?? [];
       assert.equal(entries.length, 2);
       rmSync(base, { recursive: true, force: true });
       db.close();
@@ -1415,6 +1436,7 @@ describe('onboard tools', () => {
         'sandbox.enabled',
         'sandbox.filesystem.allowWrite',
         'sandbox.network.allowedDomains',
+        'sandbox.network.allowLocalBinding',
         'sandbox.enableWeakerNetworkIsolation',
         'env.npm_config_cache',
         'env.BUN_INSTALL_CACHE_DIR',
@@ -1444,8 +1466,7 @@ describe('onboard tools', () => {
       const { base, pluginRoot, project, dbPath, settings } = sandbox();
       const tools = onboardTools(db, dbPath, { pluginRoot });
       await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
-      const written = JSON.parse(readFileSync(settings, 'utf8'));
-      const entries = written.hooks.PreToolUse.flatMap((g: { hooks: unknown[] }) => g.hooks) as Array<{ command: string; _tmb_project: string }>;
+      const entries = readSettings(settings).hooks?.PreToolUse?.flatMap((g) => g.hooks) ?? [];
       assert.equal(entries.length, 2);
       for (const e of entries) {
         assert.equal(e._tmb_project, project);
@@ -1477,8 +1498,7 @@ describe('onboard tools', () => {
       const tools = onboardTools(db, dbPath, { pluginRoot });
       seedLegacyShim(project, settings);
       await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
-      const commands = (JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
-        .flatMap((g) => g.hooks.map((h) => h.command));
+      const commands = (readSettings(settings).hooks?.PreToolUse ?? []).flatMap((g) => g.hooks.map((h) => h.command));
       assert.equal(commands.length, 2);
       assert.ok(commands.every((c) => c.startsWith(`node ${join(project, '.claude', 'tmb', 'resolve-hook.mjs')} `)), commands.join('\n'));
       assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.mjs')));

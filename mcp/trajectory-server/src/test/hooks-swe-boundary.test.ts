@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { CAP_FIX, CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
+import { ambiguousSubcommandReason, CAP_FIX, CAP_REASON, cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
 import {
@@ -65,8 +65,12 @@ const STASH_READS = [
   'git -C "$(git rev-parse --show-toplevel)" stash list',
   'git -c core.quotepath=off stash show -p',
 ];
+const AMBIGUOUS_SUBCOMMANDS: ReadonlyArray<readonly [string, string]> = [
+  ['p=stash; git $p pop', 'git $p pop'],
+  ['git $(echo stash) pop', 'git $(echo stash) pop'],
+];
+const UNKNOWN_FIX = 'git -C <path> <subcommand> …, the subcommand written literally';
 const UNREADABLE_SUBCOMMANDS = [
-  'p=stash; git $p pop',
   "git 'stash' pop",
   'git "stash" pop',
   "git $'stash' pop",
@@ -74,7 +78,6 @@ const UNREADABLE_SUBCOMMANDS = [
   'git st\\\nash pop',
   '\\git stash pop',
   '/usr/bin/git stash pop',
-  'git $(echo stash) pop',
   'git -c alias.s=stash s pop',
   "git -c 'Alias.s=stash' s pop",
   'git -c include.path=/tmp/x s pop',
@@ -244,6 +247,17 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
         const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
         assert.equal(r.code, 0);
         assert.equal(decision(r.stdout)?.permissionDecisionReason, SUBCOMMAND_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies a git statement whose subcommand gitSubcommandOf cannot read as ambiguous_git_subcommand for swe and code-reviewer (GH 2641, GH 2837)', async () => {
+    const verbs: Record<string, string> = { 'tmb:swe': 'pushes', 'tmb:code-reviewer': 'writes the git stash' };
+    for (const agent_type of STASH_ROLES) {
+      for (const [command, what] of AMBIGUOUS_SUBCOMMANDS) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, `${ambiguousSubcommandReason(what, verbs[agent_type])} Allowed form: ${UNKNOWN_FIX}`, `${agent_type}: ${command}`);
       }
     }
   });
