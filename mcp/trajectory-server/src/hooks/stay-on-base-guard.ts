@@ -18,7 +18,7 @@ import { statSync } from 'node:fs';
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { ambiguousSubcommandReason, cmdStatements, denyAmbiguousGitTarget, gitBesideExpansion, gitSubcommandOf, type Statement, unquotedCommand } from './cmd-analysis/index.js';
+import { ambiguousSubcommandReason, cmdStatements, denyAmbiguousGitTarget, gitBesideExpansion, gitSubcommandOf, prefilterPasses, type Statement } from './cmd-analysis/index.js';
 import { taskLocation } from './lib/agent-context.js';
 import { branchSlug, dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote } from './lib/db.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -58,8 +58,7 @@ export const stayOnBaseGuard: Gate = async (payload, env) => {
   const input = jqInput(payload);
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  const bare = unquotedCommand(command);
-  if (!bare.includes('checkout') && !bare.includes('switch') && !gitBesideExpansion(command)) return ALLOW;
+  if (!prefilterPasses(command, (text) => text.includes('checkout') || text.includes('switch')) && !gitBesideExpansion(command)) return ALLOW;
 
   const listed = await cmdStatements(command, payloadCwdOf(input, env), env);
   if (!listed.ok) return haveSqlite(env) && isFile(dbPath(env) ?? '') ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;

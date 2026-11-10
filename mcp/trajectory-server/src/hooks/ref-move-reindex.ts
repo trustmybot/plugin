@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveIndexTarget } from '../utils/index-target.js';
-import { cmdStatements, gitSubcommand, stmtRepoRoot, type GitStatements } from './cmd-analysis/index.js';
+import { cmdStatements, gitSubcommand, prefilterPasses, stmtRepoRoot, type GitStatements } from './cmd-analysis/index.js';
 import { ALLOW, type Gate } from './gate.js';
 import { dbPath, dbProjectRoot, haveSqlite, projectRoot, sqliteRo, sqlQuote } from './lib/db.js';
 import { jqInput } from './lib/jq-raw.js';
@@ -109,7 +109,7 @@ export function refMoveReindexWith(seams: RefMoveSeams): Gate {
   return async (payload, env) => {
     try {
       const { input, toolName, command, response } = readMergePayload(payload);
-      if (toolName !== 'Bash' || !MAY_MOVE.test(command)) return ALLOW;
+      if (toolName !== 'Bash' || !prefilterPasses(command, (text) => MAY_MOVE.test(text))) return ALLOW;
       if ((env.TMB_SKIP_AUTO_RESCAN ?? '') === '1' || mergeFailed(response)) return ALLOW;
       const bare = await seams.statements(command, '', env);
       if (!bare.ok) return ALLOW;

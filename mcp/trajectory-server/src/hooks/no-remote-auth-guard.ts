@@ -12,7 +12,7 @@
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { cmdStatements, stmtRepoRoot } from './cmd-analysis/index.js';
+import { cmdStatements, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite } from './lib/db.js';
 import { jqCapture, jqGet, jqInput, jqRaw, JqUnindexable } from './lib/jq-raw.js';
 import { shellCapture } from './lib/lint-shell.js';
@@ -49,7 +49,7 @@ export function hasRemoteUrl(remotesJson: string): string {
 export const noRemoteAuthGuard: Gate = async (payload, env) => {
   const input = jqInput(payload);
   const command = jqCapture(input, ['tool_input', 'command'], true);
-  if (command === '' || !command.includes('login')) return ALLOW;
+  if (command === '' || !prefilterPasses(command, (text) => text.includes('login'))) return ALLOW;
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
