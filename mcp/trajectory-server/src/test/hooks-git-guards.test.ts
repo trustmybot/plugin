@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { gitGuards, needsGitGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT } from '../hooks/git-guards.js';
+import { forgeRecovery, gitGuards, needsGitGuard, PARSE_FIX, PARSE_REASON as PARSE_TEXT, primaryRemoteUrl } from '../hooks/git-guards.js';
 import { fixedReason } from '../hooks/lib/deny.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 
@@ -152,5 +152,33 @@ describe('git-guards: the TypeScript gate', () => {
   it('with the CLI backend and no sqlite3 on PATH it falls back to the defaults, as the .sh does', async () => {
     const r = await gitGuards(payload('git commit -m x', sibling), { ...env, PATH: gitOnly, TMB_HOOKS_SQLITE: 'cli' });
     assert.match(reason(r.stdout), /^BLOCKED: main is a shared workflow base/);
+  });
+});
+
+describe('git-guards: the Rule 2 recovery names the forge of the remote (GH 2713)', () => {
+  const remotes = (url: string, name = 'origin'): string => `${name}\t${url} (fetch)\n${name}\t${url} (push)\n`;
+
+  it('primaryRemoteUrl reads origin, else the first remote', () => {
+    assert.equal(primaryRemoteUrl(`${remotes('git@gitlab.com:a/b.git', 'up')}${remotes('git@github.com:a/b.git')}`), 'git@github.com:a/b.git');
+    assert.equal(primaryRemoteUrl(remotes('https://gitlab.com/a/b.git', 'up')), 'https://gitlab.com/a/b.git');
+    assert.equal(primaryRemoteUrl(''), '');
+  });
+
+  it('a GitLab remote, gitlab.com or self-hosted, gets glab mr create', () => {
+    for (const url of ['git@gitlab.com:a/b.git', 'https://gitlab.example.com/a/b.git']) {
+      assert.deepEqual(forgeRecovery(remotes(url), 'dev'), {
+        text: ' Push your feature branch and open an MR into dev.',
+        fix: { allowed: 'git push origin <branch> && glab mr create --target-branch dev --source-branch <branch>' },
+      });
+    }
+  });
+
+  it('a GitHub remote, or no URL, gets gh pr create', () => {
+    for (const r of [remotes('git@github.com:a/b.git'), '']) {
+      assert.deepEqual(forgeRecovery(r, 'main'), {
+        text: ' Push your feature branch and open a PR into main.',
+        fix: { allowed: 'git push origin <branch> && gh pr create --base main --head <branch>' },
+      });
+    }
   });
 });

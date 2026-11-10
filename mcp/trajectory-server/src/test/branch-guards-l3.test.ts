@@ -420,7 +420,7 @@ describe('require-feature-branch-active l3', () => {
       const out = run(ws, spawn('swe', 'task_id=11 You are SWE.'), wsDb);
       deny(out, 'multi-repo with no task.repo and no .git at workspace root must block');
       has(out, 'tasks.repo IS NULL', 'block message must explain the unresolved-repo cause');
-      has(out, 'Allowed form: task_create with repo=<name>', "block message must suggest setting the task's repo");
+      has(out, 'Allowed form: bro: task_provision with repo=<name> for this work, then spawn swe with the new task_id', 'block message must name task_provision with the repo');
       hasNot(out, 'tmb_default_repo', 'block message must NOT mention the retired tmb_default_repo key');
     });
   });

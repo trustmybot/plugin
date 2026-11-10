@@ -1,4 +1,4 @@
-// L1 lint: validate the shape of the Claude and Codex package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json, hooks/hooks.json, .codex-plugin/plugin.json, adapters/codex/.mcp.json, hooks/codex/hooks.json and .agents/plugins/marketplace.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
+// L1 lint: validate the shape of the Claude and Codex package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json, hooks/hooks.json, .codex-plugin/plugin.json, adapters/codex/.mcp.json, hooks/codex/hooks.json and .agents/plugins/marketplace.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on a `git archive HEAD` export of the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -20,7 +20,6 @@ const HOOKS_MANIFEST = 'hooks/hooks.json';
 // Findings awaiting a Human-owned or prompt-surface change, one "<path relative to the plugin root>|<message prefix>" each.
 const STRICT_ACCEPTED = [
   'CLAUDE.md|root: CLAUDE.md at the plugin root is not loaded as project context.',
-  'agents/README.md|frontmatter: No frontmatter block found.',
   'commands/README.md|frontmatter: No frontmatter block found.',
 ];
 
@@ -215,12 +214,16 @@ function onPath(cmd) {
 export function strictFindings(output, root) {
   const out = [];
   let f = '';
+  let notes = false;
   for (const line of output.split('\n')) {
     const v = /^Validating [^:]+: (.*)$/.exec(line);
     if (v) {
       f = v[1].startsWith(`${root}/`) ? v[1].slice(root.length + 1) : v[1];
+      notes = false;
       continue;
     }
+    if (/^\s*About these checks:?\s*$/.test(line) || /^\s*These plugin directory checks do not change the result/.test(line)) notes = true;
+    if (notes) continue;
     const m = /^\s*❯ (.*)$/.exec(line);
     if (m) out.push(`${f}|${m[1]}`);
   }
@@ -244,6 +247,19 @@ test('strict-validate parsing keeps accepted findings out and reports the rest',
   assert.deepEqual(strictUnaccepted(findings), ['.claude-plugin/plugin.json|icon: No icon (ICON_MISSING).']);
 });
 
+test('strict-validate parsing skips the CLI notes after the About these checks heading', () => {
+  const out = [
+    'Validating command: /r/commands/x.md',
+    '  ❯ frontmatter: Bad key (FRONTMATTER_KEY).',
+    'Plugin directory checks for /r. The plugin directory is the catalog that plugins are submitted to.',
+    'About these checks:',
+    '  ❯ This folder also holds a marketplace manifest. The plugin directory treats such a folder as a plugin.',
+    'These plugin directory checks do not change the result of this command.',
+    '  ❯ Another informational note.',
+  ].join('\n');
+  assert.deepEqual(strictFindings(out, '/r'), ['commands/x.md|frontmatter: Bad key (FRONTMATTER_KEY).']);
+});
+
 test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED', (t) => {
   if (!onPath('claude') || process.env.TMB_FORBID_LIVE_SYNC || process.env.TMB_L1_OFFLINE) {
     t.skip('manifest-shape: claude CLI absent or TMB_FORBID_LIVE_SYNC / TMB_L1_OFFLINE set — strict validate skipped');
@@ -251,13 +267,17 @@ test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED
   }
   // The CLI writes .claude.json under its config dir; a throwaway one keeps the Human's untouched.
   const home = mkdtempSync(join((process.env.TMPDIR || tmpdir()).replace(/\/+$/, ''), 'tmb-manifest-shape.'));
+  const tree = join(home, 'tree');
   let output;
   let rc;
   try {
+    mkdirSync(tree);
+    const exported = spawnSync('bash', ['-c', 'set -o pipefail; git -C "$1" archive HEAD | tar -x -C "$2"', 'export', ROOT, tree], { encoding: 'utf8' });
+    assert.equal(exported.status, 0, `git archive HEAD export failed: ${exported.stderr}`);
     const log = join(home, 'validate.log');
     const fd = openSync(log, 'w');
     try {
-      rc = spawnSync('claude', ['plugin', 'validate', '--strict', ROOT], {
+      rc = spawnSync('claude', ['plugin', 'validate', '--strict', tree], {
         env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude') },
         stdio: ['ignore', fd, fd],
       }).status;
@@ -268,7 +288,7 @@ test('claude plugin validate --strict reports no finding outside STRICT_ACCEPTED
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
-  const findings = strictFindings(output, ROOT);
+  const findings = strictFindings(output, tree);
   const unexpected = strictUnaccepted(findings);
   assert.deepEqual(unexpected, [], `Manifest shape: FAIL\n${unexpected.map((f) => `  ✗ strict validate: ${f}`).join('\n')}`);
   assert.ok(

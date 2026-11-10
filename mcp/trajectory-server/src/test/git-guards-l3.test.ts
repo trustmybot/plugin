@@ -281,13 +281,22 @@ describe('git-guards l3: separator x subcommand matrix', () => {
     for (const cmd of cmds) deny(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must block: ${cmd}`);
   });
 
+  const unparsedGitWord = (cmd: string) => cmd.includes('$(') && cmd.includes('.git');
+
   it('non-git lookalikes joined by every separator are allowed', () => {
     const f = worktreeRepo(sb);
     const cmds = [
       ...ALL_SEP.flatMap((sep) => LOOKALIKES.map((l) => (sep === '' ? l : `echo prefix${sep}${l}`))),
       ...LOOKALIKES.map((l) => `echo prefix\n${l}`),
     ];
-    for (const cmd of cmds) allow(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must allow: ${cmd}`);
+    for (const cmd of cmds.filter((c) => !unparsedGitWord(c))) allow(guard(sb, cmd, { cwd: f.repo, db: f.db }), `must allow: ${cmd}`);
+  });
+
+  it('an unclosed $( beside a git word gets the parse deny git-push-guard gives it (GH 2641)', () => {
+    const f = worktreeRepo(sb);
+    const cmds = LOOKALIKES.map((l) => `echo prefix$(${l}`).filter(unparsedGitWord);
+    assert.equal(cmds.length, 2);
+    for (const cmd of cmds) has(guard(sb, cmd, { cwd: f.repo, db: f.db }), 'could not parse this command', `must deny: ${cmd}`);
   });
 });
 
@@ -530,6 +539,28 @@ describe('git-guards l3: Rule 2 splits by command class (#1070, #1073)', () => {
     const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
     deny(out, "commit on target_branch 'main' must block despite empty protected_branches");
     has(out, 'main', 'deny message must name the target base');
+  });
+
+  it('GH 2713: on a GitHub remote the recovery opens a PR with gh pr create', () => {
+    const f = taskParentRepo('["main"]', 'main');
+    git(sb.env, f.repo, 'remote', 'add', 'origin', 'git@github.com:acme/app.git');
+    const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
+    deny(out, 'commit on main must block');
+    has(out, 'Push your feature branch and open a PR into main. Allowed form: git push origin <branch> && gh pr create --base main --head <branch>', 'the GitHub form');
+    hasNot(out, 'glab', 'no GitLab form on a GitHub remote');
+  });
+
+  it('GH 2713: on a GitLab remote the recovery opens an MR with glab mr create', () => {
+    const f = taskParentRepo('["main"]', 'main');
+    git(sb.env, f.repo, 'remote', 'add', 'origin', 'https://gitlab.example.com/acme/app.git');
+    const out = guard(sb, 'git commit -m x', { cwd: f.repo, db: f.db });
+    deny(out, 'commit on main must block');
+    has(
+      out,
+      'Push your feature branch and open an MR into main. Allowed form: git push origin <branch> && glab mr create --target-branch main --source-branch <branch>',
+      'the GitLab form',
+    );
+    hasNot(out, 'gh pr create', 'no GitHub form on a GitLab remote');
   });
 
   it('#1073: git merge inside a worktree is ALLOWED (SWE integration mechanics)', () => {

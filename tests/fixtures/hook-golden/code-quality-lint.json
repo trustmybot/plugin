@@ -146,7 +146,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "audit": [],
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' is too broad — catches SystemExit/KeyboardInterrupt\\n - subprocess.run without timeout= — risk of indefinite hang\\n - f-string SQL — use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime — use datetime.now(timezone.utc)\\n - mutable default argument [] — use None and assign in body\\n - mutable default argument {} — use None and assign in body\\n - TODO/FIXME/HACK — finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' hides unrelated errors; catch the specific exception types the block handles.\\n - subprocess.run without timeout= — risk of indefinite hang\\n - f-string SQL — use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime — use datetime.now(timezone.utc)\\n - mutable default argument [] — use None and assign in body\\n - mutable default argument {} — use None and assign in body\\n - TODO/FIXME/HACK — finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
   "generic/warn-ts-all.json": {
@@ -205,7 +205,7 @@
     "C,UTF-8,en_US.UTF-8": {
       "calls": "",
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' is too broad â catches SystemExit/KeyboardInterrupt\\n - subprocess.run without timeout= â risk of indefinite hang\\n - f-string SQL â use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime â use datetime.now(timezone.utc)\\n - mutable default argument [] â use None and assign in body\\n - mutable default argument {} â use None and assign in body\\n - TODO/FIXME/HACK â finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"code-quality-lint: /w/all.py\\n - 'except Exception' hides unrelated errors; catch the specific exception types the block handles.\\n - subprocess.run without timeout= â risk of indefinite hang\\n - f-string SQL â use parameterized queries to prevent injection\\n - datetime.utcnow() returns naive datetime â use datetime.now(timezone.utc)\\n - mutable default argument [] â use None and assign in body\\n - mutable default argument {} â use None and assign in body\\n - TODO/FIXME/HACK â finish the work or escalate; don't ship the marker\\nSet TMB_SKIP_CQ_LINT=1 to bypass.\"}}\n"
     }
   },
   "warn-ts-all.json": {

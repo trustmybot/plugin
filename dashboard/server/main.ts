@@ -26,6 +26,8 @@ const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7477;
 const WEB_ROOT = fileURLToPath(new URL('./web/', import.meta.url));
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_DRAIN_BYTES = 4 * MAX_BODY_BYTES;
+const DRAIN_TIMEOUT_MS = 2_000;
 const TOKEN_HEADER = 'x-tmb-token';
 const CHANGELOG = process.env['TMB_DASHBOARD_CHANGELOG'] || fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url));
 const RELEASES = loadReleases(CHANGELOG);
@@ -254,23 +256,41 @@ function tokenMatches(expected: string, given: string | string[] | undefined): b
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function readBody(req: IncomingMessage): Promise<string | null> {
+type BodyRead = { status: 'ok'; text: string } | { status: 'too_large' } | { status: 'dropped' };
+
+// A body over MAX_BODY_BYTES is drained to its end so the 413 reaches a client
+// that has stopped writing; past MAX_DRAIN_BYTES or DRAIN_TIMEOUT_MS the
+// request socket is destroyed unanswered.
+function readBody(req: IncomingMessage): Promise<BodyRead> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    const drop = (): void => {
+      clearTimeout(drainTimer);
+      req.off('data', onData);
+      req.destroy();
+      resolve({ status: 'dropped' });
+    };
     const onData = (chunk: Buffer): void => {
       size += chunk.length;
+      if (size > MAX_DRAIN_BYTES) return drop();
       if (size > MAX_BODY_BYTES) {
-        req.off('data', onData);
-        req.resume();
-        resolve(null);
+        chunks.length = 0;
+        drainTimer ??= setTimeout(drop, DRAIN_TIMEOUT_MS);
         return;
       }
       chunks.push(chunk);
     };
     req.on('data', onData);
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      clearTimeout(drainTimer);
+      resolve(size > MAX_BODY_BYTES ? { status: 'too_large' } : { status: 'ok', text: Buffer.concat(chunks).toString('utf8') });
+    });
+    req.on('error', (err) => {
+      clearTimeout(drainTimer);
+      reject(err);
+    });
   });
 }
 
@@ -280,15 +300,16 @@ async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<
     sendJson(res, 415, { error: 'unsupported_media_type', message: 'send application/json' });
     return null;
   }
-  const raw = await readBody(req);
-  if (raw === null) {
+  const read = await readBody(req);
+  if (read.status === 'dropped') return null;
+  if (read.status === 'too_large') {
     res.setHeader('connection', 'close');
     sendJson(res, 413, { error: 'body_too_large', message: `the body is over ${MAX_BODY_BYTES} bytes` });
     return null;
   }
   let body: unknown;
   try {
-    body = JSON.parse(raw);
+    body = JSON.parse(read.text);
   } catch {
     sendJson(res, 400, { error: 'invalid_json' });
     return null;

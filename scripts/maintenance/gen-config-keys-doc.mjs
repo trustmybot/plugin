@@ -89,7 +89,7 @@ export const KEYS = [
   },
   {
     name: 'sandbox_settings',
-    type: 'object: `{enabled_set, allow_write, allowed_domains, weaker_network_isolation_set, env}`',
+    type: 'object: `{enabled_set, allow_write, allowed_domains, weaker_network_isolation_set, allow_local_binding_set, env}`',
     defaultText: 'unset',
     setBy: '`onboard_apply`',
     effect: 'Records exactly what TMB added to the sandbox block, so answering `no` removes only that.',
@@ -170,6 +170,13 @@ export const KEYS = [
     defaultText: 'unset (off)',
     setBy: 'bro via `config_set` (any other shape is refused)',
     effect: 'The opt-in reviewer effort A/B (GH 1955): a task is enrolled at its first `bro_atomic_close` while fewer than `target` tasks carry a `reviewer_effort_assigned` row with `label`; even ids get arm `tiered` (the risk tier), odd ids `fixed` (`reviewer_effort`), and an enrolled task keeps its arm on every later close. A task not enrolled follows `reviewer_effort_tiers`. Unset or malformed is off.',
+  },
+  {
+    name: 'workflow_mode',
+    type: 'string: `truest` \\| `agile`',
+    defaultText: 'unset (read as `truest`)',
+    setBy: 'the Human through `/onboard` only (its `onboard_apply` input is still to come under GH 2225): `config_set` refuses the key with `human_only_config_key`, and any value other than `truest` or `agile` is refused',
+    effect: 'The project\'s workflow mode (GH 2225). The shared close path of `bro_atomic_close` and `task_recover` stamps it on `tasks.workflow_mode` when a task closes; unset, unparseable or unknown reads as `truest`. No gate reads it yet.',
   },
 ];
 

@@ -33,7 +33,7 @@ export function lineStatements(statements: readonly Statement[]): Array<Statemen
   });
 }
 
-/** The `dir` / `stmt` pairs the .sh's read loop sees from tmb_cmd_statements' lines, a row of a one-line statement reading that statement's `src`. */
+/** The `dir` / `stmt` pairs the .sh's read loop sees from tmb_cmd_statements' lines, a row of a one-line statement keeping that statement's `cut` and reading its `src`. */
 export function statementRows(statements: readonly Statement[]): Statement[] {
   const text = stripTrailingNewlines(statements.map(({ dir, stmt }) => `${dir}\t${stmt}`).join('\n'));
   if (text === '') return [];
@@ -41,7 +41,8 @@ export function statementRows(statements: readonly Statement[]): Statement[] {
   return text.split('\n').map((line, i) => {
     const [dir, stmt] = readTabFields(line, 2);
     const owner = owners[i];
-    return owner && 'src' in owner ? withSource({ dir, stmt }, () => owner.src) : { dir, stmt };
+    const row = { dir, stmt, ...(owner?.cut ? { cut: owner.cut } : {}) };
+    return owner && 'src' in owner ? withSource(row, () => owner.src) : row;
   });
 }
 
