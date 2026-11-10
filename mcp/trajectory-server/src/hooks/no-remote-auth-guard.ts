@@ -12,7 +12,7 @@
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { cmdStatements, stmtRepoRoot } from './cmd-analysis/index.js';
+import { cmdStatements, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, haveSqlite } from './lib/db.js';
 import { jqCapture, jqGet, jqInput, jqRaw, JqUnindexable } from './lib/jq-raw.js';
 import { shellCapture } from './lib/lint-shell.js';
@@ -49,7 +49,7 @@ export function hasRemoteUrl(remotesJson: string): string {
 export const noRemoteAuthGuard: Gate = async (payload, env) => {
   const input = jqInput(payload);
   const command = jqCapture(input, ['tool_input', 'command'], true);
-  if (command === '' || !command.includes('login')) return ALLOW;
+  if (command === '' || !prefilterPasses(command, (text) => text.includes('login'))) return ALLOW;
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
@@ -74,7 +74,7 @@ export const noRemoteAuthGuard: Gate = async (payload, env) => {
   if (remotes === '') return ALLOW;
   if (hasRemoteUrl(remotes) !== 'false') return ALLOW;
   return denyResult(
-    `BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`,
-    'policy',
+    `BLOCKED: no remote URL is configured, so TMB runs locally and an interactive '${tool} auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard.`,
+    { allowed: 'continue the task locally, with no auth login, remote or push step' },
   );
 };

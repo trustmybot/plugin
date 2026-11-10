@@ -242,7 +242,7 @@ RUN ( \
   fi
 RUN echo "✓ A3c: discussion_search(mode=semantic) — results, semantic_unavailable, or cold-load timeout; no MCP error"
 
-# A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
+# A4: every shipped agent template parses (frontmatter + body) within its Lego cap
 RUN node --test tests/l1-lint/agent-line-budget.test.mjs \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 

@@ -16,13 +16,17 @@ export { ghMutation, ghMutationFrom } from './forge.js';
 export { isPromptSurfacePath, surfaceRoot, WRITE_SHAPES, writeShapes } from './surface.js';
 export { stripLiterals } from './strip-literals.js';
 export {
+  ambiguousSubcommandReason,
   cmdStatements,
   cwdState,
   denyAmbiguousGitTarget,
+  gitBesideExpansion,
   gitSubcommand,
   gitSubcommandOf,
   gitSubcommandUnknown,
+  prefilterPasses,
   stmtRepoRoot,
+  unquotedCommand,
   withSource,
   type GitStatements,
   type Statement,

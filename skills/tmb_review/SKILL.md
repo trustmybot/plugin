@@ -46,7 +46,7 @@ Spend the review budget on checks that complement the recorded run:
 - Adversarial inputs against the changed code paths.
 - Dry runs on a `cp` of the data, leaving the live DB untouched.
 - Cross-file semantics — for each symbol the diff renamed or reshaped, check each table reader the `world_model_symbol` card reaches as well as its callers; one the diff left broken is a finding.
-- Doc/code agreement — the docs describing the change say what the code now does.
+- Doc/code agreement — the docs describing the change say what the code now does, and a hand-written architecture or design doc in the diff that names code symbols (class, function, file, column, enum value) breaks the three-layer rule and is a finding.
 - For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
 
 ## Grade each finding

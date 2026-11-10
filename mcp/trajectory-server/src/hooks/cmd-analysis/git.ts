@@ -33,7 +33,8 @@ export type GitStatements = { ok: true; statements: Statement[] } | { ok: false 
 
 const MAX_DEPTH = 3;
 const SHELL = /^(.*\/)?(bash|sh|zsh|dash|ksh)$/;
-const ENCODED = /[\x01-\x06\x0e-\x11\x13\x15\x16]/g;
+const ENCODED_BYTE = /[\x01-\x06\x0e-\x11\x13\x15\x16]/;
+const ENCODED = new RegExp(ENCODED_BYTE.source, 'g');
 const HD_MARK = /<<[\x1a\x1e]/g;
 
 /** `read -r -a w <<< "$s"`: the first line's words. */
@@ -273,6 +274,42 @@ function spanLiteral(w: readonly string[]): boolean {
 /** Whether git's subcommand in <statement> is unknown: gitSubcommandOf gives undefined (GH 2634). */
 export function gitSubcommandUnknown(statement: SubcommandInput): boolean {
   return gitSubcommandOf(statement) === undefined;
+}
+
+const CONTINUATION = /\\\n/g;
+const UNQUOTE = /['"\\]/g;
+const GIT_WORD = /\bgit\b/;
+const EXPANDS = /[$`*?[{]/;
+
+/** <command> with its line continuations joined and its quotes and backslashes dropped: the text a keyword prefilter reads, so `g''it` or `che"ck"out` is not missed (GH 2634, GH 2641). */
+export function unquotedCommand(command: string): string {
+  return command.replace(CONTINUATION, '').replace(UNQUOTE, '');
+}
+
+/**
+ * Whether a keyword prefilter must hand <command> to the analyzer: <command>
+ * holds a `$'…'` word, whose bytes only parsing decodes, or <hasKeyword> holds
+ * on <command> as written or on unquotedCommand(<command>), so a keyword split
+ * by a line continuation or quotes is not missed (GH 2758).
+ */
+export function prefilterPasses(command: string, hasKeyword: (text: string) => boolean): boolean {
+  return command.includes("$'") || hasKeyword(command) || hasKeyword(unquotedCommand(command));
+}
+
+/**
+ * Whether <command>, unquoted, holds a git word and an expansion, a pattern
+ * or an encoded byte: a command a keyword prefilter must hand to parsing,
+ * since only gitSubcommandOf can tell what its git statements run (GH 2634,
+ * GH 2641).
+ */
+export function gitBesideExpansion(command: string): boolean {
+  const bare = unquotedCommand(command);
+  return GIT_WORD.test(bare) && (EXPANDS.test(bare) || ENCODED_BYTE.test(bare));
+}
+
+/** The deny reason for the git statement <what> whose subcommand is unknown, the guard unable to tell whether it <verb> (GH 2634, GH 2641). */
+export function ambiguousSubcommandReason(what: string, verb: string): string {
+  return `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement ${verb}. Write the subcommand and git's options before it literally.`;
 }
 
 /** The index of git's subcommand in a git statement's words: past git's own options. */

@@ -27,8 +27,8 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 
 Applies to:
 
-- **PR review.** PRs that fail L1 don't pay the L2 cost. PRs that pass L1–L4 trigger L5/L6 only when labeled. Release canary runs on RC tag pushes only.
-- **Release validation.** Cut an RC tag → L0 + L1–L4 (every PR did this) → L5 + L6 → if green, Release canary → if green, promote dev → main → cut stable.
+- **PR review.** PRs that fail L1 don't pay the L2 cost. PRs that pass L1 trigger L5/L6 only when labeled. Release canary runs on RC tag pushes only.
+- **Release validation.** Cut an RC tag → L0 + L1–L4 (the only full L1–L4 sweep) → L5 + L6 → if green, Release canary → if green, promote dev → main → cut stable.
 - **Investigating a regression.** Bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
 
 **Why**: token cost (Release canary ≈ $1–3/run; L6 multi-turn ≈ $0.30–1.00 per scenario; L5 per-flow ≈ ~$0.20; L1–L4 ≈ free). Cheap signals first eliminates the need for expensive ones.
@@ -38,7 +38,7 @@ The escalation chain:
 ```
 Local run before push → touched-path tests + bun run build:tsc + touched L1 lints (free)
    ↓ green
-PR opened → pr-check `suite` job runs tests/run-all.ts (full L1–L4, free)
+PR opened → pr-check runs L1 (tests/run-all.ts --l1-only) + dashboard tests (free)
    ↓ green
 PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
    ↓ green
@@ -82,7 +82,7 @@ L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the 
 node --experimental-strip-types tests/run-all.ts
 ```
 
-Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. The `suite` job of `.github/workflows/pr-check.yml` runs it on every pull request; locally, run the tests for the paths you touch, `bun run build:tsc` and the L1 lints you touch.
+Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Release-gate's `tests` job runs it at rc; pull requests run only L1 + the dashboard tests (GH 2805). Locally, run the tests for the paths you touch, `bun run build:tsc` and the L1 lints you touch.
 
 L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so the scan walker reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.test.mjs` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
@@ -95,7 +95,7 @@ Two switches narrow a run:
 TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types tests/run-all.ts --l1-only
 ```
 
-`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. That includes `l1-lint/tsc-noemit.test.mjs` (`tsc --noEmit` on `mcp/trajectory-server` and `dashboard`) and `l1-lint/eslint.test.mjs`, which runs `bun run lint`: typescript-eslint `recommendedTypeChecked` from the root `eslint.config.mjs` over `mcp/trajectory-server/src` and `dashboard/{server,web}`, failing on any violation not in the `eslint-suppressions.json` baseline and on any suppression no longer needed (GH 2064). After fixing baselined violations, run `bunx eslint --prune-suppressions` to shrink the baseline. The `l1` job of `.github/workflows/dev-build.yml` runs the same command on every push to `dev`, so a PR whose green check predates a new L1 rule turns `dev` red after it merges (GH 2651); the `stamp` job still publishes the dev build either way. The `suite` job of `pr-check.yml` runs `bun run build:payload`, fetches the bge-small model through the `.github/actions/fetch-bge-model` composite action (shared with release-gate's `tests` job), then the full `node --experimental-strip-types tests/run-all.ts` L1–L4 sweep, so L2–L4 gate each PR before merge (GH 2497); it needs no secrets. Release-gate still runs L1–L4 with L6 and L0 at rc. `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
+`.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. That includes `l1-lint/tsc-noemit.test.mjs` (`tsc --noEmit` on `mcp/trajectory-server` and `dashboard`) and `l1-lint/eslint.test.mjs`, which runs `bun run lint`: typescript-eslint `recommendedTypeChecked` from the root `eslint.config.mjs` over `mcp/trajectory-server/src` and `dashboard/{server,web}`, failing on any violation not in the `eslint-suppressions.json` baseline and on any suppression no longer needed (GH 2064). After fixing baselined violations, run `bunx eslint --prune-suppressions` to shrink the baseline. The `l1` job of `.github/workflows/dev-build.yml` runs the same command on every push to `dev`, so a PR whose green check predates a new L1 rule turns `dev` red after it merges (GH 2651); the `stamp` job still publishes the dev build either way. pr-check runs no full sweep: the full `node --experimental-strip-types tests/run-all.ts` L1–L4 sweep runs only at the rc release gate, whose `tests` job fetches the bge-small model through the `.github/actions/fetch-bge-model` composite action, alongside L6 and L0 (GH 2805). `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
 The `dashboard` job of `.github/workflows/pr-check.yml` builds `mcp/trajectory-server` (`build:tsc`, for the `dist/db.js` that `writes.test.mjs` imports) and the dashboard (`bun run build`), then runs `node --test dashboard/test/*.test.mjs` (GH 2616). The dashboard suites stay out of `run-all.ts` L1 because they bind localhost ports, which the agent sandbox refuses (GH 2334). A test that needs a `dashboard/server/*.ts` module imports it through `dashboard/test/server-module.mjs`, which bundles it with esbuild, since the module's chain reaches `mcp/trajectory-server/src` files whose `.js` specifiers Node's type stripping does not resolve.
 

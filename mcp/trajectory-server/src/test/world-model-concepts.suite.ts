@@ -212,7 +212,7 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
   });
 
   it('a file anchor resolves to a file shape named by its path and keeps its trust', async () => {
-    const adr = 'docs/architecture/adr/0002-world-model-concept-layer.md';
+    const adr = 'docs/architecture/WORLD_MODEL.md';
     const parsedFile = 'mcp/trajectory-server/src/symbol-index.ts';
     const out = parse<{ id: number }>(
       (await wm()['world_model_concept_upsert']!({
@@ -244,7 +244,7 @@ SUITES.push(() => describe('L2 concepts over this worktree (GH 1680)', () => {
   });
 
   it('a file step written with kind: file round-trips through upsert (GH 2428)', async () => {
-    const path = 'docs/architecture/adr/0002-world-model-concept-layer.md';
+    const path = 'docs/architecture/WORLD_MODEL.md';
     // The exact step shape world_model_concept_get prints for a whole file.
     const out = parse<{ id: number }>(
       (await wm()['world_model_concept_upsert']!({

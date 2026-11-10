@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +14,7 @@ import { gitRun } from '../hooks/lib/git.js';
 import { eventHoldsEnforcement, findGate, matcherFits, type RouterGroup, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
 import { decide, denyOutput, mergeContext } from '../hooks/router/decide.js';
 import { dedupeKey } from '../hooks/router/dedupe.js';
-import { routerMain } from '../hooks/router/main.js';
+import { type HopSpawn, routerMain } from '../hooks/router/main.js';
 import { EMPTY_MATCHER_COLUMN, kindColumn, matcherColumn, matcherOfColumn } from '../hooks/router/table.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -1052,19 +1052,20 @@ describe('router entry: dedupe and records', () => {
     writeFileSync(bundle, "process.stdout.write('{\"hookSpecificOutput\":{\"additionalContext\":\"old install answered\"}}\\n');\n");
     const installed = join(base, 'installed.json');
     writeFileSync(installed, JSON.stringify({ plugins: { 'tmb@trustmybot-dev': [{ scope: 'project', projectPath: project, installPath: old }] } }));
-    const run = async (payload: string): Promise<string> => {
+    const run = async (payload: string): Promise<{ stdout: string; stderr: string }> => {
       let stdout = '';
-      await routerMain('PreToolUse', { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: () => {} }, {
+      let stderr = '';
+      await routerMain('PreToolUse', { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: (t) => void (stderr += t) }, {
         findGate: fakes({ g: () => deny('this install decided') }),
         groups: [{ event: 'PreToolUse', matcher: 'Write', groupBudgetMs: 5000, gates: [{ name: 'g', kind: 'enforcement', budgetMs: 1000 }] }],
         selfRoot: PLUGIN_ROOT,
       });
-      return stdout;
+      return { stdout, stderr };
     };
     const write = await run(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-hop', tool_use_id: 'hop-w', tool_name: 'Write', tool_input: {} }));
-    assert.equal(reasonOf(write), 'this install decided');
+    assert.equal(reasonOf(write.stdout), 'this install decided');
     const shell = await run(bash('ls', { session_id: 'sess-hop', tool_use_id: 'hop-b' }));
-    assert.match(shell, /old install answered/);
+    assert.match(shell.stdout, /old install answered/, `router stderr: ${shell.stderr}`);
   });
 
   for (const event of ['Stop', 'SubagentStop']) {
@@ -1210,11 +1211,50 @@ describe('router entry: dedupe and records', () => {
     };
     const OLD_TABLE = 'containment-guard 5000 enforcement PreToolUse Bash *\n';
 
-    async function viaHop(installed: string, event: string, payload: string, part?: string, gate: Gate = () => ({ stdout: 'local\n', code: 0 })): Promise<{ code: number; stdout: string; stderr: string }> {
+    async function viaHop(installed: string, event: string, payload: string, part?: string, gate: Gate = () => ({ stdout: 'local\n', code: 0 }), hopSpawn?: HopSpawn): Promise<{ code: number; stdout: string; stderr: string }> {
       let stdout = '';
       let stderr = '';
-      const code = await routerMain(event, { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: (t) => void (stderr += t) }, { part, selfRoot: PLUGIN_ROOT, findGate: () => gate });
+      const code = await routerMain(event, { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: (t) => void (stderr += t) }, { part, selfRoot: PLUGIN_ROOT, findGate: () => gate, hopSpawn });
       return { code, stdout, stderr };
+    }
+
+    const spawned = (r: Partial<SpawnSyncReturns<string>>): SpawnSyncReturns<string> => ({ pid: 0, output: [], stdout: '', stderr: '', status: null, signal: null, ...r });
+    const spawnError = (code: string): SpawnSyncReturns<string> => spawned({ error: Object.assign(new Error(`spawnSync ${process.execPath} ${code}`), { code }) });
+    const scripted = (...results: SpawnSyncReturns<string>[]): { spawn: HopSpawn; calls: () => number } => {
+      let n = 0;
+      return { spawn: () => results[Math.min(n++, results.length - 1)], calls: () => n };
+    };
+    const HOP_BASH = 'containment-guard 5000 enforcement PreToolUse Bash *\n';
+
+    it('a transient spawn error is retried and the next attempt answers (GH 2477)', async () => {
+      const fake = scripted(spawnError('EAGAIN'), spawned({ status: 0, stdout: 'second attempt\n' }));
+      const r = await viaHop(install('retry-ok', HOP_BASH), 'PreToolUse', bash('ls', { tool_use_id: 'hop-retry-ok' }), undefined, undefined, fake.spawn);
+      assert.equal(fake.calls(), 2);
+      assert.equal(r.code, 0);
+      assert.equal(r.stdout, 'second attempt\n');
+    });
+
+    it('a spawn that keeps failing with EAGAIN is tried 3 times, then fails closed naming EAGAIN (GH 2477)', async () => {
+      const fake = scripted(spawnError('EAGAIN'));
+      const r = await viaHop(install('retry-eagain', HOP_BASH), 'PreToolUse', bash('ls', { tool_use_id: 'hop-retry-eagain' }), undefined, undefined, fake.spawn);
+      assert.equal(fake.calls(), 3);
+      assert.equal(r.code, 0);
+      assert.match(reasonOf(r.stdout), /^BLOCKED: TMB gate router could not run in .* \(EAGAIN\) without a decision/);
+      assert.match(r.stderr, /TMB dispatch: gate router could not run in .* \(EAGAIN\) — failing closed/);
+    });
+
+    for (const [name, result, cause] of [
+      ['ENOENT', spawnError('ENOENT'), 'ENOENT'],
+      ['SIGKILL', spawned({ status: null, signal: 'SIGKILL' }), 'killed by SIGKILL'],
+    ] as const) {
+      it(`a hop that fails with ${name} is not retried and fails closed naming ${cause} (GH 2477)`, async () => {
+        const fake = scripted(result, spawned({ status: 0, stdout: 'should not run\n' }));
+        const r = await viaHop(install(`retry-${name}`, HOP_BASH), 'PreToolUse', bash('ls', { tool_use_id: `hop-retry-${name}` }), undefined, undefined, fake.spawn);
+        assert.equal(fake.calls(), 1);
+        assert.equal(r.code, 0);
+        assert.ok(reasonOf(r.stdout).includes(`(${cause}) without a decision`), r.stdout);
+        assert.ok(r.stderr.includes(`(${cause}) — failing closed`), r.stderr);
+      });
     }
 
     it('with an unparseable payload and an older target, Stop logs and exits 0, with no unknown gate', async () => {
