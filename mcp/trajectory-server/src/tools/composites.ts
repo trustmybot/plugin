@@ -1314,7 +1314,7 @@ export function compositeTools(
           commit_sha: { type: 'string', description: '7–40 hex SHA to check out.' },
           repo_path: {
             type: 'string',
-            description: 'Absolute path to the git repo (CLAUDE_PLUGIN_ROOT or inner-repo root).',
+            description: 'Absolute path to a git repo under the project root.',
           },
           command: {
             type: 'string',
@@ -1500,7 +1500,7 @@ export function compositeTools(
               },
               repo: {
                 type: 'string',
-                description: 'Optional relative path to this task\'s git repo (no ".." or leading "/"); defaults to the issue\'s repo, else the sole repo.',
+                description: "Registered repo name (from repos_list); defaults to the issue's repo, else the sole repo.",
               },
               prompt_bearing: {
                 type: 'number',

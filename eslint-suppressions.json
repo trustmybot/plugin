@@ -1629,15 +1629,6 @@
   "mcp/trajectory-server/src/test/onboard.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 59
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 23
     }
   },
   "mcp/trajectory-server/src/test/platform.test.ts": {
