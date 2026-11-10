@@ -253,9 +253,7 @@ function sessionOf(input: string): string {
 }
 
 /** A `$(( ))` error: bash abandons the top-level command it is in, so the .sh prints nothing and exits 0. */
-class ArithmeticAbort {
-  constructor(readonly message: string) {}
-}
+class ArithmeticAbort extends Error {}
 
 /** cmdStatements has no work cap, so the stack can run out in it on a shape the analyzer's own count let through. */
 async function statementsOrOverflow(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<GitStatements | 'overflow'> {
