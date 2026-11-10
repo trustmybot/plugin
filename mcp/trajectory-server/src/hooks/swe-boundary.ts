@@ -3,7 +3,7 @@
  * structural fence of an swe, keyed on its identity (agentRole) and the task
  * and worktree its spawn transcript resolves to (agentContext).
  *
- *   (a) Bash: git push                                     → deny
+ *   (a) Bash: git push, or a git subcommand not literal    → deny (GH 2641)
  *   (b) Bash: gh/glab mutating subcommands                 → deny
  *   (c) Edit/Write outside the assigned worktree           → deny, except the
  *       session's own scratchpad under <canonical /tmp>/claude-<uid>/
@@ -13,6 +13,8 @@
  *   (f) Bash-written path outside files[]                  → note, once per path
  *   (g) Bash write target the guard cannot resolve         → deny unless prompt_bearing=1
  *   (h) Edit/Write after a recorded Bash deny on the path  → allow, audit hook_block_bypassed
+ *   (i) Bash: git stash other than list/show, for swe and
+ *       code-reviewer (GH 2786)                            → deny
  *
  * Deny messages, notes, audit rows and decisions are the .sh's, with two
  * exceptions, each stricter: a command tree-sitter-bash cannot parse is
@@ -27,17 +29,19 @@ import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { NEVER_JUDGED, UNJUDGED_PHRASE, UNRESOLVED_FIX } from './containment-guard.js';
 import {
+  ambiguousSubcommandReason,
   CAP_FIX,
   CAP_REASON,
   cmdStatements,
   ghMutation,
-  gitSubcommand,
+  gitSubcommandOf,
   isCapLine,
   isPromptSurfacePath,
   payloadCwd,
   writePaths,
   writeShapes,
   type GitStatements,
+  type Statement,
 } from './cmd-analysis/index.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
@@ -58,7 +62,7 @@ import { type DenyFix, denyResult as deny } from './lib/deny.js';
 import { SWE_PUSH_FIX, SWE_PUSH_REASON } from './git-push-guard.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { posixDirname } from './lib/project-env.js';
-import { agentRole } from './lib/role.js';
+import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
 import { ScopeFence } from './lib/scope-fence.js';
 import { pathDigest, resolveTaskIdForTarget, worktreeRootForTarget } from './lib/target-task.js';
 
@@ -73,6 +77,18 @@ const GH_REASON =
 export const PARSE_REASON =
   'BLOCKED: swe-boundary could not parse this command, so it cannot tell whether it pushes, runs a gh/glab mutation or writes a prompt-surface path.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simpler commands with plain quoting' };
+const UNKNOWN_FIX: DenyFix = { allowed: 'git -C <path> <subcommand> …, the subcommand written literally' };
+export const STASH_REASON =
+  'BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session\'s work. Read-only `git stash list` and `git stash show` are allowed.';
+export const STASH_FIX: DenyFix = { allowed: 'a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside' };
+const STASH_READS = new Set(['list', 'show']);
+
+/** Whether a statement runs `git stash` with a verb other than the read-only list and show. */
+function stashWrite(statement: Statement): boolean {
+  const sub = gitSubcommandOf(statement) ?? '';
+  if (sub !== 'stash' && !sub.startsWith('stash ')) return false;
+  return !STASH_READS.has(sub.split(' ')[1] ?? '');
+}
 
 function claudeMdReason(target: string): string {
   return `BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: ${target}. Propose the change in your report; the Human applies it.`;
@@ -140,6 +156,7 @@ async function statementsOrOverflow(command: string, cwd: string, env: NodeJS.Pr
 class Boundary {
   readonly toolName: string;
   readonly swe: boolean;
+  readonly reviewer: boolean;
   callerTask = '';
   worktree = '';
   ctxState: 'ok' | 'missing' | 'nodb' = 'ok';
@@ -152,7 +169,9 @@ class Boundary {
     readonly env: NodeJS.ProcessEnv,
   ) {
     this.toolName = field(input, ['tool_name']);
-    this.swe = agentRole(input) === 'swe';
+    const role = agentRole(input);
+    this.swe = role === 'swe';
+    this.reviewer = role === CODE_REVIEWER_ROLE;
   }
 
   /** null when resolved, else the gate's whole answer (a DB read error). */
@@ -199,6 +218,14 @@ class Boundary {
     return value === GATE_READ_ERROR ? value : value || '0';
   }
 
+  /** code-reviewer's only Bash rule: a command the analyzer cannot list stays admitted. */
+  async reviewerBash(): Promise<GateResult> {
+    const command = field(this.input, ['tool_input', 'command']);
+    const listed = await statementsOrOverflow(command, payloadCwd(this.input, this.env), this.env);
+    if (listed === 'overflow' || !listed.ok) return ALLOW;
+    return listed.statements.some(stashWrite) ? deny(STASH_REASON, STASH_FIX) : ALLOW;
+  }
+
   async bash(): Promise<GateResult> {
     const command = field(this.input, ['tool_input', 'command']);
     const cwd = payloadCwd(this.input, this.env);
@@ -208,14 +235,18 @@ class Boundary {
     const listed = await statementsOrOverflow(command, cwd, this.env);
     if (listed === 'overflow') return deny(CAP_REASON, CAP_FIX);
     if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
+    if (listed.statements.some(stashWrite)) return deny(STASH_REASON, STASH_FIX);
     let push = false;
     let mutating = false;
-    for (const { stmt } of listed.statements) {
-      const sub = gitSubcommand(stmt);
-      if ((sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `)) push = true;
-      if (ghMutation(stmt) !== '') mutating = true;
+    let unknown: Statement | undefined;
+    for (const statement of listed.statements) {
+      const sub = gitSubcommandOf(statement);
+      if (sub === undefined) unknown ??= statement;
+      else if ((sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `)) push = true;
+      if (ghMutation(statement.stmt) !== '') mutating = true;
     }
     if (push) return deny(SWE_PUSH_REASON, SWE_PUSH_FIX);
+    if (unknown) return deny(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'pushes'), UNKNOWN_FIX);
     if (mutating) return deny(GH_REASON, 'policy');
 
     let surface = '';
@@ -434,7 +465,7 @@ class Boundary {
       }
     }
     return deny(
-      `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${target}. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.`,
+      `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${target}. If the spec needs this edit, stop and name the file in your report; bro re-plans it as a new prompt_bearing=1 task.`,
       'policy',
     );
   }
@@ -445,6 +476,7 @@ export const sweBoundary: Gate = async (payload, env) => {
   const early = b.resolve();
   if (early) return early;
   if (b.toolName === 'Bash' && b.swe) return await b.bash();
+  if (b.toolName === 'Bash' && b.reviewer) return await b.reviewerBash();
   if (!EDIT_TOOLS.has(b.toolName) || !b.swe) return ALLOW;
   try {
     return await b.edit();

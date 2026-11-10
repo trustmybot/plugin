@@ -135,10 +135,22 @@ describe('git branch guards without jq or the sqlite3 CLI (decision 703), and on
     assert.ok(reason(await branchUpToDateWithRemote(bash('git worktree add ../wt feat/behind', 'stale'), env())).startsWith("BLOCKED: branch 'feat/behind' is behind origin/main by 1 commit(s)."));
   });
   it('no-worktree-branch-create denies -b', async () => {
-    assert.ok(reason(await noWorktreeBranchCreate(bash('git worktree add -b feat/x ../x', 'project'), env())).includes('cannot create a branch'));
+    const denied = reason(await noWorktreeBranchCreate(bash('git worktree add -b feat/x ../x', 'project'), env()));
+    assert.ok(denied.includes('cannot create a branch'), denied);
+    assert.ok(
+      denied.endsWith(
+        'Allowed form: bro: git branch <task.branch_id> HEAD, then git worktree add <path> <task.branch_id>; swe: git worktree add <path> <task.branch_id> on the branch bro created, or report the missing branch to bro',
+      ),
+      denied,
+    );
   });
-  it('no-remote-auth-guard denies gh auth login with no remote URL', async () => {
-    assert.ok(reason(await noRemoteAuthGuard(bash('gh auth login', 'stale'), env())).includes("Interactive 'gh auth login' will hang"));
+  it('no-remote-auth-guard denies gh auth login with no remote URL and names one next move: continue locally', async () => {
+    const text = reason(await noRemoteAuthGuard(bash('gh auth login', 'stale'), env()));
+    assert.equal(
+      text,
+      "BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'gh auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard. Allowed form: continue the task locally, with no auth login, remote or push step",
+    );
+    assert.ok(!text.includes('This is policy: stop and report.'), text);
   });
 
   const unparsable: [keyof typeof GATES, string, string][] = [

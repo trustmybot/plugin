@@ -65,6 +65,10 @@ describe('code-reviewer-no-worktree', () => {
       assert.equal(denyReason(r.stdout), fixedReason(DENY_REASON, DENY_FIX));
     }
   });
+  it('names tmb_planning section 6, not V1/V2/V3 (GH 2743)', () => {
+    assert.ok(DENY_REASON.includes('(tmb_planning section 6: the four checks + bro_atomic_close)'), DENY_REASON);
+    assert.ok(!DENY_REASON.includes('V1/V2/V3'), DENY_REASON);
+  });
   it('allows other isolation values, other agents and other tools', () => {
     assert.deepEqual(codeReviewerNoWorktree(spawn({ subagent_type: 'code-reviewer' }), env), ALLOWED);
     assert.deepEqual(codeReviewerNoWorktree(spawn({ subagent_type: 'code-reviewer', isolation: 'Worktree' }), env), ALLOWED);
@@ -158,6 +162,12 @@ describe('code-reviewer-after-atomic-close', () => {
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(13)), env()).stdout), notClosed('13', 'running'));
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr(ANCHORED(12)), env()).stdout), notClosed('12', 'completed'));
     assert.equal(denyReason(codeReviewerAfterAtomicClose(cr('task_id=14', 'tmb:code-reviewer'), env()).stdout), notClosed('14', 'needs_validation'));
+  });
+  it('names tmb_planning section 6 and the verify-then-close steps bro runs today (GH 2713)', () => {
+    const reason = notClosedReason('13', 'running');
+    assert.ok(reason.includes('Per tmb_planning section 6 (Verify on SWE return + atomic close):\n'), reason);
+    assert.ok(reason.includes('  2. bro verifies the return (task_brief + git diff, the four section-6 checks), then calls bro_atomic_close.\n'), reason);
+    assert.doesNotMatch(reason, /Step 5|V1|V2|V3/);
   });
   it('allows a closed task, a missing row, no task_id and no DB', () => {
     assert.deepEqual(codeReviewerAfterAtomicClose(cr(ANCHORED(11)), env()), ALLOWED);

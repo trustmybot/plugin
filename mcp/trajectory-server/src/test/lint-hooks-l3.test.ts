@@ -57,7 +57,7 @@ describe('code-quality-lint', () => {
 
   for (const [label, file, content, phrase] of [
     ['Python bare except', 'foo.py', 'try:\n    pass\nexcept:\n    pass', "bare 'except:'"],
-    ['Python except Exception', 'foo.py', 'try:\n    pass\nexcept Exception as e:\n    pass', 'except Exception'],
+    ['Python except Exception', 'foo.py', 'try:\n    pass\nexcept Exception as e:\n    pass', "'except Exception' hides unrelated errors; catch the specific exception types the block handles."],
     ['Python f-string SQL', 'foo.py', 'query = f"SELECT * FROM users WHERE id = {user_id}"', 'f-string SQL'],
     ['Python datetime.utcnow()', 'foo.py', 'now = datetime.utcnow()', 'utcnow'],
     ['Python mutable default list arg', 'foo.py', 'def process(items=[]):\n    pass', 'mutable default argument'],

@@ -10,6 +10,7 @@ import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/m
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import type { ChangeImpactJob, ChangeImpactReply } from './change-impact-worker.ts';
 import { conceptsApi } from './concepts.ts';
+import { ConfigWriter, EDITABLE_CONFIG_KEYS, editableConfig, isEditableConfigKey } from './config.ts';
 import { efficiency, efficiencyCompare } from './efficiency.ts';
 import { clampHistory, freshnessFor, withFreshness, worldModelStatus, type Freshness } from './freshness.ts';
 import { cachedGraph, etagMatches, type GraphResponse } from './graph-cache.ts';
@@ -25,6 +26,8 @@ const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7477;
 const WEB_ROOT = fileURLToPath(new URL('./web/', import.meta.url));
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_DRAIN_BYTES = 4 * MAX_BODY_BYTES;
+const DRAIN_TIMEOUT_MS = 2_000;
 const TOKEN_HEADER = 'x-tmb-token';
 const CHANGELOG = process.env['TMB_DASHBOARD_CHANGELOG'] || fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url));
 const RELEASES = loadReleases(CHANGELOG);
@@ -35,6 +38,7 @@ interface Ctx {
   db: DatabaseSync;
   dbPath: string;
   writer: IssueWriter;
+  config: ConfigWriter;
   token: string;
   host: string;
 }
@@ -158,6 +162,7 @@ async function handleApi(db: DatabaseSync, dbPath: string, req: IncomingMessage,
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
       case 'health': return sendJson(res, 200, health(db, dbFile(db)));
+      case 'config': return sendJson(res, 200, editableConfig(db));
       case 'insights': {
         const filter = q.insightFilter(url.searchParams);
         return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, q.insights(db, filter));
@@ -251,28 +256,74 @@ function tokenMatches(expected: string, given: string | string[] | undefined): b
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function readBody(req: IncomingMessage): Promise<string | null> {
+type BodyRead = { status: 'ok'; text: string } | { status: 'too_large' } | { status: 'dropped' };
+
+// A body over MAX_BODY_BYTES is drained to its end so the 413 reaches a client
+// that has stopped writing; past MAX_DRAIN_BYTES or DRAIN_TIMEOUT_MS the
+// request socket is destroyed unanswered.
+function readBody(req: IncomingMessage): Promise<BodyRead> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    const drop = (): void => {
+      clearTimeout(drainTimer);
+      req.off('data', onData);
+      req.destroy();
+      resolve({ status: 'dropped' });
+    };
     const onData = (chunk: Buffer): void => {
       size += chunk.length;
+      if (size > MAX_DRAIN_BYTES) return drop();
       if (size > MAX_BODY_BYTES) {
-        req.off('data', onData);
-        req.resume();
-        resolve(null);
+        chunks.length = 0;
+        drainTimer ??= setTimeout(drop, DRAIN_TIMEOUT_MS);
         return;
       }
       chunks.push(chunk);
     };
     req.on('data', onData);
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      clearTimeout(drainTimer);
+      resolve(size > MAX_BODY_BYTES ? { status: 'too_large' } : { status: 'ok', text: Buffer.concat(chunks).toString('utf8') });
+    });
+    req.on('error', (err) => {
+      clearTimeout(drainTimer);
+      reject(err);
+    });
   });
 }
 
-// POST /api/issues/:id/<edit|comment|close>. Every other POST path is a 404:
-// tasks, plugin_config and issue create have no write endpoint.
+// The JSON object body of a write, or null once an error response is sent.
+async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | null> {
+  if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+    sendJson(res, 415, { error: 'unsupported_media_type', message: 'send application/json' });
+    return null;
+  }
+  const read = await readBody(req);
+  if (read.status === 'dropped') return null;
+  if (read.status === 'too_large') {
+    res.setHeader('connection', 'close');
+    sendJson(res, 413, { error: 'body_too_large', message: `the body is over ${MAX_BODY_BYTES} bytes` });
+    return null;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(read.text);
+  } catch {
+    sendJson(res, 400, { error: 'invalid_json' });
+    return null;
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'invalid_json', message: 'body must be a JSON object' });
+    return null;
+  }
+  return body as Record<string, unknown>;
+}
+
+// POST /api/issues/:id/<edit|comment|close> and POST /api/config/:key for the
+// EDITABLE_CONFIG_KEYS allowlist; any other key is 403 policy_key. Every other
+// POST path is a 404: tasks, policy config and issue create have no write endpoint.
 async function handleWrite(ctx: Ctx, req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const origin = `http://${ctx.host}`;
   if (req.headers.origin !== origin) {
@@ -281,27 +332,26 @@ async function handleWrite(ctx: Ctx, req: IncomingMessage, url: URL, res: Server
   if (!tokenMatches(ctx.token, req.headers[TOKEN_HEADER])) {
     return sendJson(res, 403, { error: 'bad_token', message: 'missing or wrong dashboard token; reload the page' });
   }
+  const configKey = /^\/api\/config\/(.*)$/.exec(url.pathname)?.[1];
+  if (configKey !== undefined) {
+    if (!isEditableConfigKey(configKey)) {
+      return sendJson(res, 403, {
+        error: 'policy_key',
+        message: `${configKey} is not editable from the dashboard; policy keys change through /onboard`,
+        editable: EDITABLE_CONFIG_KEYS,
+      });
+    }
+    const body = await readJsonBody(req, res);
+    if (body === null) return;
+    const result = await ctx.config.perform(configKey, body);
+    return sendJson(res, result.status, result.body);
+  }
   const match = /^\/api\/issues\/([1-9]\d*)\/([a-z]+)$/.exec(url.pathname);
   const action = match?.[2];
   if (!match || action === undefined || !isWriteAction(action)) return sendJson(res, 404, { error: 'unknown endpoint' });
-  if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
-    return sendJson(res, 415, { error: 'unsupported_media_type', message: 'send application/json' });
-  }
-  const raw = await readBody(req);
-  if (raw === null) {
-    res.setHeader('connection', 'close');
-    return sendJson(res, 413, { error: 'body_too_large', message: `the body is over ${MAX_BODY_BYTES} bytes` });
-  }
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return sendJson(res, 400, { error: 'invalid_json' });
-  }
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return sendJson(res, 400, { error: 'invalid_json', message: 'body must be a JSON object' });
-  }
-  const result = await ctx.writer.perform(action, Number(match[1]), body as Record<string, unknown>);
+  const body = await readJsonBody(req, res);
+  if (body === null) return;
+  const result = await ctx.writer.perform(action, Number(match[1]), body);
   sendJson(res, result.status, result.body);
 }
 
@@ -328,7 +378,14 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
 function main(): void {
   const dbPath = resolveClaudeDbPath();
   const db = openDb(dbPath);
-  const ctx: Ctx = { db, dbPath, writer: new IssueWriter(dbPath, db), token: randomBytes(32).toString('hex'), host: '' };
+  const ctx: Ctx = {
+    db,
+    dbPath,
+    writer: new IssueWriter(dbPath, db),
+    config: new ConfigWriter(dbPath, db),
+    token: randomBytes(32).toString('hex'),
+    host: '',
+  };
   const server = createServer((req, res) => void handle(ctx, req, res));
   server.on('error', (err) => {
     console.error(`dashboard server failed: ${err.message}`);
@@ -344,6 +401,7 @@ function main(): void {
   const shutdown = (): void => {
     server.close();
     ctx.writer.close();
+    ctx.config.close();
     db.close();
     process.exit(0);
   };

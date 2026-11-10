@@ -73,6 +73,12 @@ describe('roundtable and consultant hooks without jq or the sqlite3 CLI (decisio
     const out = JSON.parse(r.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse');
     assert.match(out.hookSpecificOutput.additionalContext, /^\[tmb roundtable-cleanup\] roundtable_id=3 closed but the following capture surfaces are missing: roundtable\.outcome votes\. /);
+    assert.ok(
+      out.hookSpecificOutput.additionalContext.endsWith(
+        "Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').",
+      ),
+      out.hookSpecificOutput.additionalContext,
+    );
   });
 
   it('roundtable-auq-shape asks, where the .sh exits without jq or sqlite3', () => {
