@@ -1,8 +1,8 @@
 /**
  * How much rework a task has taken (GH 1738), shared by `task_stats` and the
- * rework-limit and task-overrun-alert hook gates so the three count alike,
- * the limits past which rework-limit denies a further swe run (GH 2148), and
- * the typed rework analysis that clears the inner one (GH 2830).
+ * rework-limit and task-overrun-alert hook gates so the three count alike, and
+ * the typed rework analysis bro records once a task keeps failing review
+ * (GH 2830): its root causes, its changes and which of them pair.
  *
  * A swe spawn is one swe `agent_runs` row of the task, minus the rows closed
  * `swept_orphan`: a spawn that never started or a duplicate row of one that
@@ -12,28 +12,62 @@
 /** The agent_runs predicate of a swe spawn (columns unqualified). */
 export const SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
 
-/** FAIL verdicts on a task since its latest pass and Human waiver at which a further swe run is denied. */
+/** FAIL verdicts on a task since its latest pass and Human waiver from which a further swe run needs a proven rework analysis. */
 export const REWORK_FAIL_LIMIT = 2;
 
-/** swe runs of a task, budget handbacks aside, since its latest Human waiver at which a further run is denied. */
-export const SWE_RUN_LIMIT = 6;
-
-/** FAIL verdicts across an issue's tasks, each with no later pass on the same task, since the latest Human waiver at which a further swe run on any of them is denied. */
-export const ISSUE_FAIL_LIMIT = 4;
-
-/** Why a task kept failing review, as bro's `task_rework_analysis` names it (GH 2830). */
-export const REWORK_ROOT_CAUSES = ['spec_unclear', 'spec_wrong', 'swe_execution', 'reviewer_disputed', 'environment'] as const;
+/** Why a task kept failing review, the inputs first (spec, world model, reviewer, environment), then swe's execution; design_drift when the reality drifts from the design. */
+export const REWORK_ROOT_CAUSES = [
+  'spec_unclear',
+  'spec_wrong',
+  'world_model',
+  'reviewer_disputed',
+  'environment',
+  'swe_execution',
+  'design_drift',
+] as const;
 export type ReworkRootCause = (typeof REWORK_ROOT_CAUSES)[number];
 
-/** What bro changes in answer to the analysis; only spec_update and effort_raise admit another swe run of the same task. */
-export const REWORK_CHANGES = ['spec_update', 'effort_raise', 'split', 'retry', 're_review'] as const;
+/** What bro changes in answer to the analysis. */
+export const REWORK_CHANGES = ['spec_update', 'world_model_fix', 'effort_raise', 'split', 'retry', 're_review', 'ask_human'] as const;
 export type ReworkChange = (typeof REWORK_CHANGES)[number];
 
-/** The audit event that proves each spawn-admitting change was made. */
-export const REWORK_PROOF_EVENTS: Readonly<Partial<Record<ReworkChange, string>>> = {
+/** The audit event on the task that proves a task-scoped change was made. */
+export const TASK_PROOF_EVENTS = {
   spec_update: 'task_spec_amended',
   effort_raise: 'task_effort_raised',
-};
+} as const satisfies Partial<Record<ReworkChange, string>>;
+
+/** Audit events that prove world_model_fix: a scan or a reindex of the world model. */
+export const WORLD_MODEL_PROOF_EVENTS = ['deep_scan_completed', 'wm_reindex'] as const;
+
+/** The world-model write whose `wm_tool_called` row proves world_model_fix too. */
+export const WORLD_MODEL_PROOF_TOOL = 'world_model_concept_upsert';
+
+/** The label of an issue filed against the world model, the last proof of world_model_fix. */
+export const WORLD_MODEL_ISSUE_LABEL = 'Area: World Model';
+
+/** The changes that admit another swe run of the same task once a row dated after its latest FAIL proves them. */
+export const SPAWN_ADMITTING_CHANGES: readonly ReworkChange[] = ['spec_update', 'effort_raise', 'world_model_fix'];
+
+/** The changes left when the findings share one cause in the approach itself: a redesign, not another patch. */
+export const APPROACH_CHANGES: readonly ReworkChange[] = ['split', 'retry'];
+
+const ONLY_CHANGE_FOR: Partial<Record<ReworkRootCause, ReworkChange>> = { world_model: 'world_model_fix', design_drift: 'ask_human' };
+const ONLY_ROOT_CAUSE_FOR: Partial<Record<ReworkChange, ReworkRootCause>> = { ask_human: 'design_drift' };
+
+/** Why <change> cannot answer <rootCause> given <approachSharedCause>, or null when the pairing stands. */
+export function reworkPairingError(rootCause: ReworkRootCause, change: ReworkChange, approachSharedCause: boolean): string | null {
+  const onlyChange = ONLY_CHANGE_FOR[rootCause];
+  if (onlyChange !== undefined && change !== onlyChange) return `root_cause ${rootCause} takes only change ${onlyChange} (got ${change})`;
+  const onlyRootCause = ONLY_ROOT_CAUSE_FOR[change];
+  if (onlyRootCause !== undefined && rootCause !== onlyRootCause) {
+    return `change ${change} answers only root_cause ${onlyRootCause} (got ${rootCause})`;
+  }
+  if (approachSharedCause && !APPROACH_CHANGES.includes(change)) {
+    return `approach_shared_cause true takes only change ${APPROACH_CHANGES.join(' or ')} (got ${change}): the fix is a redesign, not another patch`;
+  }
+  return null;
+}
 
 export const REWORK_RATIONALE_MIN_CHARS = 20;
 

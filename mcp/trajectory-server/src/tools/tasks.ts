@@ -34,7 +34,7 @@ import {
 import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
-import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES } from '../task-rework.js';
+import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -331,7 +331,8 @@ function oneOf<T extends string>(value: unknown, name: string, allowed: readonly
 
 // One task_rework_analysis audit row (GH 2830): bro's typed analysis of a
 // task's review FAILs since its latest pass, which with its proven change
-// admits the next swe run past the rework-limit gate's inner limit.
+// admits the next swe run past the rework-limit gate, or with design_drift
+// blocks the task until the Human waives it.
 export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unknown>): { audit_id: number; task_id: number } {
   const taskId = Number(args['task_id']);
   if (!Number.isInteger(taskId)) throw reworkAnalysisInvalid('task_id must be an integer');
@@ -372,6 +373,10 @@ export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unkn
 
   const rootCause = oneOf(args['root_cause'], 'root_cause', REWORK_ROOT_CAUSES);
   const change = oneOf(args['change'], 'change', REWORK_CHANGES);
+  const approachSharedCause = args['approach_shared_cause'];
+  if (typeof approachSharedCause !== 'boolean') throw reworkAnalysisInvalid('approach_shared_cause must be a boolean');
+  const pairingError = reworkPairingError(rootCause, change, approachSharedCause);
+  if (pairingError !== null) throw reworkAnalysisInvalid(pairingError);
   const rationale = args['rationale'];
   if (typeof rationale !== 'string' || rationale.trim().length < REWORK_RATIONALE_MIN_CHARS) {
     throw reworkAnalysisInvalid(`rationale must be at least ${REWORK_RATIONALE_MIN_CHARS} characters`);
@@ -389,6 +394,7 @@ export function recordReworkAnalysis(db: TrajectoryDB, args: Record<string, unkn
       finding_ids: [...new Set(findings as string[])],
       root_cause: rootCause,
       change,
+      approach_shared_cause: approachSharedCause,
       rationale,
     }),
     created_at: nowISO(),
@@ -689,7 +695,7 @@ export function taskTools(db: TrajectoryDB): {
     {
       name: 'task_rework_analysis',
       description:
-        "Bro's typed analysis of a task's FAILs since its last pass; with a newer proven change (task_update_spec, or a task_reopen effort raise) it clears the two-FAIL rework limit. Returns {audit_id, task_id}.",
+        "Bro's typed analysis of a task's FAILs since its last pass; a newer proven change clears the two-FAIL rework limit; design_drift blocks the task until the Human waives it. Returns {audit_id, task_id}.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -701,11 +707,16 @@ export function taskTools(db: TrajectoryDB): {
             description: "validation_attempts ids of the task's FAILs after its latest pass, the latest FAIL included.",
           },
           finding_ids: { type: 'array', items: { type: 'string' }, description: 'Findings analyzed, each F<task_id>-<n>.' },
-          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES] },
-          change: { type: 'string', enum: [...REWORK_CHANGES] },
+          root_cause: { type: 'string', enum: [...REWORK_ROOT_CAUSES], description: 'world_model takes only world_model_fix; design_drift only ask_human.' },
+          change: {
+            type: 'string',
+            enum: [...REWORK_CHANGES],
+            description: 'spec_update, effort_raise and world_model_fix admit the next swe run once proven; ask_human answers only design_drift.',
+          },
+          approach_shared_cause: { type: 'boolean', description: 'Do the findings share one cause in the approach itself? true takes only split or retry.' },
           rationale: { type: 'string', description: `At least ${REWORK_RATIONALE_MIN_CHARS} characters.` },
         },
-        required: ['agent', 'task_id', 'fail_validation_ids', 'finding_ids', 'root_cause', 'change', 'rationale'],
+        required: ['agent', 'task_id', 'fail_validation_ids', 'finding_ids', 'root_cause', 'change', 'approach_shared_cause', 'rationale'],
       },
     },
   ];

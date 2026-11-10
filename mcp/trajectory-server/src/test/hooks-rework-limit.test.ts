@@ -1,10 +1,16 @@
 /**
- * The rework-limit gate (GH 1738, GH 2148) on a temp trajectory DB: a swe
- * spawn is denied once the task has two review FAILs since its last pass, six
- * swe runs (budget handbacks aside), or its issue four FAILs across its tasks
- * with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind
- * 'decision' row) on the task or its issue; no agent-written row and no Human
- * note lifts it. The agent-spawn-dispatch gate returns that deny
+ * The rework-limit gate (GH 1738, GH 2148, GH 2830) on a temp trajectory DB.
+ * From two review FAILs on a task since its last pass, everything counted since
+ * the latest Human waiver (an author 'human', kind 'decision' row) on the task
+ * or its issue, a swe spawn is admitted only when the task's latest
+ * task_rework_analysis is newer than its latest FAIL and its change is proven
+ * by a row dated after that FAIL: task_spec_amended for spec_update,
+ * task_effort_raised for effort_raise, and a world-model scan, reindex,
+ * concept upsert or `Area: World Model` issue for world_model_fix. split,
+ * retry, re_review and ask_human never admit. No swe-run or issue-wide FAIL
+ * count denies. A design_drift analysis newer than the latest Human waiver
+ * denies at any FAIL count and names `waive task <N>`. No bro decision row and
+ * no Human note lifts a deny. The agent-spawn-dispatch gate returns the deny
  * before any PREPARE step.
  */
 import { describe, it, before, after } from 'node:test';
@@ -18,19 +24,23 @@ import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { reworkLimit } from '../hooks/rework-limit.js';
 import { findGate, gateNames } from '../hooks/registry.js';
-import { ISSUE_FAIL_LIMIT, REWORK_FAIL_LIMIT, SWE_RUN_LIMIT } from '../task-rework.js';
+import * as taskRework from '../task-rework.js';
+import { REWORK_FAIL_LIMIT } from '../task-rework.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
+const SYSTEM_ISSUE_ID = -1;
 const ISSUE_ID = 9;
 const OTHER_ISSUE_ID = 10;
 const TASK_ID = 3;
 const OTHER_TASK_ID = 4;
 const FRESH_TASK_ID = 5;
 const ELSEWHERE_TASK_ID = 6;
+const WORLD_MODEL_LABEL = 'Area: World Model';
 
 type Verdict = 'pass' | 'fail';
+type WorldModelProof = 'deep_scan_completed' | 'wm_reindex' | 'concept_upsert' | 'issue';
 
 interface Fixture {
   db: string;
@@ -39,8 +49,11 @@ interface Fixture {
   verdictsOn(taskId: number, ...list: Verdict[]): void;
   runs(n: number, row?: { stopCause?: string | null; exitReason?: string | null }): void;
   discuss(row: { author?: string; kind?: string; taskId?: number | null }): void;
-  analysis(row?: { rootCause?: string; change?: string; taskId?: number }): number;
+  analysis(row?: { rootCause?: string; change?: string; taskId?: number; at?: string }): number;
   proof(eventType: 'task_spec_amended' | 'task_effort_raised', taskId?: number): number;
+  worldModelProof(kind: WorldModelProof): void;
+  wmToolCall(tool: string, error: boolean): void;
+  issue(labels: string | null): void;
 }
 
 let sandbox: string;
@@ -74,10 +87,11 @@ function fixture(): Fixture {
     minute += 1;
     return new Date(Date.UTC(2026, 9, 25, 10, 0, 0) + minute * 60_000).toISOString();
   };
-  const write = (sql: string, ...params: Array<string | number | null>) => {
+  const write = (sql: string, ...params: Array<string | number | null>): number => {
     const w = new DatabaseSync(db);
-    w.prepare(sql).run(...params);
+    const res = w.prepare(sql).run(...params);
     w.close();
+    return Number(res.lastInsertRowid);
   };
   let attempt = 0;
   const verdictsOn = (taskId: number, ...list: Verdict[]) => {
@@ -109,18 +123,47 @@ function fixture(): Fixture {
   const discuss = ({ author = 'bro', kind = 'note', taskId = TASK_ID }: { author?: string; kind?: string; taskId?: number | null }) => {
     write('INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, ?, ?, ?, ?, ?)', ISSUE_ID, author, kind, 'b', tick(), taskId);
   };
-  const auditRow = (eventType: string, content: Record<string, unknown>, taskId = TASK_ID): number => {
-    const w = new DatabaseSync(db);
-    const res = w
-      .prepare("INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)")
-      .run(ISSUE_ID, eventType, JSON.stringify({ task_id: taskId, ...content }), tick());
-    w.close();
-    return Number(res.lastInsertRowid);
+  const auditRow = (eventType: string, content: Record<string, unknown>, issueId = ISSUE_ID, at = tick()): number =>
+    write(
+      "INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', ?, 's', ?, ?)",
+      issueId,
+      eventType,
+      JSON.stringify(content),
+      at,
+    );
+  const analysis = ({ rootCause = 'spec_unclear', change = 'spec_update', taskId = TASK_ID, at }: { rootCause?: string; change?: string; taskId?: number; at?: string } = {}) =>
+    auditRow(
+      'task_rework_analysis',
+      { task_id: taskId, root_cause: rootCause, change, approach_shared_cause: false, fail_validation_ids: [], finding_ids: [], rationale: 'r' },
+      ISSUE_ID,
+      at,
+    );
+  const proof = (eventType: 'task_spec_amended' | 'task_effort_raised', taskId = TASK_ID) => auditRow(eventType, { task_id: taskId });
+  const wmToolCall = (tool: string, error: boolean) => {
+    auditRow('wm_tool_called', { tool, agent: 'bro', task_id: null, error }, SYSTEM_ISSUE_ID);
   };
-  const analysis = ({ rootCause = 'spec_unclear', change = 'spec_update', taskId = TASK_ID }: { rootCause?: string; change?: string; taskId?: number } = {}) =>
-    auditRow('task_rework_analysis', { root_cause: rootCause, change, fail_validation_ids: [], finding_ids: [], rationale: 'r' }, taskId);
-  const proof = (eventType: 'task_spec_amended' | 'task_effort_raised', taskId = TASK_ID) => auditRow(eventType, {}, taskId);
-  return { db, env, verdicts: (...list) => verdictsOn(TASK_ID, ...list), verdictsOn, runs, discuss, analysis, proof };
+  const issue = (labels: string | null) => {
+    const at = tick();
+    write("INSERT INTO issues (objective, status, created_at, updated_at, labels) VALUES ('wm bug', 'open', ?, ?, ?)", at, at, labels);
+  };
+  const worldModelProof = (kind: WorldModelProof) => {
+    if (kind === 'concept_upsert') wmToolCall('world_model_concept_upsert', false);
+    else if (kind === 'issue') issue(JSON.stringify(['Bug', WORLD_MODEL_LABEL]));
+    else auditRow(kind, { repo: 'plugin' }, SYSTEM_ISSUE_ID);
+  };
+  return {
+    db,
+    env,
+    verdicts: (...list) => verdictsOn(TASK_ID, ...list),
+    verdictsOn,
+    runs,
+    discuss,
+    analysis,
+    proof,
+    worldModelProof,
+    wmToolCall,
+    issue,
+  };
 }
 
 const payload = (subagent = 'swe', prompt = `task_id=${TASK_ID} do the thing`) =>
@@ -139,21 +182,28 @@ function denyReason(stdout: string): string {
   return out.hookSpecificOutput.permissionDecisionReason as string;
 }
 
-function assertHumanOnlyWaiver(reason: string, taskId: number): void {
-  assert.ok(reason.includes(`waive task ${taskId}`), reason);
+/** The rework-limit deny: bro debugs, answers the approach question, records and changes; no Human waiver, no decision-row escape. */
+function assertReworkLimit(reason: string): void {
+  assert.ok(reason.includes('the spec, the world model, the reviewer, the environment), then swe\'s execution'), reason);
+  assert.match(reason, /approach question/);
+  assert.ok(reason.includes('task_rework_analysis'), reason);
+  assert.ok(reason.includes('task_update_spec') && reason.includes('task_reopen(effort=...)') && reason.includes('world_model_fix'), reason);
+  assert.ok(reason.includes('task_retry') && /new task/.test(reason), reason);
+  assert.match(reason, /approach_shared_cause/);
+  assert.doesNotMatch(reason, /waive task/);
   assert.doesNotMatch(reason, /discussion_append/);
   assert.doesNotMatch(reason, /decision/i);
 }
 
-/** The inner-limit deny: bro analyzes and changes; no Human waiver, no decision-row escape. */
-function assertInnerLimit(reason: string): void {
-  assert.ok(reason.includes('task_rework_analysis'), reason);
-  assert.ok(reason.includes('task_update_spec') && reason.includes('task_reopen(effort=...)'), reason);
-  assert.ok(reason.includes('task_retry') && /new task/.test(reason), reason);
-  assert.match(reason, /Human is needed only for a product decision/);
-  assert.doesNotMatch(reason, /waive task/);
+/** The design-drift deny: ask the Human with evidence and options; only `waive task <N>` lifts it. */
+function assertDesignDrift(reason: string, taskId: number): void {
+  assert.match(reason, /names root_cause design_drift/);
+  assert.match(reason, /Ask the Human on the issue, with the evidence/);
+  assert.match(reason, /drop the task, redesign with the change you propose, or keep the design with a named fix/);
+  assert.ok(reason.includes(`waive task ${taskId}`), reason);
+  assert.match(reason, /This is policy: stop and report\.$/);
   assert.doesNotMatch(reason, /discussion_append/);
-  assert.doesNotMatch(reason, /outer ceiling/);
+  assert.doesNotMatch(reason, /decision/i);
 }
 
 const ALLOWED = { stdout: '', code: 0 };
@@ -171,32 +221,20 @@ describe('rework-limit', () => {
     assert.ok(gateNames().includes('rework-limit'));
   });
 
-  it('keeps the limits as named constants', () => {
+  it('keeps the FAIL limit as a named constant and no swe-run or issue-FAIL cap', () => {
     assert.equal(REWORK_FAIL_LIMIT, 2);
-    assert.equal(SWE_RUN_LIMIT, 6);
-    assert.equal(ISSUE_FAIL_LIMIT, 4);
+    assert.equal('SWE_RUN_LIMIT' in taskRework, false);
+    assert.equal('ISSUE_FAIL_LIMIT' in taskRework, false);
   });
 
   describe('task FAILs', () => {
-    it('denies a swe spawn after two FAILs, naming the limit, its count and the analysis step', () => {
+    it('denies a swe spawn after two FAILs, naming the limit, its count and the debug steps', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /task 3 is at the rework limit/);
       assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
-      assert.doesNotMatch(reason, /task runs:|issue FAILs:/);
-      assertInnerLimit(reason);
-    });
-
-    it('a newer kind=decision row by bro, on the task or the issue, does not lift it', () => {
-      const f = fixture();
-      f.verdicts('fail', 'fail');
-      f.discuss({ kind: 'decision' });
-      denyReason(run(f).stdout);
-      f.discuss({ kind: 'decision', taskId: null });
-      denyReason(run(f).stdout);
-      f.discuss({ kind: 'note' });
-      denyReason(run(f).stdout);
+      assertReworkLimit(reason);
     });
 
     it('a newer Human row on the task lifts it', () => {
@@ -241,149 +279,120 @@ describe('rework-limit', () => {
     });
   });
 
-  describe('task runs', () => {
-    it('denies a seventh swe run with no FAILs, naming the limit and its count', () => {
+  describe('no count alone denies (GH 2830)', () => {
+    it('admits a spawn after seven or more swe runs with fewer than two FAILs', () => {
       const f = fixture();
-      f.runs(5);
+      f.runs(7);
       assert.deepEqual(run(f), ALLOWED);
-      f.runs(1);
-      const reason = denyReason(run(f).stdout);
-      assert.match(reason, /task runs: 6 swe runs of the task, budget handbacks aside \(limit 6\)/);
-      assert.doesNotMatch(reason, /task FAILs:|issue FAILs:/);
-      assertHumanOnlyWaiver(reason, TASK_ID);
-    });
-
-    it('does not count budget handbacks or swept orphans', () => {
-      const f = fixture();
-      f.runs(5);
-      f.runs(3, { stopCause: 'budget' });
-      f.runs(2, { exitReason: 'swept_orphan' });
+      f.runs(5, { stopCause: 'hook_block' });
+      f.verdicts('fail');
       assert.deepEqual(run(f), ALLOWED);
-      f.runs(1, { stopCause: 'hook_block' });
-      denyReason(run(f).stdout);
     });
 
-    it('a newer Human row resets the count; a bro decision does not', () => {
+    it('admits a spawn with five or more unresolved FAILs across the issue and fewer than two on the task', () => {
       const f = fixture();
-      f.runs(6);
-      f.discuss({ kind: 'decision' });
-      denyReason(run(f).stdout);
-      f.discuss({ author: 'human', kind: 'decision', taskId: null });
-      assert.deepEqual(run(f), ALLOWED);
-      f.runs(5);
-      assert.deepEqual(run(f), ALLOWED);
-      f.runs(1);
-      assert.match(denyReason(run(f).stdout), /task runs: 6 swe runs/);
-    });
-  });
-
-  describe('issue FAILs', () => {
-    it('denies a spawn of a fresh task once the issue has four unresolved FAILs across its tasks', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-      f.verdictsOn(TASK_ID, 'fail');
-      f.verdictsOn(ELSEWHERE_TASK_ID, 'fail');
-      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
-      f.verdictsOn(OTHER_TASK_ID, 'fail');
-      const reason = denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
-      assert.match(reason, /task 5 is at the rework limit/);
-      assert.match(reason, /issue FAILs: 4 review FAILs across the issue's tasks \(limit 4\)/);
-      assert.doesNotMatch(reason, /task FAILs:|task runs:/);
-      assertHumanOnlyWaiver(reason, FRESH_TASK_ID);
-      denyReason(spawnOf(f, TASK_ID).stdout);
-      assert.deepEqual(spawnOf(f, ELSEWHERE_TASK_ID), ALLOWED);
-    });
-
-    it('allows every task of an issue whose FAILs all have a later pass on the same task, however many', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'pass', 'fail', 'fail', 'pass');
-      f.verdictsOn(TASK_ID, 'fail', 'pass', 'fail', 'fail', 'fail', 'pass');
-      for (const taskId of [FRESH_TASK_ID, TASK_ID, OTHER_TASK_ID]) {
-        assert.deepEqual(spawnOf(f, taskId), ALLOWED);
-      }
-    });
-
-    it('a FAIL after a task\'s latest pass counts again', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'pass', 'fail', 'fail');
-      f.verdictsOn(TASK_ID, 'fail', 'pass', 'fail');
+      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail', 'fail');
+      f.verdictsOn(ELSEWHERE_TASK_ID, 'fail', 'fail');
       assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
       f.verdictsOn(TASK_ID, 'fail');
-      assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
-    });
-
-    it('a pass on one task does not clear the FAILs on another', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-      f.verdictsOn(TASK_ID, 'fail', 'fail');
-      f.verdictsOn(FRESH_TASK_ID, 'pass');
-      assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
-      f.verdictsOn(TASK_ID, 'pass');
-      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
-    });
-
-    it('a newer issue-level Human row lifts it for every task', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
-      denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
-      f.discuss({ kind: 'decision', taskId: null });
-      denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
-      f.discuss({ author: 'human', kind: 'decision', taskId: null });
-      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
       assert.deepEqual(spawnOf(f, TASK_ID), ALLOWED);
+      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
     });
 
-    it('counts unresolved FAILs afresh after the latest Human row', () => {
+    it('many runs and issue FAILs add nothing to the deny of a task at two FAILs', () => {
       const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
-      f.discuss({ author: 'human', kind: 'decision', taskId: null });
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail');
-      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
-      f.verdictsOn(TASK_ID, 'fail');
-      assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
+      f.runs(9);
+      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail', 'fail');
+      f.verdicts('fail', 'fail');
+      const reason = denyReason(run(f).stdout);
+      assert.doesNotMatch(reason, /task runs:|issue FAILs:|outer ceiling/);
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
     });
 
-    it('a newer Human row on the task being spawned lifts it for that task only', () => {
+    it('a repeated root cause across analyses does not deny on its own', () => {
       const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
-      f.discuss({ author: 'human', kind: 'decision', taskId: FRESH_TASK_ID });
-      assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
-      denyReason(spawnOf(f, TASK_ID).stdout);
+      f.verdicts('fail', 'fail');
+      f.analysis({ rootCause: 'spec_wrong', change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
+      f.verdicts('fail');
+      f.analysis({ rootCause: 'spec_wrong', change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
     });
   });
 
-  describe('the inner limit: an analysis plus its proven change (GH 2830)', () => {
+  describe('the allowlist at two or more FAILs (GH 2830)', () => {
     it('denies at two FAILs with no analysis', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /no task_rework_analysis newer than the latest FAIL/);
-      assertInnerLimit(reason);
+      assertReworkLimit(reason);
     });
 
-    it('denies with an analysis but no proving row', () => {
-      const f = fixture();
-      f.verdicts('fail', 'fail');
-      const id = f.analysis({ change: 'spec_update' });
-      const reason = denyReason(run(f).stdout);
-      assert.ok(reason.includes(`analysis #${id} names change spec_update, with no task_spec_amended row newer than the latest FAIL`), reason);
-      assertInnerLimit(reason);
-    });
+    for (const [change, proofName] of [
+      ['spec_update', 'a task_spec_amended row'],
+      ['effort_raise', 'a task_effort_raised row'],
+      ['world_model_fix', 'a world-model scan, reindex, world_model_concept_upsert or `Area: World Model` issue'],
+    ]) {
+      it(`denies a ${change} analysis with no proving row`, () => {
+        const f = fixture();
+        f.verdicts('fail', 'fail');
+        const id = f.analysis({ change });
+        const reason = denyReason(run(f).stdout);
+        assert.ok(reason.includes(`analysis #${id} names change ${change}, with no proof dated after the latest FAIL (${proofName})`), reason);
+        assertReworkLimit(reason);
+      });
+    }
 
-    it('denies when the proving row predates the latest FAIL', () => {
+    it('denies when the task proving row predates the latest FAIL', () => {
       const f = fixture();
       f.verdicts('fail');
       f.proof('task_spec_amended');
       f.proof('task_effort_raised');
       f.verdicts('fail');
       f.analysis({ change: 'spec_update' });
-      denyReason(run(f).stdout);
+      assert.match(denyReason(run(f).stdout), /\(a task_spec_amended row\)/);
       const g = fixture();
       g.verdicts('fail');
       g.proof('task_effort_raised');
       g.verdicts('fail');
       g.analysis({ change: 'effort_raise' });
-      assert.match(denyReason(run(g).stdout), /with no task_effort_raised row newer than the latest FAIL/);
+      assert.match(denyReason(run(g).stdout), /\(a task_effort_raised row\)/);
+    });
+
+    for (const kind of ['deep_scan_completed', 'wm_reindex', 'concept_upsert', 'issue'] as const) {
+      it(`denies world_model_fix when its ${kind} proof predates the latest FAIL`, () => {
+        const f = fixture();
+        f.verdicts('fail');
+        f.worldModelProof(kind);
+        f.verdicts('fail');
+        f.analysis({ rootCause: 'world_model', change: 'world_model_fix' });
+        assert.match(denyReason(run(f).stdout), /names change world_model_fix, with no proof dated after the latest FAIL/);
+      });
+
+      it(`admits world_model_fix proven by a ${kind} row after the latest FAIL`, () => {
+        const f = fixture();
+        f.verdicts('fail', 'fail');
+        f.analysis({ rootCause: 'world_model', change: 'world_model_fix' });
+        f.worldModelProof(kind);
+        assert.deepEqual(run(f), ALLOWED);
+      });
+    }
+
+    it('a failed concept upsert, another world-model tool, or an issue without the label proves no world_model_fix', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      f.analysis({ rootCause: 'world_model', change: 'world_model_fix' });
+      f.wmToolCall('world_model_concept_upsert', true);
+      f.wmToolCall('world_model_search', false);
+      f.issue(JSON.stringify(['Bug', 'Area: Hooks']));
+      f.issue(null);
+      f.issue('not json');
+      denyReason(run(f).stdout);
     });
 
     it('denies with an analysis older than the latest FAIL, even with a newer proof', () => {
@@ -395,16 +404,22 @@ describe('rework-limit', () => {
       assert.match(denyReason(run(f).stdout), /no task_rework_analysis newer than the latest FAIL/);
     });
 
-    for (const change of ['split', 'retry', 're_review']) {
+    for (const [rootCause, change] of [
+      ['spec_unclear', 'split'],
+      ['swe_execution', 'retry'],
+      ['reviewer_disputed', 're_review'],
+      ['spec_wrong', 'ask_human'],
+    ]) {
       it(`denies for change ${change}, whatever proof follows`, () => {
         const f = fixture();
         f.verdicts('fail', 'fail');
-        const id = f.analysis({ change });
+        const id = f.analysis({ rootCause, change });
         f.proof('task_spec_amended');
         f.proof('task_effort_raised');
+        f.worldModelProof('deep_scan_completed');
         const reason = denyReason(run(f).stdout);
         assert.ok(reason.includes(`analysis #${id} names change ${change}, which admits no further swe run of this task`), reason);
-        assertInnerLimit(reason);
+        assertReworkLimit(reason);
       });
     }
 
@@ -429,12 +444,27 @@ describe('rework-limit', () => {
       assert.deepEqual(run(g), ALLOWED);
     });
 
-    it('a proof of the other change does not admit', () => {
+    it('a malformed issue label set does not break the read', () => {
+      const f = fixture();
+      f.issue('not json');
+      f.verdicts('fail', 'fail');
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assert.deepEqual(run(f), ALLOWED);
+    });
+
+    it('a proof of another change does not admit', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.analysis({ change: 'spec_update' });
       f.proof('task_effort_raised');
+      f.worldModelProof('wm_reindex');
       denyReason(run(f).stdout);
+      const g = fixture();
+      g.verdicts('fail', 'fail');
+      g.analysis({ rootCause: 'world_model', change: 'world_model_fix' });
+      g.proof('task_spec_amended');
+      denyReason(run(g).stdout);
     });
 
     it("another task's analysis and proof do not admit", () => {
@@ -454,7 +484,23 @@ describe('rework-limit', () => {
       assert.match(denyReason(run(f).stdout), /names change split/);
     });
 
-    it('denies again after a third FAIL until a new analysis and change', () => {
+    it('analyses with one created_at order by id', () => {
+      const f = fixture();
+      f.verdicts('fail', 'fail');
+      const at = '2026-10-25T11:00:00.000Z';
+      f.analysis({ change: 'spec_update', at });
+      const split = f.analysis({ change: 'split', at });
+      f.proof('task_spec_amended');
+      assert.ok(denyReason(run(f).stdout).includes(`analysis #${split} names change split`));
+      const g = fixture();
+      g.verdicts('fail', 'fail');
+      g.analysis({ change: 'split', at });
+      g.analysis({ change: 'spec_update', at });
+      g.proof('task_spec_amended');
+      assert.deepEqual(run(g), ALLOWED);
+    });
+
+    it('denies again after a further FAIL until a new analysis and change', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.analysis({ rootCause: 'spec_unclear', change: 'spec_update' });
@@ -464,10 +510,10 @@ describe('rework-limit', () => {
       let reason = denyReason(run(f).stdout);
       assert.match(reason, /task FAILs: 3 review FAILs/);
       assert.match(reason, /no task_rework_analysis newer than the latest FAIL/);
-      assertInnerLimit(reason);
+      assertReworkLimit(reason);
       f.analysis({ rootCause: 'swe_execution', change: 'effort_raise' });
       reason = denyReason(run(f).stdout);
-      assert.match(reason, /with no task_effort_raised row newer than the latest FAIL/);
+      assert.match(reason, /\(a task_effort_raised row\)/);
       f.proof('task_effort_raised');
       assert.deepEqual(run(f), ALLOWED);
     });
@@ -480,109 +526,96 @@ describe('rework-limit', () => {
       w.close();
       const resume = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_input: { to: 'agent-x', message: 'go on' } });
       f.verdicts('fail', 'fail');
-      assertInnerLimit(denyReason((sweResumeGate(resume, f.env) as { stdout: string }).stdout));
+      assertReworkLimit(denyReason((sweResumeGate(resume, f.env) as { stdout: string }).stdout));
       f.analysis({ change: 'spec_update' });
       f.proof('task_spec_amended');
       assert.deepEqual(sweResumeGate(resume, f.env), ALLOWED);
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      assertDesignDrift(denyReason((sweResumeGate(resume, f.env) as { stdout: string }).stdout), TASK_ID);
     });
   });
 
-  describe('GH 2148 regression: no bro row lifts a limit', () => {
-    it('a newer bro discussion_append decision, on the task or the issue, lifts neither the inner limit nor the ceiling', () => {
+  describe('design drift (GH 2830)', () => {
+    it('denies at zero FAILs, asking the Human with options and naming `waive task <N>`', () => {
+      const f = fixture();
+      const id = f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      const reason = denyReason(run(f).stdout);
+      assert.ok(reason.includes(`analysis #${id} names root_cause design_drift`), reason);
+      assertDesignDrift(reason, TASK_ID);
+      assert.doesNotMatch(reason, /task FAILs:/);
+    });
+
+    it('denies at one FAIL and past a later analysis with a proven change', () => {
+      const f = fixture();
+      f.verdicts('fail');
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
+      f.verdicts('fail');
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
+      assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
+    });
+
+    it('a newer Human decision row on the task or the issue lifts it; a later drift denies again', () => {
+      const f = fixture();
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.discuss({ author: 'human', kind: 'decision' });
+      assert.deepEqual(run(f), ALLOWED);
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
+      f.discuss({ author: 'human', kind: 'decision', taskId: null });
+      assert.deepEqual(run(f), ALLOWED);
+    });
+
+    it('a bro decision row, a Human note, or a Human row on another task does not lift it', () => {
+      const f = fixture();
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human' });
+      f.discuss({ kind: 'decision' });
+      f.discuss({ kind: 'decision', taskId: null });
+      f.discuss({ author: 'human', kind: 'note' });
+      f.discuss({ author: 'human', kind: 'decision', taskId: OTHER_TASK_ID });
+      assertDesignDrift(denyReason(run(f).stdout), TASK_ID);
+    });
+
+    it("another task's design drift does not block this task", () => {
+      const f = fixture();
+      f.analysis({ rootCause: 'design_drift', change: 'ask_human', taskId: OTHER_TASK_ID });
+      assert.deepEqual(run(f), ALLOWED);
+      assertDesignDrift(denyReason(spawnOf(f, OTHER_TASK_ID).stdout), OTHER_TASK_ID);
+    });
+  });
+
+  describe('GH 2148 regression: no bro row counts as an analysis or lifts a deny', () => {
+    it('a newer bro discussion_append decision, on the task or the issue, lifts neither the rework limit nor design drift', () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
       f.discuss({ kind: 'decision' });
       f.discuss({ kind: 'decision', taskId: null });
-      assertInnerLimit(denyReason(run(f).stdout));
+      f.discuss({ kind: 'note' });
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /no task_rework_analysis newer than the latest FAIL/);
+      assertReworkLimit(reason);
+      f.proof('task_spec_amended');
+      f.discuss({ kind: 'decision' });
+      assert.match(denyReason(run(f).stdout), /no task_rework_analysis newer than the latest FAIL/);
       const g = fixture();
-      g.runs(6);
+      g.analysis({ rootCause: 'design_drift', change: 'ask_human' });
       g.discuss({ kind: 'decision' });
       g.discuss({ kind: 'decision', taskId: null });
-      assertHumanOnlyWaiver(denyReason(run(g).stdout), TASK_ID);
+      assertDesignDrift(denyReason(run(g).stdout), TASK_ID);
     });
-  });
 
-  describe('the outer ceiling (GH 2830)', () => {
-    const provenAnalysis = (f: Fixture, rootCause = 'spec_unclear') => {
-      const id = f.analysis({ rootCause, change: 'spec_update' });
-      f.proof('task_spec_amended');
-      return id;
-    };
-
-    it('at six runs denies even with an analysis and a proven change, listing the analysis', () => {
+    it("a newer author 'human' kind 'note' row (pr_monitor's shape for a login named human) resets nothing", () => {
       const f = fixture();
-      f.runs(6);
       f.verdicts('fail', 'fail');
-      const id = provenAnalysis(f);
+      f.discuss({ author: 'human', kind: 'note' });
+      f.discuss({ author: 'human', kind: 'note', taskId: null });
       const reason = denyReason(run(f).stdout);
-      assert.match(reason, /task runs: 6 swe runs/);
-      assert.doesNotMatch(reason, /task FAILs:/);
-      assert.match(reason, /outer ceiling/);
-      assert.ok(reason.includes(`#${id} (root_cause spec_unclear, change spec_update)`), reason);
-      assertHumanOnlyWaiver(reason, TASK_ID);
-    });
-
-    it('at four issue FAILs denies even with an analysis and a proven change', () => {
-      const f = fixture();
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-      f.verdicts('fail', 'fail');
-      provenAnalysis(f);
-      const reason = denyReason(run(f).stdout);
-      assert.match(reason, /issue FAILs: 4 review FAILs/);
-      assertHumanOnlyWaiver(reason, TASK_ID);
-    });
-
-    it('a second analysis with a repeated root_cause denies even with its proven change, naming both rows', () => {
-      const f = fixture();
-      f.verdicts('fail', 'fail');
-      const first = provenAnalysis(f, 'spec_wrong');
-      assert.deepEqual(run(f), ALLOWED);
-      f.verdicts('fail');
-      const second = provenAnalysis(f, 'spec_wrong');
-      const reason = denyReason(run(f).stdout);
-      assert.match(reason, /repeated root cause: two task_rework_analysis rows of the task name root_cause spec_wrong/);
-      assert.ok(reason.includes(`#${first} (root_cause spec_wrong, change spec_update), #${second} (root_cause spec_wrong, change spec_update)`), reason);
-      assertHumanOnlyWaiver(reason, TASK_ID);
-    });
-
-    it('a Human waiver lifts every limit; analyses before it no longer count', () => {
-      const f = fixture();
-      f.runs(6);
-      f.verdicts('fail', 'fail');
-      provenAnalysis(f, 'environment');
-      f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-      provenAnalysis(f, 'environment');
-      denyReason(run(f).stdout);
+      assert.match(reason, /task FAILs: 2 /);
+      assert.doesNotMatch(reason, /since the Human's last waiver/);
       f.discuss({ author: 'human', kind: 'decision' });
       assert.deepEqual(run(f), ALLOWED);
-      f.verdicts('fail', 'fail');
-      provenAnalysis(f, 'environment');
-      assert.deepEqual(run(f), ALLOWED);
     });
-  });
-
-  it('names every limit that tripped', () => {
-    const f = fixture();
-    f.runs(6);
-    f.verdicts('fail', 'fail');
-    f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-    const reason = denyReason(run(f).stdout);
-    assert.match(reason, /task FAILs: 2 .*; task runs: 6 .*; issue FAILs: 4 /);
-    assertHumanOnlyWaiver(reason, TASK_ID);
-  });
-
-  it("a newer author 'human' kind 'note' row (pr_monitor's shape for a login named human) resets none of the three limits", () => {
-    const f = fixture();
-    f.runs(6);
-    f.verdicts('fail', 'fail');
-    f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
-    f.discuss({ author: 'human', kind: 'note' });
-    f.discuss({ author: 'human', kind: 'note', taskId: null });
-    const reason = denyReason(run(f).stdout);
-    assert.match(reason, /task FAILs: 2 .*; task runs: 6 .*; issue FAILs: 4 /);
-    assert.doesNotMatch(reason, /since the Human's last waiver/);
-    f.discuss({ author: 'human', kind: 'decision' });
-    assert.deepEqual(run(f), ALLOWED);
   });
 
   it('allows one FAIL, no FAIL, an unknown task, a non-swe spawn, a non-Agent tool and a prompt without task_id', () => {
@@ -629,10 +662,11 @@ describe('rework-limit', () => {
       assert.equal(ran.includes('record-swe-spawn'), false, 'record-swe-spawn did not run');
     });
 
-    it('passes after a Human waiver and runs the PREPARE steps', async () => {
+    it('passes after a proven analysis and runs the PREPARE steps', async () => {
       const f = fixture();
       f.verdicts('fail', 'fail');
-      f.discuss({ author: 'human', kind: 'decision' });
+      f.analysis({ change: 'spec_update' });
+      f.proof('task_spec_amended');
       const { result, ran } = await dispatch(f);
       assert.equal(result.code, 0);
       assert.equal(result.stdout.trim(), '');
@@ -646,10 +680,13 @@ describe('rework-limit', () => {
       ['scripts/hooks/README.md', 'a decision naming the change of approach'],
       ['mcp/trajectory-server/src/hooks/rework-limit.ts', 'needs a newer decision'],
     ]) {
-      it(`${doc} names the Human-only waiver and no decision-row escape`, () => {
+      it(`${doc} names the Human's \`waive task\` and no decision-row escape or fixed cap`, () => {
         const text = readFileSync(join(PLUGIN_ROOT, doc), 'utf8');
         assert.equal(text.includes(stale), false, `${doc} still says "${stale}"`);
         assert.ok(text.includes('waive task'), `${doc} names \`waive task <N>\``);
+        for (const cap of ['SWE_RUN_LIMIT', 'ISSUE_FAIL_LIMIT', 'outer ceiling']) {
+          assert.equal(text.includes(cap), false, `${doc} still names ${cap}`);
+        }
       });
     }
   });

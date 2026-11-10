@@ -3,8 +3,11 @@
  * FAILs since its last pass writes one task_rework_analysis audit row and
  * refuses a non-bro agent, a FAIL id not on the task or not after its latest
  * pass, a list missing the latest FAIL, a malformed finding id, an unknown
- * root_cause or change, and a short rationale. With a newer task_spec_amended
- * row the rework-limit gate admits the next swe spawn.
+ * root_cause or change, a missing approach_shared_cause, a pairing outside the
+ * rules (world_model takes only world_model_fix, design_drift only ask_human,
+ * ask_human answers only design_drift, a shared approach cause takes only split
+ * or retry), and a short rationale. With a newer task_spec_amended row the
+ * rework-limit gate admits the next swe spawn.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -76,6 +79,7 @@ const valid = (failIds: number[], over: Record<string, unknown> = {}) => ({
   finding_ids: [`F${TASK_ID}-1`, `F${TASK_ID}-2`],
   root_cause: 'spec_unclear',
   change: 'spec_update',
+  approach_shared_cause: false,
   rationale: 'Both FAILs trace to the spec naming the wrong table.',
   ...over,
 });
@@ -112,8 +116,92 @@ describe('task_rework_analysis', () => {
       finding_ids: [`F${TASK_ID}-1`, `F${TASK_ID}-2`],
       root_cause: 'spec_unclear',
       change: 'spec_update',
+      approach_shared_cause: false,
       rationale: 'Both FAILs trace to the spec naming the wrong table.',
     });
+  });
+
+  it('records approach_shared_cause true with a split or a retry', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const change of ['split', 'retry']) {
+      const r = await f.call(valid([a], { root_cause: 'swe_execution', change, approach_shared_cause: true }));
+      assert.ok(!r.isError, JSON.stringify(r.content));
+    }
+    const rows = f.rows().map((row) => JSON.parse(row.content_json) as Record<string, unknown>);
+    assert.deepEqual(
+      rows.map((c) => [c['change'], c['approach_shared_cause']]),
+      [
+        ['split', true],
+        ['retry', true],
+      ],
+    );
+  });
+
+  it('accepts every root_cause and change the pairing rules allow', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    const allowed: Array<[string, string]> = [
+      ['world_model', 'world_model_fix'],
+      ['design_drift', 'ask_human'],
+      ['spec_wrong', 'world_model_fix'],
+      ['reviewer_disputed', 're_review'],
+      ['environment', 'retry'],
+      ['swe_execution', 'effort_raise'],
+      ['spec_unclear', 'split'],
+    ];
+    for (const [root_cause, change] of allowed) {
+      const r = await f.call(valid([a], { root_cause, change }));
+      assert.ok(!r.isError, `${root_cause} → ${change}: ${JSON.stringify(r.content)}`);
+    }
+    assert.equal(f.rows().length, allowed.length);
+  });
+
+  it('refuses world_model with any change but world_model_fix', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const change of ['spec_update', 'effort_raise', 'split', 'retry', 're_review', 'ask_human']) {
+      await refused(f, valid([a], { root_cause: 'world_model', change }), /rework_analysis_invalid: root_cause world_model takes only change world_model_fix/);
+    }
+  });
+
+  it('refuses design_drift with any change but ask_human', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const change of ['spec_update', 'world_model_fix', 'effort_raise', 'split', 'retry', 're_review']) {
+      await refused(f, valid([a], { root_cause: 'design_drift', change }), /rework_analysis_invalid: root_cause design_drift takes only change ask_human/);
+    }
+  });
+
+  it('refuses ask_human with any root_cause but design_drift', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const root_cause of ['spec_unclear', 'spec_wrong', 'reviewer_disputed', 'environment', 'swe_execution']) {
+      await refused(f, valid([a], { root_cause, change: 'ask_human' }), /rework_analysis_invalid: change ask_human answers only root_cause design_drift/);
+    }
+    await refused(f, valid([a], { root_cause: 'world_model', change: 'ask_human' }), /rework_analysis_invalid: root_cause world_model takes only change world_model_fix/);
+  });
+
+  it('refuses approach_shared_cause true with any change but split or retry', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const change of ['spec_update', 'world_model_fix', 'effort_raise', 're_review']) {
+      await refused(
+        f,
+        valid([a], { root_cause: 'swe_execution', change, approach_shared_cause: true }),
+        /rework_analysis_invalid: approach_shared_cause true takes only change split or retry .*a redesign, not another patch/,
+      );
+    }
+    await refused(f, valid([a], { root_cause: 'design_drift', change: 'ask_human', approach_shared_cause: true }), /approach_shared_cause true takes only change split or retry/);
+    await refused(f, valid([a], { root_cause: 'world_model', change: 'world_model_fix', approach_shared_cause: true }), /approach_shared_cause true takes only change split or retry/);
+  });
+
+  it('refuses a missing or non-boolean approach_shared_cause', async () => {
+    const f = fixture();
+    const a = f.verdict('fail');
+    for (const approach_shared_cause of [undefined, 'false', 0, null]) {
+      await refused(f, valid([a], { approach_shared_cause }), /rework_analysis_invalid: approach_shared_cause must be a boolean/);
+    }
   });
 
   it('accepts the latest FAIL alone', async () => {
@@ -175,8 +263,16 @@ describe('task_rework_analysis', () => {
   it('refuses an unknown root_cause or change', async () => {
     const f = fixture();
     const a = f.verdict('fail');
-    await refused(f, valid([a], { root_cause: 'bad_luck' }), /rework_analysis_invalid: root_cause must be one of spec_unclear, spec_wrong, swe_execution, reviewer_disputed, environment/);
-    await refused(f, valid([a], { change: 'try_again' }), /rework_analysis_invalid: change must be one of spec_update, effort_raise, split, retry, re_review/);
+    await refused(
+      f,
+      valid([a], { root_cause: 'bad_luck' }),
+      /rework_analysis_invalid: root_cause must be one of spec_unclear, spec_wrong, world_model, reviewer_disputed, environment, swe_execution, design_drift \(/,
+    );
+    await refused(
+      f,
+      valid([a], { change: 'try_again' }),
+      /rework_analysis_invalid: change must be one of spec_update, world_model_fix, effort_raise, split, retry, re_review, ask_human \(/,
+    );
   });
 
   it('refuses a rationale under 20 characters', async () => {
@@ -203,7 +299,7 @@ describe('task_rework_analysis', () => {
     assert.match(spawn().stdout, /task_rework_analysis/);
     const r = await f.call(valid([a, b]));
     assert.ok(!r.isError, JSON.stringify(r.content));
-    assert.match(spawn().stdout, /no task_spec_amended row newer than the latest FAIL/);
+    assert.match(spawn().stdout, /no proof dated after the latest FAIL \(a task_spec_amended row\)/);
     insertAudit(f.db, {
       issue_id: ISSUE_ID,
       branch_id: `feat/${TASK_ID}-x`,

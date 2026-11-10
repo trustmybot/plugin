@@ -98,7 +98,7 @@ describe('agent-spawn-dispatch end to end', () => {
         `CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, status TEXT NOT NULL,
            spec_body TEXT NOT NULL DEFAULT '', repo TEXT, parent_branch_id TEXT, files TEXT, effort TEXT NOT NULL DEFAULT 'medium');
          CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT NOT NULL DEFAULT 'test', description TEXT NOT NULL DEFAULT '',
-           status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+           status TEXT NOT NULL DEFAULT 'open', labels TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
          CREATE TABLE repos (name TEXT, path TEXT);
          CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
          CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
