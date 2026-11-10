@@ -3,7 +3,7 @@
  * structural fence of an swe, keyed on its identity (agentRole) and the task
  * and worktree its spawn transcript resolves to (agentContext).
  *
- *   (a) Bash: git push                                     → deny
+ *   (a) Bash: git push, or a git subcommand not literal    → deny (GH 2641)
  *   (b) Bash: gh/glab mutating subcommands                 → deny
  *   (c) Edit/Write outside the assigned worktree           → deny, except the
  *       session's own scratchpad under <canonical /tmp>/claude-<uid>/
@@ -29,17 +29,19 @@ import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { NEVER_JUDGED, UNJUDGED_PHRASE, UNRESOLVED_FIX } from './containment-guard.js';
 import {
+  ambiguousSubcommandReason,
   CAP_FIX,
   CAP_REASON,
   cmdStatements,
   ghMutation,
-  gitSubcommand,
+  gitSubcommandOf,
   isCapLine,
   isPromptSurfacePath,
   payloadCwd,
   writePaths,
   writeShapes,
   type GitStatements,
+  type Statement,
 } from './cmd-analysis/index.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
@@ -75,14 +77,15 @@ const GH_REASON =
 export const PARSE_REASON =
   'BLOCKED: swe-boundary could not parse this command, so it cannot tell whether it pushes, runs a gh/glab mutation or writes a prompt-surface path.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same command split into simpler commands with plain quoting' };
+const UNKNOWN_FIX: DenyFix = { allowed: 'git -C <path> <subcommand> …, the subcommand written literally' };
 export const STASH_REASON =
   'BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session\'s work. Read-only `git stash list` and `git stash show` are allowed.';
 export const STASH_FIX: DenyFix = { allowed: 'a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside' };
 const STASH_READS = new Set(['list', 'show']);
 
 /** Whether a statement runs `git stash` with a verb other than the read-only list and show. */
-function stashWrite(stmt: string): boolean {
-  const sub = gitSubcommand(stmt);
+function stashWrite(statement: Statement): boolean {
+  const sub = gitSubcommandOf(statement) ?? '';
   if (sub !== 'stash' && !sub.startsWith('stash ')) return false;
   return !STASH_READS.has(sub.split(' ')[1] ?? '');
 }
@@ -220,7 +223,7 @@ class Boundary {
     const command = field(this.input, ['tool_input', 'command']);
     const listed = await statementsOrOverflow(command, payloadCwd(this.input, this.env), this.env);
     if (listed === 'overflow' || !listed.ok) return ALLOW;
-    return listed.statements.some(({ stmt }) => stashWrite(stmt)) ? deny(STASH_REASON, STASH_FIX) : ALLOW;
+    return listed.statements.some(stashWrite) ? deny(STASH_REASON, STASH_FIX) : ALLOW;
   }
 
   async bash(): Promise<GateResult> {
@@ -232,15 +235,18 @@ class Boundary {
     const listed = await statementsOrOverflow(command, cwd, this.env);
     if (listed === 'overflow') return deny(CAP_REASON, CAP_FIX);
     if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
-    if (listed.statements.some(({ stmt }) => stashWrite(stmt))) return deny(STASH_REASON, STASH_FIX);
+    if (listed.statements.some(stashWrite)) return deny(STASH_REASON, STASH_FIX);
     let push = false;
     let mutating = false;
-    for (const { stmt } of listed.statements) {
-      const sub = gitSubcommand(stmt);
-      if ((sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `)) push = true;
-      if (ghMutation(stmt) !== '') mutating = true;
+    let unknown: Statement | undefined;
+    for (const statement of listed.statements) {
+      const sub = gitSubcommandOf(statement);
+      if (sub === undefined) unknown ??= statement;
+      else if ((sub === 'push' || sub.startsWith('push ')) && !FORCE.test(` ${sub} `)) push = true;
+      if (ghMutation(statement.stmt) !== '') mutating = true;
     }
     if (push) return deny(SWE_PUSH_REASON, SWE_PUSH_FIX);
+    if (unknown) return deny(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'pushes'), UNKNOWN_FIX);
     if (mutating) return deny(GH_REASON, 'policy');
 
     let surface = '';

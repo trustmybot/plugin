@@ -11,7 +11,7 @@ import { repoRemotes, type Remote } from '../repos/remotes.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-// Every table whose `repo` column is an FK to repos(name), with its move.
+// Every table whose `repo` column is keyed by repos.name, with its move.
 export const REPO_FK_CHILDREN: ReadonlyArray<readonly [string, string]> = [
   ['milestones', 'UPDATE milestones SET repo = ? WHERE repo = ?'],
   ['repo_remotes', 'UPDATE repo_remotes SET repo = ? WHERE repo = ?'],
@@ -23,6 +23,7 @@ export const REPO_FK_CHILDREN: ReadonlyArray<readonly [string, string]> = [
   ['agent_runs', 'UPDATE agent_runs SET repo = ? WHERE repo = ?'],
   ['repo_env', 'UPDATE repo_env SET repo = ? WHERE repo = ?'],
   ['wm_freshness', 'UPDATE wm_freshness SET repo = ? WHERE repo = ?'],
+  ['prs', 'UPDATE prs SET repo = ? WHERE repo = ?'],
 ];
 
 export type RepoRenameRefusal = 'repo_same' | 'repo_not_found' | 'repo_exists' | 'rename_in_progress';

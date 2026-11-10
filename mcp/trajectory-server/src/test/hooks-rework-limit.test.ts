@@ -1,6 +1,6 @@
 /**
  * The rework-limit gate (GH 1738, GH 2148, GH 2830) on a temp trajectory DB.
- * From two review FAILs on a task since its last pass, everything counted since
+ * From two review FAILs on a task since its last passing review, everything counted since
  * the latest Human waiver (an author 'human', kind 'decision' row) on the task
  * or its issue, a swe spawn is admitted only when the task's latest
  * task_rework_analysis is newer than its latest FAIL and its change is proven
@@ -233,7 +233,7 @@ describe('rework-limit', () => {
       f.verdicts('fail', 'fail');
       const reason = denyReason(run(f).stdout);
       assert.match(reason, /task 3 is at the rework limit/);
-      assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
+      assert.match(reason, /task FAILs: 2 review FAILs on the task since its last passing review \(limit 2\)/);
       assertReworkLimit(reason);
     });
 
@@ -275,7 +275,7 @@ describe('rework-limit', () => {
       f.verdicts('fail', 'fail', 'pass', 'fail');
       assert.deepEqual(run(f), ALLOWED);
       f.verdicts('fail');
-      assert.match(denyReason(run(f).stdout), /task FAILs: 2 review FAILs on the task since its last pass/);
+      assert.match(denyReason(run(f).stdout), /task FAILs: 2 review FAILs on the task since its last passing review/);
     });
   });
 

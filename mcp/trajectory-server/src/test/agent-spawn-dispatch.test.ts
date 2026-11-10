@@ -118,7 +118,7 @@ describe('agent-spawn-dispatch end to end', () => {
       exec(db, "INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');");
       let out = spawn();
       assert.ok(out.includes(DENY), 'deny decision emitted');
-      assert.ok(out.includes('task FAILs: 2 review FAILs on the task since its last pass'), 'rework-limit names the task-FAILs limit');
+      assert.ok(out.includes('task FAILs: 2 review FAILs on the task since its last passing review'),'rework-limit names the task-FAILs limit');
       assert.ok(out.includes('task_rework_analysis'), 'rework-limit names the analysis step');
       assert.ok(!out.includes('waive task'), 'the inner limit asks for no Human waiver');
       exec(db, "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');");

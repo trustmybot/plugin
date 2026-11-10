@@ -15,7 +15,7 @@
  * `waive task <N>`.
  *
  * Rework limit: from REWORK_FAIL_LIMIT review FAILs on the task since its
- * latest pass, the gate is an allowlist. It admits a spawn only when the
+ * last passing review, the gate is an allowlist. It admits a spawn only when the
  * task's latest analysis is newer than its latest FAIL and names a change in
  * SPAWN_ADMITTING_CHANGES that a row dated after that FAIL proves:
  *
@@ -148,7 +148,7 @@ const PROOF_NAMES: Readonly<Record<string, string>> = {
 /** Why the rework limit still holds, or null when it is clear: under the limit, or the latest analysis plus its proven change. */
 function reworkLimitHolds(state: ReworkState): string | null {
   if (state.taskFails < REWORK_FAIL_LIMIT) return null;
-  const count = `task FAILs: ${state.taskFails} review FAILs on the task since its last pass (limit ${REWORK_FAIL_LIMIT})`;
+  const count = `task FAILs: ${state.taskFails} review FAILs on the task since its last passing review (limit ${REWORK_FAIL_LIMIT})`;
   const latest = state.analyses.at(-1);
   if (latest === undefined || !newer(latest.created_at, state.lastFailAt)) {
     return `${count}, with no task_rework_analysis newer than the latest FAIL`;

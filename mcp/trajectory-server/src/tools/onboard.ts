@@ -598,7 +598,7 @@ function sandboxQuestion(
   };
   return {
     question:
-      "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
+      "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.network.allowLocalBinding, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
     header: 'Sandbox',
     multiSelect: false,
     ...assemble(keep, [no, yes], advice, 'no'),
@@ -758,7 +758,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     {
       name: 'onboard_apply',
       description:
-        'Persist /onboard answers in one transaction: derives pr_target + protected_branches from branching_model and writes the onboarded marker. Takes wire values or labels (case-insensitive); a Keep option omits its key.',
+        'Persist /onboard answers atomically: derives pr_target + protected_branches from branching_model, writes the onboarded marker. Takes wire values or labels, any case; a Keep answer (__keep__) keeps the stored value.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -806,7 +806,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['yes', 'no'],
             description:
-              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
+              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + network.allowLocalBinding for loopback servers such as /dashboard + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
           },
           bug_report_consent: {
             type: 'string',
@@ -1453,6 +1453,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
               ...(result.allowed_domains ? { allowed_domains: result.allowed_domains } : {}),
               ...(result.env ? { env: result.env } : {}),
               ...(result.weaker_network_isolation !== undefined ? { weaker_network_isolation: result.weaker_network_isolation } : {}),
+              ...(result.allow_local_binding !== undefined ? { allow_local_binding: result.allow_local_binding } : {}),
               ...(result.gitignore_appended !== undefined ? { gitignore_appended: result.gitignore_appended } : {}),
               ...(result.reason ? { reason: result.reason } : {}),
             };

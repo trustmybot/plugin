@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -274,6 +275,38 @@ describe('dashboard writes', () => {
 
     const big = `{"body":"${'a'.repeat(3 * 1024 * 1024)}"}\n`;
     expect('oversized POST receives the 413', await post(`api/issues/${E}/comment`, big), 413, 'body_too_large');
+    expect('a normal write after the 413 still lands', await post(`api/issues/${E}/comment`, '{"body":"after the 413"}'), 200);
+  });
+
+  test('a body over the drain cap gets its socket destroyed, no response', async () => {
+    const huge = `{"body":"${'a'.repeat(16 * 1024 * 1024)}"}\n`;
+    const outcome = await post(`api/issues/${ids.EDIT}/comment`, huge).then(
+      (res) => `HTTP ${res.status}`,
+      (err) => err.code,
+    );
+    assert.ok(['ECONNRESET', 'EPIPE'].includes(outcome), `over the drain cap: ${outcome}, want the connection reset or closed`);
+  });
+
+  test('a body still arriving at the drain timeout gets its socket destroyed, no response', async () => {
+    const socket = connect(Number(PORT), '127.0.0.1');
+    socket.on('error', noop);
+    let receivedBytes = 0;
+    socket.on('data', (d) => (receivedBytes += d.length));
+    let clientGaveUp = false;
+    const closed = new Promise((resolve) => socket.once('close', resolve));
+    socket.write(
+      `POST /api/issues/${ids.EDIT}/comment HTTP/1.1\r\nhost: 127.0.0.1:${PORT}\r\norigin: ${ORIGIN}\r\n` +
+        `x-tmb-token: ${TOKEN}\r\ncontent-type: application/json\r\ncontent-length: ${6 * 1024 * 1024}\r\n\r\n`,
+    );
+    socket.write('a'.repeat(3 * 1024 * 1024));
+    const giveUp = setTimeout(() => {
+      clientGaveUp = true;
+      socket.destroy();
+    }, 30_000);
+    await closed;
+    clearTimeout(giveUp);
+    assert.equal(clientGaveUp, false, 'the server never closed the stalled socket');
+    assert.equal(receivedBytes, 0, 'the stalled request got no response bytes');
   });
 
   test('schema version', async () => {
