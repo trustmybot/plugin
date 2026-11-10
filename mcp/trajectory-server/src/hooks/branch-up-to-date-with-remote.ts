@@ -15,7 +15,7 @@
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, stmtRepoRoot, unquotedCommand } from './cmd-analysis/index.js';
+import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, prefilterPasses, stmtRepoRoot } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -38,7 +38,7 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   if ((env.TMB_ALLOW_STALE_BRANCH ?? '') === '1') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (command === '' || (!unquotedCommand(command).includes('worktree') && !gitBesideExpansion(command))) return ALLOW;
+  if (command === '' || (!prefilterPasses(command, (text) => text.includes('worktree')) && !gitBesideExpansion(command))) return ALLOW;
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
