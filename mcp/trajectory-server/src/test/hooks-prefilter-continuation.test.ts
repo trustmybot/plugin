@@ -166,7 +166,7 @@ describe('the gates judge a keyword behind a line continuation or $\'…\' as th
           parsed.push(command);
           return cmdStatements(command, cwd, e);
         },
-        repoRoot: async () => '/repo',
+        repoRoot: () => Promise.resolve('/repo'),
         repoStamp: () => stamp,
         targetCommit: () => 'd'.repeat(40),
         launch: (args: readonly string[]) => {
