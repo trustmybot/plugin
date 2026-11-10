@@ -24,6 +24,7 @@ export {
   gitSubcommand,
   gitSubcommandOf,
   gitSubcommandUnknown,
+  prefilterPasses,
   stmtRepoRoot,
   unquotedCommand,
   withSource,
