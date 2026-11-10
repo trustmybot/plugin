@@ -15,8 +15,9 @@
  *   (h) Edit/Write after a recorded Bash deny on the path  → allow, audit hook_block_bypassed
  *   (i) Bash: git stash other than a literal list/show, a git
  *       subcommand not read literally, a command name not
- *       read literally, or a GIT_CONFIG_* variable beside
- *       git, for swe and code-reviewer (GH 2786, GH 2837)  → deny
+ *       read literally, a GIT_CONFIG_* variable beside git,
+ *       a shell alias definition or expand_aliases turned
+ *       on, for swe and code-reviewer (GH 2786, GH 2837)   → deny
  *
  * Deny messages, notes, audit rows and decisions are the .sh's, with two
  * exceptions, each stricter: a command tree-sitter-bash cannot parse is
@@ -95,6 +96,12 @@ export const SUBCOMMAND_FIX: DenyFix = {
 export const COMMAND_WORD_REASON =
   "BLOCKED: swe-boundary cannot read a statement's command name literally: it comes from an expansion, a command substitution or a glob pattern, so the guard cannot tell whether the statement runs git stash. Write the command name out literally.";
 export const COMMAND_WORD_FIX: DenyFix = { allowed: 'the same command with its command name written literally, e.g. git stash list' };
+export const ALIAS_REASON =
+  "BLOCKED: swe and code-reviewer may not define a shell alias (`alias NAME=…`, an entry of bash's BASH_ALIASES or zsh's aliases / galiases / saliases, or a variable declared under a name swe-boundary cannot read, which may be one): a later literal command name can then run git stash, and swe-boundary cannot read what the alias runs. A bare `alias` or `alias NAME` that only lists is allowed.";
+export const ALIAS_FIX: DenyFix = { allowed: 'the same command with each aliased command written out in full, e.g. git stash list' };
+export const EXPAND_ALIASES_REASON =
+  'BLOCKED: swe and code-reviewer may not turn on alias expansion (`shopt -s expand_aliases`, `bash -O expand_aliases`): an alias can then run git stash behind a literal command name swe-boundary cannot read. Other shopt options, and shopt -u / -p / -q, are allowed.';
+export const EXPAND_ALIASES_FIX: DenyFix = { allowed: 'the same command without enabling expand_aliases, each command written out in full' };
 const STASH_READS = new Set(['list', 'show']);
 const VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 const CONFIG_ENV = '--config-env=';
@@ -112,7 +119,20 @@ const GIT_CONFIG_NAME = /^GIT_CONFIG/;
 const GIT_WORD = /\bgit\b/;
 const OPERATOR = /[\s;&|()<>]+/;
 
-type Hidden = 'command-word' | 'git-config-env' | null;
+const ALIAS_TABLE = /^(BASH_ALIASES|aliases|galiases|saliases)(\[|=|$)/;
+const ALIAS_TABLE_ARGUMENT = /^(BASH_ALIASES(\[|=|$)|[gs]?aliases\[)/;
+const VARIABLE_WRITERS = /^(read|mapfile|readarray|printf|print|let|getopts|vared)$/;
+const SHOPT_SET = /^-[a-zA-Z]*s/;
+const EXPAND_ALIASES = 'expand_aliases';
+
+/** What a command hides, strongest first: the deny the stash rule picks when several apply. */
+const HIDDEN_RANK = ['command-word', 'alias', 'expand-aliases', 'unreadable-name', 'git-config-env'] as const;
+type Hidden = (typeof HIDDEN_RANK)[number] | null;
+
+function stronger(a: Hidden, b: Hidden): Hidden {
+  if (a === null || b === null) return a ?? b;
+  return HIDDEN_RANK.indexOf(a) <= HIDDEN_RANK.indexOf(b) ? a : b;
+}
 
 type RawWord = { raw: string; text: string };
 
@@ -275,44 +295,76 @@ function shellBody(words: readonly string[], nodes: readonly Node[], k: number):
   return null;
 }
 
-/** What a command node hides: a command name read from no literal word, a GIT_CONFIG_* variable it hands a wrapper or names as an argument, or either inside the shell code it runs. */
+/** Whether shopt arguments <args> may turn on expand_aliases: a set option beside that name, or a word it cannot read. */
+function shoptEnablesAliases(args: readonly string[]): boolean {
+  const sets = args.some((word) => word === NOT_LITERAL || SHOPT_SET.test(word));
+  return sets && args.some((word) => word === NOT_LITERAL || word === EXPAND_ALIASES);
+}
+
+/** Whether shell arguments <args> may turn on expand_aliases through `-O` / `+O`. */
+function shellEnablesAliases(args: readonly string[]): boolean {
+  return args.some((word, j) => word === '-O' && (args[j + 1] === EXPAND_ALIASES || args[j + 1] === NOT_LITERAL));
+}
+
+/** What the command at <k> of <words> does to shell aliases: defines one, writes an alias table or a variable it cannot name, or may turn alias expansion on. */
+function aliasingCommand(words: readonly string[], k: number): Hidden {
+  const args = words.slice(k + 1);
+  if (words[k] === 'alias' && args.some((word) => word === NOT_LITERAL || word.includes('='))) return 'alias';
+  if (VARIABLE_WRITERS.test(words[k]) && args.some((word) => ALIAS_TABLE_ARGUMENT.test(word))) return 'alias';
+  if (/^print(f)?$/.test(words[k]) && args.some((word, j) => word === '-v' && args[j + 1] === NOT_LITERAL)) return 'unreadable-name';
+  if (words[k] === 'shopt' && shoptEnablesAliases(args)) return 'expand-aliases';
+  if (SHELL_WORD.test(words[k]) && shellEnablesAliases(args)) return 'expand-aliases';
+  return null;
+}
+
+/** What a command node hides: a command name read from no literal word, a shell alias it defines or lets expand, a GIT_CONFIG_* variable it hands a wrapper or names as an argument, or any of them inside the shell code it runs. */
 function commandHidden(command: Node, parser: Parser, depth: number): Hidden {
   const name = command.childForFieldName('name')?.firstNamedChild;
   if (!name) return null;
   const nodes = [name, ...command.childrenForFieldName('argument').filter((node): node is Node => node !== null)];
   const words = nodes.map((node) => literalWord(node) ?? NOT_LITERAL);
-  const { k } = unwrap(words, 0);
+  let { k } = unwrap(words, 0);
+  while (words[k] === 'builtin') k++;
   if (k >= words.length) return null;
   if (words[k] === NOT_LITERAL) return 'command-word';
+  const aliasing = aliasingCommand(words, k);
+  if (aliasing) return aliasing;
   const body = shellBody(words, nodes, k);
   const inner = body === null ? null : body === NOT_LITERAL || depth >= MAX_BODY_DEPTH ? 'command-word' : hiddenInSource(body, parser, depth + 1);
-  if (inner === 'command-word') return inner;
   const isGit = words[k] === 'git' || PATH_GIT.test(words[k]);
   const named = words.slice(0, k).some((word) => GIT_CONFIG_NAME.test(word)) || (!isGit && words.slice(k + 1).some((word) => GIT_CONFIG_NAME.test(word)));
-  return inner ?? (named ? 'git-config-env' : null);
+  return stronger(inner, named ? 'git-config-env' : null);
 }
 
-/** Whether an export / declare / local / readonly / typeset names a GIT_CONFIG_* variable, or a variable it cannot read literally. */
+/** What an export / declare / local / readonly / typeset hides: an alias table entry, a GIT_CONFIG_* variable, or a variable it cannot read literally. */
 function declarationHidden(declaration: Node): Hidden {
+  let found: Hidden = null;
   for (const child of declaration.namedChildren) {
     if (child === null || child.type === 'variable_assignment') continue;
     const word = literalWord(child);
-    if (word === null || GIT_CONFIG_NAME.test(word)) return 'git-config-env';
+    if (word === null) found = stronger(found, 'unreadable-name');
+    else if (ALIAS_TABLE.test(word)) found = stronger(found, 'alias');
+    else if (GIT_CONFIG_NAME.test(word)) found = stronger(found, 'git-config-env');
   }
-  return null;
+  return found;
 }
 
-/** What the commands, declarations and assignments under <root> hide, a non-literal command name first. */
+/** What a variable assignment hides: an alias table entry, or a GIT_CONFIG_* variable. */
+function assignmentHidden(assignment: Node): Hidden {
+  const name = assignment.childForFieldName('name')?.text ?? '';
+  if (ALIAS_TABLE.test(name)) return 'alias';
+  return GIT_CONFIG_NAME.test(name) ? 'git-config-env' : null;
+}
+
+/** The strongest of what the commands, declarations and assignments under <root> hide. */
 function hiddenInTree(root: Node, parser: Parser, depth: number): Hidden {
   let found: Hidden = null;
   for (const node of root.descendantsOfType(['command', 'declaration_command', 'variable_assignment'])) {
     if (node === null) continue;
-    let verdict: Hidden;
-    if (node.type === 'command') verdict = commandHidden(node, parser, depth);
-    else if (node.type === 'declaration_command') verdict = declarationHidden(node);
-    else verdict = GIT_CONFIG_NAME.test(node.childForFieldName('name')?.text ?? '') ? 'git-config-env' : null;
-    if (verdict === 'command-word') return verdict;
-    found ??= verdict;
+    if (node.type === 'command') found = stronger(found, commandHidden(node, parser, depth));
+    else if (node.type === 'declaration_command') found = stronger(found, declarationHidden(node));
+    else found = stronger(found, assignmentHidden(node));
+    if (found === 'command-word') return found;
   }
   return found;
 }
@@ -360,15 +412,22 @@ function patternMayRunGit(command: string): boolean {
 /**
  * The stash rule's deny for what the statement listing cannot show (GH
  * 2837): a command name from an expansion, a substitution or a
- * pattern, which may be git, and, beside a git word, a GIT_CONFIG_*
- * variable set or named in the command, which may define an alias. <listed>
- * false: the analyzer could not list <command>, so a pattern word that may
- * match git counts too, tree-sitter's read of it being unreliable.
+ * pattern, which may be git; a shell alias the command defines or lets
+ * expand, after which a literal name may run git stash; and, beside a git
+ * word, a GIT_CONFIG_* variable set or named in the command, which may
+ * define a git alias. A variable written under a name it cannot read may be
+ * either, so it is denied as the one the command's git word points to.
+ * <listed> false: the analyzer could not list <command>, so a pattern word
+ * that may match git counts too, tree-sitter's read of it being unreliable.
  */
 async function hiddenCommandDeny(command: string, listed: boolean): Promise<GateResult | null> {
   const verdict = hiddenInSource(command, await bashParser(), 0);
   if (verdict === 'command-word' || (!listed && patternMayRunGit(command))) return deny(COMMAND_WORD_REASON, COMMAND_WORD_FIX);
-  if (verdict === 'git-config-env' && GIT_WORD.test(unquotedCommand(command))) return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
+  if (verdict === 'alias') return deny(ALIAS_REASON, ALIAS_FIX);
+  if (verdict === 'expand-aliases') return deny(EXPAND_ALIASES_REASON, EXPAND_ALIASES_FIX);
+  const besideGit = GIT_WORD.test(unquotedCommand(command));
+  if ((verdict === 'git-config-env' || verdict === 'unreadable-name') && besideGit) return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
+  if (verdict === 'unreadable-name') return deny(ALIAS_REASON, ALIAS_FIX);
   return null;
 }
 

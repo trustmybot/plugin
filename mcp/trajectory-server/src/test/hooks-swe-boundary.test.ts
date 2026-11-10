@@ -22,7 +22,11 @@ import { ambiguousSubcommandReason, CAP_FIX, CAP_REASON, cmdStatements, ghMutati
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
 import {
+  ALIAS_FIX,
+  ALIAS_REASON as ALIAS_TEXT,
   COMMAND_WORD_FIX,
+  EXPAND_ALIASES_FIX,
+  EXPAND_ALIASES_REASON as EXPAND_ALIASES_TEXT,
   COMMAND_WORD_REASON as COMMAND_WORD_TEXT,
   GATE_NAME,
   PARSE_FIX,
@@ -39,6 +43,8 @@ const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const STASH_REASON = fixedReason(STASH_TEXT, STASH_FIX);
 const SUBCOMMAND_REASON = fixedReason(SUBCOMMAND_TEXT, SUBCOMMAND_FIX);
 const COMMAND_WORD_REASON = fixedReason(COMMAND_WORD_TEXT, COMMAND_WORD_FIX);
+const ALIAS_REASON = fixedReason(ALIAS_TEXT, ALIAS_FIX);
+const EXPAND_ALIASES_REASON = fixedReason(EXPAND_ALIASES_TEXT, EXPAND_ALIASES_FIX);
 const STASH_WRITES = [
   'git stash',
   'git stash push -m x',
@@ -116,6 +122,31 @@ const HIDDEN_COMMAND_WORDS = [
   "$'g\\x69t' stash pop",
 ];
 const PATTERN_COMMAND_WORDS = ['g?t stash pop', '{git,x} stash pop'];
+const ALIAS_DEFINITIONS = [
+  "shopt -s expand_aliases\nalias g='git stash'\ng pop",
+  "shopt -s expand_aliases; alias gsp='git stash pop'\ngsp",
+  'shopt -s expand_aliases\nalias g=git\ng stash drop',
+  'shopt -s expand_aliases\nx=git; alias g="$x stash"\ng pop',
+  "alias g='git stash'",
+  'alias g=git',
+  "alias -- 'g=git stash'",
+  "alias ll='ls -l' g='git stash'",
+  'alias "$x"',
+  "builtin alias g='git stash'",
+  "command alias g='git stash'",
+  "eval \"alias g='git stash'\"",
+  "bash -c \"alias g='git stash'\"",
+  "BASH_ALIASES[g]='git stash'",
+  "BASH_ALIASES=([g]='git stash')",
+  "declare 'BASH_ALIASES[g]=git stash'",
+  "aliases[g]='git stash'",
+  "read 'BASH_ALIASES[g]' <<< 'git stash'",
+  "printf -v 'BASH_ALIASES[g]' 'git stash'",
+  'printf -v "$n" x',
+  'declare "$n"',
+];
+const EXPAND_ALIASES_ENABLES = ['shopt -s expand_aliases', 'shopt -qs expand_aliases', 'shopt -s nullglob expand_aliases', 'shopt -s $opt', 'bash -O expand_aliases -c "g pop"', 'builtin shopt -s expand_aliases'];
+const ALIAS_READS = ['alias', 'alias -p', 'alias g', 'shopt -s nullglob', 'shopt -u expand_aliases', 'shopt expand_aliases', 'shopt -p', 'echo aliases', 'grep -rn BASH_ALIASES src', 'printf %s "$x"'];
 const LITERAL_COMMANDS = ['ls *.ts', 'echo $HOME', "'ls' -la", '[ -f x ] && git log', "bash -c 'git status'", 'grep -rn GIT_CONFIG_COUNT src', 'git grep GIT_CONFIG_COUNT'];
 const LITERAL_GIT = ['git status', 'git -C x log', 'git log -1', 'git -c user.name=$NAME log -1', 'git log --format=x $(cat f)'];
 const STASH_ROLES = ['tmb:swe', 'tmb:code-reviewer'];
@@ -320,6 +351,34 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
       for (const command of PATTERN_COMMAND_WORDS) {
         const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
         assert.equal(decision(r.stdout)?.permissionDecisionReason, reasons[agent_type], `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies a shell alias definition, an alias table write or a variable it cannot name for swe and code-reviewer with ALIAS_REASON (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of ALIAS_DEFINITIONS) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, ALIAS_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies turning on expand_aliases for swe and code-reviewer with EXPAND_ALIASES_REASON (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of EXPAND_ALIASES_ENABLES) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, EXPAND_ALIASES_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('admits a listing alias, other shopt options and words that only name an alias table for swe and code-reviewer (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of ALIAS_READS) {
+        assert.deepEqual(await sweBoundary(payload('Bash', { command }, { agent_type }), env), { stdout: '', code: 0 }, `${agent_type}: ${command}`);
       }
     }
   });
