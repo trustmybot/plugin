@@ -1,23 +1,15 @@
 // L1 lint: typescript-eslint (recommendedTypeChecked) passes on the MCP server and dashboard against the eslint-suppressions.json baseline.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { makeFixtureDir } from './eslint-fixture-dir.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ESLINT = join(ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const skip = existsSync(ESLINT) ? false : "eslint not installed — run 'bun install' first";
-
-function makeFixtureDir() {
-  const dir = mkdtempSync(join(ROOT, 'mcp', 'trajectory-server', 'src', 'eslint-fixture-'));
-  writeFileSync(
-    join(dir, 'tsconfig.json'),
-    JSON.stringify({ extends: '../../tsconfig.json', compilerOptions: { rootDir: '.' }, include: ['*.ts'], exclude: [] }),
-  );
-  return dir;
-}
 
 function runEslint(args) {
   try {
