@@ -21,8 +21,8 @@ import {
   gitBesideExpansion,
   gitSubcommandOf,
   payloadCwd,
+  prefilterPasses,
   stmtRepoRoot,
-  unquotedCommand,
 } from './cmd-analysis/index.js';
 import { DB_RETRY_FIX, dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
@@ -311,8 +311,8 @@ class Guard {
 
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  const bare = unquotedCommand(command);
-  if (!bare.includes('push') && !gitBesideExpansion(command) && !(GIT_WORD.test(bare) && XARGS.test(bare))) return ALLOW;
+  const pushOrXargsGit = (text: string): boolean => text.includes('push') || (GIT_WORD.test(text) && XARGS.test(text));
+  if (!prefilterPasses(command, pushOrXargsGit) && !gitBesideExpansion(command)) return ALLOW;
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);

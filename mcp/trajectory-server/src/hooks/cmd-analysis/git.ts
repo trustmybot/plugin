@@ -322,6 +322,16 @@ export function unquotedCommand(command: string): string {
 }
 
 /**
+ * Whether a keyword prefilter must hand <command> to the analyzer: <command>
+ * holds a `$'…'` word, whose bytes only parsing decodes, or <hasKeyword> holds
+ * on <command> as written or on unquotedCommand(<command>), so a keyword split
+ * by a line continuation or quotes is not missed (GH 2758).
+ */
+export function prefilterPasses(command: string, hasKeyword: (text: string) => boolean): boolean {
+  return command.includes("$'") || hasKeyword(command) || hasKeyword(unquotedCommand(command));
+}
+
+/**
  * Whether <command>, unquoted, holds a git word and an expansion, a pattern
  * or an encoded byte: a command a keyword prefilter must hand to parsing,
  * since only gitSubcommandOf can tell what its git statements run (GH 2634,
