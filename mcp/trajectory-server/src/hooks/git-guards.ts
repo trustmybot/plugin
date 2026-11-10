@@ -505,6 +505,8 @@ class GitGuards {
     if (!await this.loadPolicy(await stmtRepoRoot(dir, this.cwd, this.env))) return;
 
     if (sub === undefined) {
+      // A dir that may name any checkout is the deny to fix first, as for a literal subcommand (GH 2510).
+      this.needDir(dir, stmt, unresolved);
       const what = typeof statement === 'string' ? statement : (statement.src ?? statement.stmt);
       throw deny(ambiguousSubcommandReason(what, 'commits, merges, rebases, cherry-picks, pushes or creates a branch'), UNKNOWN_FIX);
     }

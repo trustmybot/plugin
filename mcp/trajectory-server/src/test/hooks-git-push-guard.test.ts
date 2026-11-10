@@ -8,7 +8,8 @@
  * The rebased-commit deny names cli.js integrate where the .sh named its
  * shell script (decision 703, GH 1692). git is git by its basename, read past
  * its known global options (GH 2647), and an unquoted expansion in `-C`'s
- * value leaves the subcommand unknown (GH 2643). A push split by a
+ * value leaves the subcommand unknown (GH 2643) unless it resolves to a
+ * literal assignment bash cannot split or glob. A push split by a
  * backslash-newline (GH 2646) or spelled with `$'…'` escapes (GH 2640) is read
  * as bash joins and decodes it; an escape whose result is unknown denies.
  */
@@ -232,7 +233,15 @@ describe('git-push-guard: GH 2643 an unquoted expansion in git -C may split into
   });
   after(() => rmSync(dir, { recursive: true, force: true }));
 
-  for (const command of ["W='/x push'; git -C $W status", 'git -C $(echo /x push) status'])
+  for (const command of [
+    "W='/x push'; git -C $W status",
+    'git -C $(echo /x push) status',
+    'git -C $W status',
+    'W=; git -C $W status',
+    'W=/x*; git -C $W status',
+    'W=/x{a,b}; git -C $W status',
+    'W=$(echo /x); git -C $W status',
+  ])
     it(`${command}: from a worktree cwd gets the ambiguous-subcommand deny`, async () => {
       assert.match(reason((await gitPushGuard(payload(command, wt), env)).stdout), /^BLOCKED: ambiguous_git_subcommand: /);
     });
@@ -244,6 +253,15 @@ describe('git-push-guard: GH 2643 an unquoted expansion in git -C may split into
 
   it('W=/x; git -C "$W" status: from a worktree cwd is allowed', async () => {
     assert.equal(reason((await gitPushGuard(payload('W=/x; git -C "$W" status', wt), env)).stdout), '');
+  });
+
+  for (const command of ['W=/x; git -C $W status', 'W=/x; git -C ${W} status', 'W=/x; git --git-dir=$W/.git status'])
+    it(`${command}: a literal one-word assignment bash cannot split is allowed from a worktree cwd`, async () => {
+      assert.equal(reason((await gitPushGuard(payload(command, wt), env)).stdout), '');
+    });
+
+  it('W=<worktree>; git -C $W push: a literal one-word assignment is judged as the push it is', async () => {
+    assert.match(reason((await gitPushGuard(payload(`W=${wt}; git -C $W push origin dev`, wt), env)).stdout), /push from \.claude\/worktrees\/ is forbidden/);
   });
 });
 

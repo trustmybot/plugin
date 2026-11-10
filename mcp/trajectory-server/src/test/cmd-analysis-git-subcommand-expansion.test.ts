@@ -5,8 +5,9 @@
  * `git "$@"`, `git ${p}sh`, `git $(echo push)`), a brace or glob pattern, or
  * a redirect leaves the subcommand unknown, and the guard denies it. An
  * expansion in a value-taking option's argument leaves it known only inside
- * double quotes: bash splits an unquoted one into words that can move the
- * subcommand (GH 2643). An option word before the subcommand that is none of
+ * double quotes, or where it resolves to a literal assignment with no blank,
+ * glob, brace or quote character: bash splits any other unquoted one into
+ * words that can move the subcommand (GH 2643). An option word before the subcommand that is none of
  * git's known global options leaves it unknown too (GH 2647).
  */
 import { describe, it } from 'node:test';
@@ -125,6 +126,12 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
         'git -C "${W}" status',
         `W=${dir}; git -C "$W" status`,
         'W=/x; git -C "$W" status',
+        `W=${dir}; git -C $W status`,
+        'W=/x; git -C $W status',
+        'W=/x; git -C ${W} status',
+        'W=/x; V=/y; git -C $W$V status',
+        'W=/x; git --git-dir=$W/.git status',
+        'W=/x; git -c core.pager=$W log',
         'git -C "$X" -C "$W" status',
         'git --git-dir "$G" log',
         'git --git-dir="$G" log',
@@ -143,7 +150,7 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
   });
 
   it('denies an unquoted expansion in a value-taking option argument, which bash may split into the subcommand (GH 2643)', async () => {
-    await withGuard(async (run, dir) => {
+    await withGuard(async (run) => {
       for (const command of [
         "W='/x push'; git -C $W status",
         'git -C $(echo /x push) status',
@@ -151,7 +158,18 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
         'git -C $W diff --stat a b',
         'for f in a b; do git -C $f status; done',
         'git -C ${W} status',
-        `W=${dir}; git -C $W status`,
+        'W=; git -C $W status',
+        "W=''; git -C $W status",
+        'W="/x push"; git -C $W status',
+        "W=/x; W=/y' 'push; git -C $W status",
+        'W=/x*; git -C $W status',
+        'W=/x{a,b}; git -C $W status',
+        `W="/x'"; git -C $W status`,
+        'W=$(echo /x); git -C $W status',
+        'W=/x; read W; git -C $W status',
+        "W=/x; for W in '/y push'; do git -C $W status; done",
+        "W=/x; f() { W='/y push'; }; f; git -C $W status",
+        'W=/x; git -C $W$V status',
         'git -C "$X" -C $W status',
         'git -C "$W"$X status',
         'git -C $W log $(cat ref)',
@@ -177,6 +195,7 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
       assert.match(await run('git -C "$W" push origin HEAD'), TARGET);
       assert.match(await run('git -C "$(pwd)" push origin dev'), TARGET);
       assert.match(await run(`W=${wt}; git -C "$W" push origin HEAD`), WORKTREE);
+      assert.match(await run(`W=${wt}; git -C $W push origin HEAD`), WORKTREE);
       assert.match(await run('git --git-dir="$(pwd)/.git" push origin dev'), WORKTREE);
       assert.match(await run('git -c "user.name=$n" push origin dev'), WORKTREE);
       assert.equal(await run(`cd ${dir}; git push --force origin dev`), '');
@@ -185,7 +204,7 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
 
   it('an unquoted expansion in an option argument before a literal push leaves the subcommand unknown', async () => {
     await withGuard(async (run, _dir, wt) => {
-      for (const command of ['git -C $W push', 'git -C $(pwd) push origin dev', `W=${wt}; git -C $W push origin HEAD`, 'git --git-dir=$(pwd)/.git push origin dev']) {
+      for (const command of ['git -C $W push', 'git -C $(pwd) push origin dev', `W="${wt} x"; git -C $W push origin HEAD`, 'git --git-dir=$(pwd)/.git push origin dev']) {
         assert.match(await run(command), UNKNOWN, command);
       }
     });
@@ -247,6 +266,11 @@ describe('git-push-guard denies a git statement whose subcommand is an expansion
     assert.deepEqual(await subsOf('git -C "$(pwd)" push origin'), ['', 'push origin']);
     assert.deepEqual(await subsOf("W='/x push'; git -C $W status"), [undefined]);
     assert.deepEqual(await subsOf('W=/x; git -C "$W" status'), ['status']);
+    assert.deepEqual(await subsOf('W=/x; git -C $W status'), ['status']);
+    assert.deepEqual(await subsOf('W=; git -C $W status'), [undefined]);
+    assert.deepEqual(await subsOf('W=/x; git -C $W$(echo) status'), [undefined, '', '']);
+    assert.equal(gitSubcommandOf({ stmt: 'git -C $W status', literals: ['$W'] }), 'status');
+    assert.equal(gitSubcommandOf({ stmt: 'git -C $W status', literals: ['$V'] }), undefined);
     assert.deepEqual(await subsOf('git -C $(echo /x push) status'), [undefined, '', '']);
     assert.ok((await subsOf('x=$(git $(echo push))')).includes(undefined));
   });

@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode } from './encode.js';
 import { bashParser } from './parser.js';
-import { ALT, GIT_ARGV0, GIT_VALUE_OPTION, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
+import { ALT, GIT_ARGV0, GIT_VALUE_JOINED, GIT_VALUE_OPTION, LOOP_CLOSE, LOOP_OPEN, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536). */
 export type Statement = Record & { readonly src?: string };
@@ -145,14 +145,14 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
   const out: Statement[] = [];
   const records = statementsEnc(encoded.text, base, home, false, NO_CHARGE, escaped ? 'escaped' : 'calls')
     .filter((record) => record.dir !== LOOP_OPEN && record.dir !== LOOP_CLOSE)
-    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), ...(record.cut ? { cut: record.cut } : {}) }))
+    .map((record) => ({ dir: record.dir, stmt: readStmt(record.stmt), ...(record.cut ? { cut: record.cut } : {}), ...(record.literals ? { literals: record.literals } : {}) }))
     .filter((record) => record.stmt !== '');
   let srcs: Array<string | undefined> | undefined;
   const srcAt = (k: number): string | undefined => (srcs ??= sources(parser, cmd, home, records.map((record) => record.stmt)))[k];
-  for (const [k, { dir, stmt, cut }] of records.entries()) {
+  for (const [k, { dir, stmt, cut, literals }] of records.entries()) {
     const body = depth < MAX_DEPTH && !dir.startsWith('=') ? inner(stmt) : '';
     if (body === '') {
-      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}) }, () => srcAt(k)));
+      for (const one of dir.split(ALT)) out.push(withSource({ dir: one, stmt, ...(cut ? { cut } : {}), ...(literals ? { literals } : {}) }, () => srcAt(k)));
       continue;
     }
     const nested = listing(parser, decode(body).replace(/\n+$/, ''), dir, depth + 1, home, readWords(stmt)[0] === 'eval');
@@ -201,7 +201,7 @@ export async function cmdStatements(command: string, cwd: string, env: NodeJS.Pr
     if (dir.startsWith('@/')) dir = isDir(cwd) ? `${cwd.replace(/\/$/, '')}${dir.slice(1)}` : '-';
     else if (dir === '@') dir = state ??= await cwdState(cwd, env);
     const stmt = entry.stmt.replace(HD_MARK, '<<').replace(ENCODED, '_');
-    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}) }, () => entry.src));
+    statements.push(withSource({ dir, stmt, ...(entry.cut ? { cut: entry.cut } : {}), ...(entry.literals ? { literals: entry.literals } : {}) }, () => entry.src));
   }
   return { ok: true, statements };
 }
@@ -238,15 +238,13 @@ const FLAG_OPTIONS = new Set([
   '--help',
   '--exec-path',
 ]);
-/** An option and its value in one word, which cannot take the next word. */
-const VALUE_JOINED = /^--[a-z][a-z0-9-]*=/;
 /** A word bash may turn into other words (a parameter, command or arithmetic expansion, a brace or glob pattern), or a redirect, which leaves git's words. */
 const NOT_LITERAL = /[$`*?[{]|^[0-9]*[<>]|^&>/;
 /** The same for a value-taking option's argument, where an expansion is judged by its source instead: inside double quotes it cannot move the subcommand. */
 const NOT_LITERAL_VALUE = /[*?[]|(^|[^$]){|^[0-9]*[<>]|^&>/;
 const EXPANSION = /[$`]/;
 
-type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src'>>);
+type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statement, 'cut' | 'src' | 'literals'>>);
 
 /**
  * git's subcommand in <statement> and the words after it, as gitSubcommand
@@ -257,7 +255,8 @@ type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statemen
  * `=value` of an `--opt=value` word) is unknown when it is a pattern or a
  * redirect, or holds an expansion its `src` does not show inside double
  * quotes, since bash splits an unquoted one into words that can move the
- * subcommand (GH 2643). Where an unquoted $( ) or backtick cut the statement
+ * subcommand (GH 2643), unless the listing resolved it to one literal word
+ * (`literals`). Where an unquoted $( ) or backtick cut the statement
  * inside that span, the words are read from its `src`. `src` is read only
  * when needed, and one that is missing or does not line up leaves it unknown.
  */
@@ -279,26 +278,27 @@ export function gitSubcommandOf(statement: SubcommandInput): string | undefined 
     if (read === null) return undefined;
     w = read.map((word) => word.text);
   }
-  const k = subcommandSpan(w, (j) => aligned()?.[j]?.bare ?? true);
+  const literals = typeof statement === 'string' ? [] : (statement.literals ?? []);
+  const k = subcommandSpan(w, (v, j) => !literals.includes(v) && (aligned()?.[j]?.bare ?? true));
   return k === undefined ? undefined : k < w.length ? w.slice(k).join(' ') : '';
 }
 
 /**
  * The index of git's subcommand in its words <w> when every word before it is
  * one of git's known global options and literal, else undefined; a
- * value-taking option's argument at index j that holds an expansion counts
- * only when <bare>(j) says no unquoted one is in it.
+ * value-taking option's argument <v> in word j that holds an expansion counts
+ * only when <splits>(v, j) says bash cannot split it into more words.
  */
-function subcommandSpan(w: readonly string[], bare: (j: number) => boolean): number | undefined {
-  const value = (v: string, j: number): boolean => !NOT_LITERAL_VALUE.test(v) && (!EXPANSION.test(v) || !bare(j));
+function subcommandSpan(w: readonly string[], splits: (v: string, j: number) => boolean): number | undefined {
+  const value = (v: string, j: number): boolean => !NOT_LITERAL_VALUE.test(v) && (!EXPANSION.test(v) || !splits(v, j));
   let k = 1;
   while (k < w.length) {
     const word = w[k];
     if (GIT_VALUE_OPTION.has(word)) {
       if (k + 1 < w.length && !value(w[k + 1], k + 1)) return undefined;
       k += 2;
-    } else if (VALUE_JOINED.test(word)) {
-      if (!value(word.replace(VALUE_JOINED, ''), k)) return undefined;
+    } else if (GIT_VALUE_JOINED.test(word)) {
+      if (!value(word.replace(GIT_VALUE_JOINED, ''), k)) return undefined;
       k += 1;
     } else if (FLAG_OPTIONS.has(word)) {
       k += 1;
