@@ -1,10 +1,11 @@
 /**
  * PostToolUse(Bash) hook (GH 2584): after a command whose statements run
- * `git fetch`, `git pull`, `git push`, `gh pr merge` or `glab mr merge`, each
- * touched repo whose repos.indexed_commit is not the commit its index target
- * (origin/<target branch>, else HEAD) resolves to gets a detached
- * `run-scan.mjs <root> hook <repo>` child that reindexes it with trigger
- * 'hook'. A forge merge moves the remote only, so its child fetches
+ * `git fetch`, `git pull`, `git push`, `git merge`, `git rebase`, `git reset`,
+ * `git checkout`, `git switch`, `gh pr merge`, `glab mr merge` or
+ * `gh repo sync`, each touched repo whose repos.indexed_commit is not the
+ * commit its index target (origin/<target branch>, else HEAD) resolves to gets
+ * a detached `run-scan.mjs <root> hook <repo>` child that reindexes it with
+ * trigger 'hook'. A forge command moves the remote only, so its child fetches
  * origin/<target branch> first (`--fetch`), unless the role is swe or
  * code-reviewer. Heredoc bodies and quoted text never match; any other command
  * exits before any git or DB call.
@@ -27,8 +28,9 @@ import { payloadCwdOf } from './lib/statement-rows.js';
 
 export const GATE_NAME = 'ref-move-reindex';
 
-const MAY_MOVE = /\b(fetch|pull|push|merge)\b/;
-const GIT_MOVES = new Set(['fetch', 'pull', 'push']);
+const MAY_MOVE = /\b(fetch|pull|push|merge|rebase|reset|checkout|switch|sync)\b/;
+const GIT_MOVES = new Set(['fetch', 'pull', 'push', 'merge', 'rebase', 'reset', 'checkout', 'switch']);
+const FORGE_MOVES = new Set(['gh pr merge', 'glab mr merge', 'gh repo sync']);
 const NO_FETCH_ROLES = new Set(['swe', CODE_REVIEWER_ROLE]);
 
 export interface RepoStamp {
@@ -51,8 +53,7 @@ export function moveOf(stmt: string): Move | null {
   const sub = gitSubcommand(stmt).split(' ')[0] ?? '';
   if (GIT_MOVES.has(sub)) return 'git';
   const [a, b, c] = stmt.split(/\s+/);
-  if (c === 'merge' && ((a === 'gh' && b === 'pr') || (a === 'glab' && b === 'mr'))) return 'forge';
-  return null;
+  return FORGE_MOVES.has(`${a} ${b} ${c}`) ? 'forge' : null;
 }
 
 function readRepoStamp(db: string, root: string, env: NodeJS.ProcessEnv): RepoStamp | null {
