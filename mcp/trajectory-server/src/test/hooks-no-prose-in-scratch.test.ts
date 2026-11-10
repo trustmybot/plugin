@@ -84,12 +84,15 @@ describe('no-prose-in-scratch', () => {
       assert.match(await write('.claude/tmb/scratch/plan.md'), /^BLOCKED/);
     });
 
-    it('name every trajectory tool and send command output to a .log file', async () => {
+    it('route bro to the trajectory DB, swe and code-reviewer to the final report, command output to a .log file', async () => {
       const text = await write(join(tmp, 'x.md'));
-      for (const name of ['issue_create', 'issue_update_description', 'discussion_append', 'decision', 'analysis', 'note', 'task_update_spec', 'task_create_batch']) {
-        assert.ok(text.includes(name), name);
-      }
-      assert.match(text, /or the same write to a \.log file for command output$/);
+      assert.ok(
+        text.includes(
+          'bro records prose in the trajectory DB (issue_create, issue_update_description, discussion_append, task_update_spec). swe or code-reviewer: put the text in your final report instead.',
+        ),
+        text,
+      );
+      assert.match(text, /Allowed form: bro: one of those trajectory DB calls; swe or code-reviewer: the final report; for command output, the same write to a \.log file$/);
     });
 
     it('allow what is not prose in a zone', async () => {

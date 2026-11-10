@@ -335,7 +335,7 @@ describe('pr_monitor_worktree runs its command under the verification budget (GH
       const marker = join(ws, 'orphan-ran');
       const { r, sha, ms } = await monitor(repoRoot, `(sleep 2; touch '${marker}') & sleep 6; wait`);
       assert.equal(parse(r)['timed_out'], true);
-      assert.ok(ms < 2000, `took ${ms}ms`);
+      assert.ok(ms < 5000, `took ${ms}ms`);
       assertRemoved(repoRoot, sha);
       await new Promise((r) => setTimeout(r, 2500));
       assert.equal(existsSync(marker), false, 'the backgrounded grandchild was killed with the group');

@@ -155,6 +155,16 @@ const SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias: string): string =>
 
 export const REVIEW_GRACE_HOURS_DEFAULT = 24;
 
+const UNREVIEWED_CLOSED_TASK = (alias: string): string =>
+  `${alias}.status = 'closed' AND ${ts(`${alias}.updated_at`)} >= ${daysAgo(30)}
+               AND ${ts(`${alias}.updated_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = ${alias}.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
+                                AND ${auditTaskId('a')} = ${alias}.id)`;
+
+// NULL is a task closed before v66 or outside any mode: it reads as truest.
+const NOT_AGILE_TASK = (alias: string): string => `COALESCE(${alias}.workflow_mode, 'truest') <> 'agile'`;
+
 // A run's commit_sha is the full HEAD the gate tested; tasks.commit_sha may be
 // the short form task_update_status was given.
 const runMatchesTaskCommit = (run: string, task: string): string =>
@@ -379,20 +389,26 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'closed_tasks_reviewed',
       severity: 'error',
-      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
+      min_schema: 66,
+      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at). Tasks closed under workflow_mode agile are counted by agile_review_queued instead',
       sql: `SELECT COUNT(*) FROM tasks t
-             WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
-               AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
-               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
-                                AND ${auditTaskId('a')} = t.id)`,
+             WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND ${NOT_AGILE_TASK('t')}`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
-             WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
-               AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
-               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
-                                AND ${auditTaskId('a')} = t.id)
+             WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND ${NOT_AGILE_TASK('t')}
+             ORDER BY t.id DESC LIMIT 5`,
+      params: [{ name: 'grace_hours', env: 'TMB_REVIEW_GRACE_HOURS', default: REVIEW_GRACE_HOURS_DEFAULT }],
+    },
+    {
+      id: 'agile_review_queued',
+      severity: 'warn',
+      min_schema: 66,
+      description: 'tasks closed under workflow_mode agile in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago with no passing code-reviewer verdict, bro-written review_gate_waived row, or review_gate_bypassed row from bro or hook:close-issue-on-merge; the observed value is the size of the queued-review backlog',
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND t.workflow_mode = 'agile'`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
+             WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND t.workflow_mode = 'agile'
              ORDER BY t.id DESC LIMIT 5`,
       params: [{ name: 'grace_hours', env: 'TMB_REVIEW_GRACE_HOURS', default: REVIEW_GRACE_HOURS_DEFAULT }],
     },

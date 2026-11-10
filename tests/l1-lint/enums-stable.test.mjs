@@ -5,8 +5,7 @@
 //
 //   code → doc  every value found in mcp/trajectory-server/src/ (the schema.sql
 //               CHECK lists and the literals written or compared) and scripts/
-//               (including the event types hooks pass to tmb_audit_append /
-//               tmb_audit_sql) is a documented value.
+//               (.mjs, .js and .sql) is a documented value.
 //   doc → code  every documented value appears in that code, unless its row is
 //               marked `reserved`.
 //
@@ -95,7 +94,7 @@ function codeFiles(root) {
     );
   }
   if (existsSync(scripts)) {
-    files.push(...walkFiles(scripts, (_path, name) => /\.(sh|mjs|js|sql)$/.test(name) && name !== 'audit-events.txt'));
+    files.push(...walkFiles(scripts, (_path, name) => /\.(mjs|js|sql)$/.test(name) && name !== 'audit-events.txt'));
   }
   return files.sort();
 }

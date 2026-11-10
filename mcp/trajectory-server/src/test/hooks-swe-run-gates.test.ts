@@ -273,15 +273,14 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
     const none = hint(postTaskCreateSpawnHint(payload, env({ TRAJECTORY_DB_PATH: join(s, 'none.db') })).stdout);
     assert.ok(none.includes('task_id=11 branch_id=feat/unbriefed worktree=unresolved (no trajectory DB)'));
   });
-  it('post-task-create-spawn-hint pre-creates the worktree through the node worktree-create gate (decision 703)', () => {
+  it('post-task-create-spawn-hint names one step, the swe spawn with its effort, and no pre-create worktree step (GH 2713)', () => {
     const reason = hintReason('mcp__plugin_tmb_trajectory-server__task_create_batch', '  - task_id=1');
+    assert.ok(reason.includes('Per tmb_planning section 5 (Spawn SWE), the next step is'), reason);
     assert.ok(
-      reason.includes(
-        "1. Pre-create the worktree: `printf '{\"branch\":\"<branch_id>\"}' | node ${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create` — capture the printed path.\n",
-      ),
+      reason.includes("Next step:\n1. Spawn swe for every task in one message: `Agent(subagent_type='swe', effort='<tasks.effort>', prompt='task_id=<N>')`.\n"),
+      reason,
     );
-    assert.doesNotMatch(reason, /\.sh\b/);
-    assert.ok(findGate('worktree-create'));
+    assert.doesNotMatch(reason, /Pre-create|worktree-create|^2\./m);
   });
   it('post-task-create-spawn-hint is silent on an error, another tool or no tasks', () => {
     const create = (text: string, extra: Record<string, unknown> = {}): string =>

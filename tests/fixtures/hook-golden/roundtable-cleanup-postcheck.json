@@ -70,7 +70,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -137,7 +137,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=3 closed but the following capture surfaces are missing: roundtable.outcome votes. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=3 closed but the following capture surfaces are missing: roundtable.outcome votes. Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -271,7 +271,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=5 closed but the following capture surfaces are missing: roundtable.status=closed roundtable.outcome votes. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=5 closed but the following capture surfaces are missing: roundtable.status=closed roundtable.outcome votes. Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -405,7 +405,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -472,7 +472,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=5 closed but the following capture surfaces are missing: roundtable.status=closed roundtable.outcome votes. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=5 closed but the following capture surfaces are missing: roundtable.status=closed roundtable.outcome votes. Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -673,7 +673,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[tmb roundtable-cleanup] roundtable_id=2 closed but the following capture surfaces are missing: decision-discussions roundtable.status=closed roundtable.outcome votes audit(roundtable_summary). Record the missing rows: discussion_append (kind analysis or decision) and roundtable_summarize. Missing votes cannot be added after close; note them with discussion_append(kind='note').\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
