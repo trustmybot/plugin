@@ -22,6 +22,8 @@ import { ambiguousSubcommandReason, CAP_FIX, CAP_REASON, cmdStatements, ghMutati
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
 import {
+  COMMAND_WORD_FIX,
+  COMMAND_WORD_REASON as COMMAND_WORD_TEXT,
   GATE_NAME,
   PARSE_FIX,
   PARSE_REASON as PARSE_TEXT,
@@ -36,6 +38,7 @@ import { fixedReason } from '../hooks/lib/deny.js';
 const PARSE_REASON = fixedReason(PARSE_TEXT, PARSE_FIX);
 const STASH_REASON = fixedReason(STASH_TEXT, STASH_FIX);
 const SUBCOMMAND_REASON = fixedReason(SUBCOMMAND_TEXT, SUBCOMMAND_FIX);
+const COMMAND_WORD_REASON = fixedReason(COMMAND_WORD_TEXT, COMMAND_WORD_FIX);
 const STASH_WRITES = [
   'git stash',
   'git stash push -m x',
@@ -85,6 +88,35 @@ const UNREADABLE_SUBCOMMANDS = [
   'git --config-env=alias.s=V s pop',
   'git --config-env alias.s=V s pop',
 ];
+const GIT_CONFIG_ENV = [
+  'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.s GIT_CONFIG_VALUE_0=stash git s pop',
+  `GIT_CONFIG_PARAMETERS="'alias.s=stash'" git s pop`,
+  `export GIT_CONFIG_PARAMETERS="'alias.s=stash'"; git s pop`,
+  'export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.s GIT_CONFIG_VALUE_0=stash; git s pop',
+  'GIT_CONFIG_GLOBAL=/tmp/c git s pop',
+  'GIT_CONFIG_SYSTEM=/tmp/c git s pop',
+  'GIT_CONFIG=/tmp/c git s pop',
+  'env GIT_CONFIG_PARAMETERS=x git s pop',
+  'export "GIT_CONFIG_COUNT=1"; git s pop',
+  'v=GIT_CONF; export ${v}IG_COUNT=1; git s pop',
+  'read GIT_CONFIG_PARAMETERS <<< x; export GIT_CONFIG_PARAMETERS; git s pop',
+  "bash -c 'GIT_CONFIG_COUNT=1 git s pop'",
+];
+const HIDDEN_COMMAND_WORDS = [
+  'g=git; $g stash pop',
+  '"$g" stash pop',
+  '${g} stash pop',
+  '$(echo git) stash pop',
+  '`echo git` stash pop',
+  'git{,} stash pop',
+  'env $(echo git) stash pop',
+  "bash -c '$(echo git) stash pop'",
+  "bash -o pipefail -c '$g stash pop'",
+  'eval "$g stash pop"',
+  "$'g\\x69t' stash pop",
+];
+const PATTERN_COMMAND_WORDS = ['g?t stash pop', '{git,x} stash pop'];
+const LITERAL_COMMANDS = ['ls *.ts', 'echo $HOME', "'ls' -la", '[ -f x ] && git log', "bash -c 'git status'", 'grep -rn GIT_CONFIG_COUNT src', 'git grep GIT_CONFIG_COUNT'];
 const LITERAL_GIT = ['git status', 'git -C x log', 'git log -1', 'git -c user.name=$NAME log -1', 'git log --format=x $(cat f)'];
 const STASH_ROLES = ['tmb:swe', 'tmb:code-reviewer'];
 
@@ -258,6 +290,44 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
         const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
         assert.equal(r.code, 0);
         assert.equal(decision(r.stdout)?.permissionDecisionReason, `${ambiguousSubcommandReason(what, verbs[agent_type])} Allowed form: ${UNKNOWN_FIX}`, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies an alias git may read from a GIT_CONFIG_* variable the command sets or names for swe and code-reviewer with SUBCOMMAND_REASON (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of GIT_CONFIG_ENV) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, SUBCOMMAND_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies a command name from an expansion, a substitution or a pattern for swe and code-reviewer with COMMAND_WORD_REASON (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of HIDDEN_COMMAND_WORDS) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(r.code, 0);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, COMMAND_WORD_REASON, `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('denies a pattern command name the analyzer cannot list: code-reviewer with COMMAND_WORD_REASON, swe with PARSE_REASON (GH 2837)', async () => {
+    const reasons: Record<string, string> = { 'tmb:swe': PARSE_REASON, 'tmb:code-reviewer': COMMAND_WORD_REASON };
+    for (const agent_type of STASH_ROLES) {
+      for (const command of PATTERN_COMMAND_WORDS) {
+        const r = await sweBoundary(payload('Bash', { command }, { agent_type }), env);
+        assert.equal(decision(r.stdout)?.permissionDecisionReason, reasons[agent_type], `${agent_type}: ${command}`);
+      }
+    }
+  });
+
+  it('admits literal command names and a GIT_CONFIG_* name git or a non-git command only reads for swe and code-reviewer (GH 2837)', async () => {
+    for (const agent_type of STASH_ROLES) {
+      for (const command of LITERAL_COMMANDS) {
+        assert.deepEqual(await sweBoundary(payload('Bash', { command }, { agent_type }), env), { stdout: '', code: 0 }, `${agent_type}: ${command}`);
       }
     }
   });

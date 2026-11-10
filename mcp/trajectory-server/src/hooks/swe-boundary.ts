@@ -13,9 +13,10 @@
  *   (f) Bash-written path outside files[]                  → note, once per path
  *   (g) Bash write target the guard cannot resolve         → deny unless prompt_bearing=1
  *   (h) Edit/Write after a recorded Bash deny on the path  → allow, audit hook_block_bypassed
- *   (i) Bash: git stash other than a literal list/show, or a git
- *       subcommand not read literally, for swe and
- *       code-reviewer (GH 2786, GH 2837)                   → deny
+ *   (i) Bash: git stash other than a literal list/show, a git
+ *       subcommand not read literally, a command name not
+ *       read literally, or a GIT_CONFIG_* variable beside
+ *       git, for swe and code-reviewer (GH 2786, GH 2837)  → deny
  *
  * Deny messages, notes, audit rows and decisions are the .sh's, with two
  * exceptions, each stricter: a command tree-sitter-bash cannot parse is
@@ -27,6 +28,7 @@
  * so a command past the cap never reaches the unbounded cmdStatements.
  */
 import { lstatSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import type { Node, Parser } from 'web-tree-sitter';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
 import { NEVER_JUDGED, UNJUDGED_PHRASE, UNRESOLVED_FIX } from './containment-guard.js';
 import {
@@ -40,10 +42,13 @@ import {
   isPromptSurfacePath,
   payloadCwd,
   writePaths,
+  unquotedCommand,
   writeShapes,
   type GitStatements,
   type Statement,
 } from './cmd-analysis/index.js';
+import { bashParser } from './cmd-analysis/parser.js';
+import { unwrap } from './cmd-analysis/unwrap.js';
 import { agentContext, ctxInWorktree, pathCanonical } from './lib/agent-context.js';
 import { auditAppend } from './lib/audit.js';
 import {
@@ -83,14 +88,31 @@ export const STASH_REASON =
   'BLOCKED: swe and code-reviewer may not write the git stash; the stash stack is shared by every worktree and session, so pop/apply/drop can take another session\'s work. Read-only `git stash list` and `git stash show` are allowed.';
 export const STASH_FIX: DenyFix = { allowed: 'a work-in-progress commit on your task branch, or git diff > <scratch file> to set changes aside' };
 export const SUBCOMMAND_REASON =
-  "BLOCKED: swe-boundary cannot read git's subcommand literally: it comes from an expansion, a pattern, a redirect, a quote or backslash, a path-qualified git, or an alias a `-c` / `--config-env` option defines, so the guard cannot tell whether the statement writes the git stash. Spell out git and its subcommand literally.";
-export const SUBCOMMAND_FIX: DenyFix = { allowed: 'git [-C <path>] <subcommand> …, the subcommand unquoted, with no expansion and no -c alias.* / include.*' };
+  "BLOCKED: swe-boundary cannot read git's subcommand literally: it comes from an expansion, a pattern, a redirect, a quote or backslash, a path-qualified git, or an alias a `-c` / `--config-env` option or a GIT_CONFIG_* environment variable defines, so the guard cannot tell whether the statement writes the git stash. Spell out git and its subcommand literally.";
+export const SUBCOMMAND_FIX: DenyFix = {
+  allowed: 'git [-C <path>] <subcommand> …, the subcommand unquoted, with no expansion, no -c alias.* / include.* and no GIT_CONFIG_* variable set in the command',
+};
+export const COMMAND_WORD_REASON =
+  "BLOCKED: swe-boundary cannot read a statement's command name literally: it comes from an expansion, a command substitution or a glob pattern, so the guard cannot tell whether the statement runs git stash. Write the command name out literally.";
+export const COMMAND_WORD_FIX: DenyFix = { allowed: 'the same command with its command name written literally, e.g. git stash list' };
 const STASH_READS = new Set(['list', 'show']);
 const VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 const CONFIG_ENV = '--config-env=';
 const ALIASING_KEY = /^(alias|include|includeif)\./i;
 const EXPANDING = /[$`*?[{]/;
 const PATH_GIT = /^\S*\/git$/;
+const SHELL_WORD = /^(.*\/)?(bash|sh|zsh|dash|ksh)$/;
+const SHELL_COMMAND_OPTION = /^-([a-zA-Z]*c[a-zA-Z]*)$/;
+const EXPANDING_NODES = ['command_substitution', 'process_substitution', 'simple_expansion', 'expansion', 'arithmetic_expansion', 'brace_expression', 'translated_string'];
+const PATTERN = /[*?[]|\{[^}]*(,|\.\.)[^}]*\}/;
+const ESCAPE = /\\[\s\S]/g;
+const NOT_LITERAL = '\0';
+const MAX_BODY_DEPTH = 3;
+const GIT_CONFIG_NAME = /^GIT_CONFIG/;
+const GIT_WORD = /\bgit\b/;
+const OPERATOR = /[\s;&|()<>]+/;
+
+type Hidden = 'command-word' | 'git-config-env' | null;
 
 type RawWord = { raw: string; text: string };
 
@@ -204,6 +226,149 @@ function stashDeny(statements: readonly Statement[]): GateResult | null {
     if (verdict === 'unreadable') return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
     if (verdict === 'stash') return deny(STASH_REASON, STASH_FIX);
   }
+  return null;
+}
+
+/** The single word bash makes of word node <node>, or null when an expansion, a substitution, a glob or a brace pattern may make it something else. */
+function literalWord(node: Node): string | null {
+  if (EXPANDING_NODES.includes(node.type) || node.descendantsOfType(EXPANDING_NODES).length > 0) return null;
+  const text = node.text;
+  switch (node.type) {
+    case 'raw_string':
+      return text.slice(1, -1);
+    case 'string':
+      return text.slice(1, -1).replace(/\\([$`"\\\n])/g, '$1');
+    case 'ansi_c_string':
+      return text.includes('\\') ? null : text.slice(2, -1);
+    case 'number':
+      return text;
+    case 'word':
+      return PATTERN.test(text.replace(ESCAPE, '')) ? null : text.replace(/\\([\s\S])/g, '$1');
+    case 'concatenation': {
+      const parts = node.namedChildren.map((part) => (part === null ? null : literalWord(part)));
+      const bare = node.namedChildren.map((part) => (part?.type === 'word' ? part.text.replace(ESCAPE, '') : '_')).join('');
+      return parts.includes(null) || PATTERN.test(bare) ? null : parts.join('');
+    }
+    default:
+      return null;
+  }
+}
+
+/** The source text a `bash -c` / `eval` argument word hands the shell to parse again. */
+function bodyText(node: Node): string {
+  if (node.type === 'raw_string' || node.type === 'string') return node.text.slice(1, -1);
+  if (node.type === 'ansi_c_string') return node.text.slice(2, -1);
+  return node.text;
+}
+
+/** The source the command at <k> of <words> runs as shell code (`eval …`, `bash -c …`), NOT_LITERAL when an option before it is not literal, null for none. */
+function shellBody(words: readonly string[], nodes: readonly Node[], k: number): string | null {
+  if (words[k] === 'eval') return nodes.slice(k + 1).map(bodyText).join(' ');
+  if (!SHELL_WORD.test(words[k])) return null;
+  for (let j = k + 1; j < words.length; j++) {
+    const word = words[j];
+    if (word === NOT_LITERAL) return NOT_LITERAL;
+    if (SHELL_COMMAND_OPTION.test(word)) return j + 1 < nodes.length ? bodyText(nodes[j + 1]) : '';
+    if (/^[-+][oO]$/.test(word)) j++;
+    else if (!word.startsWith('-') && !word.startsWith('+')) return null;
+  }
+  return null;
+}
+
+/** What a command node hides: a command name read from no literal word, a GIT_CONFIG_* variable it hands a wrapper or names as an argument, or either inside the shell code it runs. */
+function commandHidden(command: Node, parser: Parser, depth: number): Hidden {
+  const name = command.childForFieldName('name')?.firstNamedChild;
+  if (!name) return null;
+  const nodes = [name, ...command.childrenForFieldName('argument').filter((node): node is Node => node !== null)];
+  const words = nodes.map((node) => literalWord(node) ?? NOT_LITERAL);
+  const { k } = unwrap(words, 0);
+  if (k >= words.length) return null;
+  if (words[k] === NOT_LITERAL) return 'command-word';
+  const body = shellBody(words, nodes, k);
+  const inner = body === null ? null : body === NOT_LITERAL || depth >= MAX_BODY_DEPTH ? 'command-word' : hiddenInSource(body, parser, depth + 1);
+  if (inner === 'command-word') return inner;
+  const isGit = words[k] === 'git' || PATH_GIT.test(words[k]);
+  const named = words.slice(0, k).some((word) => GIT_CONFIG_NAME.test(word)) || (!isGit && words.slice(k + 1).some((word) => GIT_CONFIG_NAME.test(word)));
+  return inner ?? (named ? 'git-config-env' : null);
+}
+
+/** Whether an export / declare / local / readonly / typeset names a GIT_CONFIG_* variable, or a variable it cannot read literally. */
+function declarationHidden(declaration: Node): Hidden {
+  for (const child of declaration.namedChildren) {
+    if (child === null || child.type === 'variable_assignment') continue;
+    const word = literalWord(child);
+    if (word === null || GIT_CONFIG_NAME.test(word)) return 'git-config-env';
+  }
+  return null;
+}
+
+/** What the commands, declarations and assignments under <root> hide, a non-literal command name first. */
+function hiddenInTree(root: Node, parser: Parser, depth: number): Hidden {
+  let found: Hidden = null;
+  for (const node of root.descendantsOfType(['command', 'declaration_command', 'variable_assignment'])) {
+    if (node === null) continue;
+    let verdict: Hidden;
+    if (node.type === 'command') verdict = commandHidden(node, parser, depth);
+    else if (node.type === 'declaration_command') verdict = declarationHidden(node);
+    else verdict = GIT_CONFIG_NAME.test(node.childForFieldName('name')?.text ?? '') ? 'git-config-env' : null;
+    if (verdict === 'command-word') return verdict;
+    found ??= verdict;
+  }
+  return found;
+}
+
+function hiddenInSource(source: string, parser: Parser, depth: number): Hidden {
+  const tree = parser.parse(source);
+  if (tree === null) return 'command-word';
+  try {
+    return hiddenInTree(tree.rootNode, parser, depth);
+  } finally {
+    tree.delete();
+  }
+}
+
+/** Whether glob <pattern> matches the name git; an unreadable bracket counts as a match. */
+function globMatchesGit(pattern: string): boolean {
+  let source = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    const close = c === '[' ? pattern.indexOf(']', i + 2) : -1;
+    if (c === '*') source += '.*';
+    else if (c === '?') source += '.';
+    else if (close > 0) {
+      source += `[${pattern.slice(i + 1, close).replace(/^!/, '^').replace(/[\\\]]/g, '\\$&')}]`;
+      i = close;
+    } else source += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  try {
+    return new RegExp(`^${source}$`).test('git');
+  } catch {
+    return true;
+  }
+}
+
+/** Whether a word of <command>, unquoted, is a brace pattern or a glob whose last path segment may match git: the read of a command the analyzer cannot list. */
+function patternMayRunGit(command: string): boolean {
+  return unquotedCommand(command)
+    .split(OPERATOR)
+    .some((word) => {
+      const segment = word.slice(word.lastIndexOf('/') + 1);
+      return /\{[^}]*(,|\.\.)[^}]*\}/.test(word) || (/[*?[]/.test(segment) && globMatchesGit(segment));
+    });
+}
+
+/**
+ * The stash rule's deny for what the statement listing cannot show (GH
+ * 2837): a command name from an expansion, a substitution or a
+ * pattern, which may be git, and, beside a git word, a GIT_CONFIG_*
+ * variable set or named in the command, which may define an alias. <listed>
+ * false: the analyzer could not list <command>, so a pattern word that may
+ * match git counts too, tree-sitter's read of it being unreliable.
+ */
+async function hiddenCommandDeny(command: string, listed: boolean): Promise<GateResult | null> {
+  const verdict = hiddenInSource(command, await bashParser(), 0);
+  if (verdict === 'command-word' || (!listed && patternMayRunGit(command))) return deny(COMMAND_WORD_REASON, COMMAND_WORD_FIX);
+  if (verdict === 'git-config-env' && GIT_WORD.test(unquotedCommand(command))) return deny(SUBCOMMAND_REASON, SUBCOMMAND_FIX);
   return null;
 }
 
@@ -333,11 +498,14 @@ class Boundary {
     return value === GATE_READ_ERROR ? value : value || '0';
   }
 
-  /** code-reviewer's only Bash rule: a command the analyzer cannot list stays admitted. */
+  /** code-reviewer's only Bash rule: a command the analyzer cannot list stays admitted unless a word in it may hide git. */
   async reviewerBash(): Promise<GateResult> {
     const command = field(this.input, ['tool_input', 'command']);
     const listed = await statementsOrOverflow(command, payloadCwd(this.input, this.env), this.env);
-    if (listed === 'overflow' || !listed.ok) return ALLOW;
+    if (listed === 'overflow') return ALLOW;
+    const hidden = await hiddenCommandDeny(command, listed.ok);
+    if (hidden) return hidden;
+    if (!listed.ok) return ALLOW;
     const unknown = listed.statements.find((statement) => gitSubcommandOf(statement) === undefined);
     if (unknown) return deny(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'writes the git stash'), UNKNOWN_FIX);
     return stashDeny(listed.statements) ?? ALLOW;
@@ -352,7 +520,7 @@ class Boundary {
     const listed = await statementsOrOverflow(command, cwd, this.env);
     if (listed === 'overflow') return deny(CAP_REASON, CAP_FIX);
     if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
-    const stash = stashDeny(listed.statements);
+    const stash = (await hiddenCommandDeny(command, true)) ?? stashDeny(listed.statements);
     if (stash) return stash;
     let push = false;
     let mutating = false;
