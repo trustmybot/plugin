@@ -31,7 +31,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 1. tasks.repo IS NULL and no single registered repo could be resolved. A multi-repo workspace needs the task's repo set so it maps to a repos row. Allowed form: task_create with repo=<name> for task 1's work, then the same spawn\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: cannot resolve repo for task 1. tasks.repo IS NULL and no single registered repo could be resolved. A multi-repo workspace needs the task's repo set so it maps to a repos row. Allowed form: bro: task_provision with repo=<name> for this work, then spawn swe with the new task_id\"}}\n"
     }
   },
   "06-relative-repo-path-allows.json": {

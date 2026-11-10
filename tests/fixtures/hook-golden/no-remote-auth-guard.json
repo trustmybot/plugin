@@ -50,25 +50,25 @@
   "deny-cd-into-repo.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'gh auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard. Allowed form: continue the task locally, with no auth login, remote or push step\"}}\n"
     }
   },
   "deny-gh-no-remote-rows.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'gh auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard. Allowed form: continue the task locally, with no auth login, remote or push step\"}}\n"
     }
   },
   "deny-glab-empty-url.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'glab auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'glab auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard. Allowed form: continue the task locally, with no auth login, remote or push step\"}}\n"
     }
   },
   "deny-non-bash-tool.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally. This is policy: stop and report.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'gh auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard. Allowed form: continue the task locally, with no auth login, remote or push step\"}}\n"
     }
   },
   "diverge-no-jq.json": {
@@ -86,7 +86,7 @@
   "diverge-parse-failure.json": {
     "C,en_US.UTF-8": {
       "code": 0,
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive 'gh auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.\"}}\n"
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"BLOCKED: no remote URL is configured, so TMB runs locally and an interactive 'gh auth login' would hang with no TTY. Continue the task locally; remote and push steps wait until the Human adds a remote with /onboard.\"}}\n"
     }
   }
 }

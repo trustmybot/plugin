@@ -28,7 +28,7 @@ allowed-tools: <optional, comma-separated — restricts tools the skill can invo
 [Body — concrete rules, checks, or patterns the agent should apply when this skill is loaded. Keep it focused.]
 ```
 
-**Skill structure**: keep flat (single SKILL.md) — do not split into reference.md / forms.md / scripts/. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
+**Skill structure**: keep everything in one flat SKILL.md. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
 
 Then run `node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" prompt-author-lint <draft-path>`, surface findings via AUQ (user picks accept/decline per finding), and present the full drafted file in a fenced code block. Ask:
 > Do you want me to (a) write this skill at `<project>/.claude/skills/<name>/SKILL.md`, AND (b) extend the `skills:` frontmatter array of <agent-list> to include `<name>`? (yes / revise / no)

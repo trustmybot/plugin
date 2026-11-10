@@ -43,6 +43,15 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+interface ErrorPayload {
+  error: string;
+  message: string;
+}
+
+function parseError(result: RawResult): ErrorPayload {
+  return JSON.parse(result.content[0].text) as ErrorPayload;
+}
+
 function parseBatch(result: RawResult): Array<Record<string, unknown>> {
   const raw = JSON.parse(result.content[0].text);
   return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
@@ -819,6 +828,12 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /8000/);
     assert.match(data.error, /8001/);
+    const { error } = parseError(result);
+    assert.ok(
+      error.includes('Split into several tasks, or cite existing code/conventions instead of restating them.'),
+      error,
+    );
+    assert.doesNotMatch(error, /depends_on/);
 
     db.close();
   });
@@ -1097,6 +1112,10 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /Invalid repo/);
     assert.match(data.error, /\.\./);
+    assert.equal(
+      parseError(result).error,
+      'Invalid repo "../escape": must not contain "..". Pass a registered repo name (from repos_list).',
+    );
 
     db.close();
   });
@@ -1122,6 +1141,10 @@ describe('taskTools', () => {
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /Invalid repo/);
+    assert.equal(
+      parseError(result).error,
+      'Invalid repo "/absolute/path": must not start with "/". Pass a registered repo name (from repos_list).',
+    );
 
     db.close();
   });
@@ -1290,6 +1313,64 @@ describe('taskTools', () => {
     assert.ok(result.isError, 'Expected isError=true');
     const data = parseResult(result);
     assert.equal(data.error, 'branch_state_violation');
+    const { message } = parseError(result);
+    assert.ok(
+      message.includes(
+        'Run intent_start first (tmb_planning section 3); it emits branch_id_proposed. task_provision creates the branch.',
+      ),
+      message,
+    );
+
+    db.close();
+  });
+
+  it('task_create_batch scope gate names the question it needs (GH 2714)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'fix/scope-gate-text', description: 'd' }],
+    });
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const data = parseError(result);
+    assert.equal(data.error, 'scope_gate_violation');
+    assert.ok(
+      data.message.includes(
+        "Before creating tasks, ask the Human at least one clarifying question and record it with discussion_append(kind='question').",
+      ),
+      data.message,
+    );
+    assert.doesNotMatch(data.message, /kind='answer'|architect/);
+
+    db.close();
+  });
+
+  it('task_create_batch intent gate routes to intent_start (GH 2714)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      waive_registry_gate: true, waive_registry_gate_reason: 'unit-test synthetic registry; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'fix/intent-gate-text', description: 'd' }],
+    });
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const data = parseError(result);
+    assert.equal(data.error, 'intent_gate_violation');
+    assert.ok(
+      data.message.includes('Log the intent with intent_start (tmb_planning section 3) before task_create_batch.'),
+      data.message,
+    );
+    assert.doesNotMatch(data.message, /Step 0/);
 
     db.close();
   });

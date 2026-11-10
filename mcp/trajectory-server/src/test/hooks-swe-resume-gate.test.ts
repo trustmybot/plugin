@@ -108,7 +108,7 @@ describe('swe-resume-gate', () => {
     f.fails(2);
     const reason = denyReason(run(f).stdout);
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
-    assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
+    assert.match(reason, /task FAILs: 2 review FAILs on the task since its last passing review \(limit 2\)/);
     assert.match(reason, /waive task 3/);
   });
 
@@ -158,7 +158,7 @@ describe('swe-resume-gate', () => {
     addRun('2026-10-25T10:21:00.000Z', 'hook_block');
     const reason = denyReason(run(f).stdout);
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
-    assert.match(reason, /task runs: 6 swe runs of the task, budget handbacks aside \(limit 6\)/);
+    assert.match(reason, /task runs: 6 swe runs of the task since its last passing review, budget handbacks aside \(limit 6\)/);
     f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
     assert.deepEqual(run(f), ALLOWED);
   });
@@ -215,6 +215,6 @@ describe('swe-resume-gate', () => {
       timeout: 30_000,
     });
     assert.equal(r.status, 0);
-    assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs on the task since its last pass/);
+    assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs on the task since its last passing review/);
   });
 });

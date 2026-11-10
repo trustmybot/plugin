@@ -2,7 +2,8 @@
  * PreToolUse gate (GH 1692): `git worktree add <path> <branch>` on a registered repo is denied while
  * <branch> is behind origin/<pr_target>, after one bounded fetch of
  * <pr_target>. No origin, no such branch or no origin/<pr_target> passes, and
- * TMB_ALLOW_STALE_BRANCH=1 bypasses.
+ * TMB_ALLOW_STALE_BRANCH=1 bypasses. A git statement whose subcommand is not
+ * literal text (gitSubcommandOf, GH 2641) is denied when the DB resolves.
  *
  * Decisions and deny text are the .sh's, with three exceptions: a command
  * tree-sitter-bash cannot parse is denied with git-guards' PARSE_REASON when
@@ -14,7 +15,7 @@
 import { ALLOW, type Gate } from './gate.js';
 import { PARSE_FIX, PARSE_REASON } from './git-guards.js';
 import { denyResult } from './lib/deny.js';
-import { cmdStatements, gitSubcommand, stmtRepoRoot } from './cmd-analysis/index.js';
+import { ambiguousSubcommandReason, cmdStatements, gitBesideExpansion, gitSubcommandOf, stmtRepoRoot, unquotedCommand } from './cmd-analysis/index.js';
 import { dbPath, denyDbUnavailable, GATE_READ_ERROR, gateRead, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { jqCapture, jqInput } from './lib/jq-raw.js';
@@ -24,6 +25,7 @@ import { payloadCwdOf, statementRows } from './lib/statement-rows.js';
 export const GATE_NAME = 'branch-up-to-date-with-remote';
 
 const CREATES_BRANCH = [' -b ', ' -B ', ' --create-branch '];
+const UNKNOWN_FIX = { allowed: 'git -C <path> worktree add <path> <branch>, the subcommand written literally' };
 
 /** `$(git … rev-list --count … 2>/dev/null || echo "?")`. */
 async function behindCount(root: string, range: string, env: NodeJS.ProcessEnv): Promise<string> {
@@ -36,15 +38,22 @@ export const branchUpToDateWithRemote: Gate = async (payload, env) => {
   if (jqCapture(input, ['tool_name']) !== 'Bash') return ALLOW;
   if ((env.TMB_ALLOW_STALE_BRANCH ?? '') === '1') return ALLOW;
   const command = jqCapture(input, ['tool_input', 'command']);
-  if (command === '' || !command.includes('worktree')) return ALLOW;
+  if (command === '' || (!unquotedCommand(command).includes('worktree') && !gitBesideExpansion(command))) return ALLOW;
 
   const cwd = payloadCwdOf(input, env);
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON, PARSE_FIX) : ALLOW;
+  const rows = statementRows(listed.statements);
+  const subs = rows.map((row) => gitSubcommandOf(row));
+  const unknown = rows[subs.indexOf(undefined)];
+  if (unknown) {
+    if (dbPath(env) === null || !haveSqlite(env)) return ALLOW;
+    return denyResult(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'adds a worktree'), UNKNOWN_FIX);
+  }
   let wtDir = '';
   let wtSub = '';
-  for (const { dir, stmt } of statementRows(listed.statements)) {
-    const sub = gitSubcommand(stmt);
+  for (const [i, { dir }] of rows.entries()) {
+    const sub = subs[i] ?? '';
     if (sub.startsWith('worktree add ')) {
       wtDir = dir;
       wtSub = sub;
