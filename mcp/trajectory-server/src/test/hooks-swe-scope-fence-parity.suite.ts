@@ -188,7 +188,7 @@ export function sweScopeFenceParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildScopeSandbox(s);
-            return { ...run(...liveHookCommand(GATE),c.input, env, c.cwd), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(GATE), c.input, env, c.cwd), tree: snapshot(s) };
           });
           buildScopeSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c.input, env, c.cwd);

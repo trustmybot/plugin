@@ -369,7 +369,7 @@ export function worktreeLifecycleParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c);
           const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore(template, s);
-            return run(...liveHookCommand(gate),c, env, s);
+            return run(...liveHookCommand(gate), c, env, s);
           });
           restore(template, s);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, s);

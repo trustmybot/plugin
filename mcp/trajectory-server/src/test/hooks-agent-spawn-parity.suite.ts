@@ -363,7 +363,7 @@ export function agentSpawnParityShard(k: number, n: number): void {
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore(c.worktrees);
             const setup = snapshot(s);
-            return { ...quiet(run(...liveHookCommand(gate),c, env), 'bash'), tree: settledTree(setup, snapshot(s)) };
+            return { ...quiet(run(...liveHookCommand(gate), c, env), 'bash'), tree: settledTree(setup, snapshot(s)) };
           });
           restore(c.worktrees);
           const setup = snapshot(s);

@@ -386,7 +386,7 @@ export function sweVerificationParityShard(k: number, n: number): void {
           const env = caseEnv(s, base, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildVerificationSandbox(s);
-            return { ...run(...liveHookCommand(GATE),c, env), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(GATE), c, env), tree: snapshot(s) };
           });
           buildVerificationSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env);

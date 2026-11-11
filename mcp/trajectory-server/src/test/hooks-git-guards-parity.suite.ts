@@ -208,7 +208,7 @@ export function gitGuardsParityShard(k: number, n: number): void {
         };
         delete env.TMB_HOOKS_SQLITE;
         const cwd = join(sandbox, 'project');
-        const bash = goldenBash('git-guards', f, locale, goldenRoots({ '@SANDBOX@': sandbox }), () => run(...liveHookCommand('git-guards'),input, env, cwd));
+        const bash = goldenBash('git-guards', f, locale, goldenRoots({ '@SANDBOX@': sandbox }), () => run(...liveHookCommand('git-guards'), input, env, cwd));
         const node = run(process.execPath, [HOOKS_BUNDLE, 'git-guards'], input, env, cwd);
         assert.equal(node.code, bash.code, 'exit code');
         assert.equal(node.stdout, bash.stdout, 'stdout, byte for byte');

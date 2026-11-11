@@ -539,7 +539,7 @@ export function mergeLifecycleParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, paths, c.env, c.cwd);
           const { tree: bashSnap, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore();
-            return { ...run(...liveHookCommand(gate),c, env, scratch), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(gate), c, env, scratch), tree: snapshot(s) };
           });
           restore();
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env, scratch);

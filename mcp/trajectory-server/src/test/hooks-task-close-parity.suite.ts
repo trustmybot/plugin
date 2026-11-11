@@ -445,7 +445,7 @@ export function taskCloseParityShard(k: number, n: number): void {
             const env = caseEnv(s, locale, c.env, c.cwd);
             restore();
             const setup = snapshot(s);
-            const r = name === 'bash' ? run(...liveHookCommand(gate),c, env) : run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
+            const r = name === 'bash' ? run(...liveHookCommand(gate), c, env) : run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
             const tree = settledTree(setup, snapshot(s));
             return { name, r, tree };
           };

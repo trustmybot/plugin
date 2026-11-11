@@ -365,7 +365,7 @@ export function sweRunParityShard(k: number, n: number): void {
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildSandbox(s);
             const setup = snapshot(s);
-            return { ...run(...liveHookCommand(gate),c, env), tree: settledTree(setup, snapshot(s)) };
+            return { ...run(...liveHookCommand(gate), c, env), tree: settledTree(setup, snapshot(s)) };
           });
           buildSandbox(s);
           const setup = snapshot(s);

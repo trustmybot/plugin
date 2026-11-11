@@ -234,7 +234,7 @@ export function sweBoundaryParityShard(k: number, n: number): void {
           const { audit: bashAudit, ...bash } = goldenBash('swe-boundary', f, locale, goldenRoots({ '@SANDBOX@': sb.dir, '@SCRATCH@': sb.scratchProject, '@SESSION@': shardSession(sb.dir), '@CLAUDE_TMP@': `/tmp/claude-${process.geteuid?.() ?? 0}` }), () => {
             resetState(sb, record, now);
             const start = auditMark(sb.db);
-            return { ...run(...liveHookCommand('swe-boundary'),input, env, cwd), audit: auditRowsAfter(sb.db, start) };
+            return { ...run(...liveHookCommand('swe-boundary'), input, env, cwd), audit: auditRowsAfter(sb.db, start) };
           });
           resetState(sb, record, now);
           const middle = auditMark(sb.db);

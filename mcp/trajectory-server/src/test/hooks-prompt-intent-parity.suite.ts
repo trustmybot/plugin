@@ -172,7 +172,7 @@ export function promptIntentParityShard(k: number, n: number): void {
           const env = caseEnv(s, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             buildSandbox(s);
-            return { ...run(...liveHookCommand(GATE),c, env), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(GATE), c, env), tree: snapshot(s) };
           });
           buildSandbox(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env);

@@ -195,7 +195,7 @@ export function remoteIdGuardParityShard(k: number, n: number): void {
           });
           const cwd = join(s, 'project');
           const bash = goldenBash('remote-id-guard', f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
-            const r = run(...liveHookCommand('remote-id-guard'),c.input, env, cwd);
+            const r = run(...liveHookCommand('remote-id-guard'), c.input, env, cwd);
             return { ...r, stderr: r.stderr.replace(BASH_JOB_CONTROL_RACE, '') };
           });
           const node = run(process.execPath, [HOOKS_BUNDLE, 'remote-id-guard'], c.input, env, cwd);

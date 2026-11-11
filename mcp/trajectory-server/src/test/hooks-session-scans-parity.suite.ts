@@ -526,7 +526,7 @@ export function sessionScansParityShard(k: number, n: number): void {
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base, '@SLUG@': projectSlug(join(s, 'project')), '@OTHER_SLUG@': projectSlug(join(s, 'other')) }), () => {
             fresh();
             const setup = scanTree(s);
-            return { ...run(...liveHookCommand(gate),c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
+            return { ...run(...liveHookCommand(gate), c.input, env, c.cwd), tree: settledTree(setup, scanTree(s)) };
           });
           fresh();
           const setup = scanTree(s);

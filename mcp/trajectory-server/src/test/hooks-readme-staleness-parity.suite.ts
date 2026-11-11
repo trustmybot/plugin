@@ -326,7 +326,7 @@ export function readmeStalenessParityShard(k: number, n: number): void {
           const cwd = join(s, 'ws');
           const { audit: bashAudit, ...bash } = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             const fresh = resetDb(s);
-            return { ...run(...liveHookCommand(GATE),c, env, cwd), audit: auditDump(fresh) };
+            return { ...run(...liveHookCommand(GATE), c, env, cwd), audit: auditDump(fresh) };
           });
           const db = resetDb(s);
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c, env, cwd);

@@ -566,7 +566,7 @@ export function healthHooksParityShard(k: number, n: number): void {
           const env = caseEnv(s, tmp, locale, c.env, c.cwd);
           const { tree: bashTree, ...bash } = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': s, '@BASE@': base }), () => {
             restore();
-            return { ...run(...liveHookCommand(gate, BASH),c, env), tree: snapshot(s) };
+            return { ...run(...liveHookCommand(gate, BASH), c, env), tree: snapshot(s) };
           });
           restore();
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);

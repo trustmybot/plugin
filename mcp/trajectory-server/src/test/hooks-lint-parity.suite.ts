@@ -110,7 +110,7 @@ export function lintParityShard(k: number, n: number): void {
           ...extra,
         };
         const bash = goldenBash(gate, f, locale, goldenRoots({ '@SANDBOX@': dir }), () => {
-          const r = run(...liveHookCommand(gate),input, env, dir, join(dir, 'bash.log'));
+          const r = run(...liveHookCommand(gate), input, env, dir, join(dir, 'bash.log'));
           return { code: r.code, stdout: r.stdout.toString('latin1'), calls: r.calls };
         });
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, dir, join(dir, 'node.log'));

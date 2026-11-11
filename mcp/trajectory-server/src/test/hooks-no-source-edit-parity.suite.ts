@@ -244,7 +244,7 @@ export function noSourceEditParityShard(k: number, n: number): void {
         it(`${GATE} / ${f} (LC_ALL=${locale})`, () => {
           const c = materialize(join(CORPUS_ROOT, GATE, f), p);
           const env = caseEnv(p.sandbox, locale, c.env, c.cwd);
-          const bash = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': p.sandbox, '@BASE@': base, '@HARNESS_TMP@': p.harnessTmp }), () => run(...liveHookCommand(GATE),c.input, env, c.cwd));
+          const bash = goldenBash(GATE, f, locale, goldenRoots({ '@SANDBOX@': p.sandbox, '@BASE@': base, '@HARNESS_TMP@': p.harnessTmp }), () => run(...liveHookCommand(GATE), c.input, env, c.cwd));
           const node = run(process.execPath, [HOOKS_BUNDLE, GATE], c.input, env, c.cwd);
           assert.equal(bash.code, 0, `bash exit: ${bash.stderr}`);
           assert.equal(node.code, 0, `node exit: ${node.stderr}`);
