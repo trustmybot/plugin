@@ -8,6 +8,7 @@ import type { TrajectoryDB } from '../db.js';
 import { compositeTools } from '../tools/composites.js';
 import {
   checkVerificationPaths,
+  checkVerificationProse,
   globRegExp,
   srcSourceOf,
   suggestVerification,
@@ -114,6 +115,53 @@ describe('testPathTokens', () => {
     ]);
     assert.deepEqual(tokens("bash -euo pipefail -c 'node --test a.test.js'"), [['', 'a.test.js']]);
     assert.deepEqual(tokens('node --test a.test.js 2>&1 | tail -5 && node --test b.test.js >/dev/null'), [['', 'a.test.js'], ['', 'b.test.js']]);
+  });
+
+  it('reads a heredoc body fed to a bare shell as its own command (GH 2977)', () => {
+    const tokens = (c: string) => testPathTokens(c).map((t) => [t.dir, t.token]);
+    assert.deepEqual(tokens('bash <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('sh <<-EOF\n\tnode --test src/test/a.test.ts\n\tEOF\nnode --test b.test.ts'), [
+      ['', 'src/test/a.test.ts'],
+      ['', 'b.test.ts'],
+    ]);
+    assert.deepEqual(tokens("bash <<'EOF'\nnode --test src/test/a.test.ts\nEOF"), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('bash <<EOF 2>&1 | tail -5\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('bash <<EOF && echo ok\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('bash -s <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('bash -s arg1 arg2 <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('bash -o pipefail -- <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('cd sub && bash <<EOF\nnode --test src/test/a.test.ts\nEOF'), [['sub', 'src/test/a.test.ts']]);
+    assert.deepEqual(tokens('cd sub && bash -e <<EOF\ncd deeper\nnode --test a.test.ts\nEOF\nnode --test b.test.ts'), [
+      ['sub/deeper', 'a.test.ts'],
+      ['sub', 'b.test.ts'],
+    ]);
+  });
+
+  it('binds each heredoc body to the statement holding its << (F874-1)', () => {
+    const tokens = (c: string) => testPathTokens(c).map((t) => t.token);
+    assert.deepEqual(tokens('bash <<A; cat <<B\nnode --test real.test.ts\nA\nnode --test data.test.ts\nB'), ['real.test.ts']);
+    assert.deepEqual(tokens('cat <<A; bash <<B\nnode --test data.test.ts\nA\nnode --test real.test.ts\nB'), ['real.test.ts']);
+    assert.deepEqual(tokens('cat <<A | bash <<B\nnode --test data.test.ts\nA\nnode --test real.test.ts\nB'), ['real.test.ts']);
+    assert.deepEqual(tokens('bash <<A <<B\nnode --test first.test.ts\nA\nnode --test second.test.ts\nB'), [
+      'first.test.ts',
+      'second.test.ts',
+    ]);
+  });
+
+  it('ignores a heredoc body fed to a non-shell, a shell running -c or a shell running a script file (GH 2977)', () => {
+    assert.deepEqual(testPathTokens('cat <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+    assert.deepEqual(testPathTokens('gh pr create --body-file - <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+    assert.deepEqual(testPathTokens("bash -c 'true' <<EOF\nnode --test src/test/a.test.ts\nEOF"), []);
+    assert.deepEqual(testPathTokens("bash -s -c 'true' <<EOF\nnode --test src/test/a.test.ts\nEOF"), []);
+    assert.deepEqual(testPathTokens('bash script.sh <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+    assert.deepEqual(testPathTokens('bash -e -- script.sh <<EOF\nnode --test src/test/a.test.ts\nEOF'), []);
+  });
+
+  it('keeps the prose check off heredoc bodies and on the lines after the delimiter (GH 2977)', () => {
+    assert.equal(checkVerificationProse(['gh pr create --body-file - <<EOF\nFixes the bug\nEOF'], 'main'), null);
+    assert.equal(checkVerificationProse(['bash <<EOF\nnode --test a.test.ts\nEOF'], 'main'), null);
+    const refusal = checkVerificationProse(['gh pr create --body-file - <<EOF\nFixes the bug\nEOF\nConfirm the output'], 'main');
+    assert.deepEqual(refusal?.missing.map((m) => m.path), ['Confirm']);
   });
 
   it('maps dist js to its src ts and turns globs into anchored regexps', () => {

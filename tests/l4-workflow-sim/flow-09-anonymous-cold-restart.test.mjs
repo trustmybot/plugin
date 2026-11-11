@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 09 — Cold-restart: onboard_apply marks first_run=false; marker persists', async (t) => {
   const { client, close } = await startClient();
@@ -86,7 +86,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
 });
 
 test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
@@ -125,6 +125,9 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
 
+  // The close needs code-reviewer's pass after bro's review_handoff (GH 2939).
+  await reviewHandoffAndPass(client, dbPath, taskId);
+
   // Bro's correct task-gate close: bro_atomic_close writes the single
   // bro_verification_pass audit and advances the task to closed in one tx.
   const closed = await call(client, 'bro_atomic_close', {
@@ -142,7 +145,7 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');
 
-  // Verify NO validation_attempts row exists (bro must not write to that table)
+  // validation_attempts holds only code-reviewer's pass: bro's close wrote no row there
   const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
-  assert.equal(history.data.length, 0, 'bro must never write to validation_attempts');
+  assert.deepEqual(history.data.map(r => r.agent), ['code-reviewer'], 'bro must never write to validation_attempts');
 });

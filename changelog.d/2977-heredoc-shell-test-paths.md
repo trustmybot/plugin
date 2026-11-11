@@ -1,0 +1,2 @@
+### Fixed
+- **A missing test file inside a heredoc fed to a shell is caught again when the task is written** (GH 2977): since GH 2955 the `verification[]` guard skipped heredoc bodies, so `bash <<EOF … node --test missing.test.ts … EOF` no longer had its test path checked. A heredoc body fed to a `bash`, `sh`, `zsh` or `dash` that reads its script from stdin (no `-c`, no script file) is now read as its own command, under the directory its statement runs in; a body fed to any other program, or to a shell running `-c` or a script file, is still treated as data.

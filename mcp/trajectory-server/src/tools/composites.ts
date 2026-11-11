@@ -6,7 +6,14 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
+import {
+  BRANCH_ID_RE,
+  SPEC_BODY_MAX_BYTES,
+  insertSpecShapeWaiver,
+  promptBearingDerivedField,
+  resolvePromptBearing,
+  type PromptBearingResolution,
+} from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
 import {
@@ -55,6 +62,7 @@ import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
   carryOpenFindings,
+  clipOutputTail,
   gateCommands,
   latestVerificationRun,
   passingRunForCommit,
@@ -66,7 +74,12 @@ import {
   verificationDefaultsMissingField,
   verificationDefaultsResult,
 } from './verification-defaults.js';
-import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
+import {
+  checkVerificationPaths,
+  checkVerificationProse,
+  suggestVerification,
+  verificationPathResult,
+} from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
 import {
@@ -79,6 +92,15 @@ import {
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
+import {
+  applyReopenInTx,
+  hasFailSinceLastPass,
+  insertEffortRaised,
+  RE_REVIEW_CHANGE,
+  reReviewAdmission,
+  restoreForReReviewInTx,
+} from './reopen.js';
+import { REWORK_FLOOR_EFFORT } from '../task-rework.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
@@ -164,33 +186,6 @@ export function filesToDirs(files: readonly string[]): string[] {
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
   return [...dirs];
-}
-
-// One task_effort_raised row: a rework (task_reopen) or retry (task_retry)
-// raised the effort swe runs the task at.
-function insertEffortRaised(
-  db: TrajectoryDB,
-  task: { issue_id: number; branch_id: string; task_id: number },
-  from: Effort,
-  to: Effort,
-  agent: string,
-  now: string,
-  failedTaskId?: number,
-): void {
-  insertAudit(db, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: agent,
-    event_type: 'task_effort_raised',
-    summary: `Task ${task.task_id} effort raised: ${from} → ${to}`,
-    content_json: JSON.stringify({
-      task_id: task.task_id,
-      from,
-      to,
-      ...(failedTaskId !== undefined ? { failed_task_id: failedTaskId } : {}),
-    }),
-    created_at: now,
-  });
 }
 
 // Parse the tasks.files JSON column into a string[] (empty on null/malformed).
@@ -440,10 +435,12 @@ export type BriefResponseFormat = (typeof BRIEF_RESPONSE_FORMATS)[number];
 const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
   (BRIEF_RESPONSE_FORMATS as readonly unknown[]).includes(v);
 const BRIEF_RESPONSE_FORMAT_HINT =
-  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
+  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries, full discussion rows and full check output tails.";
+/** How much of each stored verification_run_commands.output_tail a concise brief carries. */
+const BRIEF_OUTPUT_TAIL_CHARS = 1000;
 const BRIEF_SECTION_HINTS = {
   core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
-  verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
+  verification: 'verification[] the close gate runs and verification_run, its latest recorded run with each command\'s output_tail: load before closing or after a gate failure',
   scope: "scope {files, extras, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
 };
@@ -1360,6 +1357,8 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
 
 const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+// A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
+const HANDOFF_STATUSES = new Set(['completed', 'needs_validation']);
 const verificationPathsDoc = (ref: string) =>
   `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
 
@@ -1522,7 +1521,8 @@ export function compositeTools(
     {
       name: 'review_handoff',
       description:
-        "Hands a completed or needs_validation task's current commit to code-reviewer without changing its status: writes review_handoff (the review anchor, with the scope report: extras outside files[] with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
+        "Hands a completed or needs_validation task's current commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Writes review_handoff (the review anchor with the scope report: extras with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
         'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
         'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
       inputSchema: {
@@ -1687,7 +1687,7 @@ export function compositeTools(
               },
               prompt_bearing: {
                 type: 'number',
-                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
+                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default: 1 when files[] holds a prompt-surface path, else 0.',
               },
               effort: {
                 type: 'string',
@@ -1774,7 +1774,7 @@ export function compositeTools(
       name: 'task_brief',
       description:
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
-        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
+        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run, each command with output_tail), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
         "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
@@ -1792,7 +1792,7 @@ export function compositeTools(
           response_format: {
             type: 'string',
             enum: [...BRIEF_RESPONSE_FORMATS],
-            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full.",
+            description: "'concise' (default) trims world-model summaries, other discussion rows and output_tail (last 1000 chars); 'detailed' returns them in full.",
           },
         },
         required: ['agent', 'task_id'],
@@ -1906,8 +1906,8 @@ export function compositeTools(
           repoValue = resolveSoleRepo(db)?.name ?? null;
         }
 
-        const promptBearing =
-          typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
+        const promptBearing = promptBearingResolution.prompt_bearing;
 
         if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
           return err(
@@ -2047,10 +2047,10 @@ export function compositeTools(
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
-        if (pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
-          if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
-        }
+        const pathRefusal = pathRef
+          ? checkVerificationPaths({ repoPath, ref: pathRef, verification, files })
+          : checkVerificationProse(verification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
         const cut: { base?: CutBase | null } = {};
         const branchStage = (): BranchStageOutcome => {
           const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
@@ -2209,6 +2209,7 @@ export function compositeTools(
           effort: result.effort,
           effort_reason: result.effort_reason,
           effort_inputs: result.effort_inputs,
+          ...promptBearingDerivedField(promptBearingResolution),
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: gate?.worktreeReused ?? false,
@@ -2265,11 +2266,12 @@ export function compositeTools(
           verification: string | null;
           repo: string | null;
           effort: Effort;
+          prompt_bearing: number;
           worktree_path: string | null;
           issue_status: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  t.worktree_path, i.status AS issue_status
+                  t.prompt_bearing, t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId],
         );
@@ -2282,6 +2284,12 @@ export function compositeTools(
         }
         if (task.issue_status === 'closed') {
           return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+        }
+        if (isEffort(effortArg) && effortRank(effortArg) < effortRank(REWORK_FLOOR_EFFORT) && hasFailSinceLastPass(db, taskId)) {
+          return err(
+            `effort_below_rework_floor: task ${taskId} has a review FAIL since its last passing review, so its rework runs at effort "${REWORK_FLOOR_EFFORT}"; ` +
+              `call task_reopen(task_id=${taskId}, reason, effort='${REWORK_FLOOR_EFFORT}') or omit effort. Task ${taskId} is unchanged ('${task.status}'); no row was written.`,
+          );
         }
         const wontfix = parseWontfix(db, taskId, args['wontfix']);
 
@@ -2325,9 +2333,10 @@ export function compositeTools(
           files,
         });
         if (pathRefusal) return verificationPathResult('task_reopen', pathRefusal);
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files,
           rework: true,
           current: task.effort,
@@ -2355,52 +2364,24 @@ export function compositeTools(
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
           }
-          db.run(
-            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
-                    completion_report = NULL, spawn_note = ?, updated_at = ?${gate ? ', base_sha = ?, wm_commit = ?' : ''}
-              WHERE id = ?`,
-            [
-              JSON.stringify(files),
-              JSON.stringify(verification),
-              effort,
-              spawnNote,
-              now,
-              ...(gate ? [gate.base_sha, gate.wm_commit] : []),
-              taskId,
-            ],
-          );
-          const fenceLines = [
-            filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
-            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
-            verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
-            effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
-            gate?.decisionNote ?? null,
-          ].filter((l): l is string => l !== null);
-          insertDiscussion(db, {
-            issue_id: task.issue_id,
-            author: agent,
-            kind: 'decision',
-            body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join('\n'),
-            created_at: now,
-            task_id: task.id,
+          applyReopenInTx(db, {
+            task,
+            agent,
+            reason,
+            effort,
+            spawnNote,
+            now,
+            fence: { files, verification },
+            envGate: gate,
+            decisionLines: [
+              filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
+              verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+              verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
+            ].filter((l): l is string => l !== null),
+            auditContent: { files_add: filesAdd, verification_add: verificationAdd },
           });
-          insertAudit(db, {
-            issue_id: task.issue_id,
-            branch_id: task.branch_id,
-            from_node: agent,
-            event_type: 'task_reopened',
-            summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
-            content_json: JSON.stringify({
-              task_id: taskId,
-              from_status: task.status,
-              reason,
-              files_add: filesAdd,
-              verification_add: verificationAdd,
-            }),
-            created_at: now,
-          });
-          if (effortRank(effort) > effortRank(task.effort)) {
-            insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
           }
           for (const w of wontfix) {
             db.run(
@@ -2463,6 +2444,7 @@ export function compositeTools(
           files,
           verification,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
@@ -2523,8 +2505,9 @@ export function compositeTools(
           spec_body: string | null;
           repo: string | null;
           parent_branch_id: string | null;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id FROM tasks WHERE id = ?`,
+          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id, prompt_bearing FROM tasks WHERE id = ?`,
           [taskId],
         );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
@@ -2542,6 +2525,10 @@ export function compositeTools(
         const oldFiles = parseTaskFiles(task.files);
         const oldVerification = parseTaskFiles(task.verification);
         const files = newFiles ?? oldFiles;
+        const promptBearingResolution: PromptBearingResolution =
+          newFiles !== undefined
+            ? resolvePromptBearing(task.prompt_bearing, newFiles)
+            : { prompt_bearing: task.prompt_bearing === 1 ? 1 : 0, derived: false };
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
           newVerification ?? oldVerification,
           defaults.commands,
@@ -2580,6 +2567,9 @@ export function compositeTools(
             `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
             [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId],
           );
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
+          }
           insertDiscussion(db, {
             issue_id: task.issue_id,
             author: agent,
@@ -2604,6 +2594,7 @@ export function compositeTools(
           changed,
           files,
           verification,
+          ...promptBearingDerivedField(promptBearingResolution),
           verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
@@ -2880,12 +2871,21 @@ export function compositeTools(
           };
         };
 
+        const verificationSection = () => {
+          const stored = latestVerificationRun(db, task.id, { withOutputTail: true });
+          if (!concise || !stored) return { verification: parseTaskFiles(task.verification), verification_run: stored };
+          trimmed ||= stored.commands.some((c) => (c.output_tail?.length ?? 0) > BRIEF_OUTPUT_TAIL_CHARS);
+          const commands = stored.commands.map((c) => ({
+            ...c,
+            output_tail: clipOutputTail(c.output_tail ?? null, BRIEF_OUTPUT_TAIL_CHARS),
+          }));
+          return { verification: parseTaskFiles(task.verification), verification_run: { ...stored, commands } };
+        };
+
         const brief = {
           ...(want('core') ? coreSection() : {}),
           ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
-          ...(want('verification')
-            ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db, task.id) }
-            : {}),
+          ...(want('verification') ? verificationSection() : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
           ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),
@@ -2986,9 +2986,10 @@ export function compositeTools(
         const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_retry', failed.issue_id, newBranchId);
         if (usedOnIssue) return usedOnIssue;
 
+        const promptBearingResolution = resolvePromptBearing(failed.prompt_bearing, parseTaskFiles(failed.files));
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files: parseTaskFiles(failed.files),
           rework: true,
           current: failed.effort,
@@ -3032,10 +3033,11 @@ export function compositeTools(
           defaults.commands,
         );
         const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
-        if (!repoPath || pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
-          if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
-        }
+        const pathRefusal =
+          !repoPath || pathRef
+            ? checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles })
+            : checkVerificationProse(retryVerification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
         const suggested = () => ({
           verification_defaults_added: verificationDefaultsAdded,
           ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
@@ -3093,7 +3095,7 @@ export function compositeTools(
               description,
               spec,
               repoOverride ?? failed.repo,
-              failed.prompt_bearing,
+              promptBearingResolution.prompt_bearing,
               failed.files,
               storedVerification,
               effort,
@@ -3163,6 +3165,7 @@ export function compositeTools(
             task_id: result.id,
             branch_id: result.branch_id,
             effort,
+            ...promptBearingDerivedField(promptBearingResolution),
             carried_findings: result.carried,
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
@@ -3179,6 +3182,7 @@ export function compositeTools(
           task_id: result.id,
           branch_id: result.branch_id,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           carried_findings: result.carried,
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
@@ -3549,12 +3553,21 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
-        if (task.status !== 'completed' && task.status !== 'needs_validation') {
+        const reReview = task.status === 'running' ? reReviewAdmission(db, task) : null;
+        if (reReview !== null && 'refusal' in reReview) {
+          return err(
+            `re_review_refused: task ${taskId} is running and its commit cannot be re-reviewed: ${reReview.refusal}. ` +
+              `A running task is handed off again only when its latest verdict is a FAIL on its current commit, no swe run is live, ` +
+              `a passing verification run is recorded for the commit and its latest task_rework_analysis, dated after that FAIL, names ${RE_REVIEW_CHANGE}.`,
+          );
+        }
+        if (reReview === null && !HANDOFF_STATUSES.has(task.status)) {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
               `review_handoff runs after SWE flips status to completed.`,
           );
         }
+        const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
         const commitSha = task.commit_sha;
         if (!commitSha) {
           return err(
@@ -3562,20 +3575,22 @@ export function compositeTools(
               `task_update_status(status='completed', commit_sha=<sha>), then retry review_handoff.`,
           );
         }
-        const gateError = handoffGateError(db, task, commitSha);
+        const gateError = handoffGateError(db, handedOff, commitSha);
         if (gateError !== null) return err(gateError);
 
         const { scope, repoPath } = taskScopeCheck(db, task, commitSha);
-        const recorded = handoffScope(scope, task.completion_report);
+        const recorded = handoffScope(scope, handedOff.completion_report);
+        const reReviewOf = reReview === null ? {} : { re_review_of: reReview.failValidationId };
         const now = nowISO();
         const result = db.transaction(() => {
+          if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now);
           insertAudit(db, {
             issue_id: task.issue_id,
             branch_id: task.branch_id,
             from_node: 'bro',
             event_type: 'review_handoff',
             summary: `Task ${task.id} commit ${commitSha.slice(0, 12)} handed to code-reviewer.`,
-            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded }),
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded, ...reReviewOf }),
             created_at: now,
           });
           const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
@@ -3584,6 +3599,7 @@ export function compositeTools(
             task_id: task.id,
             commit_sha: commitSha,
             review_pending: true,
+            ...reReviewOf,
             reviewer_effort: reviewerEffort.effort,
             ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort, sessionId),
             scope: recorded,

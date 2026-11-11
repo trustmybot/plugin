@@ -51,6 +51,18 @@ export function pathCanonical(path: string): string {
   return cur + tail || '/';
 }
 
+/**
+ * The work-tree top git finds from absolute <dir> with no GIT_DIR set: the
+ * nearest of its canonical path and that path's ancestors holding a `.git`
+ * (a dir, or the file of a linked worktree or submodule), or null.
+ */
+export function gitWorkTreeTop(dir: string): string | null {
+  for (let cur = pathCanonical(dir); ; cur = cur.replace(/\/[^/]*$/, '') || '/') {
+    if (existsSync(`${cur === '/' ? '' : cur}/.git`)) return cur;
+    if (cur === '/') return null;
+  }
+}
+
 /** The hook payload's .cwd when it is a non-empty string, else $PWD. */
 export function payloadCwd(json: string, env: NodeJS.ProcessEnv = process.env): string {
   try {

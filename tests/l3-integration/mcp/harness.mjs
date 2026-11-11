@@ -64,6 +64,10 @@ export async function startClient({ env, extraEnv, dbPath: requestedDbPath = ':m
   };
 }
 
+// A well-formed probes[] for a validation_record pass, which the server
+// refuses without one (GH 2866).
+export const REVIEW_PROBES = [{ target: 'the changed behavior', probe_cmd: 'npm test', observed: 'exit 0: all passing' }];
+
 // seedReviewerObservation writes the reviewer_identity_observed row the
 // reviewer-identity-observe hook writes when a code-reviewer subagent calls
 // validation_record (the server refuses a verdict without one). Needs a
@@ -77,6 +81,23 @@ export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l
      SELECT t.issue_id, 'hook:reviewer-identity-observe', 'reviewer_identity_observed', 'l3 fixture: reviewer observed', '${content}',
             strftime('%Y-%m-%dT%H:%M:%fZ','now'), (SELECT repo FROM issues WHERE id = t.issue_id)
        FROM tasks t WHERE t.id = ${id};`]);
+}
+
+// reviewHandoffAndPass runs the review bro_atomic_close requires (GH 2939):
+// bro's review_handoff for the task's current commit, then an observed
+// code-reviewer pass carrying REVIEW_PROBES. Returns the validation_record
+// result; throws when either call is refused. Needs a startClient({ fileDb: true }) dbPath.
+export async function reviewHandoffAndPass(client, dbPath, taskId, { attemptN = 1, agentId, sessionId, feedback = 'LGTM.' } = {}) {
+  const handoff = await call(client, 'review_handoff', { agent: 'bro', task_id: taskId });
+  if (!handoff.ok) throw new Error(`review_handoff task ${taskId}: ${JSON.stringify(handoff)}`);
+  const identity = { ...(agentId && { agentId }), ...(sessionId && { sessionId }) };
+  seedReviewerObservation(dbPath, taskId, attemptN, identity);
+  const pass = await call(client, 'validation_record', {
+    agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', mcp_available: true, probes: REVIEW_PROBES,
+    feedback, subagent_session_id: `l3-review-${taskId}-${attemptN}`,
+  });
+  if (!pass.ok) throw new Error(`validation_record pass task ${taskId}: ${JSON.stringify(pass)}`);
+  return pass;
 }
 
 // seedHumanRow writes an author='human' discussions row, which no tool writes

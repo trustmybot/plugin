@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { compositeTools } from '../tools/composites.js';
+import { validationTools } from '../tools/validation.js';
 import { GraphHolder, type WorldModelGraph } from '../graph.js';
 import type { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
@@ -182,6 +183,44 @@ describe('task_brief response_format (GH 1958)', () => {
     }
     const coreOfPopulated = await brief(db, populatedGraph, { task_id: id, section: 'core' });
     assert.equal('response_format_hint' in coreOfPopulated, false);
+    db.close();
+  });
+
+  it('verification_run commands carry output_tail: the last 1000 chars concise, all detailed; validation_history carries none (GH 2866)', async () => {
+    const db = tempDB();
+    const id = seedTask(db);
+    const longTail = `head-${'x'.repeat(1500)}-the failing assertion`;
+    const shortTail = 'ok 3 tests';
+    db.run(
+      `INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+       VALUES (1, ?, 'abc1234', 'gate', '2026-10-01T00:00:00.000Z', '2026-10-01T00:01:00.000Z', 1, 900)`,
+      [id],
+    );
+    for (const [ordinal, tail] of [[1, longTail], [2, shortTail], [3, null]] as const) {
+      db.run(
+        `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (1, ?, ?, 1, 5, ?)`,
+        [ordinal, `cmd ${ordinal}`, tail],
+      );
+    }
+    const tails = (b: Brief) => (b['verification_run'] as { commands: Array<{ output_tail?: string | null }> }).commands.map((c) => c.output_tail);
+
+    const concise = await brief(db, null, { task_id: id, section: 'verification' });
+    assert.deepEqual(tails(concise), [longTail.slice(-1000), shortTail, null]);
+    assert.equal(tails(concise)[0]!.length, 1000);
+    assert.match(concise['response_format_hint'] as string, /response_format: 'detailed'/, 'a clipped tail names the detailed opt-in');
+
+    const detailed = await brief(db, null, { task_id: id, section: 'verification', response_format: 'detailed' });
+    assert.deepEqual(tails(detailed), [longTail, shortTail, null]);
+
+    db.run(
+      `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'fail', 1, '2026-10-01T00:02:00.000Z')`,
+      [id],
+    );
+    const rows = JSON.parse(
+      ((await validationTools(db).handlers['validation_history']({ agent: 'bro', task_id: id })).content[0] as { text: string }).text,
+    ) as Array<{ verification_run: { commands: Array<Record<string, unknown>> } }>;
+    assert.equal(rows[0].verification_run.commands.length, 3);
+    for (const c of rows[0].verification_run.commands) assert.equal('output_tail' in c, false, 'history rows carry no output_tail');
     db.close();
   });
 

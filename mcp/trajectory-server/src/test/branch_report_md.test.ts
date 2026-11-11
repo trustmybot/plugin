@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -108,7 +108,7 @@ describe('branchReportMdTools', () => {
       agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 1,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: 'Looks good',
       mcp_available: true,
       subagent_session_id: 'test-session-abc',

@@ -267,6 +267,10 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
     -- to the nearest comma.
     reviewed_sha        TEXT,
+    -- probes_json (v68 GH 2866): the JSON array of {target probe_cmd observed}
+    -- checks the reviewer ran. Every pass carries one. NULL when a fail or
+    -- escalate sent none and for rows from before v68.
+    probes_json         TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -428,7 +432,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 68, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 69, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -813,7 +817,7 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     symbols_md5 (GH 1680) is the stamp content_md5 || ':' ||
 --     EXTRACTOR_VERSION the file's wm_symbols rows were parsed at; NULL until
 --     first parsed. A scan re-parses a file only when it differs from the
---     current stamp. lane (v68 GH 2886) is 'test' when the project's test-lane
+--     current stamp. lane (v69 GH 2886) is 'test' when the project's test-lane
 --     classifier (defaults plus plugin_config.world_model_test_lane) matches
 --     the path, else 'product'; every scan re-derives it.
 --   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter

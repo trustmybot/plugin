@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
@@ -360,7 +360,7 @@ describe('fields projection — validation_history (#210)', () => {
       agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 1,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: 'Looks good',
       mcp_available: true,
       subagent_session_id: 'test-session-proj',
@@ -396,7 +396,7 @@ describe('fields projection — validation_history (#210)', () => {
       agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 1,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: 'Looks good',
       mcp_available: true,
       subagent_session_id: 'test-session-compat',

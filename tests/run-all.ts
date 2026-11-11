@@ -250,6 +250,8 @@ export function l1Steps(here: string): Step[] {
     lint('L1 lint: release-payload workflow safety shape', 'release-payload-workflow.test.mjs'),
     lint('L1 lint: dev-build l1 job + CONTRIBUTING.md mention it', 'dev-build-l1-docs.test.mjs'),
     lint('L1 lint: pr-check runs no full sweep', 'pr-check-full-suite.test.mjs'),
+    // node --test expands the glob itself, so the step runs the same files as pr-check's dashboard job.
+    ['L1 dashboard: node:test suite (dashboard/test/*.test.mjs)', ['node', '--test', join(dirname(here), 'dashboard', 'test', '*.test.mjs')]],
   ];
 }
 

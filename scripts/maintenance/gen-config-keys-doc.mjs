@@ -120,7 +120,7 @@ export const KEYS = [
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `medium`)',
     setBy: 'bro via `config_set` (any other value is refused)',
-    effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort` denies a swe spawn whose Agent `effort` differs from the task\'s; `swe-atomic-close` copies the task\'s effort onto the swe `agent_runs` row.',
+    effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort` denies a swe spawn whose Agent `effort` differs from the task\'s, or is not `high` while the task has a review FAIL since its last pass (GH 2866: the FAIL reopens the task at `high`, and `task_reopen` refuses a lower effort then); `swe-atomic-close` copies the task\'s effort onto the swe `agent_runs` row.',
   },
   {
     name: 'high_effort_paths',

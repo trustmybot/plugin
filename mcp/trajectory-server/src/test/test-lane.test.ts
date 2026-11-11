@@ -1,6 +1,6 @@
 // wm_files.lane (GH 2886): a scan of a non-TMB repo stores each file's test or
 // product lane by the per-language defaults, a world_model_test_lane extend
-// flips an unchanged file on the next scan, and the v67→v68 migration
+// flips an unchanged file on the next scan, and the v68→v69 migration
 // backfills existing rows by the default rules.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -96,7 +96,7 @@ describe('GH 2886: wm_files.lane on a Go and Python repo', () => {
   });
 });
 
-describe('GH 2886: the v67 -> v68 migration', () => {
+describe('GH 2886: the v68 -> v69 migration', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tmb-test-lane-migrate-'));
   after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -108,13 +108,13 @@ describe('GH 2886: the v67 -> v68 migration', () => {
     for (const path of ['pkg/foo.go', 'pkg/foo_test.go', 'app/test_foo.py', 'web/a.spec.ts', 'src/schema-v3.sql']) {
       raw.prepare(`INSERT INTO wm_files (repo, path, dir, updated_at) VALUES ('r', ?, '', ?)`).run(path, NOW);
     }
-    raw.exec(`ALTER TABLE wm_files DROP COLUMN lane; UPDATE plugin_meta SET schema_version = 67 WHERE id = 1;`);
+    raw.exec(`ALTER TABLE wm_files DROP COLUMN lane; UPDATE plugin_meta SET schema_version = 68 WHERE id = 1;`);
     raw.close();
 
     const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
     const fresh = new TrajectoryDB(join(dir, 'fresh.db'));
     try {
-      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 68);
+      assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 69);
       const cols = (d: TrajectoryDB) =>
         d.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(wm_files)')
           .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));

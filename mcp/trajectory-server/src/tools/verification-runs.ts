@@ -5,6 +5,7 @@ export interface VerificationRunCommand {
   command: string;
   exit_code: number | null;
   elapsed_s: number | null;
+  output_tail?: string | null;
 }
 
 export interface VerificationRunRecord {
@@ -102,6 +103,11 @@ export function gateCommands(verification: string[], probes: FindingProbe[] = []
   ];
 }
 
+/** The last `chars` characters of a stored output_tail; null stays null. */
+export function clipOutputTail(tail: string | null, chars: number): string | null {
+  return tail === null || tail.length <= chars ? tail : tail.slice(-chars);
+}
+
 const shaMatches = (col: string): string =>
   `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
 
@@ -146,9 +152,15 @@ export function verificationWaivedForCommit(db: TrajectoryDB, taskId: number, co
 /**
  * The task's latest recorded verification run (written by
  * swe-verification-gate), or null when none exists. With `startedBy`, only
- * runs started at or before that ISO timestamp count.
+ * runs started at or before that ISO timestamp count. With `withOutputTail`,
+ * each command carries its stored output_tail; without, it has none.
  */
-export function latestVerificationRun(db: TrajectoryDB, taskId: number, startedBy?: string): VerificationRunRecord | null {
+export function latestVerificationRun(
+  db: TrajectoryDB,
+  taskId: number,
+  opts: { startedBy?: string; withOutputTail?: boolean } = {},
+): VerificationRunRecord | null {
+  const { startedBy, withOutputTail = false } = opts;
   const run = db.get<{
     id: number;
     commit_sha: string;
@@ -168,10 +180,14 @@ export function latestVerificationRun(db: TrajectoryDB, taskId: number, startedB
   if (!run) return null;
   const commands = db
     .all<VerificationRunCommand>(
-      `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
+      `SELECT ordinal, command, exit_code, elapsed_s, output_tail FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
       [run.id],
     )
-    .map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
+    .map((c) => {
+      const command: VerificationRunCommand = { ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s };
+      if (withOutputTail) command.output_tail = c.output_tail ?? null;
+      return command;
+    });
   return {
     run_id: run.id,
     commit_sha: run.commit_sha,

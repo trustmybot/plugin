@@ -1,7 +1,9 @@
 /**
  * The require-spawn-effort gate (GH 1692): the
  * Agent call's `effort` must be the effort the trajectory DB holds for the
- * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N; a
+ * spawn. A swe spawn naming task_id=<N> needs tasks.effort of task N, and
+ * while task N has a review FAIL since its last passing review that effort
+ * must be high (GH 2866), whatever tasks.effort says; a
  * code-reviewer spawn needs the effort review_handoff assigned task N's
  * review (GH 1955), else plugin_config.reviewer_effort (medium when unset),
  * and the model it assigned, or no model when it assigned none (GH 2932);
@@ -18,6 +20,7 @@ import { jqRawText } from './lib/project-env.js';
 import { CODE_REVIEWER_ROLE, normalizeRole } from './lib/role.js';
 import { promptTaskId } from './require-task-spec.js';
 import { denyPreToolUse, denyUnreadable } from './rework-limit.js';
+import { REWORK_FLOOR_EFFORT, failsSinceLastPassSql } from '../task-rework.js';
 
 export const GATE_NAME = 'require-spawn-effort';
 
@@ -49,6 +52,20 @@ function denyMismatch(who: string, expected: string, given: string, change: stri
   });
 }
 
+function denyBelowReworkFloor(taskId: string, expected: string, given: string): GateResult {
+  const passed = given !== '' ? `passed effort="${given}"` : 'passed no effort';
+  const reopen = `task_reopen(task_id=${taskId}, reason="<why>", effort='${REWORK_FLOOR_EFFORT}')`;
+  const fix =
+    expected === REWORK_FLOOR_EFFORT
+      ? `the same Agent call with effort="${REWORK_FLOOR_EFFORT}"`
+      : `${reopen}, then the same Agent call with effort="${REWORK_FLOOR_EFFORT}"`;
+  return denyPreToolUse(
+    `BLOCKED: task_id=${taskId} has a review FAIL since its last passing review, so its swe rework runs at effort "${REWORK_FLOOR_EFFORT}"; ` +
+      `tasks.effort is "${expected}" and the Agent call ${passed}. Raise the task with ${reopen} when tasks.effort is below it.`,
+    { allowed: fix },
+  );
+}
+
 function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): GateResult {
   const taskId = sqlInt(promptTaskId(toolInputRaw(payload, 'prompt')));
   if (taskId === '') return ALLOW;
@@ -64,7 +81,13 @@ function sweVerdict(payload: string, given: string, env: NodeJS.ProcessEnv): Gat
     }
     return denyUnreadable(GATE_NAME, env);
   }
-  if (expected === '' || given === expected) return ALLOW;
+  if (expected === '') return ALLOW;
+  const fails = gateRead(db, `SELECT ${failsSinceLastPassSql(taskId)};`, env);
+  if (fails === GATE_READ_ERROR) return denyUnreadable(GATE_NAME, env);
+  if (Number(fails) > 0 && (given !== REWORK_FLOOR_EFFORT || expected !== REWORK_FLOOR_EFFORT)) {
+    return denyBelowReworkFloor(taskId, expected, given);
+  }
+  if (given === expected) return ALLOW;
   return denyMismatch(
     `task_id=${taskId} (tasks.effort)`,
     expected,

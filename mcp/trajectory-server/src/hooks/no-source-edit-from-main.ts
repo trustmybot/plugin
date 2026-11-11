@@ -175,7 +175,7 @@ function projectRelative(p: string, roots: readonly string[]): string {
 }
 
 /** `${word#UNRESOLVED:*:}`, or null for a never-judged marker. */
-function judgedPath(word: string): string | null {
+export function judgedPath(word: string): string | null {
   if (!word.startsWith('UNRESOLVED:')) return word;
   const rest = word.slice('UNRESOLVED:'.length);
   const colon = rest.indexOf(':');

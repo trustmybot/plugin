@@ -265,6 +265,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
+    routerGate(PROMPT_WRITE_APPROVAL_GATE, 'enforcement'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
   ], { concurrent: true }),
   preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),

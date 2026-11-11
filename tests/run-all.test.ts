@@ -76,6 +76,13 @@ describe('l1LocalSteps', () => {
       assert.ok(names.includes(lint), `${lint} runs under --l1-local`);
     }
   });
+  test('runs every dashboard/test/*.test.mjs file, as pr-check does (GH 2866)', () => {
+    const glob = join(dirname(HERE), 'dashboard', 'test', '*.test.mjs');
+    const steps = local.filter(([, argv]) => argv.includes(glob));
+    assert.equal(steps.length, 1, 'one --l1-local step runs the dashboard tests');
+    assert.deepEqual(steps[0][1], ['node', '--test', glob]);
+    assert.ok(readdirSync(dirname(glob)).some((name) => name.endsWith('.test.mjs')), 'the glob matches dashboard test files');
+  });
 });
 
 describe('l1Skipped', () => {

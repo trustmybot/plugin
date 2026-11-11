@@ -3229,7 +3229,7 @@
     "C": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    Zeta _tools a a-b api dist node_modules src web\\nStacks detected:   plugin: PHP (Zeta/), Ruby (_tools/), Go (a-b/), +3 more\\nWorld model:       warm (7 files, last scan 2h ago)\\nTrajectory DB:     unchecked (schema v30 < v67 — start the trajectory server to migrate)\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    Zeta _tools a a-b api dist node_modules src web\\nStacks detected:   plugin: PHP (Zeta/), Ruby (_tools/), Go (a-b/), +3 more\\nWorld model:       warm (7 files, last scan 2h ago)\\nTrajectory DB:     unchecked (schema v30 < v69 — start the trajectory server to migrate)\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -3407,7 +3407,7 @@
     "en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    _tools a a-b api dist node_modules src web Zeta\\nStacks detected:   plugin: Ruby (_tools/), Go (a-b/), Rust (a/), +3 more\\nWorld model:       warm (7 files, last scan 2h ago)\\nTrajectory DB:     unchecked (schema v30 < v67 — start the trajectory server to migrate)\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\"}}\n",
+      "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"=== Project Inventory (auto, deterministic) ===\\nPlugin version:    (unknown)\\nTop-level dirs:    _tools a a-b api dist node_modules src web Zeta\\nStacks detected:   plugin: Ruby (_tools/), Go (a-b/), Rust (a/), +3 more\\nWorld model:       warm (7 files, last scan 2h ago)\\nTrajectory DB:     unchecked (schema v30 < v69 — start the trajectory server to migrate)\\nGit branch:        plugin: main (2 commits, 4 dirty paths)\\nOpen issues:       1\\nPending tasks:     0\\nLast 5 commits:\\n  2086a48 second\\n  c7b7d11 first\\n================================================\"}}\n",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,

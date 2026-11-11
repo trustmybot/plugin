@@ -16,7 +16,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 68;
+export const TARGET_SCHEMA_VERSION = 69;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -839,8 +839,10 @@ function runMigrations(
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
   // v66→v67: tasks.base_sha and tasks.wm_commit, the environment gate's commits (GH 2866)
   if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
-  // v67→v68: wm_files.lane, each file's test or product lane (GH 2886)
+  // v67→v68: validation_attempts.probes_json, the checks a reviewer ran (GH 2866)
   if (fromVersion < 68 && toVersion >= 68) migrateV67toV68(db);
+  // v68→v69: wm_files.lane, each file's test or product lane (GH 2886)
+  if (fromVersion < 69 && toVersion >= 69) migrateV68toV69(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3513,10 +3515,29 @@ function migrateV66toV67(db: DatabaseSync): void {
   }
 }
 
-// v67→v68: wm_files.lane (GH 2886), the test or product lane a scan stores
+// v67→v68: validation_attempts.probes_json (GH 2866), the checks a code-reviewer
+// ran for its verdict. Existing rows keep NULL.
+function migrateV67toV68(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'probes_json')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN probes_json TEXT');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v68→v69: wm_files.lane (GH 2886), the test or product lane a scan stores
 // per file. Existing rows are backfilled by the default rules; the next scan
 // applies the project's world_model_test_lane config.
-function migrateV67toV68(db: DatabaseSync): void {
+function migrateV68toV69(db: DatabaseSync): void {
   beginImmediate(db);
   try {
     if (tableExists(db, 'wm_files') && !hasColumn(db, 'wm_files', 'lane')) {
