@@ -43,9 +43,9 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-// A completed task still waits on bro_atomic_close; only closed counts as done.
+// A completed task still waits on code-reviewer and then bro_atomic_close; only closed counts as done.
 function statusLabel(status: string): string {
-  return status === 'completed' ? 'completed (awaiting close)' : status;
+  return status === 'completed' ? 'completed (awaiting review and close)' : status;
 }
 
 export function branchReportMdTools(db: TrajectoryDB): {
