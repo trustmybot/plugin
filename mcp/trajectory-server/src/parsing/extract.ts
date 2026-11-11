@@ -917,7 +917,8 @@ function pyImports(root: Node, out: Collector, moduleSymbol: number): { aliases:
 // call on self/cls carries the enclosing class as its receiver hint.
 function extractPython(root: Node, src: string, out: Collector, moduleSymbol: number): void {
   const moduleDocstring = pyDocstring(root);
-  if (moduleDocstring) out.symbols[moduleSymbol]!.doc = moduleDocstring;
+  const moduleRow = out.symbols[moduleSymbol];
+  if (moduleRow && moduleDocstring) moduleRow.doc = moduleDocstring;
   const { aliases, bound } = pyImports(root, out, moduleSymbol);
   const classes = new Set(
     root

@@ -4,7 +4,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { resolvePythonImport } from '../symbol-index.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
@@ -76,7 +75,9 @@ describe('Python symbol extraction (GH 3032)', () => {
     execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
     execFileSync('git', ['add', '-A'], { cwd: root });
     execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
-    const r = (await scanTools(db, holder, ':memory:').handlers['scan_run']!({ agent: 'bro', session_dir: ws })) as CallToolResult;
+    const scanRun = scanTools(db, holder, ':memory:').handlers['scan_run'];
+    assert.ok(scanRun);
+    const r = await scanRun({ agent: 'bro', session_dir: ws });
     assert.ok(!r.isError, (r.content[0] as { text: string }).text);
   });
 

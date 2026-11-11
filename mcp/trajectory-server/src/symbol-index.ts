@@ -255,14 +255,15 @@ export function resolveImport(fromFile: string, spec: string | null, fileSet: Se
 // directory of the importing file, shallowest first, for `src/` layouts.
 export function resolvePythonImport(fromFile: string, spec: string | null, fileSet: Set<string>): string | null {
   if (!spec) return null;
-  const dots = spec.match(/^\.*/)![0].length;
-  const parts = spec.slice(dots).split('.').filter(Boolean);
+  const module = spec.replace(/^\.+/, '');
+  const dots = spec.length - module.length;
+  const parts = module.split('.').filter(Boolean);
   const fromDir = posix.dirname(fromFile);
   let roots: string[];
   if (dots > 0) {
-    const up = Array<string>(dots - 1).fill('..');
-    roots = [posix.normalize(posix.join(fromDir, ...up))];
-    if (roots[0]!.startsWith('..')) return null;
+    const pkg = posix.normalize(posix.join(fromDir, ...Array<string>(dots - 1).fill('..')));
+    if (pkg.startsWith('..')) return null;
+    roots = [pkg];
   } else {
     roots = ['.'];
     for (let dir = fromDir; dir !== '.'; dir = posix.dirname(dir)) roots.splice(1, 0, dir);
