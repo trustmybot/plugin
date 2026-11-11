@@ -344,6 +344,14 @@ describe('gates that resolve the task worktree act on the recorded worktree_path
       it(`${label}: auto-completes at the head of the task worktree`, async () => {
         const c = fixture({ adopted, slugWorktree: true });
         const sha = commit(c.worktree, 'work.txt');
+        run(
+          c,
+          "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', ?, ?, 0, 600, 0)",
+          TASK,
+          sha,
+          T0,
+          T0,
+        );
         await sweAtomicClose(stop(c), c.env);
         const task = query<{ status: string; commit_sha: string | null }>(c, 'SELECT status, commit_sha FROM tasks WHERE id = ?', TASK);
         assert.deepEqual({ ...task }, { status: 'completed', commit_sha: sha });

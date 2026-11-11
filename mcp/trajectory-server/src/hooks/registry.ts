@@ -56,6 +56,7 @@ import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-ta
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
+import { GATE_NAME as PROMPT_WRITE_APPROVAL_GATE, promptWriteApproval } from './prompt-write-approval.js';
 import { GATE_NAME as STAY_ON_BASE_GATE, stayOnBaseGuard } from './stay-on-base-guard.js';
 import { GATE_NAME as BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote } from './branch-up-to-date-with-remote.js';
 import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } from './no-worktree-branch-create.js';
@@ -136,6 +137,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [AGENT_ARG_GATE, agentArgMatchesCaller],
   [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
   [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
+  [PROMPT_WRITE_APPROVAL_GATE, promptWriteApproval],
   [STAY_ON_BASE_GATE, stayOnBaseGuard],
   [BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote],
   [NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate],
@@ -243,6 +245,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate('containment-guard', 'enforcement'),
     routerGate(SWE_BRIEF_GATE, 'enforcement'),
     routerGate(NO_SOURCE_EDIT_GATE, 'enforcement'),
+    routerGate(PROMPT_WRITE_APPROVAL_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
     routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
     routerGate(SWE_SCOPE_FENCE_GATE, 'advisory'),
@@ -264,6 +267,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
+    routerGate(PROMPT_WRITE_APPROVAL_GATE, 'enforcement'),
     routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
   ], { concurrent: true }),
   preToolUseGroup('Agent', [routerGate(AGENT_SPAWN_DISPATCH_GATE, 'enforcement'), routerGate(DEBUG_TRAJECTORY_GATE, 'advisory')]),
@@ -279,7 +283,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_provision'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_reopen'),
       routerGate(WORKTREE_ADOPT_GATE, 'enforcement', 'task_retry'),
-      routerGate(WM_READ_GATE, 'advisory', 'task_provision'),
+      routerGate(WM_READ_GATE, 'enforcement', 'task_provision'),
     ],
     { stopAtFirstDeny: true },
   ),
@@ -290,6 +294,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'validation_record'),
     routerGate(RT_CLEANUP_GATE, 'advisory', 'roundtable_close'),
     routerGate(README_STALENESS_GATE, 'advisory', 'bro_atomic_close'),
+    routerGate(CLEANUP_WORKTREE_GATE, 'advisory', 'bro_atomic_close'),
     routerGate(SPAWN_HINT_GATE, 'advisory', 'task_create_batch'),
     routerGate(OVERRUN_GATE, 'advisory'),
     routerGate(LIVENESS_ALERT_GATE, 'advisory'),

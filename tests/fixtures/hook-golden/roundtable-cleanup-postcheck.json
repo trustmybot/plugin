@@ -42,7 +42,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -62,7 +62,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -109,7 +116,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -129,7 +136,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -176,7 +190,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -196,7 +210,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -243,7 +264,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -263,7 +284,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -310,7 +338,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -330,7 +358,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -377,7 +412,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -397,7 +432,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -444,7 +486,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -464,7 +506,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -511,7 +560,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -531,7 +580,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -578,7 +634,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -598,7 +654,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -645,7 +708,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -665,7 +728,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -712,7 +782,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -732,7 +802,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -779,7 +856,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -799,7 +876,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -846,7 +930,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -866,7 +950,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -913,7 +1004,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -933,7 +1024,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -980,7 +1078,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1000,7 +1098,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -1047,7 +1152,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1067,7 +1172,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -1114,7 +1226,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1134,7 +1246,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -1181,7 +1300,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1201,7 +1320,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   }

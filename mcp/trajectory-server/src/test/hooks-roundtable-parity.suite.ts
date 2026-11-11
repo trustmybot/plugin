@@ -10,7 +10,8 @@
  * The sandbox holds an onboarded project DB (issues, roundtables in every
  * capture state, one awaiting_human, votes, discussions, consultants), a DB
  * whose awaiting roundtable the human already voted on, a schema-only DB, a
- * corrupt DB and a bare dir. A payload names the sandbox as @SANDBOX@ and the
+ * corrupt DB, a bare dir and consultant transcripts that start before, after
+ * or without a timestamp against the discussion rows. A payload names the sandbox as @SANDBOX@ and the
  * PATH without jq or without the sqlite3 CLI as @NOJQ_PATH@ / @NOSQLITE_PATH@;
  * corpus_env (null unsets), corpus_cwd, corpus_stdin and corpus_expect
  * (`empty`, or a phrase of the observed stdout, stderr and new audit rows)
@@ -81,6 +82,7 @@ export function buildSandbox(s: string): void {
     discussion.run(1, 'bro', 'decision', 'decision body', T1);
     discussion.run(1, 'cto', 'analysis', 'cto on the older issue', T1);
     discussion.run(2, 'architect', 'analysis', 'architect on the newest issue', T2);
+    discussion.run(3, 'ceo', 'analysis', 'ceo on the closed issue', T2);
     const rt = db.prepare('INSERT INTO roundtables (id, issue_id, topic, state, outcome, created_at) VALUES (?, ?, ?, ?, ?, ?)');
     rt.run(1, 1, 'fully captured', 'closed', 'proceed', T1);
     rt.run(2, 2, 'nothing captured', 'collecting', '', T2);
@@ -100,6 +102,20 @@ export function buildSandbox(s: string): void {
     db.prepare("INSERT INTO roundtables (id, issue_id, topic, state, created_at) VALUES (1, 1, 'ratified', 'awaiting_human', ?)").run(T1);
     db.prepare("INSERT INTO roundtable_votes (roundtable_id, participant, vote, created_at) VALUES (1, 'human', 'ratified', ?)").run(T1);
   });
+
+  const transcript = (name: string, entries: object[]): void => {
+    const path = join(s, 'transcripts', name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, entries.map((e) => `${JSON.stringify(e)}\n`).join(''));
+  };
+  transcript('spawned-before-the-rows.jsonl', [
+    { type: 'summary', summary: 'no timestamp' },
+    { type: 'user', timestamp: '2026-09-30 12:00:00' },
+    { type: 'assistant', timestamp: '2026-09-30T10:00:00.000Z' },
+  ]);
+  transcript('spawned-after-the-rows.jsonl', [{ type: 'user', timestamp: '2026-10-01T11:00:00.000Z' }]);
+  transcript('session/subagents/agent-a1.jsonl', [{ type: 'user', timestamp: '2026-10-01T11:00:00.000Z' }]);
+  transcript('no-timestamp.jsonl',[{ type: 'summary', summary: 'no timestamp' }, { type: 'user', timestamp: 'yesterday' }]);
 
   trajectoryDb(join(s, 'fresh/.claude/tmb/trajectory.db'), () => {});
   mkdirSync(join(s, 'bad/.claude/tmb'), { recursive: true });

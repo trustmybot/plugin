@@ -12,8 +12,12 @@
  *                      and exited 0
  *   stale_lint_record  that run's fingerprint is the close-lints fingerprint of the commit,
  *                      its base_sha is merge-base(<pr_target tip>, <commit>), and its
- *                      results hold a passing row for each config lint and for the
- *                      built-in missing_changelog and stale_doc_ref
+ *                      results hold a passing row for each close-lints.json lint
+ *
+ * The changelog and stale-doc checks run earlier, at swe's close
+ * (swe-verification-gate, GH 2866), and a failing one records no verification
+ * run, so no_passing_run also holds them. The first three stay here because the
+ * branch tip and the PR target can move after the close.
  *
  * The last two are an allowlist over swe's close-lint record (GH 2570): a record
  * the preflight cannot prove current and clean denies, a malformed
@@ -24,11 +28,11 @@
  */
 import { ALLOW, type GateResult, type Gate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
-import { git, MISSING_CHANGELOG, nulFields, STALE_DOC_REF } from './lib/builtin-lints.js';
 import { closeLintsPlan } from './lib/close-lints.js';
 import { dbPath, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, sqlInt, sqlQuote } from './lib/db.js';
+import { gitText, listed, nulFields, revParse } from './lib/doc-checks.js';
+import { prTargetRef } from './lib/git-refs.js';
 import { latestLintRun } from './lib/lint-runs.js';
-import { resolveBaseRef, resolveRepoDefaultBranch } from './lib/git-refs.js';
 import { structuredDenyResult, type DenyFix } from './lib/deny.js';
 import { jqAlternatives } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
@@ -42,19 +46,6 @@ export interface PreflightFailure {
   check: PreflightCheck;
   expected: string | null;
   actual: string | null;
-}
-
-const MAX_LISTED = 10;
-
-async function revParse(repo: string, rev: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  const r = await git(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], env);
-  const sha = r.stdout.trim();
-  return r.code === 0 && sha !== '' ? sha : null;
-}
-
-function listed(items: readonly string[]): string {
-  const shown = items.slice(0, MAX_LISTED).join('; ');
-  return items.length > MAX_LISTED ? `${shown}; (+${items.length - MAX_LISTED} more)` : shown;
 }
 
 export function preflightFix(check: PreflightCheck, taskId: string): DenyFix {
@@ -90,16 +81,6 @@ function readTask(db: string, taskId: string, env: NodeJS.ProcessEnv): TaskRow |
   if (row === '') return null;
   const [, commitSha = '', parentBranch = '', ...branch] = row.split('\n')[0].split('|');
   return { commitSha, parentBranch, branch: branch.join('|') };
-}
-
-/** The ref of the task's PR target, as bro_atomic_close resolves it: repos.target_branch, parent_branch_id, the repo default. */
-export async function prTargetRef(repo: string, targetBranch: string, parentBranch: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  for (const candidate of [targetBranch, parentBranch]) {
-    if (candidate === '') continue;
-    const ref = await resolveBaseRef(repo, candidate, env);
-    if (ref) return ref;
-  }
-  return await resolveBaseRef(repo, await resolveRepoDefaultBranch(repo, env), env);
 }
 
 async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Promise<GateResult> {
@@ -161,7 +142,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       actual: `no PR target ref resolves in ${repo}`,
     }, taskId);
   }
-  const merge = await git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
+  const merge = await gitText(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
   if (merge.code !== 0) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ''))];
     return deny({
@@ -171,7 +152,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
     }, taskId);
   }
 
-  const mergeBase = (await git(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
+  const mergeBase = (await gitText(repo, ['merge-base', targetTip, commit], env)).stdout.trim();
   if (mergeBase === '') {
     return deny({
       check: 'base_conflict',
@@ -210,7 +191,7 @@ async function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): Pr
       actual: `${run}: base_sha recorded ${lintRun.base_sha || '(empty)'}, merge-base ${mergeBase}`,
     }, taskId);
   }
-  const required = [...(plan.config?.lints ?? []).map((l) => l.name), MISSING_CHANGELOG, STALE_DOC_REF];
+  const required = (plan.config?.lints ?? []).map((l) => l.name);
   const unproven = required.filter((name) => !lintRun.results.some((r) => r.name === name && r.exit_code === 0));
   if (unproven.length > 0) {
     return deny({

@@ -183,6 +183,87 @@ describe('sandbox.network.allowLocalBinding is owned like enableWeakerNetworkIso
   });
 });
 
+describe('removal deletes a TMB-owned network key only while it is still true', () => {
+  let project: string;
+
+  const settingsPath = () => join(project, '.claude', 'settings.local.json');
+  type WrittenSettings = { sandbox: Record<string, unknown> & { network: Record<string, unknown> } };
+  const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8')) as WrittenSettings;
+  const edit = (change: (settings: WrittenSettings) => void) => {
+    const settings = read();
+    change(settings);
+    writeFileSync(settingsPath(), JSON.stringify(settings));
+  };
+  const writeDarwin = () => {
+    const res = writeProjectSandbox({ projectRoot: project, cacheDir: join(project, 'model-cache'), platform: 'darwin', previous: null });
+    assert.equal(res.record?.allow_local_binding_set, true);
+    assert.equal(res.record?.weaker_network_isolation_set, true);
+    return res.record ?? null;
+  };
+  const remove = (record: SandboxRecord | null) =>
+    assert.equal(removeProjectSandbox({ projectRoot: project, record }).removed, true);
+
+  beforeEach(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-remove-')));
+  });
+
+  afterEach(() => {
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it('both keys still true are removed, and the empty network and sandbox objects are pruned', () => {
+    const record = writeDarwin();
+    assert.equal(read().sandbox.network.allowLocalBinding, true);
+    assert.equal(read().sandbox.enableWeakerNetworkIsolation, true);
+    remove(record);
+    assert.deepEqual(read(), {});
+  });
+
+  it('allowLocalBinding the Human changed to false is kept, and so is its network object', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox.network['allowLocalBinding'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { network: { allowLocalBinding: false } } });
+  });
+
+  it('enableWeakerNetworkIsolation the Human changed to false is kept, and the empty network is pruned', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox['enableWeakerNetworkIsolation'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { enableWeakerNetworkIsolation: false } });
+  });
+
+  it('a still-true allowLocalBinding is removed while a Human network key keeps the network object', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox.network['httpProxyPort'] = 8080; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { network: { httpProxyPort: 8080 } } });
+  });
+
+  it('a still-true enableWeakerNetworkIsolation is removed while a Human sandbox key keeps the sandbox object', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox['autoAllowBashIfSandboxed'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { autoAllowBashIfSandboxed: false } });
+  });
+
+  it('a TMB-set enabled still true is removed', () => {
+    const record = writeDarwin();
+    assert.equal(record?.enabled_set, true);
+    assert.equal(read().sandbox.enabled, true);
+    edit((s) => { s.sandbox['autoAllowBashIfSandboxed'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { autoAllowBashIfSandboxed: false } });
+  });
+
+  it('enabled the Human changed to false is kept, and so is its sandbox object', () => {
+    const record = writeDarwin();
+    edit((s) => { s.sandbox['enabled'] = false; });
+    remove(record);
+    assert.deepEqual(read(), { sandbox: { enabled: false } });
+  });
+});
+
 describe('sandboxRecommended reads the probe recorded for the platform', () => {
   const HTTPS = ['https://github.com/a/b.git'];
   const SSH = ['git@github.com:a/b.git'];

@@ -262,6 +262,25 @@ function outerSubstitutions(node: Node, out: Node[] = []): Node[] {
 }
 
 /**
+ * Whether the heredoc-body command_substitution <sub> is a `$(( ))` bash
+ * reads as arithmetic that runs no command (GH 2876). tree-sitter-bash parses
+ * a body's `$((W=0))` as $( ) around the subshell `(W=0)`; bash reads it as
+ * arithmetic when one paren group closes right before the final `)`, so
+ * `$((a);(b))` and `$((a) )` stay command substitutions. Only text made of
+ * arithmetic characters counts: zsh ignores quoted parens when matching
+ * `$(( ))`, so it runs `$((echo ")";cmd))` as a command (F823-1), and any
+ * quote, `;`, `&`, `|`, newline, `$` or backtick keeps the code listed.
+ */
+const ARITHMETIC_ONLY = /^[A-Za-z0-9_ \t+\-*/%=<>!~^?:,()[\]]*$/;
+
+function commandFreeArithmetic(src: string, sub: Node): boolean {
+  const [open, inner, close, ...more] = sub.children;
+  if (!open || !inner || !close || more.length > 0) return false;
+  if (inner.type !== 'subshell' || inner.startIndex !== open.endIndex || inner.endIndex !== close.startIndex) return false;
+  return ARITHMETIC_ONLY.test(src.slice(inner.startIndex, inner.endIndex));
+}
+
+/**
  * The code of each outermost $( ) and backtick of an unquoted-delimiter
  * heredoc body, <body> its heredoc_body node in the tree of <src> and
  * [from, to) its text (GH 2635). A $( ) is the parse tree's
@@ -283,7 +302,7 @@ export function bodyCodes(src: string, body: Node, from: number, to: number): st
       const open = sub.firstChild;
       const close = sub.lastChild;
       if (!open || !close || close.type !== ')') return null;
-      out.push(src.slice(open.endIndex, close.startIndex));
+      if (!commandFreeArithmetic(src, sub)) out.push(src.slice(open.endIndex, close.startIndex));
       i = sub.endIndex - 1;
       continue;
     }
@@ -356,6 +375,12 @@ export class Encoder {
     return dollar && this.marks && c === '$' ? DOLLAR : neutral(c, this.marks);
   }
 
+  /** `$` at src[i] starts no expansion, so bash keeps it literal (GH 2451). */
+  private literalDollar(i: number): boolean {
+    const next = this.src[i + 1];
+    return next === undefined || !/[A-Za-z0-9_@*#?$!{(`-]/.test(next);
+  }
+
   /** Unquoted text: a backslash escapes the next char; a backslash-newline is dropped, as bash joins the lines (GH 2646). */
   private plain(from: number, to: number): string {
     const { src } = this;
@@ -363,7 +388,12 @@ export class Encoder {
     for (let i = from; i < to; i++) {
       const c = src[i];
       if (c !== '\\') {
-        out += literalMark(c, this.marks) ? QM_LITERAL : c;
+        if (this.marks && c === '$' && i + 1 < to && src[i + 1] === '$') {
+          // `$$` is the shell's pid, an expansion: neither `$` is literal (GH 2451).
+          out += '$$';
+          i++;
+        } else if (c === '$' && this.marks && this.literalDollar(i)) out += DOLLAR;
+        else out += literalMark(c, this.marks) ? QM_LITERAL : c;
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
@@ -373,7 +403,7 @@ export class Encoder {
     return out;
   }
 
-  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only an escaped one. */
+  /** Quoted text: every char neutral, a newline the joiner; `escapes` drops a backslash before the char it escapes, and a backslash-newline whole; `literal` keeps every `$` literal, else only one that starts no expansion. */
   private quoted(from: number, to: number, escapes: boolean, literal: boolean): string {
     const { src } = this;
     let out = '';
@@ -384,7 +414,11 @@ export class Encoder {
         const next = i + 1 < to ? src[i + 1] : undefined;
         if (next !== '\n') out += this.literal(next, true);
         if (next !== undefined) i++;
-      } else out += this.literal(c, literal);
+      } else if (!literal && c === '$' && i + 1 < to && src[i + 1] === '$') {
+        // `$$` is the shell's pid in "…" too, never a literal `$` (GH 2451).
+        out += '$$';
+        i++;
+      } else out += this.literal(c, literal || (c === '$' && this.literalDollar(i)));
     }
     return out;
   }

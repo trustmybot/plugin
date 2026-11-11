@@ -35,6 +35,7 @@ import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from
 import { WM_FEEDBACK_SCHEMA, insertWmFeedback } from './validation.js';
 import { CLAIM_ARGS_SCHEMA } from '../world-model/concepts.js';
 import { REWORK_CHANGES, REWORK_RATIONALE_MIN_CHARS, REWORK_ROOT_CAUSES, reworkPairingError } from '../task-rework.js';
+import { isPromptSurfaceUnder } from '../hooks/cmd-analysis/surface.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -57,6 +58,39 @@ function taskFileDirs(filesJson: string | null | undefined): Set<string> {
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
   return dirs;
+}
+
+// A directory entry at or under these roots may hold .md files swe writes,
+// which the swe-boundary hook treats as prompt surface.
+const PROMPT_SURFACE_DIR_RE =
+  /^(?:(?:agents|skills|commands|templates|rules)|\.claude\/(?:agents|skills|commands|rules))\//;
+
+// True when swe's edits to files[] (repo-relative) would touch prompt surface:
+// a prompt-surface file per the hook's own predicate, or a directory entry at
+// or under a prompt-surface root.
+export function filesArePromptBearing(files: readonly string[]): boolean {
+  return files.some((entry) => {
+    if (isPromptSurfaceUnder(entry, '')) return true;
+    if (entry.endsWith('.md')) return false;
+    const dir = entry.replace(/^\.\//, '').replace(/\/+$/, '');
+    return PROMPT_SURFACE_DIR_RE.test(`${dir}/`);
+  });
+}
+
+export interface PromptBearingResolution {
+  prompt_bearing: 0 | 1;
+  derived: boolean;
+}
+
+// Effective prompt_bearing: an explicit or stored 1 wins, else files[] decide.
+export function resolvePromptBearing(given: unknown, files: readonly string[]): PromptBearingResolution {
+  if (given === 1) return { prompt_bearing: 1, derived: false };
+  const derived = filesArePromptBearing(files);
+  return { prompt_bearing: derived ? 1 : 0, derived };
+}
+
+export function promptBearingDerivedField(resolution: PromptBearingResolution): Record<string, unknown> {
+  return resolution.derived ? { prompt_bearing: 1, prompt_bearing_derived: true } : {};
 }
 
 export const BRANCH_ID_RE =
@@ -250,13 +284,15 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' hands a closed task back to the Human; rework
-//     after a failed review goes through task_reopen (closed → running).
+//   - 'closed'→'escalated' lets bro reopen a closed task's case for rework or
+//     redesign; bro owns the next step (task_retry admits an escalated task).
+//   - code-reviewer runs before the close, so a failed review leaves the task
+//     completed; its rework is completed → running (task_reopen).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
   needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
-  completed: new Set(['needs_validation', 'failed', 'escalated']),
+  completed: new Set(['running', 'needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),
@@ -447,7 +483,7 @@ export function taskTools(db: TrajectoryDB): {
                 prompt_bearing: {
                   type: 'number',
                   description:
-                    'Set to 1 when this task intentionally edits prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md); the swe-boundary hook reads it. Default 0.',
+                    'Set to 1 when this task intentionally edits prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md); the swe-boundary hook reads it. Default: 1 when files[] holds a prompt-surface path, else 0.',
                 },
                 files: {
                   type: 'array',
@@ -1092,6 +1128,7 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       const effortReasons = new Map<number, EffortReason>();
+      const promptBearingDerivedIds = new Set<number>();
       const inserted = db.transaction(() => {
         const results: Task[] = [];
         const now = nowISO();
@@ -1138,9 +1175,10 @@ export function taskTools(db: TrajectoryDB): {
           }
           if (parentBranchId == null) parentBranchId = 'main';
 
-          const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
           const { files: typedFiles, verification: typedVerification, effort: explicitEffort } =
             validateTypedRailsFields(t);
+          const promptBearingResolution = resolvePromptBearing(t.prompt_bearing, typedFiles);
+          const promptBearing = promptBearingResolution.prompt_bearing;
           const computedEffort = computeEffort(db, {
             effort: explicitEffort,
             prompt_bearing: promptBearing,
@@ -1179,6 +1217,7 @@ export function taskTools(db: TrajectoryDB): {
             });
             recordEffortInputs(db, { id: row.id, from_node: (args['agent'] as string) ?? 'bro' });
             effortReasons.set(row.id, assigned.reason);
+            if (promptBearingResolution.derived) promptBearingDerivedIds.add(row.id);
             results.push({ ...row, effort: assigned.effort });
           }
         }
@@ -1356,6 +1395,7 @@ export function taskTools(db: TrajectoryDB): {
           status: t.status,
           repo: t.repo,
           prompt_bearing: t.prompt_bearing,
+          ...(promptBearingDerivedIds.has(t.id) ? { prompt_bearing_derived: true } : {}),
           effort: t.effort,
           effort_reason: effortReasons.get(t.id),
         })),

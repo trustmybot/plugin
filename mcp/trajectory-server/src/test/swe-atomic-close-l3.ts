@@ -38,6 +38,7 @@ INSERT INTO issues (id) VALUES (-1), (1);
 CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, branch_id TEXT, from_node TEXT NOT NULL, event_type TEXT NOT NULL, summary TEXT NOT NULL, content_json TEXT NOT NULL DEFAULT '{}', repo TEXT, created_at TEXT NOT NULL);
 CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, issue_id INTEGER, agent_type TEXT NOT NULL, tokens_in INTEGER, tokens_out INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT, repo TEXT, spawn_id TEXT, session_id TEXT, usage_source TEXT, root_dir TEXT, model TEXT, host TEXT, exit_reason TEXT, effort TEXT, plugin_version TEXT, stop_cause TEXT, stop_detail TEXT);
 CREATE UNIQUE INDEX idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+CREATE TABLE verification_runs (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL, commit_sha TEXT NOT NULL, source TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, exit_code INTEGER, budget_s INTEGER NOT NULL, timed_out INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '""');
 INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '"dev"');
 `;
@@ -129,4 +130,19 @@ export function hook(sb: Sandbox, cwd: string, db: string, payload: object, extr
   return r.stdout + r.stderr;
 }
 
-export const skippedCount = (db: string) => q(db, "SELECT COUNT(*) FROM audit WHERE event_type='agent_runs_capture_skipped' AND from_node='hook:swe-atomic-close';");
+/** Records a verification_runs row for (<task>, <sha>), passing unless <exitCode>/<timedOut> say otherwise, as swe-verification-gate does. */
+export function recordRun(db: string, task: number, sha: string, exitCode = 0, timedOut = 0): void {
+  const d = new DatabaseSync(db, { enableForeignKeyConstraints: false });
+  try {
+    d.prepare(
+      "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (?, ?, 'gate', datetime('now'), datetime('now'), ?, 600, ?)",
+    ).run(task, sha, exitCode, timedOut);
+  } finally {
+    d.close();
+  }
+}
+
+export const gatePendingCount = (db: string, task: number) =>
+  Number(q(db, "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_gate_pending' AND from_node='hook:swe-atomic-close' AND json_extract(content_json, '$.task_id')=?", task));
+
+export const skippedCount =(db: string) => q(db, "SELECT COUNT(*) FROM audit WHERE event_type='agent_runs_capture_skipped' AND from_node='hook:swe-atomic-close';");

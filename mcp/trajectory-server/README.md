@@ -1,6 +1,6 @@
 # @trustmybot/trajectory-server
 
-MCP stdio server that persists TMB workflow trajectory to SQLite. The Claude package starts `dist/index.js` through the root `.mcp.json`; the Codex package starts the isolated `dist/codex.js` through `adapters/codex/.mcp.json`.
+MCP stdio server that persists TMB workflow trajectory to SQLite. The plugin starts `dist/index.js` through the root `.mcp.json`.
 
 ## Build & run
 
@@ -14,15 +14,6 @@ node dist/index.js
 
 The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts`, one `event<TAB>writers` line per event, that the hooks validate against. `writers` names who may author each event; `audit_append` refuses a caller whose role is not listed (`audit_event_not_writable_by_role`) and records `from_node` as the caller. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`. The build also regenerates `scripts/hooks/lib/data-contracts.json` (the SessionStart banner's copy of the data contracts) via `scripts/maintenance/emit-data-contracts.mjs`. After a schema change, run `node scripts/maintenance/gen-erd-doc.mjs` to regenerate `docs/architecture/ERD.md`; after adding a `plugin_config` key, give it a `KEYS` entry in `scripts/maintenance/gen-config-keys-doc.mjs` and run that script to regenerate [`docs/reference/CONFIG_KEYS.md`](../../docs/reference/CONFIG_KEYS.md).
 
-The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
-
-The two materialization tools manage only `.codex/agents/tmb_swe.toml` and `.codex/agents/tmb_code_reviewer.toml`. The getter is read-only and does not create `.tmb` or `.codex`. The setter installs or removes both current templates without overwriting unknown bytes. It rejects symlinks and unexpected file types, preserves all third-party Agent files, and reports a partial result if one managed target changes before a later failure. Scope 4 intentionally has no historical-template upgrades, process lock, rollback, fsync, or crash recovery.
-
-The Codex entry does not import the Claude tool registry, write `.claude/`, create workflow tasks or validation records, or perform Git delivery operations.
-
-See the [Codex MCP tool reference](../../docs/adapters/codex/TOOLS.md) for the
-exact materialization schemas, states, results, and recovery errors.
-
 ## Worktree setup
 
 A repo opts in to a build step for every worktree TMB makes with `.config/tmb/worktree-setup.json` (GH 2054):
@@ -33,12 +24,42 @@ A repo opts in to a build step for every worktree TMB makes with `.config/tmb/wo
 
 `src/utils/worktree-setup.ts` reads the file from the worktree's own checkout and runs each command in order through `bash -c` in the worktree, with the user's toolchain PATH, stopping at the first failure; each command has a 10-minute timeout. No file is a no-op. A malformed file (bad JSON, `version` not 1, `commands` not a non-empty array of non-empty strings) is a setup failure, never skipped. The commands carry the same trust as `verification[]`. Setup runs right after the main checkout's `node_modules` is linked in:
 
-- `task_provision`, `task_reopen`, `task_retry`: fail-soft; the result carries `worktree_setup` (`ran`, `commands[]` with `exit_code` / `timed_out` / `elapsed_ms`, `error`, `output_tail`) and provisioning still succeeds.
+- `task_provision`, `task_reopen`, `task_retry`: the setup stage of their environment gate (GH 2866), which runs fetch, branch, worktree, setup and reindex before any row is written. A failed stage refuses the call with `env_gate_failed` (`stage`, `detail`, `output_tail`), writes nothing and removes the branch and worktree the call created. A pass carries `worktree_setup` (`ran`, `commands[]` with `exit_code` / `timed_out` / `elapsed_ms`), `env_gate.stages`, and the `base_sha` and `wm_commit` recorded on the task.
 - `cli.js integrate`: before `verification[]`; a failure exits 1 with the failing command and its output tail on stderr.
 - `pr_monitor_worktree`: before the reviewer's command; a failure returns an error naming the command, and the worktree is still removed.
 - `swe-verification-gate`: before a run that is not reused; a failure denies the close with the command and its output tail. Setup counts against the verification budget: each command gets at most what is left of it, `verification[]` gets what setup leaves, and a setup that spends it denies. Setup is not recorded as a verification command.
 
 This repo's own file runs `bun run build:payload`.
+
+## Doc checks
+
+Before swe's close runs `verification[]`, `swe-verification-gate` checks the commit for a changelog entry and for docs that still cite a path or tool name the branch removed (GH 2866). A repo tells it where to look with `.config/tmb/doc-checks.json`, read as committed at the worktree HEAD:
+
+```json
+{
+  "version": 1,
+  "changelog_dir": "notes/changes",
+  "doc_paths": ["documentation/**/*.md", "README.md"],
+  "tool_sources": ["tools/*.py"],
+  "tool_name_pattern": "^def cmd_([a-z_]+)\\("
+}
+```
+
+Every key but `version` is optional. `changelog_dir` turns on the changelog check, `doc_paths` the stale-reference check, and `tool_sources` with `tool_name_pattern` (one capture group: the tool name) its removed-tool half. A missing file or key skips that check, and the close says which key to add. An invalid file blocks the close and shows the expected shape. This repo's own file holds the plugin's layout.
+
+## Leak scan
+
+Beside the doc checks, the close scans only the lines the branch adds since its merge base (GH 2929) for secrets (secretlint's recommended preset, bundled into `dist/hooks.js`), email addresses (`email`) and home paths such as `/Users/<name>/`, `/home/<name>/` or `C:\Users\<name>\` (`home_path`). A hit blocks the close with check `leak_scan` and lists each one as `<file>:<line> <rule>`, never the matched text. Deletions and binary files are skipped, and inline `secretlint-disable` comments are not honored. `noreply@` addresses, addresses at `example.com`, `example.org` or `example.net`, and home paths whose name is a `<placeholder>`, `user`, `me`, `you` or `runner` always pass. A repo admits more, or turns a rule off, with `.config/tmb/leak-scan.json`, read as committed at the worktree HEAD:
+
+```json
+{
+  "version": 1,
+  "allow": [{ "rule": "email", "pattern": "@corp\\.example$", "reason": "the public team alias" }],
+  "disable_rules": [{ "rule": "home_path", "reason": "docs show real layouts" }]
+}
+```
+
+`pattern` is a JavaScript regex tested against the matched text; an allow entry without `rule` covers every rule. A secretlint rule is named by its id, such as `@secretlint/secretlint-rule-github`. Every entry needs a non-empty `reason`, and an invalid file blocks the close as `leak_scan_config`. A git or scanner failure blocks the close too.
 
 ## Test
 
@@ -60,7 +81,7 @@ Server logs (`mcp-server.log`, `sql.log`, `issue-sync.log`) live in `logs/` besi
 
 `TrajectoryDB` has two construction modes. The existing one-argument constructor keeps Claude behavior and discovers `plugin_version` from `CLAUDE_PLUGIN_ROOT`. Supplying `TrajectoryDBDependencies` switches to an authoritative explicit mode: the provided `pluginVersion`, `serverLog`, and `sqlLog` are used without falling back to Claude process state; `pluginVersion: null` deliberately disables version synchronization. Logger callback failures are isolated and never change a database operation's result.
 
-Codex-bound consumers pass the context's canonical `projectRoot` as `trustedProjectRoot` when creating a project logger, `TrajectoryDB`, or `WorldModelGraph`. Each consumer then revalidates its target immediately before creating or opening state. Explicit project loggers also reject symlink leaves and create new log files with mode `0600` on POSIX; the legacy Claude singleton keeps its existing append semantics. This is a fail-closed guard against path replacement between context resolution and use, not a claim of atomic protection against a same-user filesystem mutation in the final syscall window.
+Explicit project loggers reject symlink leaves and create new log files with mode `0600` on POSIX; the default Claude singleton keeps its existing append semantics.
 
 ## Health
 
@@ -77,7 +98,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_list`, `issue_resume`, `issue_close`, `issue_link`, `issue_adopt_remote` |
 | Milestones | `tools/milestones.ts` | `milestone_close` (reconcile + seed run inside `scan_run`) |
 | Tasks | `tools/tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_rework_analysis` |
-| Task composites | `tools/composites.ts` | `task_provision`, `task_brief` (optional `section`: `core` \| `verification` \| `scope` \| `history` \| `all`; default `core` for swe, `all` for every other caller; optional `response_format`: `concise` by default, `detailed` for world-model summaries and full discussion rows), `task_retry`, `task_recover`, `task_reopen` (bro: closed/failed/escalated/running → running, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `bro_atomic_close` |
+| Task composites | `tools/composites.ts` | `task_provision`, `task_brief` (optional `section`: `core` \| `verification` \| `scope` \| `history` \| `all`; default `core` for swe, `all` for every other caller; optional `response_format`: `concise` by default, `detailed` for world-model summaries and full discussion rows), `task_retry`, `task_recover`, `task_reopen` (bro: pending/completed/closed/failed/escalated/running → running, completed for a review FAIL, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `review_handoff` (bro: hand a completed task's commit to code-reviewer, status unchanged), `bro_atomic_close` (bro: close after code-reviewer's pass) |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `tools/audit.ts` | `audit_append`, `audit_list`, `audit_search` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |

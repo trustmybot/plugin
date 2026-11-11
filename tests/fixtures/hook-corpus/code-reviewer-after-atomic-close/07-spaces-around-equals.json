@@ -4,5 +4,5 @@
     "subagent_type": "code-reviewer",
     "prompt": "task_id = \t13"
   },
-  "corpus_expect": "requires task 13 status=closed but actual status=running."
+  "corpus_expect": "spawn for task 13 (status=running) has no review_handoff"
 }

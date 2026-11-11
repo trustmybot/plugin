@@ -1,5 +1,5 @@
 ---
-description: Start the local read-only dashboard (issues, tasks, agent runs, gates, audit, project map) and print its URL
+description: Start the local dashboard (issues, tasks, agent runs, gates, audit, project map), which can also edit and close issues, add comments and change config, and print its URL
 argument-hint: (none)
 ---
 

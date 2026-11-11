@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TrajectoryDB } from '../db.js';
-import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
+import { pinScanEnv, seedReviewedCommit, seedReviewerObservation, tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { activeFindingProbes } from '../tools/verification-runs.js';
 import { reviewFindingsActive } from '../hooks/swe-verification-gate.js';
@@ -676,21 +676,6 @@ describe('bro_atomic_close', () => {
   });
 });
 
-// A prior bro verification of the commit followed by a code-reviewer pass: the
-// review evidence close_issue_if_last_task requires before it closes an issue.
-function seedReviewedCommit(db: TrajectoryDB, issueId: string, taskId: string, sha: string): void {
-  const earlier = new Date(Date.now() - 60_000).toISOString();
-  const later = new Date(Date.now() - 30_000).toISOString();
-  db.run(
-    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'bro_verification_pass', 'ok', ?, ?)`,
-    [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier],
-  );
-  db.run(
-    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`,
-    [taskId, later],
-  );
-}
-
 describe('pathInFiles (GH 1705)', () => {
   it('an entry covers itself and its subtree, never its siblings; any tests/ entry covers all of tests/', () => {
     assert.equal(pathInFiles('src/a/c.ts', ['src/a/b.ts']), false, 'a file entry does not cover its sibling');
@@ -928,6 +913,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     await call(tasks.handlers, 'task_update_status', {
       agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha.slice(0, 12),
     });
+    seedReviewedCommit(db, issueId, taskId, sha.slice(0, 12));
 
     return {
       db, composites, taskId, issueId, sha, baseSha, siblingSha,
@@ -1087,6 +1073,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'code-reviewer', task_id: Number(taskId) }));
       assert.deepEqual(brief['scope'], {
         files: ['src/a.ts'],
+        extras: [],
         extras_accepted: ['tests/rogue.test.ts'],
         base_moved: false,
       });
@@ -1104,7 +1091,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
       assert.equal(parse(r)['base_moved'], false);
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
-      assert.deepEqual(brief['scope'], { files: ['src/', 'docs/'], extras_accepted: [], base_moved: false });
+      assert.deepEqual(brief['scope'], { files: ['src/', 'docs/'], extras: [], extras_accepted: [], base_moved: false });
     } finally {
       cleanup();
     }
@@ -1126,7 +1113,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       const devTip = execFileSync('git', ['-C', repoPath, 'rev-parse', 'origin/dev']).toString().trim();
       assert.equal(out['merge_base'], devTip);
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
-      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras_accepted: [], base_moved: true });
+      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras: [], extras_accepted: [], base_moved: true });
     } finally {
       cleanup();
     }
@@ -1166,7 +1153,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       assert.equal(out['recorded_base'], null);
       assert.equal(out['merge_base'], baseSha);
       const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
-      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras_accepted: [], base_moved: true });
+      assert.deepEqual(brief['scope'], { files: ['src/a.ts'], extras: [], extras_accepted: [], base_moved: true });
     } finally {
       cleanup();
     }
@@ -1208,6 +1195,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       await call(tasks.handlers, 'task_update_status', {
         agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abcdef1',
       });
+      seedReviewedCommit(db, issueId, taskId, 'abcdef1');
 
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: 'abcdef1', verification_summary: 'ok',
@@ -1258,7 +1246,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
   });
 });
 
-describe('bro_atomic_close — verification gate (GH 1672)', () => {
+describe('review_handoff — verification gate (GH 1672)', () => {
   function seedRun(db: TrajectoryDB, taskId: string, sha: string, commands: string[], exitCode = 0): number {
     const now = new Date().toISOString();
     db.run(
@@ -1318,13 +1306,16 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
   }
 
   const close = (composites: ReturnType<typeof compositeTools>, taskId: string) =>
-    call(composites.handlers, 'bro_atomic_close', {
-      agent: 'bro', task_id: taskId, commit_sha: 'abcdef1234567', verification_summary: 'ok',
-      waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
-    });
+    call(composites.handlers, 'review_handoff', { agent: 'bro', task_id: taskId });
 
   const status = (db: TrajectoryDB, taskId: string) =>
     db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId])!.status;
+
+  const handoffs = (db: TrajectoryDB, taskId: string) =>
+    db.get<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM audit WHERE event_type = 'review_handoff' AND json_extract(content_json, '$.task_id') = ?`,
+      [Number(taskId)],
+    )!.c;
 
   it('a verification[] amend after swe completion voids the earlier run: refused until a run of the new verification[] is recorded for the commit', async () => {
     const { db, composites, taskId, cleanup } = await setup();
@@ -1346,9 +1337,9 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
       assert.match(error, /waive_verification_gate_reason/);
       assert.equal(status(db, taskId), 'completed', 'task stays open when the gate refuses');
       assert.equal(
-        db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'bro_verification_pass'`)!.c,
+        db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'review_handoff'`)!.c,
         0,
-        'no bro_verification_pass without a run',
+        'no review_handoff without a run',
       );
 
       seedRun(db, taskId, sha, ['bash lint.sh', 'npm test'], 1);
@@ -1357,7 +1348,7 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
       const runId = seedRun(db, taskId, sha, ['bash lint.sh', 'npm test']);
       const r = await close(composites, taskId);
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(status(db, taskId), 'closed');
+      assert.equal(handoffs(db, taskId), 1, 'the handoff is recorded');
       const run = db.get<{ id: number }>(
         `SELECT id FROM verification_runs WHERE task_id = ? AND commit_sha LIKE 'abcdef1234567%' AND exit_code = 0 ORDER BY id DESC LIMIT 1`,
         [taskId],
@@ -1391,7 +1382,7 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
       seedRun(db, taskId, sha, ['bash lint.sh', `[probe F${taskId}-1] npm test`, `[probe F${taskId}-10] bash l3.sh`]);
       const r = await close(composites, taskId);
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(status(db, taskId), 'closed');
+      assert.equal(handoffs(db, taskId), 1, 'the handoff is recorded');
     } finally {
       cleanup();
     }
@@ -1419,7 +1410,7 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
       );
       const r = await close(composites, taskId);
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-      assert.equal(status(db, taskId), 'closed');
+      assert.equal(handoffs(db, taskId), 1, 'the handoff is recorded');
       assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM verification_runs WHERE task_id = ?`, [taskId])!.c, 0);
     } finally {
       cleanup();
@@ -2473,8 +2464,8 @@ describe('task_brief (#300)', () => {
       timed_out: false,
       budget_s: 1200,
       commands: [
-        { ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 170.25 },
-        { ordinal: 2, command: 'bash lint.sh', exit_code: 0, elapsed_s: 0.5 },
+        { ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 170.25, output_tail: 'pass' },
+        { ordinal: 2, command: 'bash lint.sh', exit_code: 0, elapsed_s: 0.5, output_tail: 'ok' },
       ],
     });
     db.close();
@@ -4089,16 +4080,29 @@ describe('task_reopen + task_update_spec', () => {
     }
   });
 
-  it('task_reopen refuses completed/needs_validation tasks, a closed issue, and a missing reason', async () => {
+  it('task_reopen moves a completed task back to running for rework after a review FAIL (GH 2866)', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/reopen-completed');
+      db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [id]);
+      const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'code-reviewer FAIL: rework' });
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(taskRow(db, id).status, 'running');
+      assert.equal(auditOf(db, 'task_reopened').length, 1);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen refuses a needs_validation task, a closed issue, and a missing reason', async () => {
     const { ws, db, handlers } = setup();
     try {
       const id = await provision(handlers, 'fix/not-reopenable');
-      for (const status of ['completed', 'needs_validation']) {
-        db.run(`UPDATE tasks SET status = ? WHERE id = ?`, [status, id]);
-        const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
-        assert.equal(r.isError, true, status);
-        assert.match(String(parse(r)['error']), /task_update_spec/);
-      }
+      db.run(`UPDATE tasks SET status = 'needs_validation' WHERE id = ?`, [id]);
+      const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
+      assert.equal(r.isError, true);
+      assert.match(String(parse(r)['error']), /task_update_spec/);
       db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
       const noReason = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: '  ' });
       assert.equal(noReason.isError, true);
@@ -4847,7 +4851,8 @@ describe('agent_runs lifecycle — rows open with their run and close with their
   it('bro_atomic_close closes the open bro and swe rows of the task', async () => {
     const db = tempDB();
     const id = seed(db);
-    db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [id]);
+    db.run(`UPDATE tasks SET status = 'completed', commit_sha = 'abc1234' WHERE id = ?`, [id]);
+    seedReviewedCommit(db, '1', String(id), 'abc1234');
     openBro(db, id);
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
@@ -4962,14 +4967,14 @@ describe('agent_runs lifecycle — rows open with their run and close with their
       .all<Stamp>('SELECT agent_type, root_dir, host, exit_reason FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId])
       .map((r) => ({ ...r }));
 
-  it('task_brief stamps the swe row with the task worktree and host', async () => {
+  it('task_brief stamps the swe row with the task worktree and the default claude host', async () => {
     const db = tempDB();
     const id = seed(db);
-    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null, { host: 'codex', projectRoot: '/tmp' });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
     const branch = db.get<{ b: string }>('SELECT branch_id AS b FROM tasks WHERE id = ?', [id])!.b;
     assert.deepEqual(stamps(db, id), [
-      { agent_type: 'swe', root_dir: `/tmp/app/.claude/worktrees/${branch.replace(/^[^/]+\//, '')}`, host: 'codex', exit_reason: null },
+      { agent_type: 'swe', root_dir: `/tmp/app/.claude/worktrees/${branch.replace(/^[^/]+\//, '')}`, host: 'claude', exit_reason: null },
     ]);
     db.close();
   });
@@ -5034,7 +5039,8 @@ describe('agent_runs lifecycle — rows open with their run and close with their
   it('bro_atomic_close stamps exit_reason completed', async () => {
     const db = tempDB();
     const id = seed(db);
-    db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [id]);
+    db.run(`UPDATE tasks SET status = 'completed', commit_sha = 'abc1234' WHERE id = ?`, [id]);
+    seedReviewedCommit(db, '1', String(id), 'abc1234');
     openBro(db, id);
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });

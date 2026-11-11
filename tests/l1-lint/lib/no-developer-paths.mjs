@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 export const DEV_PATH = /\/Users\/[A-Za-z][A-Za-z0-9_-]*\/|\/home\/[a-z][a-z0-9_-]*\/|\/Volumes\/[A-Za-z]|C:\\Users\\[A-Za-z]/;
 const ALLOWLIST = ['tests/l1-lint/fixtures/', 'tests/l5-l6/fixtures/', 'templates/docs-trustmybot/snapshots/', 'CHANGELOG.md'];
-const SCAN_TARGETS = ['README.md', 'CONTRIBUTING.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md', 'CLAUDE.md', 'SECURITY.md', 'docs', 'agents', 'skills', 'commands', 'templates'];
+const SCAN_TARGETS = ['README.md', 'CONTRIBUTING.md', 'CLAUDE.md', 'SECURITY.md', 'docs', 'agents', 'skills', 'commands', 'templates'];
 
 function walk(abs, out) {
   if (statSync(abs).isDirectory()) {

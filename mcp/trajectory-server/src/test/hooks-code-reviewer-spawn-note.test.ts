@@ -1,7 +1,7 @@
 /**
  * The code-reviewer-spawn-note gate (GH 1744): a code-reviewer spawn prompt
  * carries its name=value anchors and at most 300 chars of other prose; more
- * is denied with a pointer to bro_atomic_close's spawn_note. Bypass env and
+ * is denied with a pointer to review_handoff's spawn_note. Bypass env and
  * other agent types allow.
  */
 import { describe, it } from 'node:test';
@@ -47,17 +47,17 @@ describe('code-reviewer-spawn-note gate', () => {
     assert.match(d!.reason, /301 characters/);
   });
 
-  it('denies a long prompt, telling bro to store the context as spawn_note via bro_atomic_close', () => {
+  it('denies a long prompt, telling bro to store the context as spawn_note via review_handoff', () => {
     const r = codeReviewerSpawnNote(payload(`${ANCHORS}\n${LONG}`), {});
     assert.equal(r.code, 0);
     const d = decision(r.stdout);
     assert.equal(d?.decision, 'deny');
     assert.match(d!.reason, /spawn_note/);
-    assert.match(d!.reason, /bro_atomic_close/);
+    assert.match(d!.reason, /review_handoff/);
     assert.match(d!.reason, /300/);
     assert.ok(
       d.reason.endsWith(
-        'Allowed form: the same spawn with reviewer_spawn.prompt exactly as bro_atomic_close returned it (anchors only); to add a note after close, task_reopen(spawn_note=...)',
+        'Allowed form: the same spawn with reviewer_spawn.prompt exactly as review_handoff returned it (anchors only); to add a note, review_handoff(spawn_note=...) again',
       ),
       d.reason,
     );

@@ -554,7 +554,7 @@ function pushIntent(lowerOpen: string, ctx: Context): GateResult | null {
 
 ${pendingList(pending)}
 
-Before \`git push\`, spawn code-reviewer per pending task with the \`reviewer_spawn\` Agent call bro_atomic_close returned, passed as is (its prompt carries the anchors the spawn gates require), per tmb_push-gate. On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
+Before \`git push\`, spawn code-reviewer per pending task with the \`reviewer_spawn\` Agent call review_handoff returned, passed as is (its prompt carries the anchors the spawn gates require), per tmb_push-gate; bro_atomic_close closes each task once it passes. On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
 }
 
 function reonboardIntent(lower: string, ctx: Context): GateResult | null {

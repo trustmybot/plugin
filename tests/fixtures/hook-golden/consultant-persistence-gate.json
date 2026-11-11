@@ -42,7 +42,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -62,7 +62,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -70,7 +77,7 @@
     "C,en_US.UTF-8": {
       "code": 0,
       "stderr": "",
-      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>), then return\"}\n",
+      "stdout": "",
       "tree": {
         "bad/": null,
         "bad/.claude/": null,
@@ -109,7 +116,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -129,7 +136,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -176,7 +190,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -196,7 +210,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -243,7 +264,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -263,7 +284,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -310,7 +338,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -330,7 +358,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -377,7 +412,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -397,7 +432,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -444,7 +486,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -464,7 +506,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -511,7 +560,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -531,7 +580,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -578,7 +634,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -598,7 +654,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -645,7 +708,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -665,7 +728,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -712,7 +782,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -732,7 +802,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -779,7 +856,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -799,7 +876,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -846,7 +930,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -866,7 +950,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -913,7 +1004,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -933,7 +1024,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -980,7 +1078,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1000,7 +1098,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -1047,7 +1152,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1067,7 +1172,14 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   },
@@ -1114,7 +1226,7 @@
           ],
           "counts": {
             "agents": 6,
-            "discussions": 4,
+            "discussions": 5,
             "issues": 4,
             "roundtables": 6,
             "votes": 3
@@ -1134,7 +1246,384 @@
             "roundtables": 1,
             "votes": 1
           }
-        }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
+      }
+    }
+  },
+  "18-row-since-spawn-on-an-older-issue.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 5,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
+      }
+    }
+  },
+  "19-rows-before-the-spawn.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>), then return\"}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 5,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
+      }
+    }
+  },
+  "20-row-on-a-closed-issue.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='ceo', issue_id=2, author='ceo', kind='analysis', body=<your analysis>), then return\"}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 5,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
+      }
+    }
+  },
+  "21-transcript-without-a-timestamp.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 5,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
+      }
+    }
+  },
+  "22-subagent-transcript-under-the-session.json": {
+    "C,en_US.UTF-8": {
+      "code": 0,
+      "stderr": "",
+      "stdout": "{\"decision\":\"block\",\"reason\":\"Consultant persistence gate: you must persist your analysis before returning. Allowed form: discussion_append(agent='cto', issue_id=2, author='cto', kind='analysis', body=<your analysis>), then return\"}\n",
+      "tree": {
+        "bad/": null,
+        "bad/.claude/": null,
+        "bad/.claude/tmb/": null,
+        "bad/.claude/tmb/trajectory.db": "dGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UKdGhpcyBpcyBub3QgYSBzcWxpdGUgZGF0YWJhc2UK",
+        "bare/": null,
+        "fresh/": null,
+        "fresh/.claude/": null,
+        "fresh/.claude/tmb/": null,
+        "fresh/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 1,
+            "roundtables": 0,
+            "votes": 0
+          }
+        },
+        "home/": null,
+        "project/": null,
+        "project/.claude/": null,
+        "project/.claude/tmb/": null,
+        "project/.claude/tmb/trajectory.db": {
+          "audit": [
+            {
+              "branch_id": null,
+              "content_json": "{}",
+              "created_at": "<TS>",
+              "event_type": "roundtable_summary",
+              "from_node": "system",
+              "issue_id": 1,
+              "summary": "summary",
+              "summary_hex": "73756D6D617279"
+            }
+          ],
+          "counts": {
+            "agents": 6,
+            "discussions": 5,
+            "issues": 4,
+            "roundtables": 6,
+            "votes": 3
+          }
+        },
+        "project/sub/": null,
+        "project/sub/dir/": null,
+        "ratified/": null,
+        "ratified/.claude/": null,
+        "ratified/.claude/tmb/": null,
+        "ratified/.claude/tmb/trajectory.db": {
+          "audit": [],
+          "counts": {
+            "agents": 6,
+            "discussions": 0,
+            "issues": 2,
+            "roundtables": 1,
+            "votes": 1
+          }
+        },
+        "transcripts/": null,
+        "transcripts/no-timestamp.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"yesterday\"}\n",
+        "transcripts/session/": null,
+        "transcripts/session/subagents/": null,
+        "transcripts/session/subagents/agent-a1.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-after-the-rows.jsonl": "{\"type\":\"user\",\"timestamp\":\"2026-10-01T11:00:00.000Z\"}\n",
+        "transcripts/spawned-before-the-rows.jsonl": "{\"type\":\"summary\",\"summary\":\"no timestamp\"}\n{\"type\":\"user\",\"timestamp\":\"2026-09-30 12:00:00\"}\n{\"type\":\"assistant\",\"timestamp\":\"2026-09-30T10:00:00.000Z\"}\n"
       }
     }
   }

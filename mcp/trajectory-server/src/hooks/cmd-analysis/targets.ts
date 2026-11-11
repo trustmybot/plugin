@@ -3,9 +3,132 @@
  * _tmb_cmd_inplace_files, the sources a mv / git mv removes and
  * _tmb_cmd_git_tree (cmd-analysis.sh).
  */
+import { braceWords } from './brace.js';
+import { decode, QO } from './encode.js';
 import { splitWords, under, unwrap } from './unwrap.js';
 
 const basename = (w: string): string => w.replace(/.*\//, '');
+
+const TAR = /^(tar|gtar|bsdtar)$/;
+
+/** Whether <word> is GNU long option --<long>, spelled out or cut to a prefix of at least <min> chars. */
+function longOption(word: string, long: string, min: number): boolean {
+  const name = word.startsWith('--') ? word.slice(2) : '';
+  return name.length >= min && long.startsWith(name);
+}
+
+/** Whether tar's argument words extract: a bundled first word holding `x` (`tar xf a.tar`), or a `-x` cluster, `--extract` or `--get` before any `--`. */
+function tarExtracts(args: readonly string[]): boolean {
+  if (/^[A-Za-z]*x[A-Za-z]*$/.test(args[0] ?? '')) return true;
+  for (const a of args) {
+    if (a === '--') return false;
+    if (/^-[A-Za-z]*x/.test(a) || longOption(a, 'extract', 3) || a === '--get') return true;
+  }
+  return false;
+}
+
+/** Whether cp's argument words copy recursively: an `-r` / `-R` / `-a` cluster, `--recursive` or `--archive` before any `--`. */
+function cpRecursive(args: readonly string[]): boolean {
+  for (const a of args) {
+    if (a === '--') return false;
+    if (/^-[A-Za-z]*[rRa]/.test(a) || longOption(a, 'recursive', 3) || longOption(a, 'archive', 2)) return true;
+  }
+  return false;
+}
+
+interface CopyArgs {
+  tdirs: string[];
+  operands: string[];
+  /** `-T` / `--no-target-directory`: the last operand is the name the source takes, never a dir it goes into. */
+  noTargetDir: boolean;
+}
+
+/** A cp / mv / rsync's argument words: its `-t` / `--target-directory` values, its operands, and whether `-T` is given; <valued> options take the next word. */
+function copyArgs(args: readonly string[], valued?: RegExp): CopyArgs {
+  const r: CopyArgs = { tdirs: [], operands: [], noTargetDir: false };
+  let ended = false;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (ended || a === '-' || !a.startsWith('-')) r.operands.push(a);
+    else if (a === '--') ended = true;
+    else if (a === '-t' || a === '--target-directory') {
+      if (k + 1 < args.length) r.tdirs.push(args[k + 1]);
+      k++;
+    } else if (a.startsWith('--target-directory=')) r.tdirs.push(a.slice('--target-directory='.length));
+    else if (a === '--no-target-directory' || /^-[A-Za-z]*T/.test(a)) r.noTargetDir = true;
+    else if (valued?.test(a)) k++;
+  }
+  return r;
+}
+
+/** The dirs a cp / rsync copies into: each `-t` / `--target-directory` value, else its last operand unless that is a remote `host:path`. */
+function copyDestinations(args: readonly string[]): string[] {
+  const { tdirs, operands } = copyArgs(args);
+  if (tdirs.length > 0) return tdirs;
+  const last = operands[operands.length - 1];
+  return operands.length >= 2 && !/^[^/]*:/.test(last) ? [last] : [];
+}
+
+/** Where a source moved into <dir> lands: `<dir>/<its basename>`, or <dir> itself when the shell fills the name in. */
+function landing(dir: string, source: string): string {
+  const name = basename(source.replace(/\/+$/, ''));
+  if (name === '' || name === '.' || name === '..' || /[$`]/.test(name) || name.includes(QO)) return dir;
+  return `${dir.replace(/\/+$/, '')}/${name}`;
+}
+
+/**
+ * The paths a mv / git mv's sources land at (each `<dest>/<source basename>`,
+ * or with `-T` the destination itself): a move into a dir creates or
+ * replaces only the entries named after its sources.
+ */
+function movedPaths(args: readonly string[], valued?: RegExp): string[] {
+  const { tdirs, operands, noTargetDir } = copyArgs(args, valued);
+  if (tdirs.length > 0) return tdirs.flatMap((dir) => operands.map((source) => landing(dir, source)));
+  if (operands.length < 2) return [];
+  const dest = operands[operands.length - 1];
+  return noTargetDir ? [dest] : operands.slice(0, -1).map((source) => landing(dest, source));
+}
+
+/**
+ * Tree-writes mode: the dirs one command fills with a whole tree it copies,
+ * moves or extracts: a recursive cp's and an rsync's destination, where a
+ * mv's sources land, and a tar extract's `-C` dirs, else its own dir. Only
+ * these commands' arguments are brace-expanded (braceWords, with <unresolvable>
+ * as its stand-in), as bash passes them; no other command's words are.
+ */
+function treeTargetWords(w: string[], out: string[], unresolvable: string): void {
+  let pre = '';
+  const u = unwrap(w, 0);
+  for (const dir of u.dirs) pre = under(pre, dir);
+  if (u.k >= w.length) return;
+  const put = (p: string) => out.push(under(pre, p));
+  const cmd = basename(w[u.k]);
+  if (cmd !== 'mv' && cmd !== 'rsync' && cmd !== 'cp' && !TAR.test(cmd)) return;
+  const args = braceWords(w.slice(u.k + 1), unresolvable);
+  if (cmd === 'mv') for (const p of movedPaths(args, /^(-S|--suffix)$/)) put(p);
+  else if (cmd === 'rsync' || (cmd === 'cp' && cpRecursive(args))) for (const d of copyDestinations(args)) put(d);
+  else if (TAR.test(cmd) && tarExtracts(args)) for (const d of tarDirs(args, '.')) put(d);
+}
+
+/** Each dir tar's `-C` / `--directory` options move it to, composed in order, or [<none>] when there is none and <none> is given. */
+function tarDirs(args: readonly string[], none?: string): string[] {
+  const dirs: string[] = [];
+  let cur = '';
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    let d = '';
+    if (a === '--') break;
+    if (a === '-C' || a === '--directory') {
+      if (k < args.length - 1) d = args[k + 1];
+      k++;
+    } else if (a.startsWith('--directory=')) d = a.slice('--directory='.length);
+    else if (a.startsWith('-C') && a.length > 2) d = a.slice(2);
+    if (d === '') continue;
+    cur = under(cur, d);
+    dirs.push(cur);
+  }
+  return dirs.length === 0 && none !== undefined ? [none] : dirs;
+}
 
 interface LnArgs {
   sym: boolean;
@@ -96,7 +219,9 @@ function writeTargetWords(w: string[], out: string[], final = false): void {
   };
   if (/^(tee|mkdir|rm|touch|rmdir)$/.test(cmd)) {
     for (let k = first + 1; k < nw; k++) if (!w[k].startsWith('-')) put(w[k]);
-  } else if (/^(tar|gtar|bsdtar|make|gmake)$/.test(cmd)) {
+  } else if (TAR.test(cmd)) {
+    for (const d of tarDirs(w.slice(first + 1), tarExtracts(w.slice(first + 1)) ? '.' : undefined)) put(d);
+  } else if (/^(make|gmake)$/.test(cmd)) {
     diropts('-C', '--directory', true);
   } else if (cmd === 'npm') {
     diropts('-C', '--prefix', false);
@@ -221,13 +346,14 @@ function writeTargetWords(w: string[], out: string[], final = false): void {
   }
 }
 
-/** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only. */
-export function writeTargets(line: string, final = false): string[] {
+/** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only; with `tree`, only treeTargetWords' dirs. */
+export function writeTargets(line: string, final = false, tree?: TreeMode): string[] {
   const out: string[] = [];
   let w: string[] = [];
   let want = 0;
   const flush = (last = false) => {
-    writeTargetWords(w, out, last && final);
+    if (tree) treeTargetWords(w, out, tree.unresolvable);
+    else writeTargetWords(w, out, last && final);
     w = [];
   };
   const n = line.length;
@@ -286,7 +412,7 @@ export function writeTargets(line: string, final = false): string[] {
     }
     if (word === '') continue;
     if (want === 1) {
-      out.push(word);
+      if (!tree) out.push(word);
       want = 0;
       continue;
     }
@@ -434,12 +560,146 @@ function gitTree(chain: boolean, words: string[]): string[] {
   return outs.filter((w) => w !== '').map((w) => (chain ? under(cdir, w) : w));
 }
 
+/**
+ * A path a git pathspec names from its repository's top: <rest> under the top
+ * found from <base> (a dir as written, relative to the statement's dir), by
+ * walking up to the nearest `.git` when <find>, else <base> itself; <base> is
+ * null when the top cannot be told.
+ */
+export interface TopPath {
+  base: string | null;
+  find: boolean;
+  rest: string;
+}
+
 export interface ExtraWrites {
   paths: string[];
   words: string[];
+  /** Tree-writes mode: the paths named from a repository's top, which only the caller can resolve. */
+  tops: TopPath[];
 }
 
 export type Interp = (words: readonly string[]) => string[];
+
+/**
+ * Tree-writes mode; <gitLocationSet>: the command or its environment may set GIT_DIR, GIT_WORK_TREE
+ * or GIT_COMMON_DIR; <unresolvable>: the path braceWords puts for a word that may leave its stem.
+ */
+export interface TreeMode {
+  gitLocationSet: boolean;
+  unresolvable: string;
+}
+
+/** The dir a pathspec body can write under: a glob cut to its leading literal dir. */
+function globDir(spec: string): string {
+  const glob = spec.search(/[*?[]/);
+  if (glob < 0) return spec === '' ? '.' : spec;
+  const slash = spec.lastIndexOf('/', glob);
+  return slash <= 0 ? (slash === 0 ? '/' : '.') : spec.slice(0, slash);
+}
+
+/**
+ * A pathspec read as git reads its magic (gitglossary "pathspec"): the dir it
+ * can write under, and whether that dir is named from the repository's top
+ * (`:/…`, `:(top)…`, `:(glob,top)…`) rather than from the dir git runs in. An
+ * exclusion (which git may widen to the whole tree) or a long form git cannot
+ * parse reads as the whole tree from the top.
+ */
+function readPathspec(spec: string): { top: boolean; dir: string } {
+  // A quoted `(` / `)` arrives encoded; decode maps each char to one char, so the magic read on `view` cuts `spec` at the same index.
+  const view = decode(spec);
+  if (!view.startsWith(':')) return { top: false, dir: globDir(spec) };
+  let magic: string[];
+  let body: string;
+  if (view[1] === '(') {
+    const close = view.indexOf(')');
+    if (close < 0) return { top: true, dir: '.' };
+    magic = view.slice(2, close).split(',');
+    body = spec.slice(close + 1);
+  } else {
+    const short = /^:([/!^]*):?/.exec(view) ?? ['', ''];
+    magic = [...short[1]].map((c) => (c === '/' ? 'top' : 'exclude'));
+    body = spec.slice(short[0].length);
+  }
+  if (magic.includes('exclude')) return { top: true, dir: '.' };
+  return { top: magic.includes('top'), dir: magic.includes('literal') ? body || '.' : globDir(body) };
+}
+
+/**
+ * Tree-writes mode: the paths a `git checkout` / `git restore` writes back
+ * into its work tree, each operand brace-expanded and read as a pathspec (a tree-ish or branch
+ * read so names no dir it writes), `--pathspec-from-file` as the whole tree
+ * from the top, and where a `git mv`'s sources land. A `restore --staged`
+ * without `--worktree` writes only the index. A pathspec named from the top,
+ * or any pathspec under `--work-tree`, is a TopPath; under a `--git-dir`, or
+ * with the tree mode's gitLocationSet and no `--work-tree`, its top cannot be told.
+ */
+function gitTreeWrites(chain: boolean, words: string[], tree: TreeMode): { paths: string[]; tops: TopPath[] } {
+  const out: { paths: string[]; tops: TopPath[] } = { paths: [], tops: [] };
+  const n = words.length;
+  let cdir = '';
+  let workTree: string | null = null;
+  let gitDir = tree.gitLocationSet;
+  let k = 1;
+  const at = (j: number) => words[j] ?? '';
+  while (k < n) {
+    const w = words[k];
+    if (w === '-C') {
+      cdir = under(cdir, at(k + 1));
+      k += 2;
+    } else if (w === '--work-tree') {
+      workTree = at(k + 1);
+      k += 2;
+    } else if (w.startsWith('--work-tree=')) {
+      workTree = w.slice('--work-tree='.length);
+      k++;
+    } else if (w === '--git-dir' || w.startsWith('--git-dir=')) {
+      gitDir = true;
+      k += w === '--git-dir' ? 2 : 1;
+    } else if (/^(-c|--namespace|--config-env)$/.test(w)) k += 2;
+    else if (w.startsWith('-')) k++;
+    else break;
+  }
+  const rel = (p: string) => (chain ? under(cdir, p) : p);
+  const sub = at(k);
+  if (sub !== 'mv' && sub !== 'checkout' && sub !== 'restore') return out;
+  const args = braceWords(words.slice(k + 1), tree.unresolvable);
+  if (sub === 'mv') {
+    out.paths.push(...movedPaths(args).map(rel));
+    return out;
+  }
+  if (sub === 'restore' && args.includes('--staged') && !args.includes('--worktree') && !args.includes('-W')) return out;
+  const valued = sub === 'checkout' ? /^(-b|-B|--orphan|--pathspec-from-file)$/ : /^(-s|--source|--pathspec-from-file)$/;
+  const specs: string[] = [];
+  let ended = false;
+  for (let j = 0; j < args.length; j++) {
+    const a = args[j];
+    if (ended) specs.push(a);
+    else if (a === '--') ended = true;
+    else if (a === '--pathspec-from-file' || a.startsWith('--pathspec-from-file=')) {
+      specs.push(':/');
+      if (a === '--pathspec-from-file') j++;
+    } else if (valued.test(a)) j++;
+    else if (!a.startsWith('-')) specs.push(a);
+  }
+  for (const spec of specs) {
+    const { top, dir } = readPathspec(spec);
+    if (workTree !== null) {
+      // From outside the work tree git reads a plain pathspec from its top too.
+      out.tops.push({ base: rel(workTree), find: false, rest: dir });
+      if (!top) out.paths.push(rel(dir));
+    } else if (gitDir) out.tops.push({ base: null, find: false, rest: dir });
+    else if (top) out.tops.push({ base: rel('.'), find: true, rest: dir });
+    else out.paths.push(rel(dir));
+  }
+  return out;
+}
+
+/** Tree-writes mode: a git command's tree writes and the interpreters' targets. */
+function treeExtraWrites(chain: boolean, words: string[], interp: Interp, tree: TreeMode): { paths: string[]; tops: TopPath[] } {
+  const git = basename(words[0]) === 'git' ? gitTreeWrites(chain, words, tree) : { paths: [], tops: [] };
+  return { paths: [...git.paths, ...interp(words)], tops: git.tops };
+}
 
 /** _tmb_cmd_stmt_extra_writes, the interpreter one-liners judged by `interp`. */
 function extraWrites(chain: boolean, words: string[], interp: Interp): string[] {
@@ -464,12 +724,15 @@ function extraWrites(chain: boolean, words: string[], interp: Interp): string[] 
   return out;
 }
 
-/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` as in writeTargets. */
-export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false): ExtraWrites {
-  const paths = writeTargets(stmt, final);
+/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` as in writeTargets; with `tree`, its tree writes only. */
+export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false, tree?: TreeMode): ExtraWrites {
+  const paths = writeTargets(stmt, final, tree);
   const { pre, words } = unwrapStatement(stmt);
-  if (words.length <= 1) return { paths, words };
-  if (pre === '') paths.push(...extraWrites(chain, words, interp));
-  else for (const p of extraWrites(true, words, interp)) if (p !== '') paths.push(under(pre, p));
-  return { paths, words };
+  if (words.length <= 1) return { paths, words, tops: [] };
+  const fromPre = pre !== '' || chain;
+  const extra = tree ? treeExtraWrites(fromPre, words, interp, tree) : { paths: extraWrites(fromPre, words, interp), tops: [] };
+  if (pre === '') return { paths: [...paths, ...extra.paths], words, tops: extra.tops };
+  for (const p of extra.paths) if (p !== '') paths.push(under(pre, p));
+  const tops = extra.tops.map((t) => (t.base === null ? t : { ...t, base: under(pre, t.base) }));
+  return { paths, words, tops };
 }

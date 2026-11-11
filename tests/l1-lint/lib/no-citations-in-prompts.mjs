@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CITATION = /\((#|GL #|MR !|PR !)[0-9]+\)/;
-const TOP_LEVEL = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
+const TOP_LEVEL = ['CLAUDE.md'];
 
 const isFile = (abs) => existsSync(abs) && statSync(abs).isFile();
 

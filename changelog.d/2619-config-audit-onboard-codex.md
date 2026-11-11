@@ -1,2 +1,0 @@
-### Fixed
-- **Onboarding and Codex issue creation now leave a config-change record** (GH 2619): `onboard_apply` and the Codex `planning_issue_create` (which forces `issue_sync` off) changed `plugin_config` without the `config_changed` audit row `config_set` writes, so `change_impact` never saw those changes. They now share `config_set`'s write step: one key-only row per changed key, none when the value is unchanged.

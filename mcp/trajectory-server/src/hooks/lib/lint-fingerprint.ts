@@ -1,8 +1,8 @@
 /**
  * The close-lint fingerprint (GH 2570): a sha256 over the (path, blob oid)
  * pairs `git ls-tree -r --full-tree` lists at a commit, kept to the paths a
- * repo's close-lints.json fingerprint_inputs globs match plus the config itself,
- * then the built-in checks' version. It reads git objects only, never the
+ * repo's close-lints.json fingerprint_inputs globs match plus the config itself.
+ * It reads git objects only, never the
  * worktree, so the gate that records a lint run and the reviewer preflight that checks it
  * compute the same value for the same commit.
  */
@@ -11,9 +11,6 @@ import { matchesGlob } from 'node:path';
 import { gitRun } from './git.js';
 
 export const CLOSE_LINTS_PATH = '.config/tmb/close-lints.json';
-
-/** Bumped whenever the built-in missing_changelog or stale_doc_ref checks change, so older records stop matching. */
-export const BUILTIN_LINTS_VERSION = '1';
 
 const DOT_MASK = '\u0001';
 
@@ -32,8 +29,7 @@ export function matchesInput(path: string, glob: string): boolean {
 
 /**
  * `v1:` + the sha256 hex of `<path>\0<oid>\n` for each matched blob at
- * <commitSha>, sorted by path, followed by `builtin:<BUILTIN_LINTS_VERSION>`;
- * null when git fails or a glob cannot be applied.
+ * <commitSha>, sorted by path; null when git fails or a glob cannot be applied.
  */
 export async function lintFingerprint(
   repoPath: string,
@@ -60,14 +56,10 @@ export async function lintFingerprint(
   return fingerprintDigest(entries);
 }
 
-/** The v1 digest of (path, oid) entries, sorted here by path, under <builtinVersion>. */
-export function fingerprintDigest(
-  entries: ReadonlyArray<{ path: string; oid: string }>,
-  builtinVersion: string = BUILTIN_LINTS_VERSION,
-): string {
+/** The v1 digest of (path, oid) entries, sorted here by path. */
+export function fingerprintDigest(entries: ReadonlyArray<{ path: string; oid: string }>): string {
   const sorted = [...entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const hash = createHash('sha256');
   for (const e of sorted) hash.update(`${e.path}\0${e.oid}\n`);
-  hash.update(`builtin:${builtinVersion}`);
   return `v1:${hash.digest('hex')}`;
 }

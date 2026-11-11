@@ -6,6 +6,6 @@
   },
   "corpus_expect": {
     "C": "empty",
-    "en_US.UTF-8": "requires task 13 status=closed but actual status=running."
+    "en_US.UTF-8": "spawn for task 13 (status=running) has no review_handoff"
   }
 }

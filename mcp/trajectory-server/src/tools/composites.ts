@@ -6,7 +6,14 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
+import {
+  BRANCH_ID_RE,
+  SPEC_BODY_MAX_BYTES,
+  insertSpecShapeWaiver,
+  promptBearingDerivedField,
+  resolvePromptBearing,
+  type PromptBearingResolution,
+} from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
 import {
@@ -20,7 +27,7 @@ import {
   type RunContext,
 } from './agent-runs.js';
 import { outsideProject } from './containment.js';
-import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
+import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks, taskHasPassingReview } from './lifecycle.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
@@ -32,26 +39,47 @@ import {
 import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
-import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { SUBPROCESS_TIMEOUT_MS, WORKTREE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { revParseCommit } from '../utils/git-objects.js';
 import { serverLog } from '../logger.js';
-import { ensureFresh, freshnessBlock } from '../world-model/freshness.js';
-import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
+import { ensureFresh, fetchTargetNow, freshnessBlock, type TargetFetchAttempt } from '../world-model/freshness.js';
+import { readRepoTargetBranch, repoRowPath, repoTargetBase, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { describeSetupFailure, runWorktreeSetup, type WorktreeSetupResult } from '../utils/worktree-setup.js';
-import { joinToolchainPath, parseBudget, toolchainDirs } from '../hooks/swe-verification-gate.js';
+import { parseBudget } from '../hooks/swe-verification-gate.js';
+import {
+  envGateFailedResult,
+  envGateField,
+  fetchBaseStage,
+  runEnvGate,
+  setupEnv,
+  type BranchStageOutcome,
+  type EnvGatePass,
+  type EnvStageReport,
+} from './env-gate.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
   carryOpenFindings,
+  clipOutputTail,
   gateCommands,
   latestVerificationRun,
   passingRunForCommit,
   verificationWaivedForCommit,
 } from './verification-runs.js';
-import { appendVerificationDefaults, readVerificationDefaults, verificationDefaultsResult } from './verification-defaults.js';
-import { checkVerificationPaths, suggestVerification, verificationPathResult } from './verification-paths.js';
+import {
+  appendVerificationDefaults,
+  readVerificationDefaults,
+  verificationDefaultsMissingField,
+  verificationDefaultsResult,
+} from './verification-defaults.js';
+import {
+  checkVerificationPaths,
+  checkVerificationProse,
+  suggestVerification,
+  verificationPathResult,
+} from './verification-paths.js';
 import type { TaskProvisionInput } from '../types.js';
 import { parseStoredCheckpoint } from '../checkpoint.js';
 import {
@@ -64,13 +92,21 @@ import {
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
+import {
+  applyReopenInTx,
+  hasFailSinceLastPass,
+  insertEffortRaised,
+  RE_REVIEW_CHANGE,
+  reReviewAdmission,
+  restoreForReReviewInTx,
+} from './reopen.js';
+import { REWORK_FLOOR_EFFORT } from '../task-rework.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { briefConcepts, briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
-const WORKTREE_TIMEOUT_MS = 60_000;
 const STDOUT_KEEP = 4096;
 const STDERR_KEEP = 2048;
 
@@ -150,33 +186,6 @@ export function filesToDirs(files: readonly string[]): string[] {
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
   return [...dirs];
-}
-
-// One task_effort_raised row: a rework (task_reopen) or retry (task_retry)
-// raised the effort swe runs the task at.
-function insertEffortRaised(
-  db: TrajectoryDB,
-  task: { issue_id: number; branch_id: string; task_id: number },
-  from: Effort,
-  to: Effort,
-  agent: string,
-  now: string,
-  failedTaskId?: number,
-): void {
-  insertAudit(db, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: agent,
-    event_type: 'task_effort_raised',
-    summary: `Task ${task.task_id} effort raised: ${from} → ${to}`,
-    content_json: JSON.stringify({
-      task_id: task.task_id,
-      from,
-      to,
-      ...(failedTaskId !== undefined ? { failed_task_id: failedTaskId } : {}),
-    }),
-    created_at: now,
-  });
 }
 
 // Parse the tasks.files JSON column into a string[] (empty on null/malformed).
@@ -319,20 +328,6 @@ export function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): str
   return repoRowPath(db, reposRow.path);
 }
 
-// Read a repo's target_branch (pr_target) from the repos table — the sole
-// source of truth (#980). Falls back to the sole registered repo when repoValue
-// is empty. Returns null when no row or a NULL/empty column.
-function readRepoTargetBranch(db: TrajectoryDB, repoValue: string | null): string | null {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
-  if (!name) return null;
-  const row = db.get<{ target_branch: string | null }>(
-    `SELECT target_branch FROM repos WHERE name = ?`,
-    [name],
-  );
-  const v = row?.target_branch;
-  return typeof v === 'string' && v.length > 0 ? v : null;
-}
-
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -440,11 +435,13 @@ export type BriefResponseFormat = (typeof BRIEF_RESPONSE_FORMATS)[number];
 const isBriefResponseFormat = (v: unknown): v is BriefResponseFormat =>
   (BRIEF_RESPONSE_FORMATS as readonly unknown[]).includes(v);
 const BRIEF_RESPONSE_FORMAT_HINT =
-  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries and full discussion rows.";
+  "Trimmed output: call task_brief again with response_format: 'detailed' for world-model summaries, full discussion rows and full check output tails.";
+/** How much of each stored verification_run_commands.output_tail a concise brief carries. */
+const BRIEF_OUTPUT_TAIL_CHARS = 1000;
 const BRIEF_SECTION_HINTS = {
   core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model (caller_count is the full caller total, callers_truncated flags a cut list): read by range from it; concepts {items, truncated}: the L2 flows, subsystems and invariants whose steps anchor to files[] or locations, verified first, suspect/broken flagged: read before re-deriving a flow from code',
-  verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
-  scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
+  verification: 'verification[] the close gate runs and verification_run, its latest recorded run with each command\'s output_tail: load before closing or after a gate failure',
+  scope: "scope {files, extras, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
 };
 
@@ -540,6 +537,119 @@ function closeTaskInTx(
   return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
 }
 
+interface ScopedTask {
+  repo: string | null;
+  parent_branch_id: string | null;
+  files: string | null;
+}
+
+// The task's own changes (merge-base with origin/<pr_target> .. commit)
+// against its typed files[], with the repo path it resolved. Unchecked, with
+// a reason, when the repo or the PR target does not resolve.
+function taskScopeCheck(db: TrajectoryDB, task: ScopedTask, commitSha: string): { scope: ScopeCheck; repoPath: string | null } {
+  const repoPath = resolveRepoPath(db, task.repo);
+  const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
+    (b): b is string => typeof b === 'string' && b.length > 0,
+  );
+  let targetRef: string | null = null;
+  if (repoPath) {
+    for (const candidate of targetCandidates) {
+      targetRef = resolveBaseRef(repoPath, candidate);
+      if (targetRef) break;
+    }
+  }
+  const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
+  const scope: ScopeCheck =
+    repoPath && targetRef
+      ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
+      : {
+          outOfScope: [],
+          changed: [],
+          checked: false,
+          reason: repoPath
+            ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
+            : `cannot resolve a path for repo '${task.repo ?? ''}'`,
+        };
+  return { scope, repoPath };
+}
+
+// The scope report review_handoff records for code-reviewer: each changed
+// path outside files[] with the reason swe's completion report gave for it
+// (null when it gave none). Nothing here is accepted; bro_atomic_close's
+// scope gate still judges the extras.
+export interface HandoffScope {
+  extras: Array<{ path: string; reason: string | null }>;
+  checked: boolean;
+  base_moved: boolean;
+  recorded_base: string | null;
+  merge_base: string | null;
+}
+
+function handoffScope(scope: ScopeCheck, completionReport: string | null): HandoffScope {
+  const reasons = new Map((parseStoredReport(completionReport)?.extras ?? []).map((e) => [e.path, e.reason]));
+  return {
+    extras: scope.outOfScope.map((path) => ({ path, reason: reasons.get(path) ?? null })),
+    checked: scope.checked,
+    base_moved: scope.baseMoved === true,
+    recorded_base: scope.recordedBase ?? null,
+    merge_base: scope.mergeBase ?? null,
+  };
+}
+
+// The completion-report and verification gates a commit clears before it is
+// handed to code-reviewer: an error message naming the fix, else null.
+function handoffGateError(
+  db: TrajectoryDB,
+  task: { id: number; verification: string | null; spec_body: string | null; completion_report: string | null },
+  commitSha: string,
+): string | null {
+  const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
+  if (unreported.length > 0) {
+    return (
+      `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
+      `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
+      `task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: ` +
+      `[{id, status}, ...]}) with one entry per id, then retry review_handoff.`
+    );
+  }
+
+  // A task with verification[] (or a non-wontfix review finding, GH 1737)
+  // hands off only on a passing recorded run of its current verification[]
+  // plus finding probes for this commit, or a verification_gate_waived row
+  // for it (GH 1672). The SubagentStop auto-complete and a later
+  // task_update_spec both reach here without the swe gate having run that
+  // verification[] on this commit.
+  const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db, task.id));
+  if (
+    verificationCommands.length > 0 &&
+    passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
+    !verificationWaivedForCommit(db, task.id, commitSha)
+  ) {
+    return (
+      `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
+      `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
+      `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
+      `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
+      `swe-verification-gate runs verification[] in the task worktree and records the run — then retry review_handoff. ` +
+      `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
+    );
+  }
+  return null;
+}
+
+// The scope record of the newest `eventType` audit row naming this task and commit.
+function scopeRecordFor<T>(db: TrajectoryDB, eventType: string, taskId: number, commitSha: string | null): Partial<T> | null {
+  if (!commitSha) return null;
+  const row = db.get<{ content_json: string }>(
+    `SELECT content_json FROM audit
+      WHERE event_type = ? AND json_valid(content_json)
+        AND json_extract(content_json, '$.task_id') = ? AND json_extract(content_json, '$.commit_sha') = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [eventType, taskId, commitSha],
+  );
+  return row ? ((JSON.parse(row.content_json) as { scope?: Partial<T> }).scope ?? null) : null;
+}
+
 function outsideProjectResult(refusal: NonNullable<ReturnType<typeof outsideProject>>): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
 }
@@ -610,44 +720,6 @@ function worktreeOfBranch(repoPath: string, branchId: string): string | null {
     else if (line === `branch refs/heads/${branchId}` && current) return current;
   }
   return null;
-}
-
-// Adds the task's worktree unless git already tracks one at that path (matched
-// by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
-// /private/var/… for a /var/… symlink), then links the main checkout's
-// node_modules into it and runs the repo's opt-in worktree setup, on reuse
-// too (GH 1853, GH 2054). Throws only when `git worktree add` fails; a setup
-// failure is reported in `setup`, never thrown.
-async function ensureTaskWorktree(
-  repoPath: string,
-  branchId: string,
-  worktreePath = taskWorktreePath(repoPath, branchId),
-): Promise<{ worktreePath: string; reused: boolean; setup: WorktreeSetupResult }> {
-  let reused = false;
-  if (existsSync(worktreePath)) {
-    const canonicalWt = realpathSync(worktreePath);
-    try {
-      reused = git(repoPath, ['worktree', 'list', '--porcelain'])
-        .split('\n')
-        .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonicalWt);
-    } catch {
-      reused = false;
-    }
-  }
-  if (!reused) {
-    git(repoPath, ['worktree', 'add', worktreePath, branchId], WORKTREE_TIMEOUT_MS);
-  }
-  try {
-    linkWorktreeNodeModules(repoPath, worktreePath);
-  } catch {
-    // Best-effort: a missing link never fails provisioning.
-  }
-  return { worktreePath, reused, setup: await runWorktreeSetup(worktreePath, { env: setupEnv(worktreePath) }) };
-}
-
-// Worktree setup gets the user's toolchain PATH, as verification[] does.
-function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
-  return { ...process.env, PATH: joinToolchainPath(toolchainDirs(process.env, worktreePath), process.env.PATH ?? '') };
 }
 
 // The tool-result field for a setup, absent when the repo has no setup file.
@@ -1019,6 +1091,13 @@ function reworkBase(db: TrajectoryDB, repoPath: string, repoValue: string | null
   return readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath);
 }
 
+// The ref a reworked task's verification defaults are read at: the cut ref of
+// its rework base, the same ref task_retry reads them at.
+function reworkDefaultsRef(db: TrajectoryDB, repoPath: string | null, task: { repo: string | null; parent_branch_id: string | null }): string | null {
+  if (!repoPath) return null;
+  return resolveCutBase(repoPath, normalizeBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id)))?.ref ?? null;
+}
+
 function existingBranchRef(repoPath: string, branchId: string): string | null {
   for (const ref of [`refs/heads/${branchId}`, `refs/remotes/origin/${branchId}`]) {
     if (refSha(repoPath, ref)) return ref;
@@ -1053,7 +1132,7 @@ function isGitRepo(repoPath: string): boolean {
   }
 }
 
-function branchDivergedResult(
+function branchDivergedPayload(
   tool: string,
   branchId: string,
   ref: string,
@@ -1061,29 +1140,81 @@ function branchDivergedResult(
   distance: { ahead: number; behind: number } | null,
   openPrs: OpenChangeRequest[],
   remedy: string,
-): CallToolResult {
+): Record<string, unknown> {
   const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(', ')}.` : '';
   return {
-    isError: true,
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify({
-          error: 'branch_exists_diverged',
-          branch_id: branchId,
-          ref,
-          base: baseRef,
-          ahead: distance?.ahead ?? null,
-          behind: distance?.behind ?? null,
-          open_prs: openPrs,
-          message:
-            `${tool}: branch '${branchId}' already exists and '${ref}' has diverged from '${baseRef}' ` +
-            `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
-            `${remedy} No task row was created.`,
-        }),
-      },
-    ],
+    error: 'branch_exists_diverged',
+    branch_id: branchId,
+    ref,
+    base: baseRef,
+    ahead: distance?.ahead ?? null,
+    behind: distance?.behind ?? null,
+    open_prs: openPrs,
+    message:
+      `${tool}: branch '${branchId}' already exists and '${ref}' has diverged from '${baseRef}' ` +
+      `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
+      `${remedy} No task row was created.`,
   };
+}
+
+// The ungated (adopted worktree) path's refusal for a failed branch stage.
+function branchRefusalResult(tool: string, refusal: { detail: string; payload?: Record<string, unknown> }, nothingWritten: string): CallToolResult {
+  if (refusal.payload) return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify(refusal.payload) }] };
+  return err(`${tool}: ${refusal.detail} ${nothingWritten}`);
+}
+
+// The environment gate's branch stage over ensureTaskBranch's outcome; a
+// diverged branch keeps its branch_exists_diverged payload.
+function taskBranchStage(
+  branch: TaskBranchOutcome,
+  base: string,
+  repoLabel: string,
+  divergedPayload?: (ref: string, baseRef: string) => Record<string, unknown>,
+): BranchStageOutcome {
+  switch (branch.kind) {
+    case 'ready':
+      return { ok: true, created: branch.created, baseRef: branch.cutBase?.ref ?? null };
+    case 'base_unresolved':
+      return { ok: false, detail: `base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoLabel}'.` };
+    case 'git_failed':
+      return { ok: false, detail: `${branch.what} in repo '${repoLabel}' (${(branch.error as Error).message.split('\n')[0] || 'git failed'}).` };
+    case 'diverged':
+      return {
+        ok: false,
+        detail: `'${branch.ref}' has diverged from '${branch.baseRef}'.`,
+        ...(divergedPayload ? { payload: divergedPayload(branch.ref, branch.baseRef) } : {}),
+      };
+  }
+}
+
+// task_reopen's branch stage: an existing local branch is kept as-is, an
+// origin-only one is checked out locally, and a missing one is cut from the
+// rework base. baseRef is the rework base's cut ref either way.
+function reopenBranchStage(repoPath: string, branchId: string, base: string, repoLabel: string): BranchStageOutcome {
+  const baseRef = resolveCutBase(repoPath, base)?.ref ?? null;
+  if (refSha(repoPath, `refs/heads/${branchId}`)) return { ok: true, created: false, baseRef };
+  const originRef = `refs/remotes/origin/${branchId}`;
+  if (refSha(repoPath, originRef)) {
+    try {
+      git(repoPath, ['branch', branchId, originRef]);
+    } catch (e) {
+      return { ok: false, detail: `failed to create branch '${branchId}' from '${originRef}' (${(e as Error).message.split('\n')[0] || 'git failed'}).` };
+    }
+    return { ok: true, created: true, baseRef };
+  }
+  return taskBranchStage(ensureTaskBranch(repoPath, branchId, base), base, repoLabel);
+}
+
+// Runs a gated tool's DB transaction; a throw removes what the gate created.
+function gatedTransaction<T>(db: TrajectoryDB, gate: EnvGatePass | null, fn: () => T): T | AdoptRefusal {
+  try {
+    const result = adoptingTransaction(db, fn);
+    if (isAdoptRefusal(result)) gate?.rollback();
+    return result;
+  } catch (e) {
+    gate?.rollback();
+    throw e;
+  }
 }
 
 // Refuses a branch_id the issue already has a task on, before any git call, so
@@ -1224,8 +1355,10 @@ function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): Wontfix
   });
 }
 
-const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
+const REOPENABLE_STATUSES = new Set(['pending', 'completed', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+// A running task also hands off, through reReviewAdmission, to re-review a FAILed commit.
+const HANDOFF_STATUSES = new Set(['completed', 'needs_validation']);
 const verificationPathsDoc = (ref: string) =>
   `verification[] test files must exist at ${ref} or be in files[] (else verification_path_missing); adds suggested_verification.`;
 
@@ -1260,9 +1393,9 @@ export function compositeTools(
       name: 'task_retry',
       description:
         "Retry a failed task in one transaction: appends the rationale, creates a new task inheriting issue_id, parent_branch_id and repo, " +
-        "then cuts its branch and worktree like task_provision. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
+        "its branch and worktree cut by task_provision's environment gate. Copies the failed task's open review findings onto it as F<new_task_id>-<n>. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, worktree_adopted?, diagnostic?}.',
+        'Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, base_sha, wm_commit, env_gate, worktree_path, worktree_adopted?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1386,14 +1519,37 @@ export function compositeTools(
       },
     },
     {
+      name: 'review_handoff',
+      description:
+        "Hands a completed or needs_validation task's current commit to code-reviewer, status unchanged; a running task's FAILed commit after a re_review analysis, as completed. " +
+        "Writes review_handoff (the review anchor with the scope report: extras with swe's reasons, base_moved, merge_base), reviewer_effort_assigned and spawn_note. " +
+        'Returns review_pending=true, reviewer_effort and, with session_id, reviewer_spawn, the whole Agent call. ' +
+        'Refuses without a completion report covering every SC<n>: id (completion_report_missing), or, for a task with verification[] or a non-wontfix finding, without a passing verification run of those commands plus one `[probe <id>]` per finding for the commit or a verification_gate_waived row (verification_run_missing).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'string' },
+          spawn_note: {
+            type: 'string',
+            description: `Optional context for code-reviewer beyond task_brief, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it. Overwrites any earlier note.`,
+          },
+          session_id: {
+            ...RUN_SESSION_ID_SCHEMA,
+            description:
+              "Optional: your host session id. With it the result carries reviewer_spawn {prompt, effort, subagent_type} to pass as is; without it, reviewer_spawn_unavailable: 'session_id'.",
+          },
+        },
+        required: ['agent', 'task_id'],
+      },
+    },
+    {
       name: 'bro_atomic_close',
       description:
-        "Bro's task close: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
-        'Runs before code-reviewer: the result carries review_pending=true, reviewer_effort (the effort that spawn must pass) and, with session_id, reviewer_spawn, that whole Agent call. ' +
+        "Bro's task close after code-reviewer passed: writes bro_verification_pass, closes the task and, when asked, the issue, in one transaction. " +
+        "Refuses with review_pass_missing until a passing verdict follows the task's review_handoff for its commit_sha, which must name the task's current commit. " +
         'An issue left open reports issue_left_open {reason: issue_has_open_tasks | tasks_without_review, tasks}; it closes on merge or via issue_close. ' +
-        'Gates that refuse the close: scope, changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base); ' +
-        'verification, a task with verification[] or a non-wontfix review finding needs a passing verification_runs row for the commit, run after any task_update_spec amend, whose commands match verification[] plus one `[probe <id>]` per such finding, or a verification_gate_waived row (else verification_run_missing); ' +
-        'report, SC<n>: ids in the spec need a stored completion report covering each (else completion_report_missing naming them). ' +
+        'The scope gate refuses changed paths outside files[] (grouped by surface) unless waive_scope_gate, the result carrying base_moved (with recorded_base, merge_base). ' +
         'PostToolUse hooks fire on bro_atomic_close, not task_update_status.',
       inputSchema: {
         type: 'object',
@@ -1409,8 +1565,7 @@ export function compositeTools(
             type: 'boolean',
             description:
               'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
-              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
-              'Before code-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
+              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why.',
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -1424,18 +1579,6 @@ export function compositeTools(
           scope_waiver_reason: {
             type: 'string',
             description: 'Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths.',
-          },
-          spawn_note: {
-            type: 'string',
-            description:
-              `Optional context for code-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); ` +
-              'task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.',
-          },
-          session_id: {
-            ...RUN_SESSION_ID_SCHEMA,
-            description:
-              "Optional: your host session id (the session_id=<id> the activation routine injects each turn). With it the result carries reviewer_spawn {prompt, effort, subagent_type}, " +
-              "the code-reviewer Agent call to pass as is, whose subagent_session_id anchor it becomes; without it the result carries reviewer_spawn_unavailable: 'session_id' instead.",
           },
         },
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -1473,11 +1616,11 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        'Sets up one task for swe. The branch is set up before the DB commit, so a git failure writes no task row. ' +
+        'Sets up one task for swe. First syncs the world model to origin/<target>. Before the DB commit an environment gate runs fetch, branch, worktree, setup and reindex; a failed stage returns env_gate_failed and writes nothing. ' +
         "A new branch is cut from local <base> when it is a fast-forward ahead of origin/<base>, else from origin/<base> (git_setup 'created'); an existing ref at or behind the base tip is fast-forwarded ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind, open PRs) unless reuse_existing. " +
-        "Writes a kind='decision' discussion and the task in one transaction, then the worktree (fail-soft; worktree_reused when it exists). " +
+        "Writes a kind='decision' discussion and the task in one transaction. " +
         `${verificationPathsDoc('the base')} ` +
-        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_diverged?, diagnostic?}.',
+        'Returns {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs, worktree_path, git_setup, worktree_reused, worktree_adopted?, base_ref, base_sha, wm_commit, env_gate, base_diverged?, diagnostic?}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1544,7 +1687,7 @@ export function compositeTools(
               },
               prompt_bearing: {
                 type: 'number',
-                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
+                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default: 1 when files[] holds a prompt-surface path, else 0.',
               },
               effort: {
                 type: 'string',
@@ -1561,9 +1704,9 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, and recreates a missing branch and worktree. Refused when the task's issue is closed. " +
+        "Rework a task: moves a pending, completed, closed, failed, escalated or running task to running, appends files_add / verification_add, clears the completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + task_reopened audit row, after task_provision's environment gate. Refused when the task's issue is closed. " +
         `${verificationPathsDoc('the branch tip')} ` +
-        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, diagnostic?}; spawn swe on the task next.',
+        'Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, worktree_adopted?, branch_created, base_sha, wm_commit, env_gate, diagnostic?}; spawn swe on the task next.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1631,7 +1774,7 @@ export function compositeTools(
       name: 'task_brief',
       description:
         "swe's only context read for one task: task row, spec_body, task_discussions (this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows), the world model of the dirs files[] touches, " +
-        "scope {files, extras_accepted, base_moved} from the latest close, verification_run (the gate's latest run), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
+        "scope {files, extras, extras_accepted, base_moved} from the review handoff and close of the current commit, verification_run (the gate's latest run, each command with output_tail), open_findings (open blocking findings whose probes the gate re-runs), completion_report, spawn_note, " +
         'checkpoint (swe\'s handback to resume from) and last_stop (cause budget or hook_block of the newest stopped swe run); each null when absent. ' +
         "`section`: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations, concepts, freshness, a `sections` map), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         'locations resolves the paths and identifiers spec_body names in backticks in the symbol index, with line ranges, callers and callees (caller_count the full total, callers_hint when cut); a name outside those paths and files[] resolves only to exported non-test symbols; unresolved_paths lists paths the index lacks; at most 6000 chars, null without a world model. ' +
@@ -1649,7 +1792,7 @@ export function compositeTools(
           response_format: {
             type: 'string',
             enum: [...BRIEF_RESPONSE_FORMATS],
-            description: "'concise' (default) trims world-model summaries and other discussion rows; 'detailed' returns them in full.",
+            description: "'concise' (default) trims world-model summaries, other discussion rows and output_tail (last 1000 chars); 'detailed' returns them in full.",
           },
         },
         required: ['agent', 'task_id'],
@@ -1669,6 +1812,23 @@ export function compositeTools(
     } catch (e) {
       serverLog({ event: 'wm_spawn_reindex_error', repo, error: (e as Error).message });
     }
+  };
+
+  // task_provision plans against origin/<target branch> as just fetched
+  // (GH 2958): a fetch that ignores the read window, then the index brought to
+  // that tip, waiting for another holder of the repo's lock. A failed fetch
+  // leaves the provision on the current index.
+  const provisionReindex = async (repo: string, agent: string): Promise<TargetFetchAttempt> => {
+    const fetched = await fetchTargetNow(db, repo, { agent });
+    const graph = graphHolder?.ensureGraph() ?? null;
+    if (graph) {
+      try {
+        await ensureFresh(db, graph, repo, { dbPath, trigger: fetched.result === 'moved' ? 'fetch' : 'spawn', wait: true });
+      } catch (e) {
+        serverLog({ event: 'wm_provision_reindex_error', repo, error: (e as Error).message });
+      }
+    }
+    return fetched;
   };
 
   const handlers: Record<string, Fn> = {
@@ -1746,8 +1906,8 @@ export function compositeTools(
           repoValue = resolveSoleRepo(db)?.name ?? null;
         }
 
-        const promptBearing =
-          typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
+        const promptBearing = promptBearingResolution.prompt_bearing;
 
         if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
           return err(
@@ -1815,9 +1975,9 @@ export function compositeTools(
         // Resolve the repo path + base ref and create the branch ref BEFORE
         // writing the task row. A git failure here returns an error and
         // persists NOTHING, so the same (issue_id, branch_id) retries cleanly
-        // — no orphan task row left occupying the UNIQUE constraint. A retry
-        // after a partial failure finds the ref at the base tip and reuses
-        // it. Only the worktree stays fail-soft (recoverable, post-commit).
+        // — no orphan task row left occupying the UNIQUE constraint. The
+        // environment gate builds the worktree before the commit too; only an
+        // adopted worktree is switched after it.
         let repoPath: string | null = null;
         if (repoValue) {
           const reposRow = db.get<{ path: string }>(
@@ -1855,10 +2015,8 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
-        const base = normalizeBase(
-          repoPath,
-          (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
-        );
+        const targetFetch = repoValue ? await provisionReindex(repoValue, agent) : null;
+        const base = repoTargetBase(db, repoPath, repoValue, args['base'] as string | undefined);
         if (baseIsBranch(base, branchId)) {
           return err(
             `task_provision: base '${base}' is the task's own branch_id '${branchId}', so the base-branch guard ` +
@@ -1873,42 +2031,65 @@ export function compositeTools(
         // local <base> when it is a fast-forward ahead of origin/<base>, else
         // origin/<base> (a diverged base is reported as base_diverged); error
         // when neither resolves — before anything is created.
+        // The environment gate (runEnvGate) fetches origin/<base> first, so
+        // the verification defaults below are read at the fetched tip. An
+        // adopted worktree keeps the ungated path.
         const reuseExisting = args['reuse_existing'] === true;
+        const nothingWritten = 'No task row was created — retry with the same branch_id once the cause is fixed.';
+        let fetched: EnvStageReport | null = null;
+        if (adoptedWorktree === null) {
+          const fetch = fetchBaseStage(repoPath, base);
+          if (!fetch.ok) return envGateFailedResult('task_provision', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
         const pathRef =
           resolveCutBase(repoPath, base)?.ref ?? (reuseExisting ? existingBranchRef(repoPath, branchId) : null);
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_provision', pathRef, defaults.error);
         const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(givenVerification, defaults.commands);
-        if (pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification, files });
-          if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
-        }
-        const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
-        if (branch.kind === 'base_unresolved') {
-          return err(
-            `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
-              `No task row was created — retry with a valid base and the same branch_id.`,
+        const pathRefusal = pathRef
+          ? checkVerificationPaths({ repoPath, ref: pathRef, verification, files })
+          : checkVerificationProse(verification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_provision', pathRefusal);
+        const cut: { base?: CutBase | null } = {};
+        const branchStage = (): BranchStageOutcome => {
+          const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
+          if (branch.kind === 'ready') cut.base = branch.cutBase;
+          return taskBranchStage(branch, base, repoValue ?? '', (ref, baseRef) =>
+            branchDivergedPayload(
+              'task_provision',
+              branchId,
+              ref,
+              baseRef,
+              refDistance(repoPath, baseRef, ref),
+              openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
+              'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
+            ),
           );
-        }
-        if (branch.kind === 'git_failed') {
-          return err(
-            `task_provision: ${branch.what} in repo '${repoValue}' ` +
-              `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created — ` +
-              `retry with the same branch_id.`,
-          );
-        }
-        if (branch.kind === 'diverged') {
-          return branchDivergedResult(
-            'task_provision',
+        };
+        let gate: EnvGatePass | null = null;
+        let branchCreated: boolean;
+        if (fetched) {
+          const passed = await runEnvGate({
+            db,
+            dbPath,
+            graph: graphHolder?.ensureGraph() ?? null,
+            repo: repoValue,
+            repoPath,
             branchId,
-            branch.ref,
-            branch.baseRef,
-            refDistance(repoPath, branch.baseRef, branch.ref),
-            openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
-            'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
-          );
+            worktreePath: taskWorktreePath(repoPath, branchId),
+            fetched,
+            ensureBranch: branchStage,
+          });
+          if (!passed.ok) return envGateFailedResult('task_provision', passed, nothingWritten);
+          gate = passed;
+          branchCreated = passed.branchCreated;
+        } else {
+          const stage = branchStage();
+          if (!stage.ok) return branchRefusalResult('task_provision', stage, nothingWritten);
+          branchCreated = stage.created;
         }
-        const { cutBase } = branch;
+        const cutBase = cut.base ?? null;
         const resolvedBaseRef = cutBase?.ref ?? null;
 
         // --- DB TRANSACTION (atomic) ---
@@ -1921,12 +2102,12 @@ export function compositeTools(
         // Any DB error rolls back the whole transaction.
         const now = nowISO();
         const gitRepoPath = repoPath;
-        const result = adoptingTransaction(db, () => {
+        const result = gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -1939,6 +2120,8 @@ export function compositeTools(
               JSON.stringify(files),
               JSON.stringify(verification),
               effort,
+              gate?.base_sha ?? null,
+              gate?.wm_commit ?? null,
               now,
               now,
             ],
@@ -1960,7 +2143,7 @@ export function compositeTools(
             issue_id: issueId,
             author: agent,
             kind: 'decision',
-            body: decisionBody,
+            body: gate?.decisionNote ? `${decisionBody}\n\n${gate.decisionNote}` : decisionBody,
             created_at: now,
             task_id: row.id,
           });
@@ -1987,6 +2170,18 @@ export function compositeTools(
             });
           }
 
+          if (targetFetch?.result === 'failed') {
+            insertAudit(db, {
+              issue_id: issueId,
+              branch_id: branchId,
+              from_node: agent,
+              event_type: 'wm_provision_fetch_failed',
+              summary: `task_provision could not fetch origin/${targetFetch.branch ?? '?'} of ${repoValue}; planned on the current world-model index.`,
+              content_json: JSON.stringify({ repo: repoValue, branch: targetFetch.branch, error: targetFetch.error }),
+              created_at: now,
+            });
+          }
+
           if (specShapeWaived) {
             insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
           }
@@ -1995,32 +2190,16 @@ export function compositeTools(
         });
         if (isAdoptRefusal(result)) return adoptRefusalResult(result);
 
-        // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
-        // The branch ref + task row are committed; the worktree is the only
-        // recoverable side-effect, so a failure here returns git_setup:'error'
-        // + a diagnostic without rolling back the task — bro can retry the
-        // worktree setup. Idempotent: an existing worktree is reused, not
-        // re-created. An adopted worktree is switched to the branch instead.
-        let gitSetup: 'created' | 'reused' | 'error' = branch.created ? 'created' : 'reused';
-        let worktreeReused = false;
-        let worktreeSetup: WorktreeSetupResult | undefined;
+        // An adopted worktree is switched to the branch after the commit,
+        // fail-soft into git_setup:'error' + a diagnostic.
+        let gitSetup: 'created' | 'reused' | 'error' = branchCreated ? 'created' : 'reused';
         let diagnostic: string | undefined;
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, branchId);
-
         if (adoptedWorktree !== null) {
           diagnostic = switchAdoptedWorktree(adoptedWorktree, branchId);
           if (diagnostic !== undefined) gitSetup = 'error';
-        } else {
-          try {
-            const wt = await ensureTaskWorktree(repoPath, branchId);
-            worktreeReused = wt.reused;
-            worktreeSetup = wt.setup;
-          } catch (e) {
-            gitSetup = 'error';
-            diagnostic = (e as Error).message;
-          }
+          await spawnReindex(repoValue, repoPath, resolvedBaseRef);
         }
-        await spawnReindex(repoValue, repoPath, resolvedBaseRef);
 
         return ok({
           task_id: result.task_id,
@@ -2030,12 +2209,14 @@ export function compositeTools(
           effort: result.effort,
           effort_reason: result.effort_reason,
           effort_inputs: result.effort_inputs,
+          ...promptBearingDerivedField(promptBearingResolution),
           worktree_path: worktreePath,
           git_setup: gitSetup,
-          worktree_reused: worktreeReused,
-          ...setupField(worktreeSetup),
+          worktree_reused: gate?.worktreeReused ?? false,
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(cutBase?.diverged
             ? {
                 base_diverged: {
@@ -2048,6 +2229,7 @@ export function compositeTools(
             : {}),
           ...(diagnostic ? { diagnostic } : {}),
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, repoValue, repoPath, files, verification),
         });
       }),
@@ -2084,23 +2266,30 @@ export function compositeTools(
           verification: string | null;
           repo: string | null;
           effort: Effort;
+          prompt_bearing: number;
           worktree_path: string | null;
           issue_status: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  t.worktree_path, i.status AS issue_status
+                  t.prompt_bearing, t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId],
         );
         if (!task) return err(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
           return err(
-            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. ` +
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, completed, closed, failed, escalated or running tasks. ` +
               `Amend a live task's spec with task_update_spec.`,
           );
         }
         if (task.issue_status === 'closed') {
           return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+        }
+        if (isEffort(effortArg) && effortRank(effortArg) < effortRank(REWORK_FLOOR_EFFORT) && hasFailSinceLastPass(db, taskId)) {
+          return err(
+            `effort_below_rework_floor: task ${taskId} has a review FAIL since its last passing review, so its rework runs at effort "${REWORK_FLOOR_EFFORT}"; ` +
+              `call task_reopen(task_id=${taskId}, reason, effort='${REWORK_FLOOR_EFFORT}') or omit effort. Task ${taskId} is unchanged ('${task.status}'); no row was written.`,
+          );
         }
         const wontfix = parseWontfix(db, taskId, args['wontfix']);
 
@@ -2118,8 +2307,25 @@ export function compositeTools(
           adoptedWorktree = check.realWorktree;
         }
 
+        // The environment gate runs for a git repo without adopt_worktree; its
+        // fetch comes first so the defaults below are read at the fetched tip.
+        const gatedRepo = repoPath !== null && adoptedWorktree === null && isGitRepo(repoPath) ? repoPath : null;
+        const nothingWritten = `Task ${taskId} is unchanged ('${task.status}'); no row was written.`;
+        const gatedBase = gatedRepo ? normalizeBase(gatedRepo, reworkBase(db, gatedRepo, task.repo, task.parent_branch_id)) : null;
+        let fetched: EnvStageReport | null = null;
+        if (gatedRepo && gatedBase) {
+          const fetch = fetchBaseStage(gatedRepo, gatedBase);
+          if (!fetch.ok) return envGateFailedResult('task_reopen', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
+        const defaultsRef = reworkDefaultsRef(db, repoPath, task);
+        const defaults = readVerificationDefaults(repoPath, defaultsRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_reopen', defaultsRef, defaults.error);
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
-        const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          appendUnique(parseTaskFiles(task.verification), verificationAdd),
+          defaults.commands,
+        );
         const pathRefusal = checkVerificationPaths({
           repoPath,
           ref: repoPath ? taskTipRef(db, repoPath, task) : null,
@@ -2127,54 +2333,55 @@ export function compositeTools(
           files,
         });
         if (pathRefusal) return verificationPathResult('task_reopen', pathRefusal);
+        const promptBearingResolution = resolvePromptBearing(task.prompt_bearing, files);
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files,
           rework: true,
           current: task.effort,
         });
+        let gate: EnvGatePass | null = null;
+        if (gatedRepo && gatedBase && fetched) {
+          const repoName = suggestionRepo(db, task.repo);
+          const passed = await runEnvGate({
+            db,
+            dbPath,
+            graph: graphHolder?.ensureGraph() ?? null,
+            repo: repoName,
+            repoPath: gatedRepo,
+            branchId: task.branch_id,
+            worktreePath: taskWorktreeDir(gatedRepo, task),
+            fetched,
+            ensureBranch: () => reopenBranchStage(gatedRepo, task.branch_id, gatedBase, repoName ?? ''),
+          });
+          if (!passed.ok) return envGateFailedResult('task_reopen', passed, nothingWritten);
+          gate = passed;
+        }
         const now = nowISO();
-        const refused = adoptingTransaction(db, () => {
+        const refused = gatedTransaction(db, gate, () => {
           if (adoptedWorktree !== null && repoPath) {
             const late = recordAdoptedWorktree(db, task.id, repoPath, adoptedWorktree);
             if (late) throw new AdoptRefusedError(late);
           }
-          db.run(
-            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
-                    completion_report = NULL, spawn_note = ?, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), effort, spawnNote, now, taskId],
-          );
-          const fenceLines = [
-            filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
-            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
-            effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
-          ].filter((l): l is string => l !== null);
-          insertDiscussion(db, {
-            issue_id: task.issue_id,
-            author: agent,
-            kind: 'decision',
-            body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join('\n'),
-            created_at: now,
-            task_id: task.id,
+          applyReopenInTx(db, {
+            task,
+            agent,
+            reason,
+            effort,
+            spawnNote,
+            now,
+            fence: { files, verification },
+            envGate: gate,
+            decisionLines: [
+              filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
+              verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+              verificationDefaultsAdded.length > 0 ? `verification[] += repo defaults ${verificationDefaultsAdded.join(' ; ')}` : null,
+            ].filter((l): l is string => l !== null),
+            auditContent: { files_add: filesAdd, verification_add: verificationAdd },
           });
-          insertAudit(db, {
-            issue_id: task.issue_id,
-            branch_id: task.branch_id,
-            from_node: agent,
-            event_type: 'task_reopened',
-            summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
-            content_json: JSON.stringify({
-              task_id: taskId,
-              from_status: task.status,
-              reason,
-              files_add: filesAdd,
-              verification_add: verificationAdd,
-            }),
-            created_at: now,
-          });
-          if (effortRank(effort) > effortRank(task.effort)) {
-            insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
           }
           for (const w of wontfix) {
             db.run(
@@ -2196,10 +2403,14 @@ export function compositeTools(
 
         let worktreePath: string | null = null;
         let worktreeRecreated = false;
-        let worktreeSetup: WorktreeSetupResult | undefined;
         let branchCreated = false;
         let diagnostic: string | undefined;
-        if (repoPath) {
+        if (gate && gatedRepo) {
+          worktreePath = taskWorktreeDir(gatedRepo, task);
+          worktreeRecreated = !gate.worktreeReused;
+          branchCreated = gate.branchCreated;
+        } else if (repoPath && adoptedWorktree !== null) {
+          worktreePath = adoptedWorktree;
           try {
             if (!refSha(repoPath, `refs/heads/${task.branch_id}`)) {
               if (refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
@@ -2214,24 +2425,16 @@ export function compositeTools(
                 branchCreated = branch.kind === 'ready' && branch.created;
               }
             }
-            if (adoptedWorktree !== null) {
-              worktreePath = adoptedWorktree;
-              diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
-            } else {
-              const wt = await ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
-              worktreePath = wt.worktreePath;
-              worktreeRecreated = !wt.reused;
-              worktreeSetup = wt.setup;
-            }
+            diagnostic = switchAdoptedWorktree(adoptedWorktree, task.branch_id);
           } catch (e) {
-            worktreePath = adoptedWorktree ?? taskWorktreeDir(repoPath, task);
             diagnostic = (e as Error).message;
           }
+          await spawnReindex(task.repo, repoPath, resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref);
+        } else if (repoPath) {
+          worktreePath = taskWorktreeDir(repoPath, task);
+          diagnostic = `repo path '${repoPath}' is not a git repository; worktree not checked`;
         } else {
           diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ''}'; worktree not checked`;
-        }
-        if (repoPath) {
-          await spawnReindex(task.repo, repoPath, resolveCutBase(repoPath, reworkBase(db, repoPath, task.repo, task.parent_branch_id))?.ref);
         }
 
         return ok({
@@ -2241,13 +2444,16 @@ export function compositeTools(
           files,
           verification,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
-          ...setupField(worktreeSetup),
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
           branch_created: branchCreated,
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(diagnostic ? { diagnostic } : {}),
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
       }),
@@ -2299,8 +2505,9 @@ export function compositeTools(
           spec_body: string | null;
           repo: string | null;
           parent_branch_id: string | null;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id FROM tasks WHERE id = ?`,
+          `SELECT id, issue_id, branch_id, status, files, verification, spec_body, repo, parent_branch_id, prompt_bearing FROM tasks WHERE id = ?`,
           [taskId],
         );
         if (!task) return err(`task_update_spec: task ${taskId} not found`);
@@ -2311,15 +2518,29 @@ export function compositeTools(
           );
         }
 
+        const repoPath = resolveRepoPath(db, task.repo);
+        const defaultsRef = reworkDefaultsRef(db, repoPath, task);
+        const defaults = readVerificationDefaults(repoPath, defaultsRef);
+        if ('error' in defaults) return verificationDefaultsResult('task_update_spec', defaultsRef, defaults.error);
         const oldFiles = parseTaskFiles(task.files);
         const oldVerification = parseTaskFiles(task.verification);
+        const files = newFiles ?? oldFiles;
+        const promptBearingResolution: PromptBearingResolution =
+          newFiles !== undefined
+            ? resolvePromptBearing(task.prompt_bearing, newFiles)
+            : { prompt_bearing: task.prompt_bearing === 1 ? 1 : 0, derived: false };
+        const { verification, added: verificationDefaultsAdded } = appendVerificationDefaults(
+          newVerification ?? oldVerification,
+          defaults.commands,
+        );
+        const verificationChanged = newVerification !== undefined || verificationDefaultsAdded.length > 0;
         const diffSummary = (oldList: string[], newList: string[]) => ({
           added: newList.filter((x) => !oldList.includes(x)),
           removed: oldList.filter((x) => !newList.includes(x)),
         });
         const changes: Record<string, unknown> = {};
         if (newFiles !== undefined) changes['files'] = diffSummary(oldFiles, newFiles);
-        if (newVerification !== undefined) changes['verification'] = diffSummary(oldVerification, newVerification);
+        if (verificationChanged) changes['verification'] = diffSummary(oldVerification, verification);
         if (newSpec !== undefined) {
           changes['spec_body'] = { old_length: (task.spec_body ?? '').length, new_length: (newSpec as string).length };
         }
@@ -2331,10 +2552,7 @@ export function compositeTools(
             : `${field} +${c.added!.length}/-${c.removed!.length}`;
         });
 
-        const files = newFiles ?? oldFiles;
-        const verification = newVerification ?? oldVerification;
-        const repoPath = resolveRepoPath(db, task.repo);
-        if (newFiles !== undefined || newVerification !== undefined) {
+        if (newFiles !== undefined || verificationChanged) {
           const pathRefusal = checkVerificationPaths({
             repoPath,
             ref: repoPath ? taskTipRef(db, repoPath, task) : null,
@@ -2349,6 +2567,9 @@ export function compositeTools(
             `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
             [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId],
           );
+          if (promptBearingResolution.derived) {
+            db.run(`UPDATE tasks SET prompt_bearing = 1 WHERE id = ?`, [taskId]);
+          }
           insertDiscussion(db, {
             issue_id: task.issue_id,
             author: agent,
@@ -2373,6 +2594,8 @@ export function compositeTools(
           changed,
           files,
           verification,
+          ...promptBearingDerivedField(promptBearingResolution),
+          verification_defaults_added: verificationDefaultsAdded,
           ...suggestVerification(db, suggestionRepo(db, task.repo), repoPath, files, verification),
         });
       }),
@@ -2548,22 +2771,18 @@ export function compositeTools(
             }
           }
 
-          // The latest bro_atomic_close scope record (extras bro accepted, base
-          // moved) — code-reviewer reads it instead of recomputing the diff.
-          const closeRow = db.get<{ content_json: string | null }>(
-            `SELECT content_json FROM audit
-              WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
-                AND json_extract(content_json, '$.task_id') = ?
-              ORDER BY created_at DESC, id DESC LIMIT 1`,
-            [task.id],
-          );
-          const closeScope = closeRow?.content_json
-            ? ((JSON.parse(closeRow.content_json) as { scope?: Partial<CloseScope> }).scope ?? null)
-            : null;
+          // The scope report review_handoff recorded for the current commit
+          // (extras with swe's reasons, base moved) — code-reviewer reads it
+          // instead of recomputing the diff — and, once closed, the extras
+          // bro_atomic_close accepted for that commit.
+          const handoff = scopeRecordFor<HandoffScope>(db, 'review_handoff', task.id, task.commit_sha);
+          const closeScope = task.status === 'closed' ? scopeRecordFor<CloseScope>(db, 'bro_verification_pass', task.id, task.commit_sha) : null;
+          const movedFrom = handoff ?? closeScope;
           const scope = {
             files: parseTaskFiles(task.files),
+            extras: Array.isArray(handoff?.extras) ? handoff.extras : [],
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
-            base_moved: closeScope ? closeScope.base_moved === true : null,
+            base_moved: movedFrom ? movedFrom.base_moved === true : null,
           };
           if (concise) {
             trimmed ||= scope_world_model.some(
@@ -2652,12 +2871,21 @@ export function compositeTools(
           };
         };
 
+        const verificationSection = () => {
+          const stored = latestVerificationRun(db, task.id, { withOutputTail: true });
+          if (!concise || !stored) return { verification: parseTaskFiles(task.verification), verification_run: stored };
+          trimmed ||= stored.commands.some((c) => (c.output_tail?.length ?? 0) > BRIEF_OUTPUT_TAIL_CHARS);
+          const commands = stored.commands.map((c) => ({
+            ...c,
+            output_tail: clipOutputTail(c.output_tail ?? null, BRIEF_OUTPUT_TAIL_CHARS),
+          }));
+          return { verification: parseTaskFiles(task.verification), verification_run: { ...stored, commands } };
+        };
+
         const brief = {
           ...(want('core') ? coreSection() : {}),
           ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
-          ...(want('verification')
-            ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db, task.id) }
-            : {}),
+          ...(want('verification') ? verificationSection() : {}),
           ...(want('scope') ? scopeSection() : {}),
           ...(want('history') ? historySection() : {}),
           ...(want('core') ? { freshness: freshnessBlock(db, repo || null) } : {}),
@@ -2758,20 +2986,22 @@ export function compositeTools(
         const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_retry', failed.issue_id, newBranchId);
         if (usedOnIssue) return usedOnIssue;
 
+        const promptBearingResolution = resolvePromptBearing(failed.prompt_bearing, parseTaskFiles(failed.files));
         const { effort } = computeEffort(db, {
           effort: effortArg,
-          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          prompt_bearing: promptBearingResolution.prompt_bearing,
           files: parseTaskFiles(failed.files),
           rework: true,
           current: failed.effort,
         });
 
-        // Branch before the transaction (a git failure persists no row, as in
-        // task_provision); the worktree after it, fail-soft into diagnostic.
+        // The environment gate before the transaction (a failed stage persists
+        // no row, as in task_provision); an adopted worktree is switched after
+        // it, fail-soft into diagnostic.
         const repoValue = repoOverride ?? failed.repo;
         const resolvedPath = resolveRepoPath(db, repoValue);
         const repoPath = resolvedPath && isGitRepo(resolvedPath) ? resolvedPath : null;
-        let branchSetup: { gitSetup: 'created' | 'reused'; baseRef: string } | null = null;
+        let branchSetup: { gitSetup: 'created' | 'reused'; baseRef: string | null } | null = null;
         if (repoPath) {
           for (const path of [repoPath, adoptPath ?? taskWorktreePath(repoPath, newBranchId)]) {
             const refusal = outsideProject('task_retry', runContext.projectRoot, path);
@@ -2786,6 +3016,15 @@ export function compositeTools(
         }
         const retryFiles = parseTaskFiles(failed.files);
         const retryBase = repoPath ? normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id)) : null;
+        // The environment gate's fetch comes first so the defaults below are
+        // read at the fetched tip; an adopted worktree keeps the ungated path.
+        const nothingWritten = 'No task row was created.';
+        let fetched: EnvStageReport | null = null;
+        if (repoPath && retryBase && adoptedWorktree === null) {
+          const fetch = fetchBaseStage(repoPath, retryBase);
+          if (!fetch.ok) return envGateFailedResult('task_retry', fetch, nothingWritten);
+          fetched = fetch.report;
+        }
         const pathRef = repoPath && retryBase ? resolveCutBase(repoPath, retryBase)?.ref ?? null : null;
         const defaults = readVerificationDefaults(repoPath, pathRef);
         if ('error' in defaults) return verificationDefaultsResult('task_retry', pathRef, defaults.error);
@@ -2794,50 +3033,60 @@ export function compositeTools(
           defaults.commands,
         );
         const storedVerification = verificationDefaultsAdded.length > 0 ? JSON.stringify(retryVerification) : failed.verification;
-        if (!repoPath || pathRef) {
-          const pathRefusal = checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles });
-          if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
-        }
+        const pathRefusal =
+          !repoPath || pathRef
+            ? checkVerificationPaths({ repoPath, ref: pathRef, verification: retryVerification, files: retryFiles })
+            : checkVerificationProse(retryVerification, pathRef);
+        if (pathRefusal) return verificationPathResult('task_retry', pathRefusal);
         const suggested = () => ({
           verification_defaults_added: verificationDefaultsAdded,
+          ...verificationDefaultsMissingField(repoPath, pathRef, defaults),
           ...suggestVerification(db, suggestionRepo(db, repoValue), repoPath, retryFiles, retryVerification),
         });
+        let gate: EnvGatePass | null = null;
         if (repoPath && retryBase) {
           const base = retryBase;
-          const branch = ensureTaskBranch(repoPath, newBranchId, base);
-          if (branch.kind === 'base_unresolved') {
-            return err(
-              `task_retry: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue ?? ''}'. ` +
-                `No task row was created.`,
+          const branchStage = (): BranchStageOutcome =>
+            taskBranchStage(ensureTaskBranch(repoPath, newBranchId, base), base, repoValue ?? '', (ref, baseRef) =>
+              branchDivergedPayload(
+                'task_retry',
+                newBranchId,
+                ref,
+                baseRef,
+                refDistance(repoPath, baseRef, ref),
+                openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
+                'Pick a fresh new_branch_id (branch_id_propose).',
+              ),
             );
+          if (fetched) {
+            const passed = await runEnvGate({
+              db,
+              dbPath,
+              graph: graphHolder?.ensureGraph() ?? null,
+              repo: suggestionRepo(db, repoValue),
+              repoPath,
+              branchId: newBranchId,
+              worktreePath: taskWorktreePath(repoPath, newBranchId),
+              fetched,
+              ensureBranch: branchStage,
+            });
+            if (!passed.ok) return envGateFailedResult('task_retry', passed, nothingWritten);
+            gate = passed;
+            branchSetup = { gitSetup: passed.branchCreated ? 'created' : 'reused', baseRef: passed.base_ref };
+          } else {
+            const stage = branchStage();
+            if (!stage.ok) return branchRefusalResult('task_retry', stage, nothingWritten);
+            branchSetup = { gitSetup: stage.created ? 'created' : 'reused', baseRef: stage.baseRef };
           }
-          if (branch.kind === 'git_failed') {
-            return err(
-              `task_retry: ${branch.what} in repo '${repoValue ?? ''}' ` +
-                `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created.`,
-            );
-          }
-          if (branch.kind === 'diverged') {
-            return branchDivergedResult(
-              'task_retry',
-              newBranchId,
-              branch.ref,
-              branch.baseRef,
-              refDistance(repoPath, branch.baseRef, branch.ref),
-              openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
-              'Pick a fresh new_branch_id (branch_id_propose).',
-            );
-          }
-          branchSetup = { gitSetup: branch.created ? 'created' : 'reused', baseRef: branch.cutBase!.ref };
         }
 
         const now = nowISO();
-        const result = adoptingTransaction(db, () => {
+        const result = gatedTransaction(db, gate, () => {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, base_sha, wm_commit, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -2846,10 +3095,12 @@ export function compositeTools(
               description,
               spec,
               repoOverride ?? failed.repo,
-              failed.prompt_bearing,
+              promptBearingResolution.prompt_bearing,
               failed.files,
               storedVerification,
               effort,
+              gate?.base_sha ?? null,
+              gate?.wm_commit ?? null,
               now,
               now,
             ],
@@ -2864,7 +3115,7 @@ export function compositeTools(
             issue_id: failed.issue_id,
             author: 'bro',
             kind: 'decision',
-            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+            body: [`Retry rationale (failed task ${failedTaskId}): ${rationale}`, gate?.decisionNote].filter(Boolean).join('\n\n'),
             created_at: now,
             task_id: newTask.id,
           });
@@ -2914,6 +3165,7 @@ export function compositeTools(
             task_id: result.id,
             branch_id: result.branch_id,
             effort,
+            ...promptBearingDerivedField(promptBearingResolution),
             carried_findings: result.carried,
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
@@ -2922,27 +3174,22 @@ export function compositeTools(
         }
         const worktreePath = adoptedWorktree ?? taskWorktreePath(repoPath, newBranchId);
         let diagnostic: string | undefined;
-        let worktreeSetup: WorktreeSetupResult | undefined;
         if (adoptedWorktree !== null) {
           diagnostic = switchAdoptedWorktree(adoptedWorktree, newBranchId);
-        } else {
-          try {
-            worktreeSetup = (await ensureTaskWorktree(repoPath, newBranchId)).setup;
-          } catch (e) {
-            diagnostic = (e as Error).message;
-          }
+          await spawnReindex(repoValue, repoPath, branchSetup.baseRef);
         }
-        await spawnReindex(repoValue, repoPath, branchSetup.baseRef);
         return ok({
           task_id: result.id,
           branch_id: result.branch_id,
           effort,
+          ...promptBearingDerivedField(promptBearingResolution),
           carried_findings: result.carried,
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
-          ...setupField(worktreeSetup),
+          ...setupField(gate?.setup),
           ...(adoptedWorktree !== null ? { worktree_adopted: true } : {}),
+          ...(gate ? { base_sha: gate.base_sha, wm_commit: gate.wm_commit, ...envGateField(gate.stages) } : {}),
           ...(diagnostic ? { diagnostic } : {}),
           ...suggested(),
         });
@@ -3143,7 +3390,7 @@ export function compositeTools(
           try {
             linkWorktreeNodeModules(repoPath, wtPath);
           } catch {
-            // Best-effort, as in ensureTaskWorktree.
+            // Best-effort, as in the environment gate's worktree stage.
           }
           const setup = await runWorktreeSetup(wtPath, { env: setupEnv(wtPath) });
           if (setup.error !== undefined) {
@@ -3277,29 +3524,13 @@ export function compositeTools(
       }),
     ),
 
-    bro_atomic_close: requireRoles(
-      'bro_atomic_close',
+    review_handoff: requireRoles(
+      'review_handoff',
       ['bro'],
-      wrap(async (args) => {
+      wrap((args) => Promise.resolve().then(() => {
         const taskId = args['task_id'] as string;
         if (!taskId) return err('Missing required arg: task_id');
-
-        const commitSha = ((args['commit_sha'] as string | undefined) ?? '').toLowerCase();
-        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err('commit_sha must be a 7..40-char hex SHA.');
-        }
-
-        const verificationSummary = args['verification_summary'];
-        if (verificationSummary === undefined || verificationSummary === null) {
-          return err('Missing required arg: verification_summary');
-        }
-        if (typeof verificationSummary !== 'string') {
-          return err('verification_summary must be a string');
-        }
-
-        const closeIssueIfLast = args['close_issue_if_last_task'] === true;
-        const waiveScopeGate = args['waive_scope_gate'] === true;
-        const spawnNote = parseSpawnNote(args['spawn_note'], 'bro_atomic_close');
+        const spawnNote = parseSpawnNote(args['spawn_note'], 'review_handoff');
         const sessionId = parseRunSessionId(args['session_id']);
 
         const task = db.get<{
@@ -3322,82 +3553,139 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
+        const reReview = task.status === 'running' ? reReviewAdmission(db, task) : null;
+        if (reReview !== null && 'refusal' in reReview) {
+          return err(
+            `re_review_refused: task ${taskId} is running and its commit cannot be re-reviewed: ${reReview.refusal}. ` +
+              `A running task is handed off again only when its latest verdict is a FAIL on its current commit, no swe run is live, ` +
+              `a passing verification run is recorded for the commit and its latest task_rework_analysis, dated after that FAIL, names ${RE_REVIEW_CHANGE}.`,
+          );
+        }
+        if (reReview === null && !HANDOFF_STATUSES.has(task.status)) {
+          return err(
+            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
+              `review_handoff runs after SWE flips status to completed.`,
+          );
+        }
+        const handedOff = reReview === null ? task : { ...task, completion_report: reReview.completionReport };
+        const commitSha = task.commit_sha;
+        if (!commitSha) {
+          return err(
+            `commit_sha_missing: task ${task.id} records no commit_sha. Resume the swe on task_id=${task.id} to call ` +
+              `task_update_status(status='completed', commit_sha=<sha>), then retry review_handoff.`,
+          );
+        }
+        const gateError = handoffGateError(db, handedOff, commitSha);
+        if (gateError !== null) return err(gateError);
+
+        const { scope, repoPath } = taskScopeCheck(db, task, commitSha);
+        const recorded = handoffScope(scope, handedOff.completion_report);
+        const reReviewOf = reReview === null ? {} : { re_review_of: reReview.failValidationId };
+        const now = nowISO();
+        const result = db.transaction(() => {
+          if (reReview !== null) restoreForReReviewInTx(db, task.id, reReview, now);
+          insertAudit(db, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: 'bro',
+            event_type: 'review_handoff',
+            summary: `Task ${task.id} commit ${commitSha.slice(0, 12)} handed to code-reviewer.`,
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, scope: recorded, ...reReviewOf }),
+            created_at: now,
+          });
+          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
+          db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
+          return {
+            task_id: task.id,
+            commit_sha: commitSha,
+            review_pending: true,
+            ...reReviewOf,
+            reviewer_effort: reviewerEffort.effort,
+            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort, sessionId),
+            scope: recorded,
+          };
+        });
+        return ok(result);
+      })),
+    ),
+
+    bro_atomic_close: requireRoles(
+      'bro_atomic_close',
+      ['bro'],
+      wrap(async (args) => {
+        const taskId = args['task_id'] as string;
+        if (!taskId) return err('Missing required arg: task_id');
+
+        const commitArg = ((args['commit_sha'] as string | undefined) ?? '').toLowerCase();
+        if (!commitArg || !/^[0-9a-f]{7,40}$/.test(commitArg)) {
+          return err('commit_sha must be a 7..40-char hex SHA.');
+        }
+
+        const verificationSummary = args['verification_summary'];
+        if (verificationSummary === undefined || verificationSummary === null) {
+          return err('Missing required arg: verification_summary');
+        }
+        if (typeof verificationSummary !== 'string') {
+          return err('verification_summary must be a string');
+        }
+        if (args['spawn_note'] !== undefined) {
+          return err('spawn_note moved to review_handoff, which hands the commit to code-reviewer before this close; call bro_atomic_close without it.');
+        }
+
+        const closeIssueIfLast = args['close_issue_if_last_task'] === true;
+        const waiveScopeGate = args['waive_scope_gate'] === true;
+
+        const task = db.get<{
+          id: number;
+          issue_id: number;
+          branch_id: string;
+          parent_branch_id: string | null;
+          status: string;
+          commit_sha: string | null;
+          repo: string | null;
+          files: string | null;
+        }>(
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files
+             FROM tasks WHERE id = ? LIMIT 1`,
+          [taskId],
+        );
+        if (!task) return err(`No task with id=${taskId}`);
         if (task.status !== 'completed' && task.status !== 'needs_validation') {
           return err(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
-              `bro_atomic_close runs after SWE flips status to completed.`,
+              `bro_atomic_close runs after SWE flips status to completed and code-reviewer passes the commit.`,
           );
         }
-
-        const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
-        if (unreported.length > 0) {
+        // The pass is judged on tasks.commit_sha, so the close keeps that
+        // exact spelling: a short or differently cased commit_sha would
+        // detach the task from its review anchor.
+        const commitSha = task.commit_sha;
+        if (!commitSha || !(commitSha.toLowerCase().startsWith(commitArg) || commitArg.startsWith(commitSha.toLowerCase()))) {
           return err(
-            `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ` +
-              `${task.completion_report ? 'does not cover' : 'is missing for'}: ${unreported.join(', ')}. Resume the swe on ` +
-              `task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: ` +
-              `[{id, status}, ...]}) with one entry per id, then retry bro_atomic_close.`,
+            `commit_sha_mismatch: task ${task.id}'s current commit is ${commitSha ?? '(none)'}, not ${commitArg}. ` +
+              `Close the commit code-reviewer passed; new work goes through swe, review_handoff and a fresh review first.`,
           );
         }
-
-        // --- Close-time verification gate (GH 1672) ---
-        // A task with verification[] closes only on a passing recorded run of
-        // its current verification[] plus its review finding probes (GH 1737)
-        // for this commit, or a
-        // verification_gate_waived row for it. The SubagentStop auto-complete
-        // and a later task_update_spec both reach here without the swe gate
-        // having run that verification[] on this commit.
-        const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db, task.id));
-        if (
-          verificationCommands.length > 0 &&
-          passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
-          !verificationWaivedForCommit(db, task.id, commitSha)
-        ) {
+        if (!taskHasPassingReview(db, task.id)) {
           return err(
-            `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
-              `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
-              `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
-              `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
-              `swe-verification-gate runs verification[] in the task worktree and records the run — then retry bro_atomic_close. ` +
-              `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`,
+            `review_pass_missing: task ${task.id} has no passing code-reviewer verdict recorded after its review_handoff for commit ${commitSha}. ` +
+              `Call review_handoff(task_id=${task.id}, session_id=...), spawn the reviewer_spawn it returns, and retry bro_atomic_close once the verdict is a pass; ` +
+              `on a fail, task_reopen(task_id=${task.id}) for rework.`,
           );
         }
 
         // --- Close-time files[] scope gate ---
-        // The task's own changes (merge-base with origin/<pr_target> .. commit)
-        // against its typed files[]. Extras refuse the close, grouped by
-        // surface, unless bro accepts them with waive_scope_gate +
-        // scope_waiver_reason; the acceptance lands in scope_gate_waived.
-        // Fail-CLOSED when the repo/commit can't be resolved. task_recover's
-        // shared close path is intentionally NOT gated.
+        // Extras refuse the close, grouped by surface, unless bro accepts them
+        // with waive_scope_gate + scope_waiver_reason; the acceptance lands in
+        // scope_gate_waived. Fail-CLOSED when the repo/commit can't be
+        // resolved. task_recover's shared close path is intentionally NOT gated.
         const now = nowISO();
         const scopeWaiverReason = typeof args['scope_waiver_reason'] === 'string' ? args['scope_waiver_reason'].trim() : '';
         if (waiveScopeGate && scopeWaiverReason.length < 10) {
           return err('bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.');
         }
 
-        const repoPath = resolveRepoPath(db, task.repo);
-        const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
-          (b): b is string => typeof b === 'string' && b.length > 0,
-        );
-        let targetRef: string | null = null;
-        if (repoPath) {
-          for (const candidate of targetCandidates) {
-            targetRef = resolveBaseRef(repoPath, candidate);
-            if (targetRef) break;
-          }
-        }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? task.parent_branch_id) : null;
-        const scope: ScopeCheck =
-          repoPath && targetRef
-            ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
-            : {
-                outOfScope: [],
-                changed: [],
-                checked: false,
-                reason: repoPath
-                  ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
-                  : `cannot resolve a path for repo '${task.repo ?? ''}'`,
-              };
+        const { scope } = taskScopeCheck(db, task, commitSha);
         const baseMoved = scope.baseMoved === true;
         const scopeRecord = {
           extras_accepted: waiveScopeGate ? scope.outOfScope : [],
@@ -3467,14 +3755,9 @@ export function compositeTools(
             });
           }
           const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
-          const reviewerEffort = assignReviewerEffort(db, task, commitSha, scope, now);
-          db.run('UPDATE tasks SET spawn_note = ? WHERE id = ?', [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
-            review_pending: true,
-            reviewer_effort: reviewerEffort.effort,
-            ...reviewerSpawn(db, task, repoPath ? taskWorktreeDir(repoPath, task) : task.worktree_path, commitSha, reviewerEffort.effort, sessionId),
             base_moved: baseMoved,
             ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
             ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),

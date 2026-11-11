@@ -9,7 +9,8 @@
  * 3630 s the close gate's suite-slot wait needs (GH 2297). A gate born in
  * the router (bash-output-trim, swe-downstream-context, test-run-nudge) never had a registration; it takes the 4 s of
  * the lightest advisory one, wm-read-before-provision, which writes an audit row, the 5 s its 3.5 s audit run budget plus 1 s
- * needs, and reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one.
+ * needs, reviewer-downstream-context and ref-move-reindex, which run git, the 6 s of a git-reading one, and
+ * prompt-write-approval, which reads the DB, the 6 s of cheatcode-install-approval, the DB-reading approval gate it mirrors.
  * swe-edit-lint, born in the router too, takes the 10 s its spec sets for the
  * repo's lint commands on the edited file (GH 2570).
  */
@@ -40,6 +41,7 @@ export const PRE_ROUTER_TIMEOUT_S: Readonly<Record<string, number>> = Object.fre
   'swe-verification-gate': 3627,
   'reviewer-identity-observe': 6,
   'cheatcode-install-approval': 6,
+  'prompt-write-approval': 6,
   'askuserquestion-length-lint': 6,
   'roundtable-auq-shape': 6,
   'cleanup-worktree-on-task-close': 11,

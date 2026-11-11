@@ -1,6 +1,7 @@
-// node:test suite for run-all.ts's pure helpers: TMB_L1_SKIP matching, the unwired-lint self-check,
-// the HOME footprint filter, the mise env derivation from PATH, the post-L1 env, the generated live-CLI
-// stubs, and SIGINT/SIGTERM stopping a run (stub bun on PATH, so no real step runs).
+// node:test suite for run-all.ts's pure helpers: TMB_L1_SKIP matching, the --l1-local step list, the
+// unwired-lint self-check, the HOME footprint filter, the mise env derivation from PATH, the post-L1 env,
+// the generated live-CLI stubs, SIGINT/SIGTERM stopping a run and --l1-local's SKIP lines (stub bun on
+// PATH, so no real step runs).
 // Run: node --experimental-strip-types --test tests/run-all.test.ts
 
 import assert from 'node:assert/strict';
@@ -14,6 +15,7 @@ import {
   abortSignal,
   homeLeaks,
   l1LintFiles,
+  l1LocalSteps,
   l1Skipped,
   l1Steps,
   miseEnv,
@@ -41,6 +43,45 @@ describe('parseArgs', () => {
     assert.equal(parseArgs(['--l1-only']).l1Only, true);
     assert.equal(parseArgs([]).l1Only, false);
     assert.equal(parseArgs(['x', '--l1-only']).l1Only, false);
+    assert.equal(parseArgs(['--l1-only']).l1Local, false);
+  });
+  test('--l1-local as the first arg stops after L1 and selects the local tier', () => {
+    assert.deepEqual(parseArgs(['--l1-local']), { l1Only: true, l1Local: true });
+    assert.deepEqual(parseArgs([]), { l1Only: false, l1Local: false });
+    assert.deepEqual(parseArgs(['x', '--l1-local']), { l1Only: false, l1Local: false });
+  });
+});
+
+describe('l1LocalSteps', () => {
+  const table = l1Steps(HERE);
+  const local = l1LocalSteps(table);
+  const lintNames = (steps: typeof table) => steps.map(([, argv]) => argv.at(-1)!.split('/').pop());
+  test('is the L1 table minus exactly its slow-flagged steps, in table order', () => {
+    const slow = table.filter(([, , isSlow]) => isSlow === true);
+    assert.ok(slow.length > 0, 'the L1 table flags at least one slow step');
+    assert.equal(local.length, table.length - slow.length);
+    assert.deepEqual(local, table.filter((step) => !slow.includes(step)));
+    for (const step of slow) assert.ok(!local.includes(step), `${step[0]} is skipped`);
+  });
+  test('keeps the lints CI used to catch first', () => {
+    const names = lintNames(local);
+    for (const lint of [
+      'tsc-noemit.test.mjs',
+      'eslint.test.mjs',
+      'agent-line-budget.test.mjs',
+      'changelog-current.test.mjs',
+      'link-check.test.mjs',
+      'tool-description-budget.test.mjs',
+    ]) {
+      assert.ok(names.includes(lint), `${lint} runs under --l1-local`);
+    }
+  });
+  test('runs every dashboard/test/*.test.mjs file, as pr-check does (GH 2866)', () => {
+    const glob = join(dirname(HERE), 'dashboard', 'test', '*.test.mjs');
+    const steps = local.filter(([, argv]) => argv.includes(glob));
+    assert.equal(steps.length, 1, 'one --l1-local step runs the dashboard tests');
+    assert.deepEqual(steps[0][1], ['node', '--test', glob]);
+    assert.ok(readdirSync(dirname(glob)).some((name) => name.endsWith('.test.mjs')), 'the glob matches dashboard test files');
   });
 });
 
@@ -61,8 +102,9 @@ describe('l1Skipped', () => {
 describe('unwiredLints', () => {
   test('a lint with no step is reported', () => {
     const steps = l1Steps('/p/tests');
-    assert.deepEqual(unwiredLints(['link-check.test.mjs', 'brand-new.test.mjs', 'codex-scope4-contract.sh'], steps), [
+    assert.deepEqual(unwiredLints(['link-check.test.mjs', 'brand-new.test.mjs', 'brand-new.sh'], steps), [
       'brand-new.test.mjs',
+      'brand-new.sh',
     ]);
   });
   test('every lint in tests/l1-lint is wired', () => {
@@ -128,7 +170,7 @@ describe('abortSignal', () => {
   });
 });
 
-describe('signals stop the run', () => {
+describe('a run with a stub bun', () => {
   const runAll = join(HERE, 'run-all.ts');
 
   function fixture(bunBody: string): { env: NodeJS.ProcessEnv; tmp: string; root: string } {
@@ -180,6 +222,26 @@ describe('signals stop the run', () => {
     assert.deepEqual(runDirs(tmp), []);
     const stubPid = Number(readFileSync(pidFile, 'utf8'));
     assert.throws(() => process.kill(stubPid, 0), { code: 'ESRCH' });
+  });
+
+  test('--l1-local prints SKIP for each slow step and wm-equivalence, then stops after L1', () => {
+    const { env } = fixture('process.exit(0);');
+    const everyStepFile = l1Steps(HERE)
+      .map(([, argv]) => argv.at(-1)!.split('/').pop())
+      .concat('selftest.test.mjs');
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', runAll, '--l1-local'], {
+      encoding: 'utf8',
+      env: { ...env, TMB_L1_SKIP: everyStepFile.join(' ') },
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    assert.equal(r.status, 0, r.stdout);
+    for (const [label] of l1Steps(HERE).filter(([, , slow]) => slow === true)) {
+      assert.ok(r.stdout.includes(`=== ${label} ===\n→ SKIP (--l1-local)`), `${label} skipped:\n${r.stdout}`);
+    }
+    assert.match(r.stdout, /=== L1 world model: incremental reindex equals a clean rebuild \(wm-equivalence\.test\.js\) ===\n→ SKIP \(--l1-local\)/);
+    assert.match(r.stdout, /=== L1 lint: typescript-eslint against the suppressions baseline ===\n→ SKIP \(TMB_L1_SKIP\)/);
+    assert.doesNotMatch(r.stdout, /=== L2/);
   });
 });
 

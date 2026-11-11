@@ -1,4 +1,4 @@
-// L1 lint: no hardcoded developer-machine path (/Users/<name>/, /home/<name>/, /Volumes/, C:\Users\<name>) in public-facing artifacts: README.md, CONTRIBUTING.md, CODEX.md, CURSOR.md, GEMINI.md, CLAUDE.md, SECURITY.md, docs/, agents/, skills/, commands/, templates/. Exempt: tests/l1-lint/fixtures/, tests/l5-l6/fixtures/, templates/docs-trustmybot/snapshots/, CHANGELOG.md; binary files are skipped. Every run also checks fixtures/developer-paths/has-personal-path.md is caught.
+// L1 lint: no hardcoded developer-machine path (/Users/<name>/, /home/<name>/, /Volumes/, C:\Users\<name>) in public-facing artifacts: README.md, CONTRIBUTING.md, CLAUDE.md, SECURITY.md, docs/, agents/, skills/, commands/, templates/. Exempt: tests/l1-lint/fixtures/, tests/l5-l6/fixtures/, templates/docs-trustmybot/snapshots/, CHANGELOG.md; binary files are skipped. Every run also checks fixtures/developer-paths/has-personal-path.md is caught.
 import { strict as assert } from 'node:assert';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';

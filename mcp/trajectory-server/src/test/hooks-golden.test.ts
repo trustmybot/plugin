@@ -38,6 +38,7 @@ const TS_BORN_GATES: ReadonlySet<string> = new Set([
   'liveness-alert',
   'liveness-sentinel',
   'no-prose-in-scratch',
+  'prompt-write-approval',
   'record-reviewer-spawn',
   'ref-move-reindex',
   'reviewer-downstream-context',

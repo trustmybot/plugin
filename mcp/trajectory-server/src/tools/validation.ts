@@ -4,12 +4,94 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import type { FindingSeverity, ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
+import type { Effort } from './config.js';
+import { applyReopenInTx, atLeastReworkFloor, insertEffortRaised, type ClearedCompletion, type ReopenTask } from './reopen.js';
+import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review-probes.js';
 import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
-import { WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
+import { SPAWN_NOTE_MAX_CHARS, WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
+
+/** The statuses a code-reviewer FAIL moves back to running: work handed to review, or closed after it. */
+const AUTO_REOPEN_STATUSES: ReadonlySet<string> = new Set(['completed', 'needs_validation', 'closed']);
+
+interface BlockingFinding {
+  id: string;
+  class: string | null;
+}
+
+type ReviewFailReopen =
+  | {
+      reopened: {
+        task_id: number;
+        from_status: string;
+        status: 'running';
+        effort: Effort;
+        effort_raised: boolean;
+        finding_ids: string[];
+      };
+    }
+  | { reopen_skipped: { reason: string; effort_raised?: boolean } };
+
+function reviewFailSpawnNote(validationId: number, findings: readonly BlockingFinding[]): string {
+  const listed = findings.map((f) => (f.class ? `${f.id} (${f.class})` : f.id)).join(', ');
+  const note = `Reopened by review FAIL (validation ${validationId}); fix ${listed}: task_brief.open_findings has each probe.`;
+  return note.length > SPAWN_NOTE_MAX_CHARS ? `${note.slice(0, SPAWN_NOTE_MAX_CHARS - 1)}…` : note;
+}
+
+/**
+ * What a code-reviewer FAIL does to its task, inside validation_record's
+ * transaction (GH 2866): a completed, needs_validation or closed task of an
+ * open issue is reopened to running at the rework floor effort; a running one
+ * only has its effort raised to the floor; any other status, or a closed
+ * issue, is left as it is. The reopen's task_reopened row keeps the cleared
+ * completion report and stamp, which a re-review of the same commit restores.
+ */
+function reopenAfterReviewFail(
+  db: TrajectoryDB,
+  fail: { taskId: number; validationId: number; findings: readonly BlockingFinding[]; now: string },
+): ReviewFailReopen {
+  const agent = 'code-reviewer';
+  const task = db.get<ReopenTask & ClearedCompletion & { issue_status: string | null }>(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.effort, t.completion_report, t.completed_at, i.status AS issue_status
+       FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
+    [fail.taskId],
+  );
+  if (!task) return { reopen_skipped: { reason: 'task_missing' } };
+  if (task.issue_status === null) return { reopen_skipped: { reason: 'issue_missing' } };
+  if (task.issue_status === 'closed') return { reopen_skipped: { reason: 'issue_closed' } };
+  const effort = atLeastReworkFloor(task.effort);
+  const raise = effort !== task.effort;
+  if (task.status === 'running') {
+    if (raise) {
+      db.run(`UPDATE tasks SET effort = ?, updated_at = ? WHERE id = ?`, [effort, fail.now, task.id]);
+      insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: task.id }, task.effort, effort, agent, fail.now);
+    }
+    return { reopen_skipped: { reason: 'status_running', effort_raised: raise } };
+  }
+  if (!AUTO_REOPEN_STATUSES.has(task.status)) return { reopen_skipped: { reason: `status_${task.status}` } };
+  const findingIds = fail.findings.map((f) => f.id);
+  const raised = applyReopenInTx(db, {
+    task,
+    agent,
+    reason: `code-reviewer FAIL (validation ${fail.validationId}): ${findingIds.join(', ')}`,
+    effort,
+    spawnNote: reviewFailSpawnNote(fail.validationId, fail.findings),
+    now: fail.now,
+    auditContent: {
+      validation_id: fail.validationId,
+      finding_ids: findingIds,
+      auto: true,
+      completion_report: task.completion_report,
+      completed_at: task.completed_at,
+    },
+  });
+  return {
+    reopened: { task_id: task.id, from_status: task.status, status: 'running', effort, effort_raised: raised, finding_ids: findingIds },
+  };
+}
 
 export const WM_FEEDBACK_SCHEMA = {
   type: 'object',
@@ -241,6 +323,12 @@ function parseFinding(item: unknown, i: number): FindingInput {
   };
 }
 
+/** A validation_attempts row with its probes_json column read back as probes (null when none were recorded). */
+function withProbes(row: Partial<ValidationAttempt>): Record<string, unknown> {
+  const { probes_json: stored, ...rest } = row;
+  return { ...rest, probes: stored ? (JSON.parse(stored) as ReviewProbe[]) : null };
+}
+
 function coerceTaskId(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -302,6 +390,16 @@ export function validationTools(db: TrajectoryDB): {
               additionalProperties: false,
             },
           },
+          probes: {
+            type: 'array',
+            description: `The checks run in the reviewed checkout, ${PROBE_SHAPE}: what it checks, the command, what it showed. A pass needs one or more (probes_required); fail and escalate may carry them.`,
+            items: {
+              type: 'object',
+              properties: { target: { type: 'string' }, probe_cmd: { type: 'string' }, observed: { type: 'string' } },
+              required: ['target', 'probe_cmd', 'observed'],
+              additionalProperties: false,
+            },
+          },
           wm_feedback: WM_FEEDBACK_SCHEMA,
         },
         required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
@@ -310,7 +408,7 @@ export function validationTools(db: TrajectoryDB): {
     {
       name: 'validation_history',
       description:
-        'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null), verification_run, the latest gate run the attempt started (null when none), and findings, the review_findings rows of that attempt (withheld wherever feedback is). ' +
+        'All validation attempts for a task by attempt_n ascending. Each row carries reviewed_sha, the commit reviewed (or null), verification_run, the latest gate run the attempt started (null when none), findings, the review_findings rows of that attempt, and probes (null when none; both withheld wherever feedback is). ' +
         'Without limit, a bare array; with limit, {rows, next_cursor}.',
       inputSchema: {
         type: 'object',
@@ -323,7 +421,7 @@ export function validationTools(db: TrajectoryDB): {
           fields: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, verification_run, findings. Unknown fields return a named error. Default: all columns.',
+            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, verification_run, findings, probes. Unknown fields return a named error. Default: all columns.',
           },
         },
         required: ['agent', 'task_id'],
@@ -355,6 +453,7 @@ export function validationTools(db: TrajectoryDB): {
         );
       }
       const findings = parseFindings(verdict, args['findings']);
+      const probes = parseProbes(verdict, args['probes']);
       const wmFeedbackArg = args['wm_feedback'];
       let wmFeedback: WmFeedback | null = null;
       if (wmFeedbackArg !== undefined && wmFeedbackArg !== null) {
@@ -380,6 +479,7 @@ export function validationTools(db: TrajectoryDB): {
       const findingIds: string[] = [];
       let storedAttempt = attemptN;
       let rowId: number | bigint = 0;
+      let reopen: ReviewFailReopen | undefined;
 
       db.transaction(() => {
         const latest = latestObservation(db, taskId, attemptN);
@@ -447,9 +547,9 @@ export function validationTools(db: TrajectoryDB): {
         )?.n ?? attemptN;
         rowId = db.run(
           `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, repo)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, reviewedSha(db, taskId, attemptN), now, taskExists.repo],
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, reviewed_sha, created_at, repo, probes_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [taskId, storedAttempt, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, reviewedSha(db, taskId, attemptN), now, taskExists.repo, probesJson(probes)],
         ).lastInsertRowid;
 
         const lastN =
@@ -467,6 +567,10 @@ export function validationTools(db: TrajectoryDB): {
           findingIds.push(id);
         });
         if (wmFeedback) insertWmFeedback(db, taskExists, agent, wmFeedback, now);
+        if (verdict === 'fail') {
+          const blocking = findings.flatMap((f, i) => (f.severity === 'blocking' ? [{ id: findingIds[i], class: f.class }] : []));
+          reopen = reopenAfterReviewFail(db, { taskId, validationId: Number(rowId), findings: blocking, now });
+        }
       });
 
       const row = db.get<ValidationAttempt>(
@@ -476,8 +580,9 @@ export function validationTools(db: TrajectoryDB): {
       const recorded = findingIds.map((id) => ({ ...db.get<ReviewFinding>('SELECT * FROM review_findings WHERE id = ?', [id]) }));
 
       return ok({
-        ...row,
+        ...(row ? withProbes(row) : {}),
         findings: recorded,
+        ...reopen,
         return_line: row ? reviewerReturnLine(row, taskExists.commit_sha, recorded.length) : undefined,
       });
     })),
@@ -494,7 +599,7 @@ export function validationTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const fieldsArg = args['fields'] as string[] | undefined;
 
-      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'reviewed_sha', 'created_at', 'verification_run', 'findings']);
+      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'reviewed_sha', 'created_at', 'verification_run', 'findings', 'probes']);
 
       if (fieldsArg !== undefined) {
         const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
@@ -513,9 +618,16 @@ export function validationTools(db: TrajectoryDB): {
         );
       }
 
-      function projectRow(redacted: Record<string, unknown>): Record<string, unknown> {
-        const row: Record<string, unknown> = { ...redacted, verification_run: latestVerificationRun(db, taskId, String(redacted['created_at'])) };
-        if ('feedback' in redacted) row['findings'] = attemptFindings(Number(redacted['attempt_n']));
+      function projectRow(redacted: Partial<ValidationAttempt>): Record<string, unknown> {
+        const { probes, ...attempt } = withProbes(redacted);
+        const row: Record<string, unknown> = {
+          ...attempt,
+          verification_run: latestVerificationRun(db, taskId, { startedBy: String(redacted.created_at) }),
+        };
+        if ('feedback' in redacted) {
+          row['findings'] = attemptFindings(Number(redacted.attempt_n));
+          row['probes'] = probes;
+        }
         if (!fieldsArg) return row;
         const out: Record<string, unknown> = {};
         for (const f of fieldsArg) out[f] = row[f];
@@ -527,7 +639,7 @@ export function validationTools(db: TrajectoryDB): {
           `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
           [taskId],
         );
-        return ok(rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }) as Record<string, unknown>)));
+        return ok(rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
       }
 
       const limit = Math.min(Math.max(1, limitArg), 500);
@@ -563,7 +675,7 @@ export function validationTools(db: TrajectoryDB): {
           : undefined;
 
       return ok({
-        rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }) as Record<string, unknown>)),
+        rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
         next_cursor,
       });
     }),

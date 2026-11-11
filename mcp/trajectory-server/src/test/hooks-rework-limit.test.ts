@@ -250,6 +250,19 @@ describe('rework-limit', () => {
       assert.match(denyReason(run(f).stdout), /task FAILs: 3 review FAILs on the task since its last passing review/);
     });
 
+    it('offers no effort_raise to a task already at high, which a FAIL raised it to (GH 2866)', () => {
+      const f = fixture();
+      const d = new DatabaseSync(f.db);
+      d.prepare("UPDATE tasks SET effort = 'high' WHERE id = ?").run(TASK_ID);
+      d.close();
+      f.verdicts('fail', 'fail');
+      const reason = denyReason(run(f).stdout);
+      assert.match(reason, /task 3 is at the rework limit/);
+      assert.match(reason, /already runs at effort "high", so no effort_raise is left/);
+      assert.ok(reason.includes('spec_update with `task_update_spec`') && reason.includes('world_model_fix with `scan_run`'), reason);
+      assert.doesNotMatch(reason, /effort_raise with|task_reopen\(task_id=3, effort=/);
+    });
+
     it('counts only the FAILs after the latest pass', () => {
       const f = fixture();
       f.verdicts('fail', 'fail', 'pass', 'fail');

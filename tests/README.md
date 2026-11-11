@@ -10,7 +10,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **L0** | Install-smoke (Docker `bun install --ignore-scripts`), an upgrade smoke from a real-shape v1.0.2 DB, plus an isolated local Codex installer smoke | [`l0-install/`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn, a v1.0.2 DB failing trajectory-doctor after the upgrade, Codex Skill selection, accidental Claude command migration |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`), and an upgrade smoke from a real-shape v1.0.2 DB | [`l0-install/`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn, a v1.0.2 DB failing trajectory-doctor after the upgrade |
 | **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), hook suites `mcp/trajectory-server/src/test/*-l3.test.ts` (node:test, run with L2) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
@@ -86,9 +86,10 @@ Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Ex
 
 L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so the scan walker reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.test.mjs` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
-Two switches narrow a run:
+Three switches narrow a run:
 
 - `--l1-only` (first argument) builds the payload, runs the L1 block, and exits with its result before L2.
+- `--l1-local` (first argument) is the local L1 tier: the same L1 table and self-checks as `--l1-only`, minus the steps that table flags slow and the wm-equivalence reindex check, each of which prints `→ SKIP (--l1-local)`. A step is flagged slow only when it measured above 30 s on a dev machine. It is the plugin repo's `.config/tmb/verification-defaults.json` command, so every swe close runs it (GH 2866); CI keeps `--l1-only`, so the skipped steps still gate each PR.
 - `TMB_L1_SKIP` holds space-separated lint basenames (`tool-description-budget.test.mjs`). A step whose arguments name one prints `→ SKIP (TMB_L1_SKIP)` and does not fail the run.
 
 ```bash
@@ -97,23 +98,7 @@ TMB_L1_SKIP="tool-description-budget.test.mjs" node --experimental-strip-types t
 
 `.github/workflows/pr-check.yml` runs `bun install --frozen-lockfile`, then `node --experimental-strip-types tests/run-all.ts --l1-only` with no `TMB_L1_SKIP`, on every pull request into `dev`, `rc` or `main` (GH 2064), so every L1 lint and the strict tsc in `build:payload` gate each PR. That includes `l1-lint/tsc-noemit.test.mjs` (`tsc --noEmit` on `mcp/trajectory-server` and `dashboard`) and `l1-lint/eslint.test.mjs`, which runs `bun run lint`: typescript-eslint `recommendedTypeChecked` from the root `eslint.config.mjs` over `mcp/trajectory-server/src` and `dashboard/{server,web}`, failing on any violation not in the `eslint-suppressions.json` baseline and on any suppression no longer needed (GH 2064). After fixing baselined violations, run `bunx eslint --prune-suppressions` to shrink the baseline. The `l1` job of `.github/workflows/dev-build.yml` runs the same command on every push to `dev`, so a PR whose green check predates a new L1 rule turns `dev` red after it merges (GH 2651); the `stamp` job still publishes the dev build either way. pr-check runs no full sweep: the full `node --experimental-strip-types tests/run-all.ts` L1–L4 sweep runs only at the rc release gate, whose `tests` job fetches the bge-small model through the `.github/actions/fetch-bge-model` composite action, alongside L6 and L0 (GH 2805). `l1-lint/tool-description-budget.test.mjs` rebuilds the MCP server first when `mcp/trajectory-server/dist/index.js` is missing or older than any file under `mcp/trajectory-server/src/` (GH 2492).
 
-The `dashboard` job of `.github/workflows/pr-check.yml` builds `mcp/trajectory-server` (`build:tsc`, for the `dist/db.js` that `writes.test.mjs` imports) and the dashboard (`bun run build`), then runs `node --test dashboard/test/*.test.mjs` (GH 2616). The dashboard suites stay out of `run-all.ts` L1 because they bind localhost ports, which the agent sandbox refuses (GH 2334). A test that needs a `dashboard/server/*.ts` module imports it through `dashboard/test/server-module.mjs`, which bundles it with esbuild, since the module's chain reaches `mcp/trajectory-server/src` files whose `.js` specifiers Node's type stripping does not resolve.
-
-Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
-inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
-a fixed-SHA artifact:
-
-```bash
-bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
-CODEX_BIN=/path/to/codex bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
-```
-
-It verifies that the manifest-selected Codex Skill directory contains exactly
-`tmb-bro` and `tmb-agent-setup`, that no `source-command-*` migration appears,
-and that the root Claude `commands/` regular files plus `skills/` directories
-and regular files survive installation unchanged. Symlink packaging remains the
-installer's responsibility. The smoke never reads or writes the user's normal
-Codex home.
+The `dashboard` job of `.github/workflows/pr-check.yml` builds `mcp/trajectory-server` (`build:tsc`, for the `dist/db.js` that `writes.test.mjs` imports) and the dashboard (`bun run build`), then runs `node --test dashboard/test/*.test.mjs` (GH 2616). `run-all.ts` L1 runs the same glob as a non-slow step, so `--l1-local` catches a dashboard failure at swe's close and CI only confirms it (GH 2866). The suites bind localhost ports, so a run inside the agent's Bash sandbox needs local binding allowed (GH 2334). A test that needs a `dashboard/server/*.ts` module imports it through `dashboard/test/server-module.mjs`, which bundles it with esbuild, since the module's chain reaches `mcp/trajectory-server/src` files whose `.js` specifiers Node's type stripping does not resolve.
 
 ## Test-environment posture
 

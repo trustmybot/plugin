@@ -173,7 +173,6 @@ All rows live in **`tests/l5-l6/rows/`**, organized into **family folders** `row
 ```
 tests/l5-l6/rows/<NN>/<row-name>/        # family folder <NN>/ groups a primary + its edge cases
   prompt.txt              # shared by L5 + L6 — the user prompt fed to claude -p
-  README.md               # scenario description for both L5 and L6 modes
   script.json             # max_turns, user_after_bro[], terminal_pattern
   fixture.txt             # named SQL fixture (e.g. onboarding-named) — applied in L5 always; L6 only at step 1
   setup-l5.ts             # L5-ONLY (optional): pre-seeds env state that L6 inherits from prior chain step

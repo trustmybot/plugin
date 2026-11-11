@@ -29,12 +29,14 @@ CREATE TABLE issues (
 CREATE TABLE repos (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  path TEXT NOT NULL
+  path TEXT NOT NULL,
+  target_branch TEXT
 );
 CREATE TABLE tasks (
   id INTEGER PRIMARY KEY,
   issue_id INTEGER NOT NULL REFERENCES issues(id),
   branch_id TEXT NOT NULL,
+  parent_branch_id TEXT,
   repo TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   spec_body TEXT NOT NULL DEFAULT '',
@@ -122,7 +124,11 @@ export interface Ws {
   lockRoot: string;
 }
 
-/** The workspace with repos row `plugin` and tasks 1–4 with their worktree dirs (task 1's holds a passing tests/run.sh). */
+/**
+ * The workspace with repos row `plugin` and tasks 1–4 with their worktree dirs (task 1's holds a passing tests/run.sh).
+ * <ws>/plugin is a git repo with one empty commit, so a plain worktree dir resolves its HEAD and PR target there
+ * and passes the gate's changelog and doc checks on an empty diff (GH 2866).
+ */
 export function makeWs(name: string): Ws {
   const sb = makeSandbox(name);
   const ws = join(sb.dir, 'ws');
@@ -133,7 +139,10 @@ export function makeWs(name: string): Ws {
   for (const slug of ['my-feature/tests', 'fail-verify', 'no-verify', 'multi-cmd']) mkdirSync(join(wtRoot, slug), { recursive: true });
   for (const d of ['data', 'state', 'cache']) mkdirSync(join(sb.dir, 'mise', d), { recursive: true });
   execDb(db, SCHEMA);
-  sql(db, "INSERT INTO repos VALUES (1, 'plugin', ?)", repo);
+  sql(db, "INSERT INTO repos (id, name, path) VALUES (1, 'plugin', ?)", repo);
+  mkdirSync(repo, { recursive: true });
+  git(sb.env, repo, 'init', '--quiet');
+  git(sb.env, repo, 'commit', '--quiet', '--allow-empty', '-m', 'init');
   addTask(db, 1, 'my-feature', ['bash tests/run.sh']);
   addTask(db, 2, 'no-verify', []);
   addTask(db, 3, 'fail-verify', ['exit 1']);
@@ -234,6 +243,13 @@ export function gitWorktree(w: Ws, slug: string): string {
   git(w.sb.env, wt, 'init', '--quiet');
   git(w.sb.env, wt, 'commit', '--quiet', '--allow-empty', '-m', 'init');
   return git(w.sb.env, wt, 'rev-parse', 'HEAD');
+}
+
+/** The worktree <slug> as a git repo with no commit, so its HEAD does not resolve. */
+export function unbornWorktree(w: Ws, slug: string): void {
+  const wt = join(w.wtRoot, slug);
+  mkdirSync(wt, { recursive: true });
+  git(w.sb.env, wt, 'init', '--quiet');
 }
 
 /** An empty commit <msg> in worktree <slug>; returns HEAD. */

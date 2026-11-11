@@ -4,7 +4,7 @@ import { projectRootFromDbPath } from './containment.js';
 // Task statuses after which no agent_runs row of the task stays open.
 export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(['closed', 'failed', 'escalated']);
 
-export type RunHost = 'claude' | 'codex';
+export type RunHost = 'claude';
 export type RunExitReason =
   | 'completed'
   | 'failed'

@@ -1,17 +1,11 @@
-// lintFingerprint (GH 2570) over a temp git repo: stable, moved by matched blobs, the close-lints config and the built-in version, not by unmatched files.
+// lintFingerprint (GH 2570) over a temp git repo: stable, moved by matched blobs and the close-lints config, not by unmatched files.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-  BUILTIN_LINTS_VERSION,
-  CLOSE_LINTS_PATH,
-  fingerprintDigest,
-  lintFingerprint,
-  matchesInput,
-} from '../hooks/lib/lint-fingerprint.js';
+import { CLOSE_LINTS_PATH, fingerprintDigest, lintFingerprint, matchesInput } from '../hooks/lib/lint-fingerprint.js';
 import { childEnv, GIT_ENV } from './db-test-fixtures.js';
 
 const ENV = childEnv(GIT_ENV);
@@ -70,7 +64,7 @@ describe('lintFingerprint (GH 2570)', () => {
     assert.notEqual(await fp(config, []), await fp(matched, []), 'close-lints.json counts with no inputs at all');
   });
 
-  it('is the digest of the matched blobs under BUILTIN_LINTS_VERSION, and a version bump moves it', async () => {
+  it('is the digest of the matched blobs', async () => {
     const sha = commit({ 'src/only.ts': 'only\n' });
     const oids = git(repo, 'ls-tree', '-r', '--full-tree', sha)
       .split('\n')
@@ -80,9 +74,8 @@ describe('lintFingerprint (GH 2570)', () => {
       })
       .filter((e) => e.path === CLOSE_LINTS_PATH || e.path === 'package.json' || /^src\/.*\.ts$/.test(e.path));
     const got = await fp(sha);
-    assert.equal(got, fingerprintDigest(oids, BUILTIN_LINTS_VERSION));
-    assert.equal(BUILTIN_LINTS_VERSION, '1');
-    assert.notEqual(fingerprintDigest(oids, '2'), got, 'a BUILTIN_LINTS_VERSION bump moves it');
+    assert.equal(got, fingerprintDigest(oids));
+    assert.notEqual(fingerprintDigest(oids.slice(1)), got, 'dropping a matched blob moves it');
     assert.equal(fingerprintDigest([...oids].reverse()), got, 'entry order does not matter');
   });
 

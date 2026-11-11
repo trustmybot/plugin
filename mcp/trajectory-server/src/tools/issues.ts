@@ -41,9 +41,8 @@ export interface IssueLabelTaxonomy {
 
 export interface IssueToolOptions {
   /**
-   * Optional caller-resolved taxonomy snapshot. Codex supplies its strict
-   * config_get result so shared issue validation uses the same fail-closed
-   * snapshot instead of re-reading configuration with Claude's legacy
+   * Optional caller-resolved taxonomy snapshot. When supplied, issue
+   * validation uses it instead of re-reading configuration with the
    * malformed-value fallback.
    */
   readonly labelTaxonomy?: IssueLabelTaxonomy;

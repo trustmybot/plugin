@@ -206,7 +206,7 @@ test('validate prints one line per problem and exits 1; a well-formed fragment e
 
 function bumpRepo(name) {
   const dir = join(TMP, name);
-  for (const f of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json']) {
+  for (const f of ['.claude-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json']) {
     write(join(dir, f), '{\n  "version": "1.0.0"\n}\n');
   }
   write(join(dir, 'bun.lock'), '{\n  "workspaces": {\n    "": {\n      "version": "1.0.0"\n    }\n  }\n}\n');
@@ -519,7 +519,7 @@ test('--version-only ignores --impact-db', () => {
 test('versions are matched literally, never as regex patterns', () => {
   const b = bumpRepo('bump-literal');
   const odd = '1.0.0+build(1)';
-  for (const f of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json']) {
+  for (const f of ['.claude-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json']) {
     edit(join(b, f), '"1.0.0"', `"${odd}"`);
   }
   edit(join(b, 'bun.lock'), '"1.0.0"', `"${odd}"`);

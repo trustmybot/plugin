@@ -10,6 +10,6 @@
   "corpus_divergent": "no sqlite3 CLI: the .sh lets every spawn through, the TypeScript gate reads through node:sqlite and denies the running task",
   "corpus_expect": {
     "bash": "empty",
-    "ts": "requires task 13 status=closed but actual status=running."
+    "ts": "spawn for task 13 (status=running) has no review_handoff"
   }
 }

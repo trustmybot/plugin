@@ -15,13 +15,12 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { TrajectoryDB } from '../db.js';
 import { agentSpawnDispatch } from '../hooks/agent-spawn-dispatch.js';
-import { MISSING_CHANGELOG, STALE_DOC_REF } from '../hooks/lib/builtin-lints.js';
 import { closeLintsPlan } from '../hooks/lib/close-lints.js';
 import { ALLOW, type Gate } from '../hooks/gate.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { FROM_NODE, recordReviewerSpawn, reviewerSpawnAnchors } from '../hooks/record-reviewer-spawn.js';
 import { validationTools } from '../tools/validation.js';
-import { seedReviewerObservation } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation } from './helpers.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -106,7 +105,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
         agent: 'code-reviewer',
         task_id: TASK_ID,
         attempt_n: attemptN,
-        verdict: 'pass',
+        verdict: 'pass', probes: TEST_PROBES,
         feedback: '# Review',
         mcp_available: true,
         ...extra,
@@ -203,12 +202,14 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
       if (recordedSha === 'tip') {
         const plan = await closeLintsPlan(repo, tip, env);
         if (typeof plan === 'string') assert.fail(plan);
-        const { lastInsertRowid } = w
-          .prepare("INSERT INTO lint_runs (task_id, commit_sha, base_sha, fingerprint, source, started_at, finished_at, exit_code) VALUES (?, ?, ?, ?, 'gate', ?, ?, 0)")
-          .run(TASK_ID, tip, git('merge-base', 'dev', tip), plan.fingerprint, NOW, NOW);
-        for (const [i, name] of [MISSING_CHANGELOG, STALE_DOC_REF].entries()) {
-          w.prepare("INSERT INTO lint_run_results (run_id, ordinal, name, exit_code, elapsed_s, output_tail) VALUES (?, ?, ?, 0, 0, '')").run(lastInsertRowid, i + 1, name);
-        }
+        w.prepare("INSERT INTO lint_runs (task_id, commit_sha, base_sha, fingerprint, source, started_at, finished_at, exit_code) VALUES (?, ?, ?, ?, 'gate', ?, ?, 0)").run(
+          TASK_ID,
+          tip,
+          git('merge-base', 'dev', tip),
+          plan.fingerprint,
+          NOW,
+          NOW,
+        );
       }
       w.close();
       return { db, env, tip };
@@ -299,7 +300,7 @@ describe('validation_attempts.reviewed_sha (GH 2684)', () => {
 
       const migrated = new TrajectoryDB(dbFile, undefined, { migrate: true });
       try {
-        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 67);
+        assert.equal(migrated.get<{ v: number }>('SELECT schema_version AS v FROM plugin_meta WHERE id = 1')!.v, 69);
         const after = migrated.all<Record<string, unknown>>('SELECT * FROM validation_attempts ORDER BY id').map((r) => ({ ...r }));
         assert.deepEqual(after, before.map((r) => ({ ...r, reviewed_sha: null })));
         assert.deepEqual(

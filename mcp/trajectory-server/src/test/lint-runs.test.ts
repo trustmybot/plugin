@@ -203,10 +203,8 @@ describe('parseCloseLints (GH 2570)', () => {
     bad('{"lints":[', /not valid JSON/);
   });
 
-  it("rejects a lint named for a built-in close lint, and a duplicate name", () => {
+  it('rejects a duplicate lint name', () => {
     const reason = (lints: Array<{ name: string; command: string }>) => parseCloseLints(JSON.stringify({ lints, fingerprint_inputs: [] }));
-    assert.equal(reason([{ name: 'missing_changelog', command: 'true' }]), "lints[0].name 'missing_changelog' is a built-in close lint's name");
-    assert.equal(reason([{ name: 'l1', command: 'true' }, { name: 'stale_doc_ref', command: 'true' }]), "lints[1].name 'stale_doc_ref' is a built-in close lint's name");
     assert.equal(reason([{ name: 'l1', command: 'true' }, { name: 'l1', command: 'false' }]), "lints[1].name 'l1' is a duplicate");
     assert.deepEqual(reason([{ name: 'l1', command: 'true' }, { name: 'l2', command: 'true' }]), {
       lints: [{ name: 'l1', command: 'true' }, { name: 'l2', command: 'true' }],

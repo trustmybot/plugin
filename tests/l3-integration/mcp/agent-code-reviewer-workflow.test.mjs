@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call, seedReviewerObservation } from './harness.mjs';
+import { startClient, call, seedReviewerObservation, REVIEW_PROBES } from './harness.mjs';
 
 async function seedCompletedTask(client) {
   const issue = await call(client, 'issue_create', {
@@ -55,7 +55,7 @@ test('code-reviewer — happy path: read task → record pass → history reflec
     agent: 'code-reviewer',
     task_id: taskId,
     attempt_n: 1,
-    verdict: 'pass',
+    verdict: 'pass', probes: REVIEW_PROBES,
     mcp_available: true,
     feedback: 'LGTM — tests pass, no smells.',
     subagent_session_id: 'integration-test-session-pass',
@@ -132,7 +132,7 @@ test('code-reviewer — multiple attempts accumulate in history (retry loop)', a
     agent: 'code-reviewer',
     task_id: taskId,
     attempt_n: 3,
-    verdict: 'pass',
+    verdict: 'pass', probes: REVIEW_PROBES,
     mcp_available: true,
     feedback: 'finally green',
     subagent_session_id: 'integration-test-session-retry-3',

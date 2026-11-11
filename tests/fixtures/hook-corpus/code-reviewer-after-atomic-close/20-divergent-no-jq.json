@@ -10,6 +10,6 @@
   "corpus_divergent": "no jq: the .sh lets every spawn through, the TypeScript gate needs no jq and denies the running task",
   "corpus_expect": {
     "bash": "empty",
-    "ts": "requires task 13 status=closed but actual status=running."
+    "ts": "spawn for task 13 (status=running) has no review_handoff"
   }
 }

@@ -108,12 +108,6 @@
     "group": "area"
   },
   {
-    "name": "Area: Adapters",
-    "color": "5319e7",
-    "description": "Codex, Cursor and Gemini adapters",
-    "group": "area"
-  },
-  {
     "name": "Area: Release",
     "color": "5319e7",
     "description": "CI workflows, dev-build, release-gate, cli.js integrate, versioning",

@@ -4,5 +4,5 @@
     "subagent_type": "code-reviewer",
     "prompt": "subtask_id=12"
   },
-  "corpus_expect": "requires task 12 status=closed but actual status=completed."
+  "corpus_expect": "spawn for task 12 (status=completed) has no review_handoff"
 }

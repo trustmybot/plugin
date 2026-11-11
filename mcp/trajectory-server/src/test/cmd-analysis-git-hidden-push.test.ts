@@ -224,4 +224,33 @@ describe('cmdStatements marks code it cannot read (GH 2635)', () => {
     assert.equal(await stmts('cat <<EOF\n`a\nEOF'), null);
     assert.equal(await stmts('cat <<-EOF\n\t$(a\n\tEOF'), null);
   });
+
+  it('reads a heredoc body $(( )) as bash does: arithmetic runs no command, a paren group that closes early is a $( ) (GH 2876)', async () => {
+    const stmts = async (command: string): Promise<string[] | null> => {
+      const out = await cmdStatements(command, '/w', {});
+      return out.ok ? out.statements.map((s) => s.stmt) : null;
+    };
+    assert.deepEqual(await stmts('cat <<EOF\n$((W=0)) $((a+1))\nEOF'), ['cat <<EOF']);
+    assert.deepEqual(await stmts('cat <<-EOF\n\t$((W=0))\n\tEOF'), ['cat <<EOF']);
+    assert.deepEqual(await stmts('cat <<EOF\n$((a);(b))\nEOF'), ['a', 'b', 'cat <<EOF $__a___b__']);
+    assert.deepEqual(await stmts('cat <<EOF\n$((a) )\nEOF'), ['a', 'cat <<EOF $__a___']);
+    await expect([
+      ['cat <<EOF\n$((git push origin dev);(true))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((git push origin dev) )\nEOF', WORKTREE],
+      ['cat <<EOF\n$((`git push origin dev`))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((W=0))\nEOF', ''],
+    ]);
+  });
+
+  it('keeps a heredoc body $(( )) holding a quote, ; or other non-arithmetic char as code, since zsh runs it as a command (F823-1)', async () => {
+    await expect([
+      ['cat <<EOF\n$((echo ")";git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((echo "(" ;git push origin dev))\nEOF', WORKTREE],
+      ["cat <<EOF\n$((echo ')';git push origin dev))\nEOF", WORKTREE],
+      ['cat <<EOF\n$((a|git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((a&git push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((a\ngit push origin dev))\nEOF', WORKTREE],
+      ['cat <<EOF\n$((x[1]=a?b:c, ~d^e<<2))\nEOF', ''],
+    ]);
+  });
 });

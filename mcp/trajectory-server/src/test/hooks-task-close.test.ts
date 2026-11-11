@@ -161,6 +161,14 @@ describe('swe-atomic-close in-process, with neither jq nor the sqlite3 CLI on PA
   it('auto-completes an adopted task at its recorded worktree head and names that worktree on the run row (GH 2240)', async () => {
     const session = adoptTask(44, 'feat/adopted', true);
     const head = execFileSync('git', ['-C', session, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const w = new DatabaseSync(join(s, 'project/.claude/tmb/trajectory.db'));
+    try {
+      w.prepare(
+        "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (44, ?, 'gate', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:01.000Z', 0, 600, 0)",
+      ).run(head);
+    } finally {
+      w.close();
+    }
     assert.deepEqual(await sweAtomicClose(stop('44'), { ...env }), ALLOWED);
     const d = db();
     try {

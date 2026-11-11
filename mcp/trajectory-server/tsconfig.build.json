@@ -3,5 +3,5 @@
   "compilerOptions": {
     "noEmit": false
   },
-  "exclude": ["src/index.ts", "src/codex.ts", "src/run-scan.ts"]
+  "exclude": ["src/index.ts", "src/run-scan.ts"]
 }

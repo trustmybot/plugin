@@ -12,6 +12,8 @@ User-created agents default to `kind='consultant'`.
 
 `agent_resolve(agent='bro', name=<name>)` returns the mode — `collision`, `template-copy`, or `from-scratch` — which decides the path below. Whichever path writes the file at `<project>/.claude/agents/<name>.md`, follow it with `agent_register` to record the new project-local consultant.
 
+Every write of that file — from-scratch, template-copy, or a collision answer that changes it (a diff Yes, **Adopt + manage**, **Overwrite**) — comes after the Human's approval and one `audit_append(agent='bro', from_node='bro', issue_id=<in-flight issue, else -1>, event_type='prompt_write_approved', summary=<what the Human approved>, content_json='{"path":"<path>","scope":"full"}')`, where `<path>` is the file's absolute canonical path (symlinks resolved, spelled as you will write it). An approval holds for 30 minutes.
+
 ## Collision dialog
 
 <!-- LOAD-BEARING-SAFETY: collision dialog is mandatory — silently overwriting user agent files is a hard doctrine violation -->

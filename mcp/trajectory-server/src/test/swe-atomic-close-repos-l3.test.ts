@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { makeSandbox, type Sandbox } from './hook-sandbox.js';
 import { git, has, sql } from './git-push-guard-l3.js';
-import { commitIn, execDb, hook, initRepo, newMinDb, NO_COMMITS, q, skippedCount, spawnInput } from './swe-atomic-close-l3.js';
+import { commitIn, execDb, hook, initRepo, newMinDb, NO_COMMITS, q, recordRun, skippedCount, spawnInput } from './swe-atomic-close-l3.js';
 
 describe('swe-atomic-close l3: one repo per case', () => {
   let sb: Sandbox;
@@ -48,6 +48,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
     git(sb.env, repo, 'add', '.');
     git(sb.env, repo, 'commit', '-qm', 'feat: swe work');
     const head = git(sb.env, repo, 'rev-parse', 'HEAD');
+    recordRun(db, 100, head);
     assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 100, 'tmb:swe')), '', 'no additionalContext on auto-close');
     assert.equal(status(db, 100), 'completed', 'task auto-closed');
     assert.equal(sha(db, 100), head, 'commit_sha written from REPO_ROOT HEAD');
@@ -88,6 +89,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
       git(sb.env, wtA, 'add', 'swe-a.txt');
       git(sb.env, wtA, 'commit', '-qm', 'feat: swe-a work');
       headA = git(sb.env, wtA, 'rev-parse', 'HEAD');
+      recordRun(db, 200, headA);
     });
 
     it('#202/#369: transcript task_id extraction: auto-completes SWE-A task (200), not most-recent (201)', () => {
@@ -161,6 +163,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
       git(sb.env, repo, 'branch', 'fix/slug-other-task', 'HEAD');
       git(sb.env, repo, 'worktree', 'add', '-q', wt, 'fix/tx-task');
       head = commitIn(sb.env, wt, 'tx-work.txt', 'feat: tx work');
+      recordRun(db, 600, head);
     });
 
     it('transcript binds task 600 (auto-completed) despite a cwd naming task 601', () => {
@@ -197,6 +200,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
       execDb(wsDb, "INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at) VALUES (700, 'fix/ws-task', 'dev', 'pending', 'plugin', datetime('now', '+1 second'));");
       const wt = addWorktree(inner, 'fix/ws-task', 'ws-task');
       head = commitIn(sb.env, wt, 'ws-work.txt', 'feat: ws work');
+      recordRun(wsDb, 700, head);
     });
 
     it('nested-repo: repo-rooted worktree under <ws>/plugin → no workspace-rooted path exists', () => {
@@ -217,6 +221,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
     sql(db, "INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-repo', ?, 'dev')", root);
     execDb(db, "INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at) VALUES (800, 'fix/ep-task', NULL, 'pending', 'empty-parent-repo', datetime('now', '+1 second'));");
     const head = commitIn(sb.env, addWorktree(repo, 'fix/ep-task', 'ep-task'), 'ep-work.txt', 'feat: ep work');
+    recordRun(db, 800, head);
     assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 800, 'tmb:swe')), '', 'no additionalContext on auto-close');
     assert.equal(status(db, 800), 'completed', 'task 800 auto-closed despite empty parent_branch_id');
     assert.equal(sha(db, 800), head, 'commit_sha written from attached-worktree HEAD');
@@ -283,6 +288,7 @@ describe('swe-atomic-close l3: one repo per case', () => {
 
       it('GH 1511 (b): one swe commit on the same setup → completed at that commit, one audit row', () => {
         const head = commitIn(sb.env, wt, 'stale-work.txt', 'feat: stale work');
+        recordRun(db, 900, head);
         assert.equal(hook(sb, repo, db, spawnInput(sb.dir, 900, 'tmb:swe')), '', 'no additionalContext on auto-close');
         assert.equal(status(db, 900), 'completed', 'task auto-completed');
         assert.equal(sha(db, 900), head, 'commit_sha is the swe commit');

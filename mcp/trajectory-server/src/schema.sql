@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- column scans back to the nearest comma.
     completion_report TEXT,
     -- spawn_note (v48 GH 1744): at most 300 chars of context for the next
-    -- spawn and returned by task_brief. bro_atomic_close and task_reopen each
+    -- spawn and returned by task_brief. review_handoff and task_reopen each
     -- overwrite it (NULL when the call passes none).
     spawn_note        TEXT,
     -- checkpoint (v52 GH 1905): swe's handback as JSON {done left files
@@ -211,7 +211,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- close path read it when the task closed. NULL for open tasks and for
     -- tasks closed before v66. Keep this comment comma-free for the same DROP
     -- COLUMN reason.
-    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))
+    workflow_mode     TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile')),
+    -- base_sha (v67 GH 2866): the base commit the task worktree was cut from
+    -- as the environment gate of task_provision / task_reopen / task_retry
+    -- resolved it after its fetch. NULL for tasks created before v67.
+    base_sha          TEXT,
+    -- wm_commit (v67 GH 2866): the commit the world model was indexed at when
+    -- the environment gate passed. NULL before v67 and when the server ran
+    -- without a world-model graph. Keep this comment comma-free for the same
+    -- DROP COLUMN reason.
+    wm_commit         TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -258,6 +267,10 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- Keep these comments comma-free: DROP COLUMN on the last column cuts back
     -- to the nearest comma.
     reviewed_sha        TEXT,
+    -- probes_json (v68 GH 2866): the JSON array of {target probe_cmd observed}
+    -- checks the reviewer ran. Every pass carries one. NULL when a fail or
+    -- escalate sent none and for rows from before v68.
+    probes_json         TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -295,8 +308,8 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
--- lint_runs (v67, GH 2570): one row per run of a task's close lints, the
--- repo's .config/tmb/close-lints.json plus the built-in diff checks, at the
+-- lint_runs (v69, GH 2570): one row per run of a task's close lints, the
+-- repo's .config/tmb/close-lints.json, at the
 -- task's commit_sha on base_sha (the merge-base it was linted against).
 -- fingerprint is lintFingerprint over the fingerprint_inputs blobs at
 -- commit_sha. Written through src/hooks/lib/lint-runs.ts like
@@ -454,7 +467,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 67, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 69, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

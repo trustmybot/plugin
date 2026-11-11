@@ -3,14 +3,14 @@
  * `cli.js integrate` runs on the rebased SHA: the lints a repo's
  * .config/tmb/close-lints.json declares at <sha> (an allowlist; nothing else
  * runs), each as `bash -c '<command>'` in the checkout under the env it is
- * given, then the built-in missing_changelog and stale_doc_ref checks
- * (builtin-lints.ts) on <base>..<sha>, recorded as one lint_runs row with a
- * lint_run_results row per lint, in that order.
+ * given, recorded against <base> as one lint_runs row with a lint_run_results
+ * row per lint, in that order. The changelog and stale-doc checks are not close
+ * lints; doc-checks.ts runs them at swe's close.
  *
  * The config lints share <budgetS>: each gets what the earlier ones left, a lint
  * killed at it (its process group SIGKILLed) or one the budget ran out before
- * records exit 124. With no close-lints.json the run holds the two built-in
- * results only, fingerprinted over no inputs. A malformed config or a
+ * records exit 124. With no close-lints.json the run holds no results,
+ * fingerprinted over no inputs. A malformed config or a
  * fingerprint git cannot compute is returned as a string, with nothing run. A
  * run start the DB cannot record still runs the lints, unrecorded (runId ''),
  * as the verification record's own write failures leave the gate's verdict.
@@ -20,11 +20,11 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dbWrite, type WriteResult } from './audit.js';
-import { builtinLints, git } from './builtin-lints.js';
 import { gateRead, GATE_READ_ERROR } from './db.js';
+import { gitText } from './doc-checks.js';
+import { prTargetRef } from './git-refs.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from './lint-fingerprint.js';
 import { type CloseLints, latestLintRun, lintRunFinishSql, lintRunResultSql, lintRunStartSql, type LintRunSource, parseCloseLints } from './lint-runs.js';
-import { prTargetRef } from '../code-reviewer-preflight.js';
 
 export const LINT_TIMED_OUT = 124;
 export const FAILURE_TAIL_LINES = 15;
@@ -58,10 +58,10 @@ export interface CloseLintsRun {
 
 /** The close-lints.json at <sha>, null when it has none, or why it does not parse. */
 export async function readCloseLints(repo: string, sha: string, env: NodeJS.ProcessEnv): Promise<CloseLints | null | string> {
-  const listed = await git(repo, ['ls-tree', '--name-only', sha, '--', CLOSE_LINTS_PATH], env);
+  const listed = await gitText(repo, ['ls-tree', '--name-only', sha, '--', CLOSE_LINTS_PATH], env);
   if (listed.code !== 0) return `git ls-tree ${sha} failed: ${listed.stderr.trim()}`;
   if (listed.stdout.trim() === '') return null;
-  const shown = await git(repo, ['show', `${sha}:${CLOSE_LINTS_PATH}`], env);
+  const shown = await gitText(repo, ['show', `${sha}:${CLOSE_LINTS_PATH}`], env);
   if (shown.code !== 0) return `git show ${sha}:${CLOSE_LINTS_PATH} failed: ${shown.stderr.trim()}`;
   const parsed = parseCloseLints(shown.stdout);
   return typeof parsed === 'string' ? `${CLOSE_LINTS_PATH} at ${sha.slice(0, 12)}: ${parsed}` : parsed;
@@ -94,7 +94,7 @@ export async function lintBaseSha(repo: string, db: string, taskId: string, sha:
   const parent = bar < 0 ? '' : line.slice(bar + 1);
   const ref = await prTargetRef(repo, target, parent, env);
   if (ref === null) return '';
-  const base = await git(repo, ['merge-base', ref, sha], env);
+  const base = await gitText(repo, ['merge-base', ref, sha], env);
   return base.code === 0 ? base.stdout.trim() : '';
 }
 
@@ -203,9 +203,6 @@ export async function runCloseLints(
         output = printed === '' ? killed : `${printed}\n${killed}`;
       }
       record({ name: lint.name, exitCode: rc, elapsedS, output });
-    }
-    for (const b of await builtinLints(repo, baseSha, sha, env)) {
-      record({ name: b.name, exitCode: b.exitCode, elapsedS: 0, output: b.output });
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });

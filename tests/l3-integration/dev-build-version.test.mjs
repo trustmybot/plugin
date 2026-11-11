@@ -122,7 +122,7 @@ test('bad --next and --pr exit 1', () => {
   assert.match(devver(REPO, '--next', '1.2.0', '--ref', 'nope').stderr, /Error: 'nope' is not a commit/, 'unknown --ref');
 });
 
-const VERSION_FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json', 'bun.lock'];
+const VERSION_FILES = ['.claude-plugin/plugin.json', 'package.json', 'mcp/trajectory-server/package.json', 'bun.lock'];
 const B = join(TMP, 'bump');
 mkdirSync(join(B, 'scripts/maintenance/lib'), { recursive: true });
 mkdirSync(join(B, 'changelog.d'));

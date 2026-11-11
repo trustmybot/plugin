@@ -37,7 +37,7 @@ function payload(agentType: string, agentId: string, toolUseId = 'toolu_01ABCDEF
     hook_event_name: 'PreToolUse',
     session_id: 'main-session-1',
     tool_name: 'mcp__plugin_tmb_trajectory-server__validation_record',
-    tool_input: { agent: 'code-reviewer', task_id: '42', attempt_n: attemptN, verdict: 'pass', feedback: 'ok', mcp_available: true },
+    tool_input: { agent: 'code-reviewer', task_id: '42', attempt_n: attemptN, verdict: 'pass', feedback: 'ok', mcp_available: true, probes: [{ target: 't', probe_cmd: 'npm test', observed: 'exit 0' }] },
   };
   if (agentType !== '') p.agent_type = agentType;
   if (agentId !== '') p.agent_id = agentId;

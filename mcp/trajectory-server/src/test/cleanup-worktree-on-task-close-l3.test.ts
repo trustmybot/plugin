@@ -151,7 +151,9 @@ describe('cleanup-worktree-on-task-close l3', () => {
     assert.ok(!existsSync(nestedWt), 'repo-rooted worktree still present in nested-repo shape');
   });
 
-  describe('bro_atomic_close leaves the worktree; a passing review removes it', () => {
+  describe('the review runs on the completed task; bro_atomic_close after the pass removes the worktree', () => {
+    const ATOMIC_CLOSE = 'mcp__plugin_tmb_trajectory-server__bro_atomic_close';
+
     before(() => {
       execDb(
         db,
@@ -161,38 +163,48 @@ describe('cleanup-worktree-on-task-close l3', () => {
       );
     });
 
-    it('bro_atomic_close: silent, worktree kept for review rework', () => {
+    it('failing validation_record on a handed-off completed task: silent, worktree kept for rework', () => {
       addWorktree('fix/atomic');
-      sql(db, "INSERT INTO tasks (id, branch_id, status, commit_sha) VALUES (10, 'fix/atomic', 'closed', 'abc1234')");
-      assert.equal(runHook(atomicClose('mcp__plugin_tmb_trajectory-server__bro_atomic_close', 'bro', 10)), '', 'bro_atomic_close must not trigger cleanup');
-      assert.ok(existsSync(wt('atomic')), 'worktree removed at bro_atomic_close');
-    });
-
-    it('failing validation_record: silent, worktree kept', () => {
       execDb(
         db,
-        `INSERT INTO audit (event_type, content_json, created_at)
-           VALUES ('bro_verification_pass', '{"task_id":10,"commit_sha":"abc1234"}', '2026-10-11T10:00:00.000Z');
+        `INSERT INTO tasks (id, branch_id, status, commit_sha) VALUES (10, 'fix/atomic', 'completed', 'abc1234');
+         INSERT INTO audit (event_type, content_json, created_at)
+           VALUES ('review_handoff', '{"task_id":10,"commit_sha":"abc1234"}', '2026-10-11T10:00:00.000Z');
          INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (10, 'fail', '2026-10-11T10:05:00.000Z');`,
       );
       assert.equal(runHook(validation('fail', 10)), '', 'a failing verdict must not trigger cleanup');
       assert.ok(existsSync(wt('atomic')), 'worktree removed on a failing review');
     });
 
-    it('pass verdict without a passing review for the current commit: silent', () => {
-      execDb(
-        db,
-        `UPDATE tasks SET commit_sha = 'def5678' WHERE id = 10;
-         INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (10, 'pass', '2026-10-11T10:10:00.000Z');`,
-      );
-      assert.equal(runHook(validation('pass', 10)), '', 'a pass for an older commit must not trigger cleanup');
+    it('passing validation_record on a completed task: silent, bro has not closed it yet', () => {
+      sql(db, "INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (10, 'pass', '2026-10-11T10:10:00.000Z')");
+      assert.equal(runHook(validation('pass', 10)), '', 'a pass before the close must not trigger cleanup');
+      assert.ok(existsSync(wt('atomic')), 'worktree removed before bro_atomic_close');
+    });
+
+    it('bro_atomic_close on a closed task whose pass is for an older commit: silent', () => {
+      sql(db, "UPDATE tasks SET status = 'closed', commit_sha = 'def5678' WHERE id = 10");
+      assert.equal(runHook(atomicClose(ATOMIC_CLOSE, 'bro', 10)), '', 'a stale pass must not trigger cleanup');
       assert.ok(existsSync(wt('atomic')), 'worktree removed for a stale pass');
     });
 
-    it('passing validation_record for the current commit: worktree removed', () => {
+    it('bro_atomic_close on a task closed after its pass: worktree removed', () => {
       sql(db, "UPDATE tasks SET commit_sha = 'abc1234' WHERE id = 10");
-      has(runHook(validation('pass', 10)), CLEANED, 'a passing review triggers cleanup');
-      assert.ok(!existsSync(wt('atomic')), 'worktree still present after a passing review');
+      has(runHook(atomicClose(ATOMIC_CLOSE, 'bro', 10)), CLEANED, 'the close after a pass triggers cleanup');
+      assert.ok(!existsSync(wt('atomic')), 'worktree still present after bro_atomic_close');
+    });
+
+    it('legacy order: passing validation_record on a task closed before its review: worktree removed', () => {
+      addWorktree('fix/legacy');
+      execDb(
+        db,
+        `INSERT INTO tasks (id, branch_id, status, commit_sha) VALUES (12, 'fix/legacy', 'closed', 'abc1234');
+         INSERT INTO audit (event_type, content_json, created_at)
+           VALUES ('bro_verification_pass', '{"task_id":12,"commit_sha":"abc1234"}', '2026-10-11T10:00:00.000Z');
+         INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (12, 'pass', '2026-10-11T10:05:00.000Z');`,
+      );
+      has(runHook(validation('pass', 12)), CLEANED, 'a pass on a legacy closed task triggers cleanup');
+      assert.ok(!existsSync(wt('legacy')), 'legacy worktree still present after its passing review');
     });
 
     it('passing validation_record with TMB_KEEP_CLOSED_WORKTREES=1: worktree intact', () => {
@@ -211,6 +223,7 @@ describe('cleanup-worktree-on-task-close l3', () => {
     it('passing validation_record on a reopened (running) task: worktree intact', () => {
       sql(db, "UPDATE tasks SET status = 'running' WHERE id = 11");
       assert.equal(runHook(validation('pass', 11)), '', 'a running task keeps its worktree');
+      assert.equal(runHook(atomicClose(ATOMIC_CLOSE, 'bro', 11)), '', 'a refused close on a running task keeps its worktree');
       assert.ok(existsSync(wt('atomic2')), 'worktree removed from a running task');
     });
   });

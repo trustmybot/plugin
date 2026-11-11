@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "changelog_dir": "changelog.d",
+  "doc_paths": ["agents/**/*.md", "skills/**/*.md", "docs/**/*.md", "CLAUDE.md", "README.md"],
+  "tool_sources": ["mcp/*/src/tools/**/*.ts"],
+  "tool_name_pattern": "^\\s*name:\\s*['\"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['\"]\\s*,?\\s*$"
+}

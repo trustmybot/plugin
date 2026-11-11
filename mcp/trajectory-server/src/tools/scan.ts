@@ -47,6 +47,7 @@ import { projectRootFromDbPath } from './containment.js';
 import { closeContents, walkProject, type ScanFile, type ScanOutput, type ScanRepo } from './scan-walk.js';
 import type { CommitContent } from '../utils/git-objects.js';
 import { liveLock, releaseLock, scanLockPath, tryLock } from '../utils/scan-lock.js';
+import { verificationDefaultsHint, type VerificationDefaultsHint } from './verification-defaults.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -1234,6 +1235,9 @@ export function scanTools(
           const upsertedRepos = out.repos.filter((repo) => !renamedTo.has(repo.name));
           const files = persistedFiles(out.files, renamedTo);
           const warnings = noSyncRemoteWarnings(db, upsertedRepos.map((r) => r.name));
+          const defaultsHints = upsertedRepos
+            .map((r) => verificationDefaultsHint(db, r.name, r.path))
+            .filter((h): h is VerificationDefaultsHint => h !== null);
           for (const r of upsertedRepos) {
             try {
               syncRepoMilestones(db, r.name, r.path, spawnFn);
@@ -1290,6 +1294,7 @@ export function scanTools(
             mcp_inventory: mcpInventory,
             ...stats,
             warnings,
+            ...(defaultsHints.length > 0 ? { verification_defaults_hint: defaultsHints } : {}),
           });
         } finally {
           // Release the lock whether runScan or persistScan threw or not, so a

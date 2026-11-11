@@ -8,7 +8,6 @@
  * no results.
  */
 import { nowIso, type SqlResult } from './audit.js';
-import { MISSING_CHANGELOG, STALE_DOC_REF } from './builtin-lints.js';
 import { sqliteRo, sqlQuote } from './db.js';
 import { capTail } from './verification-runs.js';
 
@@ -50,13 +49,12 @@ export interface LintRunRecord {
 }
 
 const INT_RE = /^[0-9]+$/;
-const BUILTIN_NAMES: readonly string[] = [MISSING_CHANGELOG, STALE_DOC_REF];
 
 function nonEmpty(v: unknown): v is string {
   return typeof v === 'string' && v.trim() !== '';
 }
 
-/** close-lints.json {"lints":[{"name","command"}],"fingerprint_inputs":["<glob>"]} with unique, non-built-in lint names, or why it is not one. */
+/** close-lints.json {"lints":[{"name","command"}],"fingerprint_inputs":["<glob>"]} with unique lint names, or why it is not one. */
 export function parseCloseLints(text: string): CloseLints | string {
   let parsed: unknown;
   try {
@@ -75,7 +73,6 @@ export function parseCloseLints(text: string): CloseLints | string {
     const { name, command } = l as { name?: unknown; command?: unknown };
     if (!nonEmpty(name)) return `lints[${i}].name must be a non-empty string`;
     if (!nonEmpty(command)) return `lints[${i}].command must be a non-empty string`;
-    if (BUILTIN_NAMES.includes(name)) return `lints[${i}].name '${name}' is a built-in close lint's name`;
     if (names.has(name)) return `lints[${i}].name '${name}' is a duplicate`;
     names.add(name);
   }

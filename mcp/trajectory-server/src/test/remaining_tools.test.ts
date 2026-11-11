@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
 import { skillTools } from '../tools/skills.js';
@@ -241,7 +241,7 @@ describe('validationTools', () => {
       agent: 'code-reviewer',
       task_id: 9999,
       attempt_n: 1,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: '# Notes',
       mcp_available: true,
       subagent_session_id: 'test-session-abc',
@@ -274,7 +274,7 @@ describe('validationTools', () => {
       agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 1,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: '# ok',
       mcp_available: true,
       subagent_session_id: 'session-1',
@@ -332,7 +332,7 @@ describe('validationTools', () => {
       agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 2,
-      verdict: 'pass',
+      verdict: 'pass', probes: TEST_PROBES,
       feedback: '# Second attempt',
       mcp_available: true,
       subagent_session_id: 'session-2',

@@ -2,13 +2,13 @@
  * Success Criteria ids and the typed swe completion report (GH 1744):
  * the spec-writing tools refuse unlabeled criteria, task_update_status needs a
  * report covering every id on a move to completed, task_brief returns it,
- * bro_atomic_close refuses a close it does not cover and stores spawn_note,
- * and task_reopen clears the report.
+ * review_handoff refuses a commit it does not cover and stores spawn_note,
+ * bro_atomic_close keeps both, and task_reopen clears the report.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { seedReviewedCommit, tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { taskTools } from '../tools/tasks.js';
 import { wmFeedbackCounts } from '../tools/trajectory-doctor.js';
@@ -277,7 +277,7 @@ describe('task_update_status report.wm_feedback (GH 2417)', () => {
   }
 });
 
-describe('completion report and spawn_note through task_brief, bro_atomic_close and task_reopen (GH 1744)', () => {
+describe('completion report and spawn_note through task_brief, review_handoff, bro_atomic_close and task_reopen (GH 1744)', () => {
   it('task_brief round-trips the stored report, and null before one', async () => {
     const { db, tasks, composites } = fixture();
     const id = seed(db, SPEC);
@@ -290,39 +290,51 @@ describe('completion report and spawn_note through task_brief, bro_atomic_close 
     db.close();
   });
 
-  it('bro_atomic_close refuses a close whose stored report misses ids, naming them', async () => {
+  it('review_handoff refuses a commit whose stored report misses ids, naming them', async () => {
     const { db, composites } = fixture();
     const id = seed(db, SPEC, 'completed');
-    const none = errorOf(await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id }));
+    const none = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) }));
     assert.match(none, /^completion_report_missing: .*is missing for: SC1, SC2/);
     db.run('UPDATE tasks SET completion_report = ? WHERE id = ?', [JSON.stringify({ criteria: [{ id: 'SC1', status: 'met' }] }), id]);
-    const partial = errorOf(await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id }));
+    const partial = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) }));
     assert.match(partial, /does not cover: SC2/);
     assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [id])!.status, 'completed');
     db.close();
   });
 
-  it('bro_atomic_close stores spawn_note and task_brief returns it; a note over 300 chars is refused', async () => {
-    const { db, tasks, composites } = fixture();
-    const id = seed(db, SPEC);
-    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
-    const long = errorOf(await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id, spawn_note: 'x'.repeat(301) }));
-    assert.match(long, /spawn_note is 301 characters \(max 300\)/);
-    const r = await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id, spawn_note: 'Check the v48 migration backup.' });
+  it('review_handoff on a legacy spec needs no report', async () => {
+    const { db, composites } = fixture();
+    const id = seed(db, LEGACY_SPEC, 'completed');
+    const r = await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id) });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
-    const brief = parse(await call(composites, 'task_brief', { agent: 'code-reviewer', task_id: id }));
-    assert.equal(brief['spawn_note'], 'Check the v48 migration backup.');
-    assert.deepEqual(brief['completion_report'], FULL_REPORT, 'the close keeps the report');
     db.close();
   });
 
-  it('bro_atomic_close on a legacy spec needs no report and leaves spawn_note NULL when none is passed', async () => {
-    const { db, composites } = fixture();
-    const id = seed(db, LEGACY_SPEC, 'completed');
-    db.run(`UPDATE tasks SET spawn_note = 'stale' WHERE id = ?`, [id]);
+  it('review_handoff stores spawn_note and task_brief returns it; a note over 300 chars is refused; bro_atomic_close takes none', async () => {
+    const { db, tasks, composites } = fixture();
+    const id = seed(db, SPEC);
+    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
+    const long = errorOf(await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id), spawn_note: 'x'.repeat(301) }));
+    assert.match(long, /spawn_note is 301 characters \(max 300\)/);
+    const r = await call(composites, 'review_handoff', { agent: 'bro', task_id: String(id), spawn_note: 'Check the v48 migration backup.' });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    const brief = parse(await call(composites, 'task_brief', { agent: 'code-reviewer', task_id: id }));
+    assert.equal(brief['spawn_note'], 'Check the v48 migration backup.');
+    assert.deepEqual(brief['completion_report'], FULL_REPORT, 'the handoff keeps the report');
+    const onClose = errorOf(await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id, spawn_note: 'late note' }));
+    assert.match(onClose, /^spawn_note moved to review_handoff/);
+    db.close();
+  });
+
+  it('bro_atomic_close after a review pass keeps the stored report and spawn_note', async () => {
+    const { db, tasks, composites } = fixture();
+    const id = seed(db, SPEC);
+    await call(tasks, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report: FULL_REPORT });
+    db.run(`UPDATE tasks SET spawn_note = 'Check the v48 migration backup.' WHERE id = ?`, [id]);
+    seedReviewedCommit(db, 1, id, CLOSE_ARGS.commit_sha);
     const r = await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id });
     assert.ok(!r.isError, JSON.stringify(parse(r)));
-    assert.equal(stored(db, id).spawn_note, null);
+    assert.deepEqual({ ...stored(db, id) }, { completion_report: JSON.stringify(FULL_REPORT), spawn_note: 'Check the v48 migration backup.' });
     db.close();
   });
 

@@ -4,6 +4,9 @@
  * check, the lint-record checks (GH 2570) denying every record they cannot
  * prove current and clean, and the agent-spawn-dispatch gate returning the
  * deny before any PREPARE step.
+ * The changelog and stale-doc checks run at swe's close now; their tests live in
+ * hooks-swe-verification-gate.test.ts (GH 2866), and scripts/hooks/README.md
+ * must describe that split.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +19,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { agentSpawnDispatch, PREPARE } from '../hooks/agent-spawn-dispatch.js';
 import { BYPASS_ENV, codeReviewerPreflight, preflightFix, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
-import { MISSING_CHANGELOG, STALE_DOC_REF } from '../hooks/lib/builtin-lints.js';
 import { closeLintsPlan } from '../hooks/lib/close-lints.js';
 import { CLOSE_LINTS_PATH } from '../hooks/lib/lint-fingerprint.js';
 import { findGate, gateNames } from '../hooks/registry.js';
@@ -110,7 +112,7 @@ function fixture(files: Record<string, string> = BASE_FILES): Fixture {
   const lint = async (sha: string, over: LintOverride = {}) => {
     const plan = await closeLintsPlan(repo, sha, env);
     const configured = typeof plan === 'string' ? [] : (plan.config?.lints ?? []).map((l) => l.name);
-    const results = over.results ?? [...configured, MISSING_CHANGELOG, STALE_DOC_REF].map((name) => ({ name, exit: 0 }));
+    const results = over.results ?? configured.map((name) => ({ name, exit: 0 }));
     const w = new DatabaseSync(db);
     try {
       const { lastInsertRowid } = w
@@ -396,25 +398,25 @@ describe('code-reviewer-preflight', () => {
       const f = fixture();
       featureCommit(f);
       const sha = await f.record({ exit: 0 }, null);
-      const id = await f.lint(sha, { exit: 1, results: [{ name: MISSING_CHANGELOG, exit: 1 }, { name: STALE_DOC_REF, exit: 0 }] });
+      const id = await f.lint(sha, { exit: 1, results: [{ name: 'probe', exit: 1 }, { name: 'other', exit: 0 }] });
       assert.deepEqual(denial((await run(f)).stdout), {
         check: 'no_lint_record',
         expected: `a finished lint_runs row for task ${TASK_ID} at ${sha} with exit_code=0`,
-        actual: `run ${id}: exit_code=1; failing: missing_changelog exit_code=1`,
+        actual: `run ${id}: exit_code=1; failing: probe exit_code=1`,
       });
     });
 
     it('judges the newest finished run only: a clean rerun allows, a failing rerun denies', async () => {
       const f = fixture();
       featureCommit(f);
-      const sha = await f.record({ exit: 0 }, { exit: 1, results: [{ name: STALE_DOC_REF, exit: 1 }] });
+      const sha = await f.record({ exit: 0 }, { exit: 1, results: [{ name: 'probe', exit: 1 }] });
       await f.lint(sha);
       await assertAllowed(f);
-      await f.lint(sha, { exit: 1, results: [{ name: STALE_DOC_REF, exit: 1 }] });
+      await f.lint(sha, { exit: 1, results: [{ name: 'probe', exit: 1 }] });
       assert.equal(denial((await run(f)).stdout).check, 'no_lint_record');
     });
 
-    it('runs no built-in lint itself: a stale doc ref or a missing changelog under a clean record is not denied', async () => {
+    it('runs no doc check itself: a stale doc ref or a missing changelog under a clean record is not denied', async () => {
       const f = fixture();
       featureCommit(f);
       f.git('rm', '-q', 'scripts/old.sh');
@@ -458,26 +460,16 @@ describe('code-reviewer-preflight', () => {
       });
     });
 
-    it('denies a record missing a passing built-in result, or one of the config lints', async () => {
-      const f = fixture();
-      featureCommit(f);
-      const sha = await f.record({ exit: 0 }, null);
-      const id = await f.lint(sha, { results: [{ name: MISSING_CHANGELOG, exit: 0 }] });
-      assert.deepEqual(denial((await run(f)).stdout), {
-        check: 'stale_lint_record',
-        expected: `the lint run holds a passing result for each of ${MISSING_CHANGELOG}, ${STALE_DOC_REF}`,
-        actual: `run ${id}: no passing result for ${STALE_DOC_REF}`,
-      });
-
+    it('denies a record missing a passing result for one of the config lints', async () => {
       const g = fixture();
-      g.write(CLOSE_LINTS_PATH, JSON.stringify({ lints: [{ name: 'l1', command: 'true' }], fingerprint_inputs: [] }));
+      g.write(CLOSE_LINTS_PATH, JSON.stringify({ lints: [{ name: 'l1', command: 'true' }, { name: 'l2', command: 'true' }], fingerprint_inputs: [] }));
       featureCommit(g);
       const gsha = await g.record({ exit: 0 }, null);
-      const gid = await g.lint(gsha, { results: [{ name: MISSING_CHANGELOG, exit: 0 }, { name: STALE_DOC_REF, exit: 0 }] });
+      const gid = await g.lint(gsha, { results: [{ name: 'l1', exit: 0 }, { name: 'other', exit: 0 }] });
       assert.deepEqual(denial((await run(g)).stdout), {
         check: 'stale_lint_record',
-        expected: `the lint run holds a passing result for each of l1, ${MISSING_CHANGELOG}, ${STALE_DOC_REF}`,
-        actual: `run ${gid}: no passing result for l1`,
+        expected: 'the lint run holds a passing result for each of l1, l2',
+        actual: `run ${gid}: no passing result for l2`,
       });
       await g.lint(gsha);
       await assertAllowed(g);
@@ -494,15 +486,15 @@ describe('code-reviewer-preflight', () => {
       assert.match(d.actual ?? '', new RegExp(`^run ${id}: \\.config/tmb/close-lints\\.json at ${sha.slice(0, 12)}: not valid JSON`));
     });
 
-    it('denies a config lint that takes a built-in name, which parseCloseLints rejects', async () => {
+    it('denies a duplicate config lint name, which parseCloseLints rejects', async () => {
       const f = fixture();
-      f.write(CLOSE_LINTS_PATH, JSON.stringify({ lints: [{ name: MISSING_CHANGELOG, command: 'true' }], fingerprint_inputs: [] }));
+      f.write(CLOSE_LINTS_PATH, JSON.stringify({ lints: [{ name: 'l1', command: 'true' }, { name: 'l1', command: 'false' }], fingerprint_inputs: [] }));
       featureCommit(f);
       const sha = await f.record({ exit: 0 }, null);
       await f.lint(sha, { fingerprint: 'v1:any' });
       const d = denial((await run(f)).stdout);
       assert.equal(d.check, 'stale_lint_record');
-      assert.match(d.actual ?? '', /lints\[0\]\.name 'missing_changelog' is a built-in close lint's name/);
+      assert.match(d.actual ?? '', /lints\[1\]\.name 'l1' is a duplicate/);
     });
 
     it('fixes both lint checks with a rerun of the close that records a fresh lint run', () => {
@@ -512,6 +504,16 @@ describe('code-reviewer-preflight', () => {
         assert.match(fix.allowed, new RegExp(`^task_reopen\\(agent='bro', task_id=${TASK_ID}, reason='${check}: `));
         assert.match(fix.allowed, /records a fresh lint run/);
       }
+    });
+  });
+
+  describe('the changelog and doc checks moved to the swe close gate (GH 2866)', () => {
+    it('allows a recorded, passing commit that drops a doc-named path and adds no fragment', async () => {
+      const f = fixture();
+      f.git('rm', '-q', 'scripts/old.sh');
+      f.commit('drop old.sh without a fragment');
+      await f.record();
+      await assertAllowed(f);
     });
   });
 
@@ -574,5 +576,35 @@ describe('code-reviewer-preflight', () => {
       assert.ok(ran.includes('ensure-swe-worktree'));
       assert.ok(ran.includes('record-swe-spawn'));
     });
+  });
+});
+
+describe('scripts/hooks/README.md describes the GH 2866 split of the doc checks', () => {
+  const readme = readFileSync(resolve(SERVER_ROOT, '../../scripts/hooks/README.md'), 'utf8');
+  const between = (start: string, end: string): string => {
+    const from = readme.indexOf(start);
+    assert.notEqual(from, -1, `README has ${start}`);
+    const to = readme.indexOf(end, from);
+    assert.notEqual(to, -1, `README has ${end} after ${start}`);
+    return readme.slice(from, to);
+  };
+
+  it('the preflight paragraph names five checks and none of the doc checks', () => {
+    const preflight = between('`code-reviewer-preflight` judges a code-reviewer spawn', 'Then the TypeScript gate `rework-limit`');
+    assert.match(preflight, /with five deterministic checks/);
+    for (const check of ['sha_mismatch', 'no_passing_run', 'base_conflict', 'no_lint_record', 'stale_lint_record']) assert.ok(preflight.includes(`\`${check}\` (`), `${check} is listed`);
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.equal(preflight.includes(check), false, `${check} is not a preflight check`);
+  });
+
+  it('the swe-verification-gate paragraph owns stale_doc_ref and missing_changelog', () => {
+    const gate = between('Before anything else, `swe-verification-gate` runs the changelog and stale-doc checks', 'It then runs a task\'s `verification[]`');
+    for (const check of ['stale_doc_ref', 'missing_changelog']) assert.ok(gate.includes(`\`${check}\` (`), `${check} is described at the close gate`);
+  });
+
+  it('the swe-atomic-close auto-complete needs a passing run and otherwise writes gate_pending', () => {
+    const atomicClose = between('- `swe-atomic-close` binds the spawn', '\n');
+    assert.equal(atomicClose.includes('Otherwise a `pending` or `running` task with commits is auto-completed,'), false);
+    assert.match(atomicClose, /completed only when `verification_runs` holds a passing, not timed-out run for \(task, worktree HEAD\)/);
+    assert.ok(atomicClose.includes('`swe_atomic_close_gate_pending`'));
   });
 });

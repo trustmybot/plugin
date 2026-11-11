@@ -390,7 +390,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       id: 'closed_tasks_reviewed',
       severity: 'error',
       min_schema: 66,
-      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at). Tasks closed under workflow_mode agile are counted by agile_review_queued instead',
+      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes only after a pass, so an unreviewed close came another way: task_recover, task_update_status or a task closed before the review-first order; tasks has no closed_at, so the close time is updated_at). Tasks closed under workflow_mode agile are counted by agile_review_queued instead',
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE ${UNREVIEWED_CLOSED_TASK('t')} AND ${NOT_AGILE_TASK('t')}`,
       expect: { op: '=', value: 0 },

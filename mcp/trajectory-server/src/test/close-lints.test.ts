@@ -1,10 +1,10 @@
 /**
  * close-lints.ts (GH 2570) on a temp git repo and a temp trajectory DB:
- * runCloseLints runs a repo's close-lints.json lints then the two built-ins and
- * records one lint_runs row with a lint_run_results row per lint in order; a
- * failing lint keeps its exit code and output tail, no config runs the
- * built-ins alone over no fingerprint inputs, a lint past the budget records
- * 124, and a malformed config runs nothing.
+ * runCloseLints runs a repo's close-lints.json lints and records one lint_runs
+ * row with a lint_run_results row per lint in order; a failing lint keeps its
+ * exit code and output tail, no config records a clean run with no results
+ * over no fingerprint inputs, a lint past the budget records 124, and a
+ * malformed config runs nothing.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +13,6 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nowIso } from '../hooks/lib/audit.js';
-import { MISSING_CHANGELOG, STALE_DOC_REF } from '../hooks/lib/builtin-lints.js';
 import { describeFailures, LINT_TIMED_OUT, reusableLintRun, runCloseLints, type CloseLintsRun, type LintRecordTarget } from '../hooks/lib/close-lints.js';
 import { CLOSE_LINTS_PATH, lintFingerprint } from '../hooks/lib/lint-fingerprint.js';
 import { childEnv, GIT_ENV, migratedDb, sandboxDir, sqlExec } from './db-test-fixtures.js';
@@ -95,7 +94,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('records a passing config lint then both built-ins as one gate run with exit 0, in order', async () => {
+  it('records a passing config lint as one gate run with exit 0', async () => {
     const { repo, base, sha } = repoAt({ [CLOSE_LINTS_PATH]: config([{ name: 'greet', command: 'echo hello from $PWD' }]) });
     const run = ran(await runCloseLints(repo, sha, base, 30, env, target()));
     assert.equal(run.exitCode, 0);
@@ -112,11 +111,7 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     });
     assert.deepEqual(
       results.map((r) => [r.ordinal, r.name, r.exit_code]),
-      [
-        [1, 'greet', 0],
-        [2, MISSING_CHANGELOG, 0],
-        [3, STALE_DOC_REF, 0],
-      ],
+      [[1, 'greet', 0]],
     );
     assert.ok(String(results[0].output_tail).includes(`hello from ${repo}`), String(results[0].output_tail));
     assert.equal(reusableLintRun(target(), sha, base, run.fingerprint, env), run.runId);
@@ -145,8 +140,6 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
       [
         ['ok', 0],
         ['counts', 3],
-        [MISSING_CHANGELOG, 0],
-        [STALE_DOC_REF, 0],
       ],
     );
     assert.match(String(results[1].output_tail), /line 30$/);
@@ -156,28 +149,15 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
     assert.equal(reusableLintRun(target(), sha, base, run.fingerprint, env), null, 'a failed run is not reused');
   });
 
-  it('runs exactly the two built-ins, fingerprinted over no inputs, when the repo has no close-lints.json', async () => {
-    const { repo, base, sha } = repoAt({});
-    const run = ran(await runCloseLints(repo, sha, base, 30, env, target()));
+  it('records a clean run with no results, fingerprinted over no inputs, when the repo has no close-lints.json', async () => {
+    const { repo, sha } = repoAt({});
+    const run = ran(await runCloseLints(repo, sha, sha, 30, env, target()));
     assert.equal(run.exitCode, 0);
     assert.equal(run.fingerprint, await lintFingerprint(repo, sha, [], env));
     const { head, results } = recorded(run);
+    assert.equal(head.exit_code, 0);
     assert.equal(head.fingerprint, await lintFingerprint(repo, sha, [], env));
-    assert.deepEqual(
-      results.map((r) => r.name),
-      [MISSING_CHANGELOG, STALE_DOC_REF],
-    );
-  });
-
-  it('records a failing run when the built-in missing_changelog fails', async () => {
-    const { repo, sha } = repoAt({});
-    const run = ran(await runCloseLints(repo, sha, sha, 30, env, target()));
-    assert.equal(run.exitCode, 1);
-    assert.deepEqual(
-      run.failures.map((f) => f.name),
-      [MISSING_CHANGELOG],
-    );
-    assert.match(describeFailures(run), /Lint missing_changelog exited 1\.\nOutput \(last 15 lines\):\nexpected: .*\nactual: no file added under changelog\.d\//);
+    assert.deepEqual(results, []);
   });
 
   it('records 124 for a lint past the budget, and for one the budget ran out before, and names them', async () => {
@@ -196,8 +176,6 @@ INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, upd
       [
         ['slow', LINT_TIMED_OUT],
         ['later', LINT_TIMED_OUT],
-        [MISSING_CHANGELOG, 0],
-        [STALE_DOC_REF, 0],
       ],
     );
     assert.match(String(results[0].output_tail), /started\nkilled at the 1s close-lint budget/);

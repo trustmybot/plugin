@@ -650,7 +650,7 @@ describe('cli.js integrate', () => {
   });
 
   // Close lints (GH 2570): main commits .config/tmb/close-lints.json, so the
-  // rebased commit runs its lints, then the two built-ins, after verification[].
+  // rebased commit runs its lints after verification[].
   describe('close lints', () => {
     function setupWithCloseLints(command: string): void {
       setup('clean');
@@ -670,7 +670,7 @@ describe('cli.js integrate', () => {
       assert.equal(r.code, 0, r.err);
       const next = r.out;
       assert.equal(rev('refs/heads/feat/x-1'), next, 'feat/x-1 tip');
-      assert.equal(lintRuns(), `1|${next}|${rev('main')}|integrate|0|probe=0,missing_changelog=0,stale_doc_ref=0`);
+      assert.equal(lintRuns(), `1|${next}|${rev('main')}|integrate|0|probe=0`);
       assertNoTempWorktree();
     });
 
@@ -682,7 +682,7 @@ describe('cli.js integrate', () => {
       assert.match(r.err, /Lint probe exited 6\.\nOutput \(last 15 lines\):\nintegrate-lint-broke/);
       assert.match(r.err, /close lints failed on [0-9a-f]{40} \(lint run #1\); feat\/x-1 unmoved/);
       assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
-      assert.match(lintRuns(), /^1\|[0-9a-f]{40}\|[0-9a-f]{40}\|integrate\|6\|probe=6,missing_changelog=0,stale_doc_ref=0$/);
+      assert.match(lintRuns(), /^1\|[0-9a-f]{40}\|[0-9a-f]{40}\|integrate\|6\|probe=6$/);
       assert.notEqual(lintRuns().split('|')[1], commit, 'the run is on the rebased SHA');
       assertNotIntegrated();
       assertNoTempWorktree();

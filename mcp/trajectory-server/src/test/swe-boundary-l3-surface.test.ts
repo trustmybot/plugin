@@ -64,11 +64,17 @@ describe('swe-boundary l3: worktree and prompt surfaces', () => {
     for (const [name, path] of [
       ['skills/tmb_planning/SKILL.md', 'skills/tmb_planning/SKILL.md'],
       ['CLAUDE.md', 'CLAUDE.md'],
-      ['CODEX.md', 'CODEX.md'],
+      ['docs/CLAUDE.md', 'docs/CLAUDE.md'],
       ['commands/scan.md', 'commands/scan.md'],
     ]) {
       it(`(d) SWE edit ${name}: DENIED`, () => {
         has(editAs(f.worktree, 'swe', path, 10), DENY, `edit ${name} should be denied`);
+      });
+    }
+
+    for (const path of ['CODEX.md', 'CURSOR.md', 'GEMINI.md']) {
+      it(`(d) SWE edit ${path}: NOT denied (not a prompt surface)`, () => {
+        hasNot(editAs(f.worktree, 'swe', path, 10), DENY, `${path} is not a prompt surface`);
       });
     }
 
@@ -160,7 +166,7 @@ describe('swe-boundary l3: worktree and prompt surfaces', () => {
       ['sed -i on skills/tmb_planning/SKILL.md', "sed -i 's/old/new/' skills/tmb_planning/SKILL.md"],
       ['perl -i on agents/bro.md', "perl -i -pe 's/old/new/' agents/bro.md"],
       ['python3 open w to agents/swe.md', `python3 -c "open('agents/swe.md','w').write('x')"`],
-      ['python open a to GEMINI.md', `python -c "open('GEMINI.md','a').write('x')"`],
+      ['python open a to docs/CLAUDE.md', `python -c "open('docs/CLAUDE.md','a').write('x')"`],
       ['cp src to templates/agents/foo.md', 'cp /tmp/foo.md templates/agents/foo.md'],
       ['mv src to commands/foo.md', 'mv /tmp/foo.md commands/foo.md'],
       ['rsync src to agents/', 'rsync -av /tmp/agent.md agents/agent.md'],
@@ -177,6 +183,16 @@ describe('swe-boundary l3: worktree and prompt surfaces', () => {
     ]) {
       it(`(e) SWE ${name}: NOT denied (read-only)`, () => {
         hasNot(sweTask(cmd), DENY, `${name} is read-only, should not be denied`);
+      });
+    }
+
+    for (const [name, cmd] of [
+      ['redirect > to CODEX.md', 'echo "x" > CODEX.md'],
+      ['redirect > to CURSOR.md', 'echo "x" > CURSOR.md'],
+      ['python open a to GEMINI.md', `python -c "open('GEMINI.md','a').write('x')"`],
+    ]) {
+      it(`(e) SWE ${name}: NOT denied (not a prompt surface)`, () => {
+        hasNot(sweTask(cmd), DENY, `${name} is not a prompt surface`);
       });
     }
 
