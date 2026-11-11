@@ -4,7 +4,11 @@
  * the same stdout (empty, or deep-equal JSON) through
  * `node dist/hooks.js <gate>` as the recording of `bash scripts/hooks/<gate>.sh`
  * in tests/fixtures/hook-golden/<gate>.json (golden.ts), and a gate that audits
- * writes the same audit rows (id and created_at aside). A gate
+ * writes the same audit rows (id and created_at aside). The parity set is every
+ * gate with a recording; TMB_HOOK_GOLDEN=record adds the gates with a .sh twin
+ * and fills only the cases and locales with no recording yet, from the .sh
+ * while it exists and from `node dist/hooks.js <gate>` once it is gone, so a
+ * new generic/ corpus case gets its recording (GH 3001). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
  * (code-reviewer-preflight, code-reviewer-spawn-note, liveness-alert,
  * liveness-sentinel, rework-limit, swe-resume-gate,
@@ -32,9 +36,17 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const MIN_CORPUS = 8;
-const PARITY_GATES = gateNames().filter((gate) => (isRecording() ? existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)) : hasGolden(gate)));
+const PARITY_GATES = requireRecordSelection(gateNames().filter((gate) => hasGolden(gate) || (isRecording() && existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)))), isRecording());
 const LOCALES = ['C', 'en_US.UTF-8', 'UTF-8'];
 const FAKE_UID = 4242424;
+
+/** Record mode with no gate selected would pass while recording nothing. */
+export function requireRecordSelection(gates: string[], recording: boolean): string[] {
+  if (recording && gates.length === 0) {
+    throw new Error('TMB_HOOK_GOLDEN=record selected no gate: none has a recording in tests/fixtures/hook-golden or a scripts/hooks/<gate>.sh twin, so nothing would be recorded');
+  }
+  return gates;
+}
 
 function corpusFiles(root: string, gate: string): string[] {
   const dir = join(root, gate);
@@ -299,15 +311,18 @@ export function hooksParityShard(k: number, n: number): void {
           'liveness-alert',
           'liveness-sentinel',
           'no-prose-in-scratch',
+          'prompt-write-approval',
           'record-reviewer-spawn',
           'ref-move-reindex',
           'reviewer-downstream-context',
           'rework-limit',
           'session-handoff',
           'swe-downstream-context',
+          'swe-edit-lint',
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',
+          'test-run-nudge',
           'tool-output-size',
           'wm-read-before-provision',
           'worktree-adopt-guard',
@@ -345,7 +360,9 @@ export function hooksParityShard(k: number, n: number): void {
         const db = setup?.auditDb;
         const { audit: bashAudit, ...bash } = goldenBash(gate, `${GENERIC_CASE_PREFIX}${basename(file)}`, locale, goldenRoots({ '@PROJECT@': project, '@SCRATCH@': scratch, '@PROJECT_SLUG@': (setup?.cwd ?? project).replace(/[^A-Za-z0-9]/g, '-') }), () => {
           const start = db ? auditMark(db) : 0;
-          return { ...run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env, setup?.cwd), audit: db ? auditRowsAfter(db, start) : [] };
+          const bashTwin = join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`);
+          const live = existsSync(bashTwin) ? run('bash', [bashTwin], input, env, setup?.cwd) : run(process.execPath, [HOOKS_BUNDLE, gate], input, env, setup?.cwd);
+          return { ...live, audit: db ? auditRowsAfter(db, start) : [] };
         });
         const middle = db ? auditMark(db) : 0;
         const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env, setup?.cwd);

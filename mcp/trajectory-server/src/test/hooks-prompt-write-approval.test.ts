@@ -7,6 +7,7 @@
  * Each case runs the gate in-process on a fresh project and trajectory DB.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -509,6 +510,324 @@ describe('prompt-write-approval (GH 2927)', () => {
             denied(await bash(command));
           }
           assert.equal(await bash('mv x/a* .', {}, noDb()), null);
+        });
+      });
+    });
+
+    describe('an unzip extracts a tree (GH 2987)', () => {
+      it('SC1: denies an unzip into the root, into .claude and into .claude/skills, naming the target', async () => {
+        for (const [command, target] of [
+          ['unzip a.zip', project],
+          ['unzip a.zip -d .claude', join(project, '.claude')],
+          ['unzip -o a.zip -d .claude/skills', join(project, '.claude/skills')],
+          ['unzip -d.claude a.zip x/y', join(project, '.claude')],
+        ]) {
+          assert.ok(denied(await bash(command)).includes(`write to ${target}.`), command);
+        }
+      });
+
+      it('SC1: allows an unzip into another dir and a list-only unzip with no DB read', async () => {
+        for (const command of ['unzip a.zip -d build', 'unzip -l a.zip', 'unzip -Z a.zip', 'unzip -t a.zip', 'unzip -p a.zip x > build/x']) {
+          assert.equal(await bash(command, {}, noDb()), null, command);
+        }
+      });
+    });
+
+    describe('a git move that rewrites the work tree (GH 2987)', () => {
+      const gitEnv = (): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: join(base, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
+      const git = (cwd: string, ...args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf8', env: gitEnv() });
+      const put = (rel: string, text: string): void => {
+        mkdirSync(dirname(join(project, rel)), { recursive: true });
+        writeFileSync(join(project, rel), text);
+      };
+      const commitAll = (cwd: string, message: string): void => {
+        git(cwd, 'add', '-A');
+        git(cwd, 'commit', '-q', '-m', message);
+      };
+      const skills = (): string => join(project, '.claude/skills');
+      // With no git on PATH and no DB, an allow proves the gate ran no git query and read no DB.
+      const noGitNoDb = (): NodeJS.ProcessEnv => env({ TRAJECTORY_DB_PATH: join(base, 'nowhere/trajectory.db'), PATH: join(base, 'empty-path') });
+      const TO_B = ['git checkout b', 'git switch b', 'git merge b', 'git reset --hard b'];
+
+      beforeEach(() => {
+        put('.gitignore', '.claude/tmb/\n');
+        put('.claude/skills/s.md', 'v1\n');
+        put('.claude/agents/a.md', 'v1\n');
+        put('src/x.ts', '1\n');
+        git(project, 'init', '-q');
+        commitAll(project, 'base');
+        git(project, 'checkout', '-q', '-b', 'b');
+        put('.claude/skills/s.md', 'v2\n');
+        commitAll(project, 'skill');
+        git(project, 'checkout', '-q', '-b', 'c', 'main');
+        put('src/x.ts', '2\n');
+        commitAll(project, 'src');
+        git(project, 'checkout', '-q', '-b', 'd', 'main');
+        git(project, 'mv', '.claude/skills/s.md', 'docs.md');
+        commitAll(project, 'move a skill out');
+        git(project, 'checkout', '-q', 'main');
+      });
+
+      it('SC2: denies a checkout, switch, merge and reset --hard to a branch changing a skill, naming the skills dir', async () => {
+        for (const command of [...TO_B, 'git checkout d']) {
+          const reason = denied(await bash(command));
+          assert.ok(reason.includes(`write to ${skills()}.`), `${command}: ${reason}`);
+        }
+      });
+
+      it('SC2: allows each with a fresh full approval of the skills dir', async () => {
+        approve(skills(), 'skills-array');
+        assert.match(denied(await bash(TO_B[0])), /scoped "skills-array", not "full"/);
+        approve(skills(), 'full');
+        for (const command of TO_B) assert.equal(await bash(command), null, command);
+      });
+
+      it('SC2: allows a move to a branch changing only src/ with no DB read', async () => {
+        for (const command of ['git checkout c', 'git switch c', 'git merge c', 'git reset --hard c', 'git -C src checkout c', 'cd src && git merge c', 'git merge c > build.log 2>&1', 'git checkout c </dev/null']) {
+          assert.equal(await bash(command, {}, noDb()), null, command);
+        }
+      });
+
+      it('SC3: a stash pop or apply is judged on the paths the stash changes', async () => {
+        put('.claude/agents/a.md', 'changed\n');
+        git(project, 'stash', 'push', '-q');
+        put('src/x.ts', '3\n');
+        git(project, 'stash', 'push', '-q');
+        for (const command of ['git stash pop stash@{1}', 'git stash apply stash@{1}']) {
+          assert.ok(denied(await bash(command)).includes(join(project, '.claude/agents')), command);
+        }
+        for (const command of ['git stash pop', 'git stash apply stash@{0}']) assert.equal(await bash(command, {}, noDb()), null, command);
+      });
+
+      it('SC3: a reset --hard or forced checkout is judged on the work tree changes it drops', async () => {
+        put('.claude/skills/s.md', 'dirty\n');
+        for (const command of ['git reset --hard', 'git checkout -f c', 'git switch --discard-changes c']) assert.ok(denied(await bash(command)).includes(skills()), command);
+        git(project, 'checkout', '--', '.claude/skills/s.md');
+        put('src/x.ts', 'dirty\n');
+        for (const command of ['git reset --hard', 'git checkout -f c']) assert.equal(await bash(command, {}, noDb()), null, command);
+      });
+
+      it('SC4: a cherry-pick or revert is judged on the paths each commit changes', async () => {
+        for (const command of ['git cherry-pick b', 'git revert b', 'git cherry-pick c b']) assert.ok(denied(await bash(command)).includes(skills()), command);
+        for (const command of ['git cherry-pick c', 'git revert c', 'git cherry-pick -x c']) assert.equal(await bash(command, {}, noDb()), null, command);
+      });
+
+      it('SC4: a move whose changes cannot be told before it runs is denied, pointing to git fetch then git merge', async () => {
+        for (const command of [
+          'git pull',
+          'git pull --rebase origin main',
+          'git rebase main',
+          'git am x.patch',
+          'git apply x.patch',
+          'git checkout no-such-ref',
+          'git cherry-pick main..c',
+          'git merge -- -x',
+          'git fetch && git merge c',
+          'git checkout $REF',
+          'git checkout "$REF"',
+          'git checkout $(echo c)',
+          'git -C $(pwd) checkout c',
+          'git --work-tree=. checkout c',
+          '$G checkout c',
+          '$(which git) checkout c',
+          'echo "git checkout c" | sh',
+          "python3 -c \"import os; c='git checkout c'; os.system(c)\"",
+          'find . -maxdepth 0 -execdir git checkout c \\;',
+          'echo c | xargs git stash pop',
+        ]) {
+          const reason = denied(await bash(command));
+          assert.match(reason, /`git fetch`, then `git merge <ref>`/, command);
+          assert.ok(reason.includes(join(project, '.claude')), command);
+        }
+        denied(await bash('git checkout c', {}, env({ GIT_DIR: join(project, '.git') })));
+      });
+
+      it('SC4: an unresolvable move is allowed with a full approval of the .claude dir', async () => {
+        approve(join(project, '.claude'), 'full');
+        for (const command of ['git pull', 'git rebase main']) assert.equal(await bash(command), null, command);
+      });
+
+      it('SC5: in a sibling repo holding no prompt dir, a move runs no git and reads no DB', async () => {
+        const sub = join(project, 'sub');
+        mkdirSync(sub);
+        writeFileSync(join(sub, 'f'), '1\n');
+        git(sub, 'init', '-q');
+        commitAll(sub, 'base');
+        git(sub, 'branch', 'b');
+        for (const command of ['git pull', 'git checkout b', 'git reset --hard', 'git rebase main']) {
+          assert.equal(await bash(command, { cwd: sub }, noGitNoDb()), null, command);
+        }
+        for (const command of ['git -C sub pull', 'cd sub && git checkout b', 'git -C sub fetch && git -C sub merge b']) assert.equal(await bash(command, {}, noGitNoDb()), null, command);
+        for (const cwd of [project, sub]) {
+          for (const command of ['git checkout -b new', 'git switch -c new', 'git stash list', 'git stash show', 'git stash push', 'git merge --abort', 'git reset --soft HEAD~1', 'git reset --mixed', 'git apply --check x.patch', 'git status']) {
+            assert.equal(await bash(command, { cwd }, noGitNoDb()), null, `${cwd}: ${command}`);
+          }
+        }
+      });
+
+      it('SC5: a checkout of named paths keeps its pathspec judgement', async () => {
+        assert.equal(await bash('git checkout b -- src/x.ts', {}, noDb()), null);
+        assert.ok(denied(await bash('git checkout b -- .claude/skills/s.md')).includes(join(project, '.claude/skills/s.md')));
+      });
+
+      it('SC6: a swe stays exempt', async () => {
+        for (const command of [...TO_B, 'git pull', "watch 'git checkout b'"]) assert.equal(await bash(command, { agent_type: 'tmb:swe', agent_id: 'a1' }, noGitNoDb()), null, command);
+      });
+
+      describe('a move another command runs', () => {
+        it('SC7: denies a move, or an unzip, that find, fd, xargs, a wrapper or a shell body runs', async () => {
+          for (const command of [
+            'find . -maxdepth 0 -exec git checkout b \\;',
+            'find . -maxdepth 0 -execdir git reset --hard b \\;',
+            'find . -maxdepth 0 -ok git merge b \\;',
+            'find . -maxdepth 0 -exec git pull \\;',
+            'echo b | xargs git checkout',
+            'echo b | xargs git switch',
+            'echo b | xargs git checkout 2>/dev/null',
+            'xargs git merge <<< b',
+            'xargs -I % git merge % <<< b',
+            'xargs -I{} git checkout {} <<< b',
+            'xargs -0 -n1 git checkout <<< b',
+            'env git checkout b',
+            "sh -c 'git checkout b'",
+            "find . -maxdepth 0 -exec sh -c 'git checkout b' \\;",
+            "find . -maxdepth 0 -exec sh -c 'git checkout \"$0\"' {} \\;",
+            'sudo find . -maxdepth 0 -exec git checkout b \\;',
+            'command xargs git checkout <<< b',
+            'find . -maxdepth 0 -exec git stash pop \\;',
+            'git fetch && find . -maxdepth 0 -exec git checkout c \\;',
+            'find . -name a.zip -exec unzip {} -d .claude \\;',
+            'watch git checkout b',
+            'watch -n1 git checkout b',
+            'timeout 5 watch git merge b',
+            'watch -n 1 git pull',
+            '/usr/bin/git checkout b',
+            '/usr/bin/git pull',
+            'env /usr/bin/git reset --hard b',
+            'find . -maxdepth 0 -exec /usr/bin/git checkout b \\;',
+            './git checkout b',
+            'echo $(git checkout b)',
+            "python3 -c \"import os; os.system('git checkout b')\"",
+          ]) {
+            denied(await bash(command));
+          }
+          assert.ok(denied(await bash('/usr/bin/git checkout b')).includes(`write to ${skills()}.`));
+          assert.ok(denied(await bash('watch git checkout b')).includes(`write to ${skills()}.`));
+          assert.ok(denied(await bash('find . -maxdepth 0 -exec git checkout b \\;')).includes(`write to ${skills()}.`));
+        });
+
+        it('SC7: a resolvable wrapped move that changes only src/ is allowed with no DB read, and a skill change with a full approval', async () => {
+          for (const command of [
+            'find . -maxdepth 0 -exec git checkout c \\;',
+            'xargs -I % git merge c <<< x',
+            '/usr/bin/git checkout c',
+            'watch git checkout c',
+            'watch -n 1 /usr/bin/git merge c',
+            'cd src && /usr/bin/git -C .. checkout c',
+            "bash -c 'git checkout c'",
+          ]) {
+            assert.equal(await bash(command, {}, noDb()), null, command);
+          }
+          approve(skills(), 'full');
+          assert.equal(await bash('find . -maxdepth 0 -exec git checkout b \\;'), null);
+        });
+
+        it('SC7: a runner that starts no move runs no git and reads no DB', async () => {
+          for (const command of ["find . -name '*.md' -exec cat {} \\;", 'echo x | xargs git log', 'find . -maxdepth 0 -exec git stash list \\;', "watch 'git status'"]) {
+            assert.equal(await bash(command, {}, noGitNoDb()), null, command);
+          }
+        });
+
+        it('SC7: a runner that may repeat a stash pop or apply cannot tell which stash it takes', async () => {
+          put('src/x.ts', '3\n');
+          git(project, 'stash', 'push', '-q');
+          assert.equal(await bash('git stash pop', {}, noDb()), null);
+          for (const command of ['watch git stash pop', 'watch -n 5 git stash apply', 'for i in 1 2; do git stash pop; done', 'find . -maxdepth 0 -exec git stash pop \\;']) {
+            assert.match(denied(await bash(command)), /more than once/, command);
+          }
+        });
+      });
+
+      describe('a git move behind watch quoting (F891-1)', () => {
+        it('SC7: denies each move watch runs from a quoted or wrapped command', async () => {
+          for (const command of [
+            "watch 'git checkout b'",
+            'watch "git checkout b"',
+            "watch -n1 'git checkout b'",
+            "watch -n 2 -- 'git checkout b'",
+            "watch 'git pull'",
+            "timeout 5 watch 'git merge b'",
+            "nohup watch 'git checkout b'",
+            'bash -c "watch \'git checkout b\'"',
+          ]) {
+            denied(await bash(command));
+          }
+          assert.ok(denied(await bash("watch 'git checkout b'")).includes(`write to ${skills()}.`));
+        });
+
+        it('SC7: allows a quoted watch of a move that changes only src/ with no DB read', async () => {
+          assert.equal(await bash("watch 'git checkout c'", {}, noDb()), null);
+        });
+      });
+
+      describe('a git move is found wherever a tree write is (SC8)', () => {
+        const TREE_WRITE = 'cp -r /tmp/x .claude/skills/';
+        const MOVE = 'git checkout b';
+        // `%` stands for the command each runner runs.
+        const RUNNERS = [
+          '%',
+          'sudo %',
+          'env %',
+          'env A=1 %',
+          'command %',
+          'nohup %',
+          'time %',
+          'exec %',
+          'timeout 5 %',
+          'gtimeout 5 %',
+          'stdbuf -o0 %',
+          'nice -n 5 %',
+          'watch %',
+          "watch '%'",
+          'watch "%"',
+          "watch -n1 '%'",
+          "watch -n 2 -- '%'",
+          "timeout 5 watch '%'",
+          "nohup watch '%'",
+          'bash -c "watch \'%\'"',
+          "bash -c '%'",
+          "sh -c '%'",
+          "zsh -c '%'",
+          "eval '%'",
+          'bash -c "sh -c \'%\'"',
+          'find . -maxdepth 0 -exec % \\;',
+          'find . -maxdepth 0 -ok % \\;',
+          "find . -maxdepth 0 -exec sh -c '%' \\;",
+          'echo x | xargs -I @ %',
+          'fd -x %',
+          "sh <<< '%'",
+          'for i in 1; do %; done',
+          'if true; then %; fi',
+          '(%)',
+          '{ %; }',
+          'true && %',
+          '% &',
+          'echo $(%)',
+          "python3 -c \"import os; os.system('%')\"",
+        ];
+
+        it('SC8: each runner that the gate judges a tree write into .claude/skills behind also has its checkout of b denied', async () => {
+          for (const runner of RUNNERS) {
+            assert.equal((await bash(runner.replace('%', TREE_WRITE)))?.hookSpecificOutput?.permissionDecision, 'deny', runner);
+            assert.ok(denied(await bash(runner.replace('%', MOVE))).includes(join(project, '.claude')), runner);
+          }
+        });
+
+        it('SC8: shell text the analyzer cannot read is left to containment-guard for a tree write, and fails closed for a git move', async () => {
+          const runner = "echo '%' | sh";
+          assert.equal(await bash(runner.replace('%', TREE_WRITE), {}, noDb()), null);
+          assert.match(denied(await bash(runner.replace('%', MOVE))), /`git fetch`, then `git merge <ref>`/);
         });
       });
     });

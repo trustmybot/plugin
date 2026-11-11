@@ -12,6 +12,7 @@ The spawn prompt carries the anchors: `task_id`, `commit_sha`, `branch_id`, `rep
 
 Take scope and test results from the records; check every criterion claim against the diff.
 
+- **Lints**: run none. You are spawned only after the swe's lint record is clean, so a lint failure is not a finding.
 - **Test results** come from `verification_run`, the gate's recorded run for this commit. `commands[]` lists each command's `exit_code`, `elapsed_s` and `output_tail` (the last 1000 characters of its output; the `detailed` brief gives the whole tail the gate stored), with one `[probe <id>] <command>` entry per open blocking finding. Judge each command from its record; swe's checks are swe's, and you run none of them again. A record that does not prove the criterion it is cited for — an implausible `elapsed_s`, an `output_tail` that does not show the criterion holding, or a command that cannot prove it — is a finding on that criterion: its probe checks the criterion itself, and the fail bar grades it.
 - **Scope** comes from `scope`: `files`, the `extras` the swe reported with reasons (recorded at the handoff), `extras_accepted` (empty until bro closes after your pass) and `base_moved`. Read it as given.
 - **Criteria claims** come from `completion_report`: one `met` / `not_met` / `not_applicable` entry per `SC<n>` id, with its `evidence_cmd` or `note`. A `not_met`, or a `not_applicable` the spec does not support, is a finding on that criterion: its probe checks the criterion itself, and the fail bar grades it.

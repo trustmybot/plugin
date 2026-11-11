@@ -6,8 +6,12 @@
  *
  * `goldenBash(gate, caseName, locale, roots, live)` returns the recording of
  * that case and locale and never calls `live`; a missing entry throws, naming
- * the gate and case. With TMB_HOOK_GOLDEN=record it calls `live`, writes the
- * entry and returns what a later read will return.
+ * the gate and case. With TMB_HOOK_GOLDEN=record it calls `live` only for a
+ * case and locale with no recording yet, writes that entry and returns what a
+ * later read will return; a stored recording is the bash-era reference and is
+ * never rewritten (GH 3001). hooks-parity.suite.ts's `live` runs the .sh while
+ * it exists and `node dist/hooks.js <gate>` once it is gone, so a corpus case
+ * added after the scripts went is recorded from the TypeScript gate.
  *
  * A file maps each case to groups of locales that share one value, the key
  * being the sorted locales joined by commas: one group when all locales agree,
@@ -150,9 +154,16 @@ function regrouped(groups: Record<string, unknown>, locale: string, value: unkno
   return Object.fromEntries([...byValue.values()].map((g) => [g.locales.sort().join(','), g.value]));
 }
 
-function record(file: string, caseName: string, locale: string, value: unknown): void {
+function localeKey(golden: GoldenFile, caseName: string, locale: string): string | undefined {
+  const groups = golden[caseName];
+  return groups && Object.keys(groups).find((k) => k.split(',').includes(locale));
+}
+
+/** Adds the entry unless another recorder already wrote it: a stored recording is never rewritten. */
+function recordMissing(file: string, caseName: string, locale: string, value: unknown): void {
   withLock(file, () => {
     const golden = readGolden(file);
+    if (localeKey(golden, caseName, locale) !== undefined) return;
     golden[caseName] = regrouped(golden[caseName] ?? {}, locale, value);
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(mapStrings(golden, (s) => s), null, 2)}\n`);
@@ -161,12 +172,14 @@ function record(file: string, caseName: string, locale: string, value: unknown):
 }
 
 function lookup(file: string, gate: string, caseName: string, locale: string): unknown {
-  const groups = readGolden(file)[caseName];
-  const key = groups && Object.keys(groups).find((k) => k.split(',').includes(locale));
-  if (groups === undefined || key === undefined) {
-    throw new Error(`no recording for ${gate} / ${caseName} (LC_ALL=${locale}) in ${file}: run the suite with TMB_HOOK_GOLDEN=record`);
+  const golden = readGolden(file);
+  const key = localeKey(golden, caseName, locale);
+  if (key === undefined) {
+    throw new Error(
+      `no recording for ${gate} / ${caseName} (LC_ALL=${locale}) in ${file}: run its parity suite with TMB_HOOK_GOLDEN=record, which records only missing entries (hooks-parity.suite.ts from node dist/hooks.js ${gate} once scripts/hooks/${gate}.sh is gone)`,
+    );
   }
-  return groups[key];
+  return golden[caseName][key];
 }
 
 export type GoldenBash = <T>(gate: string, caseName: string, locale: string, roots: GoldenRoots, live: () => T) => T;
@@ -174,7 +187,7 @@ export type GoldenBash = <T>(gate: string, caseName: string, locale: string, roo
 export function goldenStore(dir: string): GoldenBash {
   return <T>(gate: string, caseName: string, locale: string, roots: GoldenRoots, live: () => T): T => {
     const file = join(dir, `${gate}.json`);
-    if (isRecording()) record(file, caseName, locale, tokenizeRoots(live(), roots));
+    if (isRecording() && localeKey(readGolden(file), caseName, locale) === undefined) recordMissing(file, caseName, locale, tokenizeRoots(live(), roots));
     return expandRoots(lookup(file, gate, caseName, locale), roots) as T;
   };
 }
