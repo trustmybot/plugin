@@ -3614,7 +3614,7 @@ export function compositeTools(
         // exact spelling: a short or differently cased commit_sha would
         // detach the task from its review anchor.
         const commitSha = task.commit_sha;
-        if (!commitSha || !commitSha.toLowerCase().startsWith(commitArg)) {
+        if (!commitSha || !(commitSha.toLowerCase().startsWith(commitArg) || commitArg.startsWith(commitSha.toLowerCase()))) {
           return err(
             `commit_sha_mismatch: task ${task.id}'s current commit is ${commitSha ?? '(none)'}, not ${commitArg}. ` +
               `Close the commit code-reviewer passed; new work goes through swe, review_handoff and a fresh review first.`,
