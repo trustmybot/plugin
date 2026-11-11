@@ -8,10 +8,11 @@
  */
 import type { TrajectoryDB } from './db.js';
 import { extractSpecRefs } from './brief-locations.js';
-import { isTestPath, symbolById, symbolCard, symbolsByName, type SymbolRow } from './symbol-index.js';
+import { symbolById, symbolCard, symbolsByName, type SymbolRow } from './symbol-index.js';
 import { computeEffort, type Effort } from './tools/config.js';
 import { insertAudit } from './tools/audit.js';
 import { resolveSoleRepo } from './utils/repo-paths.js';
+import { isTestPath } from './utils/test-paths.js';
 import { EFFORT_INPUTS_EVENT, type SUGGESTED_TIERS } from './effort-ab-report.js';
 
 // Provisional until fitted from the GH 1745 A/B arms.

@@ -14,8 +14,9 @@ import { existsSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import type { TrajectoryDB } from './db.js';
-import { isTestPath } from './symbol-index.js';
+import { readTestLaneConfig } from './tools/config.js';
 import { projectRootFromDbPath } from './tools/containment.js';
+import { configureTestLane, isTestPath } from './utils/test-paths.js';
 
 export type RecallReader = Pick<TrajectoryDB, 'get' | 'all'>;
 
@@ -363,6 +364,7 @@ function ratio(n: number, d: number): number | null {
 }
 
 export function callerRecall(db: RecallReader, opts: CallerRecallOptions): CallerRecallReport {
+  configureTestLane(readTestLaneConfig(db));
   const root = realpathSync(opts.repoPath);
   const roots = [...new Set([root, resolve(opts.repoPath)])];
   const toRepoPath = (fileName: string): string | null => {

@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import type { Node } from 'web-tree-sitter';
+import { isTestPath } from '../utils/test-paths.js';
 import type { IndexedGrammar, Parsers } from './loader.js';
 
 export type SymbolKind =
@@ -122,10 +123,6 @@ export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice
 export const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 export const GATE_MODULE_DIR = 'mcp/trajectory-server/src/hooks';
-
-export function isTestPath(path: string): boolean {
-  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path);
-}
 
 // Build output, installed or vendored dependencies, source maps and minified
 // bundles: the world model indexes none of them (GH 1835).

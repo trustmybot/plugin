@@ -11,7 +11,8 @@ import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
-import { configTools } from './config.js';
+import { configTools, readTestLaneConfig } from './config.js';
+import { configureTestLane } from '../utils/test-paths.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
 import { changeImpactTools } from './change-impact.js';
@@ -60,6 +61,7 @@ export function registerTools(
   dbPath = '',
   graphHolder: GraphHolder | null = null,
 ): void {
+  configureTestLane(readTestLaneConfig(db));
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
   const milestones = milestoneTools(db);

@@ -4,6 +4,7 @@
 // (structural), and for a code file, its L1 symbols (purposeFromSymbols). Pure:
 // the caller supplies the head (at most PURPOSE_HEAD_BYTES) and the symbols;
 // nothing here reads the disk.
+import { isDefaultTestPath } from './utils/test-paths.js';
 
 export type PurposeSource =
   | 'docstring'
@@ -544,14 +545,12 @@ const KIND_LABEL: Record<string, string> = {
 
 const CODE_EXT = /\.[cm]?[jt]sx?$/;
 
-export function isTestFile(path: string): boolean {
-  return /(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\./.test(baseName(path));
-}
-
 // Whether a header-less file's purpose depends on its head as well as its
 // symbols: a JS/TS test file, whose describe/test titles name what it covers.
+// The default lane, not the project's configured one: a stored purpose is
+// keyed by content alone.
 export function needsHeadForSymbols(path: string): boolean {
-  return isTestFile(path) && CODE_EXT.test(path);
+  return isDefaultTestPath(path) && CODE_EXT.test(path);
 }
 
 function testTitles(head: string): string[] {

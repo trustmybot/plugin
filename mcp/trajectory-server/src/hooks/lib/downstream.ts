@@ -13,6 +13,7 @@
  */
 import { DOWNSTREAM_AB_EVENT, DOWNSTREAM_INJECTED_EVENT, enrollDownstreamContextAb, isDownstreamArm, type DownstreamAbStore, type DownstreamArm } from '../../downstream-context-ab.js';
 import { DOWNSTREAM_CONTEXT_AB_KEY, parseDownstreamContextAb } from '../../tools/config.js';
+import { isDefaultTestPath, type Lane } from '../../utils/test-paths.js';
 import { auditAppend } from './audit.js';
 import { GATE_READ_ERROR, gateRead, sqlQuote } from './db.js';
 
@@ -45,11 +46,6 @@ export interface IndexedSymbol {
   readonly kind: string;
   readonly path: string;
   readonly line: number;
-}
-
-/** symbol-index.ts isTestPath, which the hooks bundle cannot import without the parsers. */
-export function isTestPath(path: string): boolean {
-  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path);
 }
 
 function jsonRows<T>(db: string, sql: string, env: NodeJS.ProcessEnv): T[] | null {
@@ -117,6 +113,12 @@ interface Hit {
   line: number;
   via: DownstreamVia;
   of: string;
+  lane: Lane | null;
+}
+
+/** The lane the scan stored for the hit's file; a path with no wm_files row falls back to the default rules. */
+function inTestLane(h: Hit): boolean {
+  return h.lane === null || h.lane === undefined ? isDefaultTestPath(h.path) : h.lane === 'test';
 }
 
 /**
@@ -148,14 +150,15 @@ hits AS (
     FROM wm_edges e JOIN tables ON tables.id = e.dst_id JOIN wm_symbols tb ON tb.id = e.dst_id JOIN wm_symbols o ON o.id = e.src_id
    WHERE e.kind = 'reads_table' AND o.id NOT IN (SELECT id FROM t)
 )
-SELECT json_group_array(json_object('id', id, 'qualified_name', qualified_name, 'kind', kind, 'path', path, 'line', line, 'via', via, 'of', of_name))
-  FROM (SELECT * FROM hits ORDER BY path, line, id, via, of_name);`;
+SELECT json_group_array(json_object('id', id, 'qualified_name', qualified_name, 'kind', kind, 'path', path, 'line', line, 'via', via, 'of', of_name, 'lane', lane))
+  FROM (SELECT h.*, f.lane FROM hits h LEFT JOIN wm_files f ON f.repo = '${sqlQuote(repo)}' AND f.path = h.path
+         ORDER BY h.path, h.line, h.id, h.via, h.of_name);`;
   const hits = jsonRows<Hit>(db, sql, env);
   if (hits === null) return null;
   const skip = new Set(skipPaths);
   const merged = new Map<string, { ref: Omit<DownstreamRef, 'of'>; of: string[] }>();
   for (const h of hits) {
-    if (typeof h.path !== 'string' || isTestPath(h.path) || skip.has(h.path)) continue;
+    if (typeof h.path !== 'string' || inTestLane(h) || skip.has(h.path)) continue;
     const key = `${h.via}:${h.id}`;
     const entry = merged.get(key) ?? { ref: { id: h.id, qualified_name: h.qualified_name, kind: h.kind, path: h.path, line: h.line, via: h.via }, of: [] };
     if (!entry.of.includes(h.of)) entry.of.push(h.of);

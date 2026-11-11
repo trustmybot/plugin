@@ -15,8 +15,9 @@ import {
 } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
+import { isDefaultTestPath } from './utils/test-paths.js';
 
-export const TARGET_SCHEMA_VERSION = 66;
+export const TARGET_SCHEMA_VERSION = 67;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -851,6 +852,8 @@ function runMigrations(
   if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
   // v65→v66: tasks.workflow_mode, the workflow mode a task closed under (GH 2225)
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
+  // v66→v67: wm_files.lane, each file's test or product lane (GH 2886)
+  if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -3490,6 +3493,30 @@ function migrateV65toV66(db: DatabaseSync): void {
       db.exec(
         "ALTER TABLE tasks ADD COLUMN workflow_mode TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))",
       );
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v66→v67: wm_files.lane (GH 2886), the test or product lane a scan stores
+// per file. Existing rows are backfilled by the default rules; the next scan
+// applies the project's world_model_test_lane config.
+function migrateV66toV67(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'wm_files') && !hasColumn(db, 'wm_files', 'lane')) {
+      db.exec("ALTER TABLE wm_files ADD COLUMN lane TEXT NOT NULL DEFAULT 'product' CHECK (lane IN ('test','product'))");
+      const markTest = db.prepare(`UPDATE wm_files SET lane = 'test' WHERE id = ?`);
+      for (const f of db.prepare('SELECT id, path FROM wm_files').all() as Array<{ id: number; path: string }>) {
+        if (isDefaultTestPath(f.path)) markTest.run(f.id);
+      }
     }
     commitTransaction(db);
   } catch (err) {

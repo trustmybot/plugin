@@ -5,6 +5,7 @@
 import type { TrajectoryDB } from './db.js';
 import { toFtsOrQuery, toFtsQuery, withFtsGuard } from './fts-query.js';
 import { markOrphanedEdges } from './symbol-index.js';
+import { laneOf, type Lane } from './utils/test-paths.js';
 
 export interface DirectoryNode {
   key: string;
@@ -170,9 +171,10 @@ export class WorldModelGraph {
   }
 
   upsertFile(node: FileNode): void {
+    const relPath = WorldModelGraph.relativeFilePath(node);
     this.db.run(
-      `INSERT INTO wm_files (repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO wm_files (repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at, lane)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, path) DO UPDATE SET
          dir = excluded.dir,
          purpose = excluded.purpose,
@@ -180,10 +182,11 @@ export class WorldModelGraph {
          content_md5 = excluded.content_md5,
          size_bytes = excluded.size_bytes,
          last_commit_sha = excluded.last_commit_sha,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         lane = excluded.lane`,
       [
         node.repo,
-        WorldModelGraph.relativeFilePath(node),
+        relPath,
         node.dir,
         node.purpose,
         node.purpose_source,
@@ -191,8 +194,19 @@ export class WorldModelGraph {
         node.size_bytes,
         node.last_commit_sha,
         node.updated_at,
+        laneOf(relPath),
       ],
     );
+  }
+
+  // Re-derives the lane of the repo's rows upsertFile left alone, so a
+  // changed world_model_test_lane reaches unchanged files on the next scan.
+  syncFileLanes(repo: string): number {
+    const stale = this.db
+      .all<{ id: number; path: string; lane: Lane }>(`SELECT id, path, lane FROM wm_files WHERE repo = ?`, [repo])
+      .filter((f) => laneOf(f.path) !== f.lane);
+    for (const f of stale) this.db.run(`UPDATE wm_files SET lane = ? WHERE id = ?`, [laneOf(f.path), f.id]);
+    return stale.length;
   }
 
   upsertHasFile(repo: string, dir: string, filePath: string): void {
