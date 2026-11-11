@@ -12,7 +12,7 @@ import { denyJson } from '../lib/deny.js';
 import { shellPwd } from '../lib/project-env.js';
 import { Encoder, NO_CHARGE, decode, encode, heredocEncoder } from './encode.js';
 import { bashParser } from './parser.js';
-import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, statementsEnc, type Record } from './statements.js';
+import { ALT, DECLARE, LOOP_CLOSE, LOOP_OPEN, PS4_WORD, REDIRECT_WORD, isGitCommand, operandWords, statementsEnc, type Record } from './statements.js';
 
 /** A listed statement; `src` is its text as the command wrote it, quotes and all, when the listing can find it (GH 2536); `opaque` when it runs code the listing cannot read (GH 2635). */
 export type Statement = Record & { readonly src?: string; readonly opaque?: true };
@@ -111,7 +111,7 @@ function hiddenPs4(parser: Parser, cmd: string): boolean {
       if (node.type === 'variable_assignment' && !(node.parent?.type === 'declaration_command' && nameref(node.parent))) {
         const name = ps4Name(node);
         if (name) starts.add(name.startIndex);
-      } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'git') {
+      } else if (node.type === 'command' && isGitCommand(node.childForFieldName('name')?.text ?? '')) {
         for (const arg of node.childrenForFieldName('argument')) if (arg) plainText(arg);
       } else if (node.type === 'command' && node.childForFieldName('name')?.text === 'env') {
         for (const arg of node.childrenForFieldName('argument')) {
@@ -144,23 +144,12 @@ function hiddenPs4(parser: Parser, cmd: string): boolean {
  * declaration builtin that is no nameref.
  */
 function ps4Word(w: readonly string[]): boolean {
-  if (w[0] === 'git' || PS4_WORD.test(w[0] ?? '')) return false;
+  if (isGitCommand(w[0] ?? '') || PS4_WORD.test(w[0] ?? '')) return false;
   const decl = DECLARE.test(w[0] ?? '') && !(w[0] !== 'export' && w[0] !== 'readonly' && w.some((x) => NAMEREF.test(x)));
   return w.some((x, i) => {
     const word = decode(x);
     return word.includes('PS4') && !(decl && i > 0 && PS4_WORD.test(word));
   });
-}
-
-/** A statement's source words past argv0, a redirect and its target dropped. */
-function operandWords(words: readonly string[]): string[] {
-  const out: string[] = [];
-  for (let i = 1; i < words.length; i++) {
-    const redirect = REDIRECT_WORD.exec(words[i]);
-    if (redirect && redirect[0] === words[i]) i++;
-    else if (!redirect) out.push(words[i]);
-  }
-  return out;
 }
 
 /** Whether an option cluster or operand list <w> names a variable through an expansion: an operand (the first only, unless <every>), or the value of an option in <targets>; <values> are the options that take a value. */
@@ -450,7 +439,7 @@ function listing(parser: Parser, cmd: string, base: string, depth: number, home:
       (ps4 && (!ps4Stmts || decode(stmt).includes('PS4'))) ||
       ps4Word(words) ||
       (!tail && DYNAMIC.test(decode(argv0)) && !ASSIGNMENT.test(decode(argv0))) ||
-      (cut !== undefined && argv0 !== 'git' && !assigner) ||
+      (cut !== undefined && !isGitCommand(argv0) && !assigner) ||
       (assigner && (cut !== undefined || DYNAMIC.test(decode(stmt))) && dynamicName(argv0, rawWords(srcAt(k))));
     if (codes.length === 0 || stdin || prompt || depth >= MAX_DEPTH) {
       own(stdin || prompt || unreadable || codes.length > 0);
@@ -533,7 +522,8 @@ type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statemen
 
 /**
  * git's subcommand in <statement> and the words after it, as gitSubcommand
- * gives them, or undefined when it is unknown (GH 2634): the subcommand word,
+ * gives them, git named bare or by a path to it (GH 2987), or undefined when
+ * it is unknown (GH 2634): the subcommand word,
  * or an option word before it that is no value-taking option's argument,
  * holds an expansion, a brace or glob pattern, or is a redirect; an
  * argument of `-C` / `-c` / `--git-dir` / `--work-tree` / `--namespace`
@@ -545,14 +535,14 @@ type SubcommandInput = string | (Pick<Statement, 'stmt'> & Partial<Pick<Statemen
 export function gitSubcommandOf(statement: SubcommandInput): string | undefined {
   const { stmt, cut } = typeof statement === 'string' ? { stmt: statement, cut: undefined } : statement;
   let w = readWords(stmt);
-  if (w[0] !== 'git') return '';
+  if (!isGitCommand(w[0] ?? '')) return '';
   let k = subcommandAt(w);
   if (cut !== undefined && typeof statement !== 'string') {
     const at = cut === 'glued' ? w.length - 1 : w.length;
     if (k >= at) {
       const src = statement.src;
       const words = src === undefined ? null : sourceWords(src);
-      if (words === null || words[0]?.text !== 'git' || words.findIndex((word) => word.sub) !== at) return undefined;
+      if (words === null || !isGitCommand(words[0]?.text ?? '') || words.findIndex((word) => word.sub) !== at) return undefined;
       w = words.map((word) => word.text);
       k = subcommandAt(w);
     }
