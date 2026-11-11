@@ -1,9 +1,10 @@
 // Untracked node_modules installs never reach a fresh git worktree (GH 1541,
-// GH 1853): link the main checkout's install beside each tracked package.json.
+// GH 1853): link the main checkout's install, entry by entry, beside each
+// tracked package.json.
 // Shared by ensureTaskWorktree and cli.js integrate; standalone it runs as
 // `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
 import { execFileSync } from 'node:child_process';
-import { lstatSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
@@ -54,18 +55,63 @@ export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string):
       result.skipped.push({ dir, reason: `no install at ${src}` });
       continue;
     }
-    if (pathPresent(dest)) {
+    const migrate = isWholeDirLinkTo(dest, src);
+    if (!migrate && pathPresent(dest)) {
       result.skipped.push({ dir, reason: `${dest} already exists` });
       continue;
     }
     try {
-      symlinkSync(src, dest);
+      if (migrate) unlinkSync(dest);
+      linkEachEntry(src, dest);
       result.linked.push(dir);
     } catch (error) {
       result.skipped.push({ dir, reason: `could not link ${src}: ${(error as Error).message}` });
     }
   }
   return result;
+}
+
+// Older builds linked the whole node_modules dir; `npm ci` in the worktree then
+// emptied the main install through that link (GH 2872).
+function isWholeDirLinkTo(dest: string, src: string): boolean {
+  try {
+    return lstatSync(dest).isSymbolicLink() && realpathSync(dest) === realpathSync(src);
+  } catch {
+    return false;
+  }
+}
+
+// npm rewrites its hidden lockfile after every install; a link would let a
+// worktree install overwrite the main checkout's copy.
+const NPM_REGENERATED_ENTRIES = new Set(['.package-lock.json']);
+
+// npm adds, renames and removes entries inside .bin and @scope dirs in place, so
+// a whole-dir link would let a worktree install rewrite the main install.
+function isWrittenInPlace(name: string): boolean {
+  return name === '.bin' || name.startsWith('@');
+}
+
+// A real dir of per-entry links: removing it, as `npm ci` does, removes only links.
+// A partial dir would read as `already exists` forever, so a failure removes it.
+function linkEachEntry(src: string, dest: string): void {
+  mkdirSync(dest);
+  try {
+    for (const name of readdirSync(src)) {
+      if (NPM_REGENERATED_ENTRIES.has(name)) continue;
+      const entrySrc = join(src, name);
+      const entryDest = join(dest, name);
+      if (isWrittenInPlace(name) && isDirectory(entrySrc)) linkChildren(entrySrc, entryDest);
+      else symlinkSync(entrySrc, entryDest);
+    }
+  } catch (error) {
+    rmSync(dest, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function linkChildren(src: string, dest: string): void {
+  mkdirSync(dest);
+  for (const name of readdirSync(src)) symlinkSync(join(src, name), join(dest, name));
 }
 
 // The basename check keeps the guard off inside esbuild bundles (dist/index.js,

@@ -45,10 +45,10 @@ describe('planted trees', () => {
     };
     plant('scripts/creds.sh', `#!/usr/bin/env bash\nKEY="${AWS_KEY}"\n`);
     plant('scripts/root.sh', '#!/usr/bin/env bash\nROOT="$PWD"\n');
-    plant('scripts/tmpw.sh', '#!/usr/bin/env bash\necho hi > /tmp/x.log\n');
-    plant('scripts/name.sh', '#!/usr/bin/env bash\nSTATE=".claude/tmb/state"\n');
+    plant('scripts/tmpw.ts', "import { writeFileSync } from 'node:fs';\nwriteFileSync('/tmp/x.log', 'hi');\n");
+    plant('scripts/name.ts', "export {};\nconst STATE = '.claude/tmb/state';\n");
     plant('scripts/ok.sh', '#!/usr/bin/env bash\necho ok\n');
-    plant('docs/name.sh', '#!/usr/bin/env bash\nSTATE=".claude/tmb/state"\n');
+    plant('docs/name.ts', "export {};\nconst STATE = '.claude/tmb/state';\n");
     plant('docs/creds.md', `KEY="${AWS_KEY}"\n`);
     plant('scripts/blob.sh', `KEY="${AWS_KEY}"\0\n`);
     plant('.github/x.yml', `env:\n  KEY: ${AWS_KEY}\n`);
@@ -59,8 +59,8 @@ describe('planted trees', () => {
   for (const [rel, lint, line] of [
     ['scripts/creds.sh', 'no-secrets-in-source', 2],
     ['scripts/root.sh', 'no-cwd-reads', 2],
-    ['scripts/tmpw.sh', 'no-tmp-writes', 2],
-    ['scripts/name.sh', 'no-hardcoded-plugin-name', 2],
+    ['scripts/tmpw.ts', 'no-tmp-writes', 2],
+    ['scripts/name.ts', 'no-hardcoded-plugin-name', 2],
   ]) {
     test(`${rel} exits 1, naming ${lint} and line ${line}`, () => {
       const r = run(root, rel);
@@ -76,7 +76,7 @@ describe('planted trees', () => {
   });
 
   test('a file outside a lint scope is not flagged by that lint', () => {
-    const name = run(root, 'docs/name.sh');
+    const name = run(root, 'docs/name.ts');
     assert.equal(name.code, 0, name.out);
     const secret = run(root, 'docs/creds.md');
     assert.equal(secret.code, 0, secret.out);
@@ -91,16 +91,16 @@ describe('planted trees', () => {
   });
 
   test('an absolute path under the root is linted as its relative path', () => {
-    const r = run(root, join(root, 'scripts/name.sh'));
+    const r = run(root, join(root, 'scripts/name.ts'));
     assert.equal(r.code, 1, r.out);
-    assert.ok(r.out.includes('no-hardcoded-plugin-name: scripts/name.sh:2: '), r.out);
+    assert.ok(r.out.includes('no-hardcoded-plugin-name: scripts/name.ts:2: '), r.out);
   });
 
   test('several paths: one failing path fails the run, and each finding prints', () => {
-    const r = run(root, 'scripts/ok.sh', 'scripts/root.sh', 'scripts/name.sh');
+    const r = run(root, 'scripts/ok.sh', 'scripts/root.sh', 'scripts/name.ts');
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes('no-cwd-reads: scripts/root.sh:2: '), r.out);
-    assert.ok(r.out.includes('no-hardcoded-plugin-name: scripts/name.sh:2: '), r.out);
+    assert.ok(r.out.includes('no-hardcoded-plugin-name: scripts/name.ts:2: '), r.out);
   });
 
   test('no-negative-directives stays warn-only', () => {

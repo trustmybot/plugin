@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const ALLOWLIST = 'tests/l1-lint/no-home-writes.allowlist';
-const SOURCE = /\.(?:sh|mjs|js|ts)$/;
+const SOURCE = /\.(?:mjs|js|ts)$/;
 const EXCLUDED_DIR = /(^|\/)(tests?|dist|node_modules)\//;
 
 const set = (s) => new Set(s.split(' '));
@@ -501,6 +501,6 @@ export function scope(root = ROOT) {
 }
 
 export function files(root = ROOT) {
-  const tracked = execFileSync('git', ['ls-files', '--', '*.sh', '*.mjs', '*.js', '*.ts'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const tracked = execFileSync('git', ['ls-files', '--', '*.mjs', '*.js', '*.ts'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   return tracked.split('\n').filter((f) => f !== '').filter(scope(root)).sort();
 }

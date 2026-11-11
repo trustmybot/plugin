@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { makeFixtureDir } from './eslint-fixture-dir.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVER = join(ROOT, 'mcp', 'trajectory-server');
@@ -53,6 +54,18 @@ test('a type error fails the check', { skip }, () => {
 test('MCP server type-checks clean', { skip, timeout: 300000 }, () => {
   const result = typeCheck(TSC, SERVER);
   assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — fix type errors above`);
+});
+
+test('MCP server type-check skips eslint fixture dirs', { skip, timeout: 300000 }, () => {
+  const dir = makeFixtureDir();
+  try {
+    assert.ok(existsSync(join(dir, 'tsconfig.json')), 'fixture dir needs its own tsconfig.json for a concurrent eslint run');
+    writeFileSync(join(dir, 'bad.ts'), 'const n: number = "not a number";\nexport { n };\n');
+    const result = typeCheck(TSC, SERVER);
+    assert.ok(result.ok, `${result.output}\nTsc-noemit: FAIL — the server tsconfig must exclude src/eslint-fixture-*`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('dashboard type-checks clean', { skip: skip || DASHBOARD_SKIP, timeout: 300000 }, () => {

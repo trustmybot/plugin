@@ -22,7 +22,7 @@
 import { statSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements } from './cmd-analysis/index.js';
+import { cmdStatements, prefilterPasses } from './cmd-analysis/index.js';
 import { auditAppend } from './lib/audit.js';
 import { dbPath, haveSqlite, sqliteRo, stripTrailingNewlines } from './lib/db.js';
 import { denyResult } from './lib/deny.js';
@@ -178,7 +178,7 @@ type Analysis = GateResult | typeof OVERRUN;
 async function analyze(payload: string, env: NodeJS.ProcessEnv, overran: () => boolean): Promise<Analysis> {
   if (overran()) return OVERRUN;
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  if (command === '' || !carriesText(command)) return ALLOW;
+  if (command === '' || !prefilterPasses(command, carriesText)) return ALLOW;
   const tokens = candidateTokens(command);
   if (tokens.length === 0) return ALLOW;
 

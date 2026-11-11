@@ -3,7 +3,7 @@
  * parity sandbox (the builders of the hooks-*-parity suites), with the env and
  * cwd its parity run uses, in-process. Shared by the router parity tests and the
  * router benches. swe-resume-gate, no-prose-in-scratch, worktree-adopt-guard, task-overrun-alert,
- * liveness-alert, rework-waiver-capture, session-handoff, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision and ref-move-reindex have no hook-corpus
+ * liveness-alert, session-handoff, bash-output-trim, swe-downstream-context, swe-edit-lint, reviewer-downstream-context, wm-read-before-provision, ref-move-reindex and test-run-nudge have no hook-corpus
  * directory (they were born in TypeScript), so their cases are built here. A gate with bash
  * recordings carries where its case's recording sits, so the parity tests can
  * hold the router to it.
@@ -79,6 +79,7 @@ export const ROUTER_CORPUS_GATES = [
   'bash-output-trim',
   'swe-downstream-context',
   'swe-edit-lint',
+  'test-run-nudge',
   'reviewer-downstream-context',
   'attribution-footer',
   'clean-merged-branch',
@@ -100,7 +101,6 @@ export const ROUTER_CORPUS_GATES = [
   'substrate-preflight',
   'orphan-scan',
   'user-prompt-persona',
-  'rework-waiver-capture',
   'activation-routine',
   'session-log-capture',
   'prompt-intent-hints',
@@ -486,6 +486,7 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
   if (want('bash-output-trim')) cases.push(...bashOutputTrimCases(join(root, 'bash-output-trim'), emptyProject));
   if (want('swe-downstream-context')) cases.push(...sweDownstreamCases(join(root, 'swe-downstream-context'), emptyProject));
   if (want('swe-edit-lint')) cases.push(...sweEditLintCases(join(root, 'swe-edit-lint')));
+  if (want('test-run-nudge')) cases.push(...testRunNudgeCases(join(root, 'test-run-nudge'), emptyProject));
   if (want('reviewer-downstream-context')) cases.push(...reviewerDownstreamCases(join(root, 'reviewer-downstream-context'), emptyProject));
   if (want('worktree-adopt-guard')) cases.push(...worktreeAdoptCases(join(root, 'worktree-adopt'), emptyProject));
   if (want('wm-read-before-provision')) cases.push(...wmReadCases(join(root, 'wm-read'), emptyProject));
@@ -563,8 +564,6 @@ export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate
       });
     }
   }
-
-  if (want('rework-waiver-capture')) cases.push(...reworkWaiverCases(join(root, 'rework-waiver-capture'), emptyProject));
 
   return {
     cases,
@@ -666,37 +665,6 @@ function livenessCases(dir: string, cwd: string): RouterCase[] {
     cwd,
     fakeUid: false,
     reset: () => build(typeof startedAt === 'function' ? startedAt() : startedAt),
-  }));
-}
-
-/** rework-waiver-capture's cases, on a DB holding task 3 of issue 9, rebuilt per case. */
-function reworkWaiverCases(dir: string, cwd: string): RouterCase[] {
-  const db = join(dir, 'trajectory.db');
-  mkdirSync(dir, { recursive: true });
-  const schema = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
-  const build = (): void => {
-    for (const side of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${side}`, { force: true });
-    const d = new DatabaseSync(db);
-    d.exec(schema);
-    d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'o', 'open', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (3, 9, 'feat/3-x', 'd', 'closed', ?, ?)").run(SWE_RESUME_T0, SWE_RESUME_T0);
-    d.close();
-  };
-  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: db, LC_ALL: LOCALE });
-  const scenarios: readonly (readonly [string, string])[] = [
-    ['waives-a-task', 'waive task 3'],
-    ['waives-with-hash', 'please Waive task #3, it is fine'],
-    ['waives-an-unknown-task', 'waive task 999'],
-    ['other-wording', 'skip the rework on task 3'],
-  ];
-  return scenarios.map(([file, prompt]) => ({
-    gate: 'rework-waiver-capture',
-    file,
-    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', prompt }),
-    env,
-    cwd,
-    fakeUid: false,
-    reset: build,
   }));
 }
 
@@ -829,7 +797,26 @@ function sweEditLintCases(dir: string): RouterCase[] {
   return scenarios.map(([file, input]) => ({ gate: 'swe-edit-lint', file, input, env, cwd: repo, fakeUid: false }));
 }
 
-/** reviewer-downstream-context's cases:a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */
+/** test-run-nudge's cases: swe's raw test runs it nudges, and the calls it stays silent on. */
+function testRunNudgeCases(dir: string, cwd: string): RouterCase[] {
+  mkdirSync(dir, { recursive: true });
+  const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE });
+  const pre = (command: string, extra: object = { agent_id: 'a1', agent_type: 'tmb:swe' }): string =>
+    JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd, tool_name: 'Bash', tool_input: { command }, tool_use_id: 't', ...extra });
+  const scenarios: readonly (readonly [string, string])[] = [
+    ['node-test', pre('cd mcp/trajectory-server && node --experimental-sqlite --test dist/test/x.test.js </dev/null')],
+    ['npm-test', pre('npm test')],
+    ['pytest', pre('pytest -q tests/')],
+    ['shell-test', pre('bash tests/l1-lint/run.sh')],
+    ['wrapped', pre(`node "${PLUGIN_ROOT}/mcp/trajectory-server/dist/test-run.js" -- npm test`)],
+    ['builtin-test', pre('test -f x && echo y')],
+    ['git-test-path', pre('git add tests/x.test.sh')],
+    ['bro', pre('npm test', {})],
+  ];
+  return scenarios.map(([file, input]) => ({ gate: 'test-run-nudge', file, input, env, cwd, fakeUid: false }));
+}
+
+/** reviewer-downstream-context's cases: a code-reviewer start with and without a task, and the starts it stays silent on, with no trajectory DB. */
 function reviewerDownstreamCases(dir: string, cwd: string): RouterCase[] {
   mkdirSync(dir, { recursive: true });
   const env = clean({ PATH: process.env.PATH, HOME: join(dir, 'home'), TRAJECTORY_DB_PATH: join(dir, 'absent.db'), CLAUDE_PROJECT_DIR: cwd, LC_ALL: LOCALE });

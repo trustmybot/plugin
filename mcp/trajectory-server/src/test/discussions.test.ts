@@ -512,7 +512,7 @@ describe('discussion_append refuses author="human" (#145, GH 2148)', () => {
             issue_id: issueId,
             author,
             kind: 'intent',
-            body: 'waive task 1',
+            body: 'ship it',
             ...extra,
           });
           assert.equal(result.isError, true, `${agent} / ${JSON.stringify(author)} / ${JSON.stringify(extra)}`);

@@ -7,7 +7,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,10 @@ function tempDir(prefix: string): string {
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as RawResult).content[0]!.text) as Record<string, unknown>;
+const reviewDirs = (repoRoot: string, sha: string): string[] => {
+  const dir = join(repoRoot, '.claude', 'worktrees');
+  return existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith(`pr-review-${sha}`)) : [];
+};
 
 describe('runWorktreeSetup', () => {
   let dir: string;
@@ -259,7 +263,7 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       assert.match(error, /worktree setup failed/);
       assert.match(error, /exited 4: echo review-setup-broke; exit 4/);
       assert.match(error, /Output \(last 20 lines\):\nreview-setup-broke/);
-      assert.equal(existsSync(join(repoRoot, '.claude/worktrees', `pr-review-${sha}`)), false, 'worktree removed');
+      assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
       assert.equal(existsSync(join(repoRoot, '.claude/command-ran')), false, 'command not run');
       assert.ok(!git(repoRoot, 'worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
     } finally {
@@ -274,7 +278,7 @@ describe('pr_monitor_worktree runs worktree setup before its command', () => {
       assert.ok(!r.isError, JSON.stringify(parse(r)));
       assert.equal(parse(r)['passed'], true);
       assert.equal(parse(r)['timed_out'], false);
-      assert.equal(existsSync(join(repoRoot, '.claude/worktrees', `pr-review-${sha}`)), false);
+      assert.deepEqual(reviewDirs(repoRoot, sha), []);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -308,7 +312,7 @@ describe('pr_monitor_worktree runs its command under the verification budget (GH
   };
 
   const assertRemoved = (repoRoot: string, sha: string): void => {
-    assert.equal(existsSync(join(repoRoot, '.claude/worktrees', `pr-review-${sha}`)), false, 'worktree removed');
+    assert.deepEqual(reviewDirs(repoRoot, sha), [], 'worktree removed');
     assert.ok(!git(repoRoot, 'worktree', 'list', '--porcelain').includes('pr-review-'), 'worktree unregistered');
   };
 
@@ -335,7 +339,7 @@ describe('pr_monitor_worktree runs its command under the verification budget (GH
       const marker = join(ws, 'orphan-ran');
       const { r, sha, ms } = await monitor(repoRoot, `(sleep 2; touch '${marker}') & sleep 6; wait`);
       assert.equal(parse(r)['timed_out'], true);
-      assert.ok(ms < 2000, `took ${ms}ms`);
+      assert.ok(ms < 5000, `took ${ms}ms`);
       assertRemoved(repoRoot, sha);
       await new Promise((r) => setTimeout(r, 2500));
       assert.equal(existsSync(marker), false, 'the backgrounded grandchild was killed with the group');

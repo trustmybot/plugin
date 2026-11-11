@@ -20,11 +20,13 @@
  *      upstream or is a fast-forward ahead of it, else the upstream is (one
  *      stderr line names both). A remote-tracking ref of a configured remote is
  *      fetched, then resolved. Any other base resolves as given, unfetched. A
- *      failed fetch → exit 4, branch and DB unchanged. Every later step uses
+ *      failed fetch, or one past 60 s (TMB_INTEGRATE_FETCH_TIMEOUT_MS overrides
+ *      it, GH 2632) → exit 4, branch and DB unchanged. Every later step uses
  *      the resolved sha. That sha already an ancestor of commit_sha → print
  *      commit_sha, exit 0; nothing is recorded.
  *   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
- *      detached at commit_sha, runs `git rebase <base>`. A conflict is aborted
+ *      detached at commit_sha, runs `git -c merge.renames=false rebase <base>`
+ *      (no rename detection, GH 2356). A conflict is aborted
  *      → exit 2, branch and DB unchanged. Each untracked node_modules of the
  *      main checkout beside a tracked package.json is symlinked into the
  *      worktree (GH 1541).
@@ -94,6 +96,7 @@ import type { CliIo } from './fallback-db.js';
 const FINISH_ATTEMPTS = 3;
 const TAIL_LINES = 20;
 const TIMED_OUT_CODE = 124;
+const FETCH_TIMEOUT_MS = 60_000;
 const RECORD_ENV = { TMB_DB_WRITE_TIMEOUT_MS: '5000', TMB_DB_WRITE_RUN_BUDGET_MS: '10000' } as const;
 const MAX_BUFFER = 256 * 1024 * 1024;
 const signals: Readonly<Record<string, number>> = osConstants.signals;
@@ -108,6 +111,7 @@ interface GitResult {
   ok: boolean;
   out: string;
   err: string;
+  timedOut: boolean;
 }
 
 function nowS(): number {
@@ -145,6 +149,7 @@ class Integration {
   private reviewAnchorAt = '';
   private commitSha = '';
   private baseSha = '';
+  private baseLabel = '';
   private repoRoot = '';
   private tip = '';
   private wt = '';
@@ -167,15 +172,17 @@ class Integration {
     throw new Exit(code);
   }
 
-  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv } = {}): GitResult {
+  private git(dir: string, args: readonly string[], opts: { input?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): GitResult {
     const r = spawnSync('git', ['-C', dir, ...args], {
       encoding: 'utf8',
       env: opts.env ?? this.env,
       input: opts.input,
       stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       maxBuffer: MAX_BUFFER,
+      timeout: opts.timeoutMs,
     });
-    return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '' };
+    const timedOut = r.error !== undefined && 'code' in r.error && r.error.code === 'ETIMEDOUT';
+    return { ok: r.status === 0, out: commandSubstitution(r.stdout ?? ''), err: r.stderr ?? '', timedOut };
   }
 
   /** A git command whose output goes to stderr, as the .sh's `>&2`. */
@@ -356,7 +363,15 @@ SELECT changes();`,
   }
 
   private fetchBase(remote: string, branch: string): void {
-    const r = this.git(this.repoRoot, ['fetch', '-q', remote, branch], { env: { ...this.env, GIT_TERMINAL_PROMPT: '0' } });
+    const override = Number(this.env.TMB_INTEGRATE_FETCH_TIMEOUT_MS);
+    const timeoutMs = Number.isInteger(override) && override > 0 ? override : FETCH_TIMEOUT_MS;
+    const r = this.git(this.repoRoot, ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=5', 'fetch', '-q', remote, branch], {
+      env: { ...this.env, GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs,
+    });
+    if (r.timedOut) {
+      this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) timed out after ${timeoutMs} ms; ${this.branch} and the DB are unchanged`);
+    }
     if (!r.ok) {
       this.die(4, `fetch of base '${this.base}' (${remote} ${branch}) failed; ${this.branch} and the DB are unchanged: ${r.err.trim()}`);
     }
@@ -366,8 +381,9 @@ SELECT changes();`,
     return this.g(['show-ref', '--verify', '-q', ref]).ok;
   }
 
-  /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. */
+  /** The base sha: a local branch with an upstream is fetched and loses to its upstream unless equal or ahead; a remote-tracking ref is fetched; anything else resolves as given. Sets baseLabel. */
   private resolveBase(): string {
+    this.baseLabel = this.base;
     const local = `refs/heads/${this.base}`;
     if (this.hasRef(local)) {
       const upstream = this.g(['rev-parse', '--symbolic-full-name', `${this.base}@{upstream}`]);
@@ -379,6 +395,7 @@ SELECT changes();`,
       const upstreamSha = this.revParse(this.repoRoot, `${upstream.out}^{commit}`);
       if (upstreamSha === '' || localSha === upstreamSha || this.g(['merge-base', '--is-ancestor', upstreamSha, localSha]).ok) return localSha;
       this.say(`${local} (${localSha}) is behind or diverged from ${upstream.out} (${upstreamSha}); rebasing onto ${upstream.out}`);
+      this.baseLabel = upstream.out.replace(/^refs\/remotes\//, '');
       return upstreamSha;
     }
     const tracking = `refs/remotes/${this.base}`;
@@ -453,7 +470,7 @@ SELECT changes();`,
     if (this.baseSha === '') this.die(4, `base '${this.base}' is not a commit in ${this.repoRoot}`);
 
     if (this.g(['merge-base', '--is-ancestor', this.baseSha, this.commitSha]).ok) {
-      this.say(`${this.base} is already an ancestor of task ${this.taskId}'s commit; nothing to rebase`);
+      this.say(`${this.baseLabel} is already an ancestor of task ${this.taskId}'s commit; nothing to rebase`);
       this.io.out(`${this.commitSha}\n`);
       return 0;
     }
@@ -486,10 +503,10 @@ SELECT changes();`,
       this.die(4, 'git worktree add failed');
     }
 
-    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.base} (${this.baseSha}) in ${this.wt}`);
-    if (!this.gitLoud(this.wt, ['rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
+    this.say(`rebasing task ${this.taskId} (${this.commitSha}) onto ${this.baseLabel} (${this.baseSha}) in ${this.wt}`);
+    if (!this.gitLoud(this.wt, ['-c', 'merge.renames=false', 'rebase', '-q', this.baseSha], { ...this.env, GIT_EDITOR: 'true' })) {
       this.git(this.wt, ['rebase', '--abort']);
-      this.die(2, `rebase of task ${this.taskId} onto ${this.base} conflicted; aborted, ${branch} and the DB are unchanged`);
+      this.die(2, `rebase of task ${this.taskId} onto ${this.baseLabel} conflicted; aborted, ${branch} and the DB are unchanged`);
     }
     const newSha = this.revParse(this.wt, 'HEAD');
     if (newSha === '') this.die(4, 'cannot read the rebased HEAD');
@@ -507,12 +524,12 @@ SELECT changes();`,
     const toolchainPath = joinToolchainPath(toolchainDirs(this.env, this.wt), this.env.PATH ?? '');
 
     if (this.rebasePicks(newSha) === '') {
-      this.die(2, `task ${this.taskId}'s patch is already in ${this.base}; nothing to integrate, ${branch} and the DB are unchanged`);
+      this.die(2, `task ${this.taskId}'s patch is already in ${this.baseLabel}; nothing to integrate, ${branch} and the DB are unchanged`);
     }
     if (this.patchIds(this.commitSha) !== this.patchIds(newSha)) {
       this.die(
         2,
-        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.base}..reviewed differs from ${this.base}..rebased); ${branch} and the DB are unchanged`,
+        `the rebase changed task ${this.taskId}'s source patches (patch-id of ${this.baseLabel}..reviewed differs from ${this.baseLabel}..rebased); ${branch} and the DB are unchanged`,
       );
     }
 

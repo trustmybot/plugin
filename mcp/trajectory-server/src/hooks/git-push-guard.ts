@@ -6,7 +6,12 @@
  * is reviewed and has a passing verification run of its own. swe and
  * code-reviewer never push; a push from .claude/worktrees/, or from a dir the
  * guard cannot tie to one checkout, is denied; so is a git statement whose
- * subcommand is not literal text (an expansion, GH 2634), and a DB read error.
+ * subcommand is not literal text (an expansion, GH 2634), a statement that
+ * runs code the listing cannot read (`opaque`, GH 2635: a non-literal code
+ * string or command word, a PS4 set other than by a literal assignment, a
+ * variable name a builtin takes from an expansion), and a DB read error.
+ * Code a statement runs later (a trap, an alias, a `-C` callback, a PS4 that
+ * `set -x` expands) is listed in `-`, so a push in it is an unresolved target.
  *
  * Deny messages and decisions are the .sh's, with the two exceptions of
  * decision 369: a command naming `push` (or, GH 2634, a git word beside an
@@ -14,7 +19,16 @@
  * read wherever node:sqlite works, with no sqlite3 CLI on PATH.
  */
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { cmdStatements, denyAmbiguousGitTarget, gitSubcommandOf, payloadCwd, stmtRepoRoot } from './cmd-analysis/index.js';
+import {
+  ambiguousSubcommandReason,
+  cmdStatements,
+  denyAmbiguousGitTarget,
+  gitBesideExpansion,
+  gitSubcommandOf,
+  payloadCwd,
+  prefilterPasses,
+  stmtRepoRoot,
+} from './cmd-analysis/index.js';
 import { DB_RETRY_FIX, dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingNewlines } from './lib/db.js';
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { type DenyFix, denyResult as deny } from './lib/deny.js';
@@ -28,10 +42,6 @@ export const GATE_NAME = 'git-push-guard';
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
-const CONTINUATION = /\\\n/g;
-const UNQUOTE = /['"\\]/g;
-const GIT_WORD = /\bgit\b/;
-const EXPANDS = /[$`*?[{\x01-\x06\x0e-\x11\x13\x15\x16]/;
 
 export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
 export const SWE_PUSH_FIX: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report)" };
@@ -43,9 +53,10 @@ const DB_REASON =
 export const PARSE_REASON =
   'BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout.';
 export const PARSE_FIX: DenyFix = { allowed: 'the same push split into simpler commands with plain quoting' };
-const subcommandReason = (what: string): string =>
-  `BLOCKED: ambiguous_git_subcommand: \`${what}\` takes git's subcommand, or an option before it, from an expansion, a pattern or a redirect the guard cannot resolve, so it cannot tell whether the statement pushes. Write the subcommand and git's options before it literally.`;
 const SUBCOMMAND_FIX: DenyFix = { allowed: 'git -C <path> push …, or the literal subcommand it runs' };
+const opaqueReason = (what: string): string =>
+  `BLOCKED: ambiguous_git_subcommand: \`${what}\` runs code the guard cannot read (a \`bash -c\` or \`eval\` string built from an expansion, a command word that is an expansion, code a shell reads from stdin, a \`\${…@P}\` prompt expansion, a PS4 set other than by a literal \`PS4=\` assignment, a variable name a builtin takes from an expansion, or code nested too deep), so it cannot tell whether that code pushes. Write the code literally.`;
+const OPAQUE_FIX: DenyFix = { allowed: "the code itself, or bash -c '<literal code>', or PS4='<literal>'" };
 const INTEGRATE_FIX: DenyFix = { allowed: 'node --experimental-sqlite "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/cli.js" integrate <task_id> <base>' };
 
 function pushVerb(sub: string): boolean {
@@ -305,15 +316,17 @@ class Guard {
 
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
-  const bare = command.replace(CONTINUATION, '').replace(UNQUOTE, '');
-  if (!bare.includes('push') && !(GIT_WORD.test(bare) && EXPANDS.test(bare))) return ALLOW;
+  const namesPush = prefilterPasses(command, (text) => text.includes('push'));
+  if (!namesPush && !gitBesideExpansion(command)) return ALLOW;
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);
   if (!listed.ok) return deny(PARSE_REASON, PARSE_FIX);
+  const opaque = namesPush ? listed.statements.find((statement) => statement.opaque) : undefined;
+  if (opaque) return deny(opaqueReason(opaque.src ?? opaque.stmt), OPAQUE_FIX);
   const subs = listed.statements.map((statement) => gitSubcommandOf(statement));
   const unknown = listed.statements[subs.indexOf(undefined)];
-  if (unknown) return deny(subcommandReason(unknown.src ?? unknown.stmt), SUBCOMMAND_FIX);
+  if (unknown) return deny(ambiguousSubcommandReason(unknown.src ?? unknown.stmt, 'pushes'), SUBCOMMAND_FIX);
   const pushes = listed.statements.filter((_, j) => {
     const sub = subs[j] ?? '';
     return pushVerb(sub) && !FORCE.test(` ${sub} `);

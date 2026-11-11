@@ -136,7 +136,7 @@ describe('orphan-scan and session-start-prescan in a sandbox', () => {
     const env = sessionScanEnv(s, 'session-start-prescan', 'C', { PATH: noCmdPath(join(base, 'nojq-p'), 'jq', process.env.PATH ?? ''), TRAJECTORY_DB_PATH: join(s, PROJECT_DB) }, project);
     const r = gate('session-start-prescan', env, project);
     assert.equal(r.stdout, NO_JQ_LINE);
-    assert.equal(NO_JQ_LINE, '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found — every TMB gate will deny until it is installed"}}\n');
+    assert.equal(NO_JQ_LINE, '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found, so the session inventory is skipped; gates still run. Tell the Human to install jq for the inventory."}}\n');
   });
 });
 

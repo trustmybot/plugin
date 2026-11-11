@@ -7,7 +7,7 @@
  * writes the same audit rows (id and created_at aside). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
  * (code-reviewer-preflight, code-reviewer-spawn-note, liveness-alert,
- * liveness-sentinel, rework-limit, rework-waiver-capture, swe-resume-gate,
+ * liveness-sentinel, rework-limit, swe-resume-gate,
  * task-overrun-alert), has no bash side
  * and is not in the parity set.
  * The gate × payload × locale runs split across
@@ -303,7 +303,6 @@ export function hooksParityShard(k: number, n: number): void {
           'ref-move-reindex',
           'reviewer-downstream-context',
           'rework-limit',
-          'rework-waiver-capture',
           'session-handoff',
           'swe-downstream-context',
           'swe-edit-lint',

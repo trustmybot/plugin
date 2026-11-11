@@ -13,7 +13,7 @@ const WRITE_FN =
 const COMMENT = /^\s*(#|\/\/|\*)/;
 const SH_REDIRECT = /(?<![0-9&<>])>>?\s*("[^"]*"|'[^']*'|[^\s;|&)]+)/g;
 const PROSE_DIRS = ['scripts', 'skills', 'agents', 'commands'];
-const PROSE_EXT = /\.(?:sh|bash|js|mjs|cjs|ts|py|md)$/;
+const PROSE_EXT = /\.(?:js|mjs|cjs|ts|py|md)$/;
 const SERVER_SRC = 'mcp/trajectory-server/src';
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

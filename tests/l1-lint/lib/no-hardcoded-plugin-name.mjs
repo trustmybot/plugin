@@ -6,7 +6,7 @@ const HARDCODED = /(\.claude\/tmb\/|tmb-active-workspace|trustmybot-rc|=["']tmb[
 const EXCLUDED_FILES = ['scripts/publish-rc-channel.ts'];
 const EXCLUDED_LINE_PATTERNS = [`jq -r '.name // "tmb"'`, 'jq -r .name', 'PLUGIN_NAME="tmb"', "PLUGIN_NAME='tmb'"];
 const DIRS = ['scripts', 'mcp/trajectory-server/src'];
-const SOURCE = /\.(sh|ts|js)$/;
+const SOURCE = /\.(ts|js)$/;
 
 function sources(dir, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

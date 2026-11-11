@@ -520,14 +520,6 @@
     }
   },
   "mcp/trajectory-server/src/hooks/git-guards.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 13
-    },
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/hooks/git-push-guard.ts": {
     "no-control-regex": {
       "count": 1
     }
@@ -592,11 +584,6 @@
   "mcp/trajectory-server/src/hooks/session-start-prescan.ts": {
     "no-useless-assignment": {
       "count": 1
-    }
-  },
-  "mcp/trajectory-server/src/hooks/swe-boundary.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 2
     }
   },
   "mcp/trajectory-server/src/hooks/tool-output-size.ts": {
@@ -1637,15 +1624,6 @@
   "mcp/trajectory-server/src/test/onboard.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 59
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 23
     }
   },
   "mcp/trajectory-server/src/test/platform.test.ts": {

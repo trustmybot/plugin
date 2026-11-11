@@ -1,8 +1,8 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
@@ -63,7 +63,7 @@ import {
   specCriterionIds,
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
-import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
+import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, readWorkflowMode, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { assignReviewerEffort, reviewerSpawn } from '../reviewer-effort.js';
 import { recordEffortInputs } from '../effort-inputs.js';
@@ -459,8 +459,9 @@ export interface CloseScope {
 }
 
 // Shared close path for bro_atomic_close + task_recover: in the caller's
-// transaction, advance a task to closed (writing bro_verification_pass +
-// closing the task's open agent_runs rows) and optionally close the parent issue
+// transaction, advance a task to closed (writing bro_verification_pass,
+// stamping tasks.workflow_mode from readWorkflowMode and closing the task's
+// open agent_runs rows) and optionally close the parent issue
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
@@ -501,12 +502,12 @@ function closeTaskInTx(
     );
   }
 
-  // 3. flip task to closed.
+  // 3. flip task to closed, stamping the workflow mode it closed under.
   db.run(
     `UPDATE tasks
-        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
+        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?, workflow_mode=?
       WHERE id=?`,
-    [commitSha, now, now, task.id],
+    [commitSha, now, now, readWorkflowMode(db), task.id],
   );
 
   // 4. close every open agent_runs row of the task (bro and swe).
@@ -652,6 +653,46 @@ function setupEnv(worktreePath: string): NodeJS.ProcessEnv {
 // The tool-result field for a setup, absent when the repo has no setup file.
 function setupField(setup: WorktreeSetupResult | undefined): { worktree_setup?: WorktreeSetupResult } {
   return setup && (setup.ran || setup.error !== undefined) ? { worktree_setup: setup } : {};
+}
+
+const PR_REVIEW_DIR_RE = /^pr-review-[0-9a-f]{7,40}-[A-Za-z0-9]{6}$/;
+
+// <repo>/.claude/worktrees, checked both lexically and through realpath so a
+// symlinked parent cannot redirect a checkout or a delete outside the repo.
+function worktreesDirContained(repoPath: string, dir: string): boolean {
+  if (resolve(dir) !== resolve(repoPath, '.claude', 'worktrees')) return false;
+  try {
+    return realpathSync(dir) === join(realpathSync(repoPath), '.claude', 'worktrees');
+  } catch {
+    return false;
+  }
+}
+
+// True only for a per-call pr-review-<sha>-<suffix> entry directly inside
+// <repo>/.claude/worktrees.
+export function prReviewDirRemovable(repoPath: string, wtPath: string): boolean {
+  return PR_REVIEW_DIR_RE.test(basename(wtPath)) && worktreesDirContained(repoPath, dirname(resolve(wtPath)));
+}
+
+function clearPrReviewWorktree(repoPath: string, wtPath: string): void {
+  const quiet = { stdio: 'ignore' as const, timeout: WORKTREE_TIMEOUT_MS };
+  try {
+    execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], quiet);
+  } catch {
+    // Best-effort: the path may not be a registered worktree.
+  }
+  try {
+    execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], quiet);
+  } catch {
+    // Best-effort.
+  }
+  if (!existsSync(wtPath) || !prReviewDirRemovable(repoPath, wtPath)) return;
+  try {
+    rmSync(wtPath, { recursive: true, force: true });
+    execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], quiet);
+  } catch {
+    // Best-effort.
+  }
 }
 
 // Session-worktree adoption (GH 2032): task_provision, task_reopen and
@@ -1305,7 +1346,7 @@ export function compositeTools(
     {
       name: 'pr_monitor_worktree',
       description:
-        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under verification budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
+        'Runs command in <repo_path>/.claude/worktrees/pr-review-<sha>-<suffix> (node_modules linked) after .config/tmb/worktree-setup.json (failed step: named error, no command) under budget (TMB_VERIFICATION_TIMEOUT_S ?? verification_timeout_s ?? 900, max 1800 s; over: passed:false, timed_out:true) and removes it. Outside project: outside_project.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1313,7 +1354,7 @@ export function compositeTools(
           commit_sha: { type: 'string', description: '7–40 hex SHA to check out.' },
           repo_path: {
             type: 'string',
-            description: 'Absolute path to the git repo (CLAUDE_PLUGIN_ROOT or inner-repo root).',
+            description: 'Absolute path to a git repo under the project root.',
           },
           command: {
             type: 'string',
@@ -1499,7 +1540,7 @@ export function compositeTools(
               },
               repo: {
                 type: 'string',
-                description: 'Optional relative path to this task\'s git repo (no ".." or leading "/"); defaults to the issue\'s repo, else the sole repo.',
+                description: "Registered repo name (from repos_list); defaults to the issue's repo, else the sole repo.",
               },
               prompt_bearing: {
                 type: 'number',
@@ -2717,43 +2758,6 @@ export function compositeTools(
         const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_retry', failed.issue_id, newBranchId);
         if (usedOnIssue) return usedOnIssue;
 
-        // --- Retry cap gate ---
-        // Walk the task_retry_attempted audit chain: each hop in the chain
-        // is one retry. The chain is stored in audit.content_json as
-        // {failed_task_id, new_task_id, ...}. Starting from failed_task_id,
-        // count how many times we can walk backwards via new_task_id to find
-        // a prior task_retry_attempted row that produced it. A depth of 3
-        // means we've already retried 3 times; a 4th is rejected.
-        //
-        // No new column needed: the linkage already exists in audit rows.
-        {
-          const RETRY_CAP = 3;
-          let depth = 0;
-          let currentTaskId = Number(failedTaskId);
-          while (depth < RETRY_CAP + 1) {
-            const row = db.get<{ failed_task_id: number; content_json: string }>(
-              `SELECT content_json FROM audit
-                WHERE event_type = 'task_retry_attempted'
-                  AND json_extract(content_json, '$.new_task_id') = ?
-                LIMIT 1`,
-              [currentTaskId],
-            );
-            if (!row) break;
-            const parsed = JSON.parse((row as unknown as { content_json: string }).content_json) as {
-              failed_task_id: number;
-            };
-            currentTaskId = parsed.failed_task_id;
-            depth++;
-          }
-          if (depth >= RETRY_CAP) {
-            return err(
-              `retry limit reached (3) — escalate to Human. ` +
-              `Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. ` +
-              `Use discussion_append(kind='question') to involve the Human before retrying further.`,
-            );
-          }
-        }
-
         const { effort } = computeEffort(db, {
           effort: effortArg,
           prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
@@ -3110,18 +3114,27 @@ export function compositeTools(
 
         const repoRefusal = outsideProject('pr_monitor_worktree', runContext.projectRoot, repoPath);
         if (repoRefusal) return outsideProjectResult(repoRefusal);
-        const wtPath = `${repoPath}/.claude/worktrees/pr-review-${commitSha}`;
+        const wtParent = `${repoPath}/.claude/worktrees`;
+        let wtPath: string;
         let stdout = '';
         let stderr = '';
         let exitCode = 0;
         let timedOut = false;
 
         try {
+          mkdirSync(wtParent, { recursive: true });
+          if (!worktreesDirContained(repoPath, wtParent)) throw new Error(`${wtParent} resolves outside ${repoPath}`);
+          wtPath = mkdtempSync(`${wtParent}/pr-review-${commitSha}-`);
+        } catch (e) {
+          return err(`worktree add failed: ${(e as Error).message}`);
+        }
+        try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
             stdio: ['ignore', 'pipe', 'pipe'],
             timeout: WORKTREE_TIMEOUT_MS,
           });
         } catch (e) {
+          clearPrReviewWorktree(repoPath, wtPath);
           return err(`worktree add failed: ${(e as Error).message}`);
         }
 

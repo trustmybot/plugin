@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 66;
+export const TARGET_SCHEMA_VERSION = 67;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -849,8 +849,10 @@ function runMigrations(
   if (fromVersion < 64 && toVersion >= 64) migrateV63toV64(db);
   // v64→v65: validation_attempts.reviewed_sha, the commit each review covered (GH 2684)
   if (fromVersion < 65 && toVersion >= 65) migrateV64toV65(db);
-  // v65→v66: lint_runs and lint_run_results, the close-lint record (GH 2570)
+  // v65→v66: tasks.workflow_mode, the workflow mode a task closed under (GH 2225)
   if (fromVersion < 66 && toVersion >= 66) migrateV65toV66(db);
+  // v66→v67: lint_runs and lint_run_results, the close-lint record (GH 2570)
+  if (fromVersion < 67 && toVersion >= 67) migrateV66toV67(db);
 }
 
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -1034,7 +1036,7 @@ function migrateV11toV12(db: DatabaseSync): void {
 // Typed Rails (#673): add typed files/verification task columns the enforcement
 // hooks read directly. Both are JSON arrays defaulting to '[]'; existing task
 // rows keep that empty default, so the hooks skip enforcement for pre-migration
-// tasks. See docs/architecture/TYPED_RAILS.md.
+// tasks. See docs/reference/REFERENCE.md.
 function migrateV12toV13(db: DatabaseSync): void {
   beginImmediate(db);
   try {
@@ -3481,13 +3483,34 @@ function migrateV64toV65(db: DatabaseSync): void {
   }
 }
 
-// v65→v66: the close-lint record (GH 2570). Adds lint_runs(task → tasks ON
+// v65→v66: tasks.workflow_mode (GH 2225), the plugin_config.workflow_mode the
+// shared close path read when the task closed. Existing rows keep NULL.
+function migrateV65toV66(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'workflow_mode')) {
+      db.exec(
+        "ALTER TABLE tasks ADD COLUMN workflow_mode TEXT CHECK (workflow_mode IS NULL OR workflow_mode IN ('truest','agile'))",
+      );
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v66→v67: the close-lint record (GH 2570). Adds lint_runs(task → tasks ON
 // DELETE CASCADE, commit_sha, base_sha, fingerprint, source gate|integrate,
 // started_at, finished_at, exit_code, created_at) with an index on (task_id,
 // commit_sha, finished_at), and lint_run_results(run → lint_runs ON DELETE
 // CASCADE, ordinal, name, exit_code, elapsed_s, output_tail, PK(run_id,
 // ordinal)). New tables only; no backfill. A re-run is a no-op.
-function migrateV65toV66(db: DatabaseSync): void {
+function migrateV66toV67(db: DatabaseSync): void {
   if (!tableExists(db, 'tasks')) return;
   beginImmediate(db);
   try {

@@ -8,9 +8,9 @@
  *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI: without jq it still
  * hints where the .sh printed nothing, and without the sqlite3 CLI it still
- * places each worktree where the .sh reported the DB read failed; and its
- * pre-create step runs the worktree-create gate through node, where the .sh
- * named that gate's bash script (decision 703).
+ * places each worktree where the .sh reported the DB read failed; and it
+ * names no pre-create worktree step, as task_provision creates the worktree
+ * (GH 2713).
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { taskLocation } from './lib/agent-context.js';
@@ -122,14 +122,13 @@ function worktreeOf(db: string | null, id: string, env: NodeJS.ProcessEnv): stri
 
 export function hintReason(toolName: string, tasks: string): string {
   const tool = toolName.slice(toolName.lastIndexOf('__') + 2);
-  return `🚀 SWE-spawn hint: ${tool} created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
+  return `🚀 SWE-spawn hint: ${tool} created the following tasks. Per tmb_planning section 5 (Spawn SWE), the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
 
 Tasks created:
 ${tasks}
 
-For each task, run the two-step proven flow:
-1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | node \${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js worktree-create\` — capture the printed path.
-2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
+Next step:
+1. Spawn swe for every task in one message: \`Agent(subagent_type='swe', effort='<tasks.effort>', prompt='task_id=<N>')\`.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;
 }

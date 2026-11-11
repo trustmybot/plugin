@@ -825,6 +825,7 @@ describe('cli.js integrate', () => {
       assert.equal(rev(`${r.out}^`), remoteTip, "the rebased commit's parent is the fetched origin/main");
       assert.equal(rev('refs/heads/feat/x-1'), r.out, 'feat/x-1 tip');
       assert.match(r.err, /refs\/heads\/main .*refs\/remotes\/origin\/main/, 'one line names both refs');
+      assert.match(r.err, /onto origin\/main \([0-9a-f]{40}\)/, 'stderr names the upstream it rebased onto');
       assert.equal(rev('main'), base0, 'local main is not moved');
     });
 
@@ -860,6 +861,42 @@ describe('cli.js integrate', () => {
       assertNotIntegrated();
       assertNoTempWorktree();
     });
+
+    it('a hung fetch times out: exit 4, branch and DB unchanged (GH 2632)', () => {
+      setupRemote();
+      git('remote', 'set-url', 'origin', 'ssh://hang.invalid/origin.git');
+      const r = integrate('main', { GIT_SSH_COMMAND: 'sleep 60;:', GIT_SSH_VARIANT: 'simple', TMB_INTEGRATE_FETCH_TIMEOUT_MS: '1000' });
+      assert.equal(r.code, 4, r.err);
+      assert.match(r.err, /fetch of base 'main' \(origin main\) timed out after 1000 ms/, 'stderr names the timeout');
+      assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+      assertNotIntegrated();
+      assertNoTempWorktree();
+    });
+  });
+
+  // GH 2356: the task renames r.txt to b.txt while main renames it to c.txt, as a
+  // dist regen renames a content-hashed chunk. With rename detection the rebase
+  // stops on a rename/rename conflict; without it the rebase applies, and the
+  // every-path patch-ids then see the dropped delete of r.txt as drift.
+  it('both sides rename the same file: no rename/rename conflict (GH 2356)', () => {
+    setup('none', '["test -f b.txt"]');
+    git('branch', '-q', '-D', 'feat/x-1');
+    commitFile('r.txt', ['one', 'two', 'three', 'four', 'five'].join('\n'), 'chore: r.txt');
+    git('checkout', '-q', '-b', 'feat/x-1');
+    git('mv', 'r.txt', 'b.txt');
+    git('commit', '-qm', 'feat: r.txt -> b.txt');
+    commit = rev('HEAD');
+    git('checkout', '-q', 'main');
+    git('mv', 'r.txt', 'c.txt');
+    git('commit', '-qm', 'chore: r.txt -> c.txt');
+    pointTaskAt(commit);
+    const r = integrate('main');
+    assert.equal(r.code, 2, r.err);
+    assert.doesNotMatch(r.err, /conflicted|CONFLICT/, 'the rebase did not stop on a rename/rename conflict');
+    assert.match(r.err, /source patches/, 'the patch-id check judged the rebased commit');
+    assert.equal(rev('refs/heads/feat/x-1'), commit, 'feat/x-1 tip');
+    assertNotIntegrated();
+    assertNoTempWorktree();
   });
 
   // git-guards denies a rebase in the main checkout; the temporary worktree

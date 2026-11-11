@@ -104,7 +104,6 @@ function allowed(root) {
   );
 }
 
-const sh = (rel) => rel.endsWith('.sh');
 const l5l6Ts = (rel) => rel.endsWith('.ts') && !rel.endsWith('.test.ts');
 const serverTs = (rel) => rel.endsWith('.ts') && !rel.includes('/test/');
 
@@ -112,20 +111,13 @@ export function scope(root = ROOT) {
   const allow = allowed(root);
   return (rel) =>
     !allow.has(rel) &&
-    (((rel.startsWith('scripts/') || /^skills\/[^/]+\/scripts\//.test(rel)) && sh(rel)) ||
-      (/^tests\/l5-l6\/(lib\/)?[^/]+$/.test(rel) && l5l6Ts(rel)) ||
+    ((/^tests\/l5-l6\/(lib\/)?[^/]+$/.test(rel) && l5l6Ts(rel)) ||
       (rel.startsWith('mcp/trajectory-server/src/') && serverTs(rel)));
 }
 
 export function files(root = ROOT) {
   const allow = allowed(root);
-  const skillScripts = existsSync(join(root, 'skills'))
-    ? readdirSync(join(root, 'skills'), { withFileTypes: true })
-        .filter((e) => e.isDirectory())
-        .flatMap((e) => find(root, `skills/${e.name}/scripts`, sh, []))
-    : [];
   return [
-    ...[...find(root, 'scripts', sh, []), ...skillScripts].sort(),
     ...[...find(root, 'tests/l5-l6', l5l6Ts, [], 1), ...find(root, 'tests/l5-l6/lib', l5l6Ts, [], 1)].sort(),
     ...find(root, 'mcp/trajectory-server/src', serverTs, []).sort(),
   ].filter((f) => !allow.has(f));

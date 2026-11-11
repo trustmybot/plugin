@@ -51,6 +51,12 @@ function seedTask(db: TrajectoryDB, issueId: number, status: string, updatedAt =
   return db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
 }
 
+function seedModeTask(db: TrajectoryDB, issueId: number, mode: 'truest' | 'agile' | null, updatedAt: string): number {
+  const id = seedTask(db, issueId, 'closed', updatedAt);
+  db.run('UPDATE tasks SET workflow_mode = ? WHERE id = ?', [mode, id]);
+  return id;
+}
+
 function seedAudit(db: TrajectoryDB, eventType: string, content: Record<string, unknown> = {}, createdAt = iso(), fromNode = 'bro'): void {
   db.run(
     `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, ?, ?, 's', ?, ?)`,
@@ -253,6 +259,26 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       const mergeBypassed = seedTask(db, issue, 'closed', iso(-25 * HOUR));
       seedAudit(db, 'review_gate_bypassed', { task_id: mergeBypassed }, iso(), 'hook:close-issue-on-merge');
       seedTask(db, issue, 'closed', iso(-31 * DAY));
+      seedModeTask(db, issue, 'agile', iso(-25 * HOUR));
+    },
+  },
+  agile_review_queued: {
+    violate: (db) => {
+      seedModeTask(db, seedIssue(db), 'agile', iso(-25 * HOUR));
+    },
+    pass: (db) => {
+      const issue = seedIssue(db);
+      seedModeTask(db, issue, 'agile', iso(-HOUR));
+      const reviewed = seedModeTask(db, issue, 'agile', iso(-25 * HOUR));
+      db.run(
+        `INSERT INTO validation_attempts (task_id, attempt_n, verdict, mcp_available, created_at) VALUES (?, 1, 'pass', 1, ?)`,
+        [reviewed, iso()],
+      );
+      const waived = seedModeTask(db, issue, 'agile', iso(-25 * HOUR));
+      seedAudit(db, 'review_gate_waived', { task_id: waived });
+      seedModeTask(db, issue, 'agile', iso(-31 * DAY));
+      seedModeTask(db, issue, 'truest', iso(-25 * HOUR));
+      seedModeTask(db, issue, null, iso(-25 * HOUR));
     },
   },
   no_stale_running: {
@@ -674,6 +700,51 @@ describe('data contracts', () => {
     const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
     seedAudit(db, 'review_gate_bypassed', { task_id: task }, iso(), 'hook:other-hook');
     assert.equal(violated(db, 'closed_tasks_reviewed'), true);
+  });
+
+  it('closed_tasks_reviewed skips an unreviewed agile task and still counts a truest or unstamped one', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    seedModeTask(db, issue, 'agile', iso(-25 * HOUR));
+    assert.equal(violated(db, 'closed_tasks_reviewed'), false);
+    for (const mode of ['truest', null] as const) {
+      const fresh = tempDB();
+      seedModeTask(fresh, seedIssue(fresh), mode, iso(-25 * HOUR));
+      assert.equal(violated(fresh, 'closed_tasks_reviewed'), true, String(mode));
+    }
+  });
+
+  it('agile_review_queued reports the unreviewed agile backlog as its observed count', () => {
+    const db = tempDB();
+    const issue = seedIssue(db);
+    seedModeTask(db, issue, 'agile', iso(-25 * HOUR));
+    seedModeTask(db, issue, 'agile', iso(-26 * HOUR));
+    seedModeTask(db, issue, 'truest', iso(-25 * HOUR));
+    seedModeTask(db, issue, null, iso(-25 * HOUR));
+    const report = runDataContracts(trajectoryDbReader(db), [contract('agile_review_queued')], { env: {} });
+    assert.deepEqual(report.skipped, []);
+    const v = report.violations.find((x) => x.id === 'agile_review_queued');
+    assert.ok(v, 'agile_review_queued violated');
+    assert.equal(v.severity, 'warn');
+    assert.equal(v.actual, 2);
+  });
+
+  it('agile_review_queued waits TMB_REVIEW_GRACE_HOURS (default 24) after the close', () => {
+    const db = tempDB();
+    seedModeTask(db, seedIssue(db), 'agile', iso(-20 * HOUR));
+    const c = contract('agile_review_queued');
+    assert.equal(runDataContracts(trajectoryDbReader(db), [c], { env: {} }).violations.length, 0);
+    assert.equal(runDataContracts(trajectoryDbReader(db), [c], { env: { TMB_REVIEW_GRACE_HOURS: '12' } }).violations.length, 1);
+  });
+
+  it('closed_tasks_reviewed and agile_review_queued need schema v66', () => {
+    assert.equal(contract('closed_tasks_reviewed').min_schema, 66);
+    assert.equal(contract('agile_review_queued').min_schema, 66);
+    const db = tempDB();
+    db.run('UPDATE plugin_meta SET schema_version = 65 WHERE id = 1');
+    const report = runDataContracts(trajectoryDbReader(db), [contract('closed_tasks_reviewed'), contract('agile_review_queued')], { env: {} });
+    assert.deepEqual(report.skipped.map((s) => s.id).sort(), ['agile_review_queued', 'closed_tasks_reviewed']);
+    assert.equal(report.violations.length, 0);
   });
 
   it('no_unconsumed_reviewer_observations holds on an empty audit table', () => {
