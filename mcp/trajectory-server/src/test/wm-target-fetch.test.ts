@@ -28,7 +28,7 @@ import {
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 
-const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as Raw).content[0]!.text);
+const parse = (r: unknown): Record<string, unknown> => JSON.parse((r as Raw).content[0].text);
 
 let pin: ScanEnvPin;
 before(() => {
@@ -102,7 +102,7 @@ async function fixture(opts: { origin?: boolean } = {}): Promise<Fx> {
   const graph = new WorldModelGraph(db);
   const holder = GraphHolder.fixed(graph);
   const scan = scanTools(db, holder, dbPath).handlers as Handlers;
-  const r = (await scan['scan_run']!({ agent: 'bro', session_dir: ws, source: 'user_manual' })) as Raw;
+  const r = (await scan['scan_run']({ agent: 'bro', session_dir: ws, source: 'user_manual' })) as Raw;
   assert.ok(!r.isError, JSON.stringify(r));
   await reindexIdle();
   db.run(`UPDATE repos SET target_branch = 'main' WHERE name = 'app'`);
@@ -111,7 +111,7 @@ async function fixture(opts: { origin?: boolean } = {}): Promise<Fx> {
     db,
     graph,
     dbPath,
-    tools: worldModelTools(db, holder, root).handlers as Handlers,
+    tools: worldModelTools(db, holder, root).handlers,
     push: (rel, body) => {
       writeFileSync(join(other, rel), body);
       gitIn(other, 'add', '-A');
@@ -133,7 +133,7 @@ const BETA = 'export function beta(): number {\n  return 2;\n}\n';
 async function read(fx: Fx, agent: string, tool = 'world_model_symbol'): Promise<Record<string, unknown>> {
   const args: Record<string, unknown> =
     tool === 'world_model_symbol' ? { agent, repo: 'app', qualified_name: 'alpha' } : tool === 'world_model_search' ? { agent, repo: 'app', query: 'alpha', mode: 'keyword' } : { agent, repo: 'app' };
-  const r = (await fx.tools[tool]!(args)) as Raw;
+  const r = (await fx.tools[tool](args)) as Raw;
   assert.ok(!r.isError, JSON.stringify(r));
   return parse(r);
 }
@@ -148,7 +148,7 @@ describe('world_model_* reads fetch origin/<target> (GH 2584)', () => {
     const fx = await fixture();
     try {
       const pushed = fx.push('b.ts', BETA);
-      const r = (await fx.tools['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'beta' })) as Raw;
+      const r = (await fx.tools['world_model_symbol']({ agent: 'bro', repo: 'app', qualified_name: 'beta' })) as Raw;
       assert.ok(!r.isError, JSON.stringify(r));
       const out = parse(r);
       assert.equal(fx.originRef(), pushed, 'origin/main moved to the pushed commit');
@@ -184,8 +184,8 @@ describe('world_model_* reads fetch origin/<target> (GH 2584)', () => {
       __setTargetFetchForTests({ runner: c.runner });
       await read(fx, 'bro');
       assert.equal(c.calls.length, 1);
-      assert.deepEqual(c.calls[0]!.slice(-4), ['fetch', '-q', 'origin', 'main']);
-      assert.ok(c.calls[0]!.includes('http.lowSpeedLimit=1000'));
+      assert.deepEqual(c.calls[0].slice(-4), ['fetch', '-q', 'origin', 'main']);
+      assert.ok(c.calls[0].includes('http.lowSpeedLimit=1000'));
       await read(fx, 'bro', 'world_model_search');
       await read(fx, 'bro', 'world_model_get');
       assert.equal(c.calls.length, 1, 'no fetch inside the window');
@@ -321,7 +321,7 @@ describe('task_provision forces the target fetch (GH 2958)', () => {
   async function provision(fx: Fx, branchId: string): Promise<Record<string, unknown>> {
     fx.db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
     const composites = compositeTools(fx.db, fx.dbPath, GraphHolder.fixed(fx.graph), { host: 'claude', projectRoot: dirname(fx.root) }).handlers as Handlers;
-    const r = (await composites['task_provision']!({
+    const r = (await composites['task_provision']({
       agent: 'bro',
       issue_id: 1,
       branch_id: branchId,
@@ -345,7 +345,7 @@ describe('task_provision forces the target fetch (GH 2958)', () => {
       __setTargetFetchForTests({ runner: c.runner });
       await provision(fx, 'feat/forced-fetch');
       assert.equal(c.calls.length, 1, 'one forced fetch despite the open window');
-      assert.deepEqual(c.calls[0]!.slice(-4), ['fetch', '-q', 'origin', 'main']);
+      assert.deepEqual(c.calls[0].slice(-4), ['fetch', '-q', 'origin', 'main']);
       assert.equal(fx.originRef(), pushed);
       const indexed = fx.db.get<{ c: string | null }>(`SELECT indexed_commit AS c FROM repos WHERE name = 'app'`)?.c;
       assert.equal(indexed, pushed);
@@ -366,9 +366,9 @@ describe('task_provision forces the target fetch (GH 2958)', () => {
       assert.equal(typeof out['task_id'], 'number');
       const rows = failedRows(fx.db);
       assert.equal(rows.length, 1);
-      assert.equal(rows[0]!.issue_id, 1);
-      assert.equal(rows[0]!.branch_id, 'feat/fetch-failed');
-      assert.deepEqual(JSON.parse(rows[0]!.content_json), { repo: 'app', branch: 'main', error: 'remote hung up' });
+      assert.equal(rows[0].issue_id, 1);
+      assert.equal(rows[0].branch_id, 'feat/fetch-failed');
+      assert.deepEqual(JSON.parse(rows[0].content_json), { repo: 'app', branch: 'main', error: 'remote hung up' });
     } finally {
       fx.cleanup();
     }
@@ -386,7 +386,7 @@ describe('task_provision forces the target fetch (GH 2958)', () => {
       assert.equal(typeof out['task_id'], 'number');
       const rows = failedRows(fx.db);
       assert.equal(rows.length, 1);
-      assert.match((JSON.parse(rows[0]!.content_json) as { error: string }).error, /ran past 50 ms/);
+      assert.match((JSON.parse(rows[0].content_json) as { error: string }).error, /ran past 50 ms/);
     } finally {
       release();
       fx.cleanup();

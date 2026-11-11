@@ -58,7 +58,7 @@ export interface WmRead {
 function parseLine(line: string): TranscriptLine | null {
   try {
     const v: unknown = JSON.parse(line);
-    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as TranscriptLine) : null;
+    return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : null;
   } catch {
     return null;
   }
