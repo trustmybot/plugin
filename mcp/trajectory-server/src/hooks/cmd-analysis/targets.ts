@@ -93,10 +93,10 @@ function movedPaths(args: readonly string[], valued?: RegExp): string[] {
  * Tree-writes mode: the dirs one command fills with a whole tree it copies,
  * moves or extracts: a recursive cp's and an rsync's destination, where a
  * mv's sources land, and a tar extract's `-C` dirs, else its own dir. Only
- * these commands' arguments are brace-expanded (braceWords), as bash passes
- * them; no other command's words are.
+ * these commands' arguments are brace-expanded (braceWords, with <unresolvable>
+ * as its stand-in), as bash passes them; no other command's words are.
  */
-function treeTargetWords(w: string[], out: string[]): void {
+function treeTargetWords(w: string[], out: string[], unresolvable: string): void {
   let pre = '';
   const u = unwrap(w, 0);
   for (const dir of u.dirs) pre = under(pre, dir);
@@ -104,7 +104,7 @@ function treeTargetWords(w: string[], out: string[]): void {
   const put = (p: string) => out.push(under(pre, p));
   const cmd = basename(w[u.k]);
   if (cmd !== 'mv' && cmd !== 'rsync' && cmd !== 'cp' && !TAR.test(cmd)) return;
-  const args = braceWords(w.slice(u.k + 1));
+  const args = braceWords(w.slice(u.k + 1), unresolvable);
   if (cmd === 'mv') for (const p of movedPaths(args, /^(-S|--suffix)$/)) put(p);
   else if (cmd === 'rsync' || (cmd === 'cp' && cpRecursive(args))) for (const d of copyDestinations(args)) put(d);
   else if (TAR.test(cmd) && tarExtracts(args)) for (const d of tarDirs(args, '.')) put(d);
@@ -347,12 +347,12 @@ function writeTargetWords(w: string[], out: string[], final = false): void {
 }
 
 /** tmb_cmd_write_targets of one encoded statement line; `final` holds for its last command only; with `tree`, only treeTargetWords' dirs. */
-export function writeTargets(line: string, final = false, tree = false): string[] {
+export function writeTargets(line: string, final = false, tree?: TreeMode): string[] {
   const out: string[] = [];
   let w: string[] = [];
   let want = 0;
   const flush = (last = false) => {
-    if (tree) treeTargetWords(w, out);
+    if (tree) treeTargetWords(w, out, tree.unresolvable);
     else writeTargetWords(w, out, last && final);
     w = [];
   };
@@ -581,9 +581,13 @@ export interface ExtraWrites {
 
 export type Interp = (words: readonly string[]) => string[];
 
-/** Tree-writes mode; <gitLocationSet>: the command or its environment may set GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR. */
+/**
+ * Tree-writes mode; <gitLocationSet>: the command or its environment may set GIT_DIR, GIT_WORK_TREE
+ * or GIT_COMMON_DIR; <unresolvable>: the path braceWords puts for a word that may leave its stem.
+ */
 export interface TreeMode {
   gitLocationSet: boolean;
+  unresolvable: string;
 }
 
 /** The dir a pathspec body can write under: a glob cut to its leading literal dir. */
@@ -628,14 +632,14 @@ function readPathspec(spec: string): { top: boolean; dir: string } {
  * from the top, and where a `git mv`'s sources land. A `restore --staged`
  * without `--worktree` writes only the index. A pathspec named from the top,
  * or any pathspec under `--work-tree`, is a TopPath; under a `--git-dir`, or
- * with <locationEnv> and no `--work-tree`, its top cannot be told.
+ * with the tree mode's gitLocationSet and no `--work-tree`, its top cannot be told.
  */
-function gitTreeWrites(chain: boolean, words: string[], locationEnv: boolean): { paths: string[]; tops: TopPath[] } {
+function gitTreeWrites(chain: boolean, words: string[], tree: TreeMode): { paths: string[]; tops: TopPath[] } {
   const out: { paths: string[]; tops: TopPath[] } = { paths: [], tops: [] };
   const n = words.length;
   let cdir = '';
   let workTree: string | null = null;
-  let gitDir = locationEnv;
+  let gitDir = tree.gitLocationSet;
   let k = 1;
   const at = (j: number) => words[j] ?? '';
   while (k < n) {
@@ -659,7 +663,7 @@ function gitTreeWrites(chain: boolean, words: string[], locationEnv: boolean): {
   const rel = (p: string) => (chain ? under(cdir, p) : p);
   const sub = at(k);
   if (sub !== 'mv' && sub !== 'checkout' && sub !== 'restore') return out;
-  const args = braceWords(words.slice(k + 1));
+  const args = braceWords(words.slice(k + 1), tree.unresolvable);
   if (sub === 'mv') {
     out.paths.push(...movedPaths(args).map(rel));
     return out;
@@ -692,8 +696,8 @@ function gitTreeWrites(chain: boolean, words: string[], locationEnv: boolean): {
 }
 
 /** Tree-writes mode: a git command's tree writes and the interpreters' targets. */
-function treeExtraWrites(chain: boolean, words: string[], interp: Interp, locationEnv: boolean): { paths: string[]; tops: TopPath[] } {
-  const git = basename(words[0]) === 'git' ? gitTreeWrites(chain, words, locationEnv) : { paths: [], tops: [] };
+function treeExtraWrites(chain: boolean, words: string[], interp: Interp, tree: TreeMode): { paths: string[]; tops: TopPath[] } {
+  const git = basename(words[0]) === 'git' ? gitTreeWrites(chain, words, tree) : { paths: [], tops: [] };
   return { paths: [...git.paths, ...interp(words)], tops: git.tops };
 }
 
@@ -722,11 +726,11 @@ function extraWrites(chain: boolean, words: string[], interp: Interp): string[] 
 
 /** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on; `final` as in writeTargets; with `tree`, its tree writes only. */
 export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp, final = false, tree?: TreeMode): ExtraWrites {
-  const paths = writeTargets(stmt, final, tree !== undefined);
+  const paths = writeTargets(stmt, final, tree);
   const { pre, words } = unwrapStatement(stmt);
   if (words.length <= 1) return { paths, words, tops: [] };
   const fromPre = pre !== '' || chain;
-  const extra = tree ? treeExtraWrites(fromPre, words, interp, tree.gitLocationSet) : { paths: extraWrites(fromPre, words, interp), tops: [] };
+  const extra = tree ? treeExtraWrites(fromPre, words, interp, tree) : { paths: extraWrites(fromPre, words, interp), tops: [] };
   if (pre === '') return { paths: [...paths, ...extra.paths], words, tops: extra.tops };
   for (const p of extra.paths) if (p !== '') paths.push(under(pre, p));
   const tops = extra.tops.map((t) => (t.base === null ? t : { ...t, base: under(pre, t.base) }));

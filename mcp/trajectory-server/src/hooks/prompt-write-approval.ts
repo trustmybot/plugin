@@ -17,9 +17,13 @@
  * judges too (a trajectory DB and sqlite resolve), since nothing it writes can
  * be told (GH 2981); where it does not, such a command is denied only when its
  * text may name `.claude` (mayNameClaudeDir). Its other never-judged targets
- * are containment-guard's. A write target is judged on each word bash
- * brace-expands it to; a command that writes nothing has no word expanded. A
- * command with no gated target reads no DB.
+ * are containment-guard's. A write target (a tee or redirect target too) is
+ * judged on each word bash brace-expands it to; past what can be listed, on the
+ * words standing for it, and as the root's `.claude` dir, needing that dir's
+ * approval, when a word it expands to may lie outside its stem (a `..`
+ * segment, a root, or a `$` or backtick after it; GH 2994). A command that
+ * writes nothing has no word expanded. A command with no gated target reads no
+ * DB.
  *
  * A write naming only a dir above the prompt dirs (GH 2981) is gated too: a
  * `.claude`, `.claude/skills` or `.claude/agents` dir for any write, and the
@@ -31,12 +35,13 @@
  * into the root is gated only when one, brace-expanded, is named `.claude` or
  * is a glob that may match it (no glob char matches a leading dot unless the
  * command names dotglob); a source whose braces expand past what can be listed
- * counts as one that may be named `.claude`.
+ * counts as one that may be named `.claude`, or as the root's `.claude` dir when
+ * it may lie outside its stem.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
-import { braceEdge, braceExpand, CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
+import { braceWords, CAP_FIX, CAP_REASON, isCapLine, payloadCwd, writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
 import { NEVER_JUDGED, NEVER_JUDGED_FIX, UNJUDGED_PHRASE } from './containment-guard.js';
 import { judgedPath } from './no-source-edit-from-main.js';
 import { pathCanonical } from './lib/agent-context.js';
@@ -288,15 +293,17 @@ function holdsPromptDirs(spelled: string, target: string, root: string, dotglob:
 
 /**
  * The canonical targets of <lines> that <isGated> holds for. A write target is judged on each word
- * bash brace-expands it to (a redirect target too), or past what can be listed on its first and
- * last; only a line that is a write target gets here, so no other command's words expand.
+ * bash brace-expands it to (a tee or redirect target too), or past what can be listed on the words
+ * braceWords stands it as, the root's `.claude` dir for one that may leave its stem; only a line
+ * that is a write target gets here, so no other command's words expand.
  */
-function gatedTargets(lines: readonly string[], base: string, isGated: (spelled: string, target: string) => boolean): string[] {
+function gatedTargets(lines: readonly string[], base: string, root: string, isGated: (spelled: string, target: string) => boolean): string[] {
   const out: string[] = [];
+  const claudeDir = join(root, '.claude');
   for (const line of lines) {
     const path = judgedPath(line);
     if (path === null || path === '') continue;
-    for (const alternative of braceExpand(path) ?? [braceEdge(path, false), braceEdge(path, true)]) {
+    for (const alternative of braceWords([path], claudeDir)) {
       const spelled = resolve(base, alternative);
       const target = pathCanonical(spelled);
       if (isGated(spelled, target)) out.push(target);
@@ -327,9 +334,10 @@ async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): P
   if (agentRole(raw) === 'swe') return ALLOW;
   const root = projectRoot(env);
   const cwd = payloadCwd(raw, env);
-  const lines = await analyzed(command, { cwd, root, env });
+  // Raw, so a `..` after a brace (`{.claude/skills/a,b}/../q`) is resolved per expanded word, not folded into the brace.
+  const lines = await analyzed(command, { cwd, raw: true, root, env });
   if (lines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
-  const treeLines = await analyzed(command, { cwd, root, env, treeWrites: true });
+  const treeLines = await analyzed(command, { cwd, raw: true, root, env, treeWrites: true });
   if (treeLines.some(isCapLine)) return denyResult(CAP_REASON, CAP_FIX);
   const unparsed = lines.find((line) => line.startsWith(UNPARSED));
   if (unparsed !== undefined) {
@@ -343,8 +351,8 @@ async function bashRule(raw: string, command: string, env: NodeJS.ProcessEnv): P
   const base = baseDir(cwd, root);
   const dotglob = DOTGLOB.test(command);
   const promptWrite = (spelled: string, target: string): boolean => promptKind(spelled, target, root) !== null || isPromptParent(spelled, target, root);
-  const plain = gatedTargets(lines, base, promptWrite);
-  const tree = gatedTargets(treeLines, base, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root, dotglob));
+  const plain = gatedTargets(lines, base, root, promptWrite);
+  const tree = gatedTargets(treeLines, base, root, (spelled, target) => promptWrite(spelled, target) || holdsPromptDirs(spelled, target, root, dotglob));
   // A full approval of a dir already admits any tree into it, so where a moved file lands inside a gated dir needs no second approval.
   const gated = new Set([...plain, ...tree.filter((path) => !plain.some((dir) => underRoot(path, dir) !== null))]);
   if (gated.size === 0) return ALLOW;
