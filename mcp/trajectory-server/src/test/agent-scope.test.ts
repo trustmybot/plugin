@@ -13,7 +13,7 @@ import {
 import { registerTools, toolHandlers } from '../tools/index.js';
 import { GraphHolder } from '../graph.js';
 import type { TrajectoryDB } from '../db.js';
-import { TEST_PROBES, seedReviewerObservation, tempDB } from './helpers.js';
+import { TEST_PROBES, seedPassingRun, seedReviewerObservation, tempDB } from './helpers.js';
 import type { Issue } from '../types.js';
 import type { ValidationAttempt } from '../middleware/agent-scope.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -331,6 +331,7 @@ describe('registered tools: consultants on read tools, missing agent everywhere'
   });
 
   it('validation_record admits code-reviewer and rejects the pre-rename pr-reviewer name, writing no row (GH 1641)', async () => {
+    seedPassingRun(db, taskId);
     const record = (agent: string, attemptN: number) => {
       seedReviewerObservation(db, taskId, attemptN);
       return callTool('validation_record', {

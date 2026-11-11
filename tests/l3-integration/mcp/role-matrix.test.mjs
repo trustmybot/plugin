@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, seedReviewerObservation, REVIEW_PROBES } from './harness.mjs';
+import { startClient, call, seedReviewerObservation, seedPassingVerificationRun, REVIEW_PROBES } from './harness.mjs';
 
 // Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
 // registered tool, gated or not, rejects a missing or invalid `agent`.
@@ -226,6 +226,7 @@ test('task_update_status — bro and swe allowed; architect/code-reviewer forbid
 
   const sweDone = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
   assert.equal(sweDone.ok, true, `swe should complete; got ${JSON.stringify(sweDone)}`);
+  seedPassingVerificationRun(dbPath, taskId, 'abc1234');
 
   // completed → closed via task_update_status is rejected (#1025): the only
   // path into 'closed' is the bro_atomic_close composite.
@@ -273,7 +274,8 @@ test('validation_record — code-reviewer only; architect/bro/swe all forbidden'
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
+  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
+  seedPassingVerificationRun(dbPath, taskId, 'abc1234');
 
   for (const wrongRole of ['architect', 'bro', 'swe']) {
     const res = await call(client, 'validation_record', {

@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call, reviewHandoffAndPass } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, reviewHandoffAndPass, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 09 — Cold-restart: onboard_apply marks first_run=false; marker persists', async (t) => {
   const { client, close } = await startClient();
@@ -126,6 +126,7 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
   });
 
   // The close needs code-reviewer's pass after bro's review_handoff (GH 2939).
+  seedPassingVerificationRun(dbPath, taskId, 'abc1234');
   await reviewHandoffAndPass(client, dbPath, taskId);
 
   // Bro's correct task-gate close: bro_atomic_close writes the single

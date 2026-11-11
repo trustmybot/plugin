@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TrajectoryDB } from '../db.js';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { seedPassingRun, seedReviewerObservation, tempDB } from './helpers.js';
 import { REVIEWER_OBSERVATION_TTL_S, validationTools } from '../tools/validation.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -62,7 +62,9 @@ async function createTask(db: TrajectoryDB, issueId: number): Promise<number> {
     tasks: [{ branch_id: 'fix/validation-test', description: 'Test task' }],
   });
   assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(parseResult(result))}`);
-  return parseBatch(result)[0]!.id as number;
+  const taskId = parseBatch(result)[0]!.id as number;
+  seedPassingRun(db, taskId);
+  return taskId;
 }
 
 describe('validation_record probes (GH 2866)', () => {
@@ -150,6 +152,116 @@ describe('validation_record probes (GH 2866)', () => {
       null,
     );
   });
+});
+
+describe('validation_record verification_run_required (GH 2897)', () => {
+  const SHA = 'c0ffee00'.padEnd(40, '1');
+  const OTHER_SHA = 'deadbeef'.padEnd(40, '2');
+  let db: TrajectoryDB;
+  let issueId: number;
+  let taskSeq = 0;
+
+  before(async () => {
+    db = tempDB();
+    issueId = await createIssue(db);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  async function bareTask(commitSha: string | null): Promise<number> {
+    const tasks = taskTools(db);
+    const result = await call(tasks.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro', issue_id: String(issueId), tasks: [{ branch_id: `fix/validation-run-required-${++taskSeq}`, description: 'Run gate task' }],
+    });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    const taskId = parseBatch(result)[0].id as number;
+    db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', [commitSha, taskId]);
+    return taskId;
+  }
+
+  function addRun(taskId: number, sha: string, exitCode: number | null, timedOut: 0 | 1, startedAt: string): void {
+    db.run(
+      `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+       VALUES (?, ?, 'gate', ?, ?, ?, 900, ?)`,
+      [taskId, sha, startedAt, exitCode === null ? null : startedAt, exitCode, timedOut],
+    );
+  }
+
+  function record(taskId: number, verdict: string, extra: Record<string, unknown> = {}): Promise<RawResult> {
+    seedReviewerObservation(db, taskId, 1, { agentId: 'runrequired-agent' });
+    return call(validationTools(db).handlers, 'validation_record', {
+      agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict, feedback: '# Review', mcp_available: true,
+      ...(verdict === 'pass' ? { probes: PROBES } : { findings: [FINDING] }),
+      ...extra,
+    });
+  }
+
+  const outcome = (result: RawResult) => parseResult(result) as { error?: unknown; verdict?: string; reviewed_sha?: string };
+
+  const rows = (taskId: number): number =>
+    db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])!.n;
+
+  const T1 = '2026-11-11T10:00:00.000Z';
+  const T2 = '2026-11-11T10:05:00.000Z';
+
+  for (const [label, commitSha, runs, found] of [
+    ['no run', SHA, [], 'no verification run for the task'],
+    ['a failed run', SHA, [[SHA, 1, 0, T1]], 'a failed run (exit_code=1)'],
+    ['an unfinished run', SHA, [[SHA, null, 0, T1]], 'a failed run (exit_code=null)'],
+    ['a timed-out run', SHA, [[SHA, 124, 1, T1]], 'a run that timed out'],
+    ['only a passing run at another commit', SHA, [[OTHER_SHA, 0, 0, T1]], `only a run at another commit (${OTHER_SHA})`],
+    ['a passing run followed by a failed one at the commit', SHA, [[SHA, 0, 0, T1], [SHA, 2, 0, T2]], 'a failed run (exit_code=2)'],
+    ['no commit recorded', null, [[SHA, 0, 0, T1]], 'no commit recorded for the task'],
+  ] as const) {
+    it(`refuses a pass with ${label}, naming the run state, and writes no row`, async () => {
+      const taskId = await bareTask(commitSha);
+      for (const [sha, exitCode, timedOut, at] of runs) addRun(taskId, sha, exitCode, timedOut, at);
+      const result = await record(taskId, 'pass');
+      assert.ok(result.isError, JSON.stringify(parseResult(result)));
+      const error = String(outcome(result).error);
+      assert.ok(error.startsWith('verification_run_required:'), error);
+      assert.ok(error.includes(`found ${found}.`), error);
+      assert.equal(rows(taskId), 0, 'no validation_attempts row');
+    });
+  }
+
+  it('accepts a pass with a passing run at the commit, matching a short task SHA by prefix', async () => {
+    const taskId = await bareTask(SHA.slice(0, 9));
+    addRun(taskId, OTHER_SHA, 1, 0, T2);
+    addRun(taskId, SHA, 0, 0, T1);
+    const result = await record(taskId, 'pass');
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.equal(outcome(result).verdict, 'pass');
+    assert.equal(rows(taskId), 1);
+  });
+
+  it('judges tasks.commit_sha, as the preflight does, so a merge-only re-review of another sha passes on the task commit run', async () => {
+    const taskId = await bareTask(SHA);
+    addRun(taskId, SHA, 0, 0, T1);
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (?, 'hook:record-reviewer-spawn', 'reviewer_spawn_observed', 'spawn', ?, ?)`,
+      [issueId, JSON.stringify({ task_id: taskId, attempt_n: 1, commit_sha: OTHER_SHA }), T2],
+    );
+    const accepted = await record(taskId, 'pass');
+    assert.ok(!accepted.isError, JSON.stringify(parseResult(accepted)));
+    assert.equal(outcome(accepted).reviewed_sha, OTHER_SHA);
+  });
+
+  for (const verdict of ['fail', 'escalate']) {
+    it(`a ${verdict} needs no verification run`, async () => {
+      const taskId = await bareTask(SHA);
+      const result = await record(taskId, verdict);
+      assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+      assert.equal(rows(taskId), 1);
+    });
+  }
 });
 
 describe('validation_record review findings (GH 1737)', () => {
@@ -853,6 +965,7 @@ describe('validation_record return_line (GH 1959)', () => {
     db = tempDB();
     taskId = await createTask(db, await createIssue(db));
     db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', ['fedcba9876543210fedcba9876543210fedcba98', taskId]);
+    seedPassingRun(db, taskId);
   });
 
   after(() => {

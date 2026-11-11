@@ -41,7 +41,7 @@ Give each finding a `class` and a `severity`:
 
 ## Verdicts
 
-- `pass` — every criterion holds in the diff and no finding is blocking. It carries your probes (see Recording a pass) and the nit and pre_existing findings you found; bro routes the findings after the push.
+- `pass` — every criterion holds in the diff, no finding is blocking, and the gate's verification run at this commit passed; `validation_record` refuses a pass without that run (`verification_run_required`), so escalate when it is missing. It carries your probes (see Recording a pass) and the nit and pre_existing findings you found; bro routes the findings after the push.
 - `fail` — at least one finding is blocking. Use it when the spec is clear enough to judge the diff and the diff breaks it; the rework swe fixes each blocking finding.
 - `escalate` — use it when the commit cannot be judged against its spec: the spec is ambiguous or contradicts itself, or evidence you need to judge it is unavailable, so bro, the owner of the spec and the design, decides. Its findings name what blocks the judgement. The server treats it as a non-pass: the task cannot close until a later pass, and its blocking findings are probed at every close attempt, as a fail's are.
 

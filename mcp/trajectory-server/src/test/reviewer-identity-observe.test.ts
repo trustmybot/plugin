@@ -74,7 +74,10 @@ describe('reviewer-identity-observe: a code-reviewer validation_record records i
       d.exec(SCHEMA);
       d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'review', 'open', ?, ?)").run(NOW, NOW);
       d.prepare(
-        "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (42, 7, 'fix/review', 'dev', 'd', 'closed', ?, ?)",
+        "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, commit_sha, created_at, updated_at) VALUES (42, 7, 'fix/review', 'dev', 'd', 'closed', 'abc1234', ?, ?)",
+      ).run(NOW, NOW);
+      d.prepare(
+        "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out) VALUES (42, 'abc1234', 'gate', ?, ?, 0, 900, 0)",
       ).run(NOW, NOW);
     } finally {
       d.close();

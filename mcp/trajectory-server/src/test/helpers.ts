@@ -50,6 +50,23 @@ export function seedReviewerObservation(
   return Number(res.lastInsertRowid);
 }
 
+export const TEST_COMMIT_SHA = 'abc1234def5678abc1234def5678abc1234def56';
+
+// seedPassingRun writes the passing verification run a validation_record pass
+// requires (verification_run_required, GH 2897) at the task's commit_sha,
+// recording `sha` as that commit first when the task has none.
+export function seedPassingRun(db: TrajectoryDB, taskId: number | string, sha: string = TEST_COMMIT_SHA): number {
+  db.run('UPDATE tasks SET commit_sha = ? WHERE id = ? AND commit_sha IS NULL', [sha, Number(taskId)]);
+  const commit = db.get<{ commit_sha: string }>('SELECT commit_sha FROM tasks WHERE id = ?', [Number(taskId)])?.commit_sha ?? sha;
+  const startedAt = new Date(Date.now() - 120_000).toISOString();
+  const res = db.run(
+    `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+     VALUES (?, ?, 'gate', ?, ?, 0, 900, 0)`,
+    [Number(taskId), commit, startedAt, startedAt],
+  );
+  return Number(res.lastInsertRowid);
+}
+
 // seedReviewedCommit writes bro's review_handoff of the commit followed by a
 // code-reviewer pass: the review evidence bro_atomic_close requires before it
 // closes the task.

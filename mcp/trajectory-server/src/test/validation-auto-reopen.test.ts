@@ -25,7 +25,7 @@ import { reReviewAdmission } from '../tools/reopen.js';
 import { scanTools } from '../tools/scan.js';
 import { REVIEWER_SPAWN_FROM_NODE, validationTools } from '../tools/validation.js';
 import { reindexIdle } from '../world-model/freshness.js';
-import { TEST_PROBES, pinScanEnv, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
+import { TEST_PROBES, pinScanEnv, seedPassingRun, seedReviewerObservation, tempDB, type ScanEnvPin } from './helpers.js';
 
 type Raw = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -84,6 +84,7 @@ describe('validation_record reopens on a FAIL (GH 2866)', () => {
     const attemptN = (attempts.get(taskId) ?? 0) + 1;
     attempts.set(taskId, attemptN);
     seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-${taskId}-${attemptN}` });
+    if (verdict === 'pass') seedPassingRun(db, taskId);
     return (await validationTools(db).handlers['validation_record']({
       agent: 'code-reviewer',
       task_id: String(taskId),

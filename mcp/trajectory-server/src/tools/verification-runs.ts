@@ -150,6 +150,48 @@ export function verificationWaivedForCommit(db: TrajectoryDB, taskId: number, co
 }
 
 /**
+ * The run a pass verdict is judged by: the task's newest verification run on
+ * the commit (?2, lowercased; either SHA may be the other's prefix), else its
+ * newest run on any commit, which at_sha = 0 marks. ?1 is the task id.
+ */
+export const PASS_RUN_SQL = `
+  SELECT commit_sha, exit_code, timed_out,
+         CASE WHEN ?2 <> '' AND commit_sha <> ''
+                   AND (substr(lower(commit_sha), 1, length(?2)) = ?2 OR substr(?2, 1, length(commit_sha)) = lower(commit_sha))
+              THEN 1 ELSE 0 END AS at_sha
+    FROM verification_runs
+   WHERE task_id = ?1
+   ORDER BY at_sha DESC, started_at DESC, id DESC
+   LIMIT 1`;
+
+export interface PassRunRow {
+  commit_sha: string;
+  exit_code: number | null;
+  timed_out: number;
+  at_sha: number;
+}
+
+export const VERIFICATION_RUN_REQUIRED = 'verification_run_required';
+
+/**
+ * Why a pass verdict for the task at `commitSha` is refused (the detail of a
+ * VERIFICATION_RUN_REQUIRED error), or null when the
+ * run PASS_RUN_SQL found passed on that commit (exit 0, not timed out). The
+ * code-reviewer preflight checks the same before the spawn, but it has a
+ * bypass, so validation_record and its fallback refuse here too.
+ */
+export function passRunRefusal(taskId: number | string, commitSha: string | null, run: PassRunRow | undefined): string | null {
+  if (run && run.at_sha === 1 && run.exit_code === 0 && run.timed_out === 0) return null;
+  let found: string;
+  if (commitSha === null || commitSha === '') found = 'no commit recorded for the task';
+  else if (!run) found = 'no verification run for the task';
+  else if (run.at_sha !== 1) found = `only a run at another commit (${run.commit_sha || 'none recorded'})`;
+  else if (run.timed_out !== 0) found = 'a run that timed out';
+  else found = `a failed run (exit_code=${run.exit_code ?? 'null'})`;
+  return `a pass needs the gate's passing verification run (exit_code 0, not timed out) for task ${taskId} at ${commitSha || 'its commit'}; found ${found}.`;
+}
+
+/**
  * The task's latest recorded verification run (written by
  * swe-verification-gate), or null when none exists. With `startedBy`, only
  * runs started at or before that ISO timestamp count. With `withOutputTail`,

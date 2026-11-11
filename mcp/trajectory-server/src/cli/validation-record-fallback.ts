@@ -3,7 +3,9 @@
  * validation_record while the MCP trajectory-server is down. Validates the
  * findings[] as validation_record's parseFindings does, with SQLite's JSON
  * functions, and the probes[] with validation_record's parseProbes (a pass
- * needs them, GH 2866), then writes the validation_attempts row with
+ * needs them, GH 2866), refuses a pass without the passing verification run
+ * validation_record requires (verification_run_required, GH 2897), then
+ * writes the validation_attempts row with
  * mcp_available = 0, its probes_json and the attempt's review_findings through
  * tmb_db_write's port (busy timeout, foreign keys on, one BEGIN IMMEDIATE
  * transaction, a retry on a busy DB).
@@ -16,6 +18,7 @@ import { dbWrite, nowIso } from '../hooks/lib/audit.js';
 import { sqlQuote } from '../hooks/lib/db.js';
 import { loadNodeSqlite } from '../hooks/lib/sqlite-shell.js';
 import { ProbesError, parseProbes, probesJson, type ReviewProbe } from '../tools/review-probes.js';
+import { PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, passRunRefusal, type PassRunRow } from '../tools/verification-runs.js';
 import { type CliIo, dbNotFoundJson, fallbackDbPath, isFile } from './fallback-db.js';
 
 const USAGE =
@@ -24,6 +27,7 @@ const USAGE =
 /** The whitespace String.prototype.trim strips, so text is trimmed as on the server. */
 const WS = 'char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)';
 const FINDING_SHAPE = '{criterion_id?, probe_cmd, expected, observed, severity?, class?}';
+const PASS_READ_TIMEOUT_MS = 5000;
 const ALLOWED_KEYS = "('criterion_id', 'probe_cmd', 'expected', 'observed', 'severity', 'class')";
 const SEVERITIES = "('blocking', 'nit', 'pre_existing')";
 const SEVERITY_SQL = "COALESCE(json_extract(e.value, '$.severity'), 'blocking')";
@@ -104,6 +108,25 @@ function probesCheck(raw: string | undefined, verdict: string): ReviewProbe[] | 
   } catch (e) {
     if (e instanceof ProbesError) return e;
     throw e;
+  }
+}
+
+/** validation_record's verification_run_required refusal of a pass, read from <db>; null when the pass may be written. */
+function passRefusal(db: string, taskId: string): { code: string; message: string } | null {
+  try {
+    const sqlite = loadNodeSqlite();
+    if (!sqlite) throw new Error('node:sqlite is unavailable in this Node');
+    const conn = new sqlite.DatabaseSync(db, { timeout: PASS_READ_TIMEOUT_MS });
+    try {
+      const sha = (conn.prepare('SELECT commit_sha FROM tasks WHERE id = ?').get(Number(taskId)) as { commit_sha: string | null } | undefined)?.commit_sha ?? null;
+      const run = conn.prepare(PASS_RUN_SQL).get(Number(taskId), (sha ?? '').toLowerCase()) as PassRunRow | undefined;
+      const refusal = passRunRefusal(taskId, sha, run);
+      return refusal === null ? null : { code: VERIFICATION_RUN_REQUIRED, message: refusal };
+    } finally {
+      conn.close();
+    }
+  } catch (e) {
+    return { code: 'db-read-failed', message: `could not read the verification run from ${db}: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
@@ -194,7 +217,14 @@ export function validationRecordFallback(argv: readonly string[], env: NodeJS.Pr
     io.out(dbNotFoundJson(db));
     return 1;
   }
-  const r = dbWrite(db, writeSql(taskId, attemptN, verdict, feedback, session, findings, probes, nowIso()), {
+  if (verdict === 'pass') {
+    const refusal = passRefusal(db, taskId);
+    if (refusal) {
+      io.out(jsonError(refusal.code, refusal.message));
+      return 1;
+    }
+  }
+  const r =dbWrite(db, writeSql(taskId, attemptN, verdict, feedback, session, findings, probes, nowIso()), {
     caller: 'validation-record-fallback',
     env,
   });

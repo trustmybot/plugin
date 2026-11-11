@@ -7,7 +7,7 @@ import { insertAudit } from './audit.js';
 import type { Effort } from './config.js';
 import { applyReopenInTx, atLeastReworkFloor, insertEffortRaised, type ClearedCompletion, type ReopenTask } from './reopen.js';
 import { PROBE_SHAPE, parseProbes, probesJson, type ReviewProbe } from './review-probes.js';
-import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
+import { FINDING_ORDER_SQL, PASS_RUN_SQL, VERIFICATION_RUN_REQUIRED, latestVerificationRun, passRunRefusal, type PassRunRow } from './verification-runs.js';
 import { SPAWN_NOTE_MAX_CHARS, WM_FEEDBACK_KEYS, toWmFeedback, wmFeedbackProblem, type WmFeedback } from '../success-criteria.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -348,6 +348,7 @@ export function validationTools(db: TrajectoryDB): {
       name: 'validation_record',
       description:
         'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. ' +
+        'A pass is refused (verification_run_required) unless the newest verification run at tasks.commit_sha exited 0 and did not time out. ' +
         "Each finding becomes a review_findings row. Append-only: an attempt_n that already has a row is stored as the task's highest attempt_n + 1, and the result reports the stored attempt. wm_feedback's audit row goes on the task's issue.",
       inputSchema: {
         type: 'object',
@@ -355,7 +356,11 @@ export function validationTools(db: TrajectoryDB): {
           agent: { type: 'string' },
           task_id: { type: 'string' },
           attempt_n: { type: 'number' },
-          verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
+          verdict: {
+            type: 'string',
+            enum: ['pass', 'fail', 'escalate'],
+            description: "pass needs the task's newest verification run at tasks.commit_sha to have exited 0 without timing out (the code-reviewer preflight's check, so a merge-only re-review of a later sha passes on the task commit's run); else verification_run_required names what was found: no commit, no run, only a run at another commit, a timed-out run or a failed one. fail and escalate need no run.",
+          },
           feedback: { type: 'string' },
           mcp_available: { type: 'boolean', description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
           subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
@@ -541,6 +546,12 @@ export function validationTools(db: TrajectoryDB): {
           throw new Error(
             `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`,
           );
+        }
+
+        if (verdict === 'pass') {
+          const run = db.get<PassRunRow>(PASS_RUN_SQL, [taskId, (taskExists.commit_sha ?? '').toLowerCase()]);
+          const refusal = passRunRefusal(taskId, taskExists.commit_sha, run);
+          if (refusal) throw new Error(`${VERIFICATION_RUN_REQUIRED}: ${refusal}`);
         }
 
         storedAttempt = db.get<{ n: number }>(
