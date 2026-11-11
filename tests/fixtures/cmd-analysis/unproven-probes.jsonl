@@ -260,3 +260,15 @@
 {"src":"gh2490","cmd":"python3 -c \"import os;(e,),f=(os.environ,),1;e['HOME']='/etc'\"","expect":"fail_closed"}
 {"src":"gh2490","cmd":"python3 -c \"import sys;a,b=sys.stdout;a.x=1\"","expect":"fail_closed"}
 {"src":"gh2490","cmd":"python3 -c \"import os\ndef f(x): x['A']='1'\nf(' '.join(os.environ) and os.environ)\"","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"agents/a.md\")'","expect":"empty"}
+{"src":"gh2024","cmd":"perl -e 'open(my $f,\"<agents/a.md\")'","expect":"empty"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\" > agents/a.md\")'","expect":"fail_closed","danger":"/w/agents/a.md"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"agents/a.md |\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"| tee agents/a.md\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"$m agents/a.md\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"\\x3eagents/a.md\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\">&STDOUT\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"agents/a.md\" . $m)'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F,\"-\")'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e 'open(F)'","expect":"fail_closed"}
+{"src":"gh2024","cmd":"perl -e '$o->open(F,\"agents/a.md\")'","expect":"fail_closed"}

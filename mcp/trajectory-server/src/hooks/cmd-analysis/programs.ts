@@ -117,11 +117,15 @@ const Q = `['"]`;
 const LIT = `${Q}[^'"]+${Q}`;
 const FN =
   'writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|dump_stats|(File|IO)\\.(bin)?write|os\\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\\.(copy|copyfile|copy2|copytree|move)';
+// A whole mode-letter string ('w', "rb+", 'w:utf-8'), so a path that starts with a mode letter ("agents/a.md") is no mode (GH 2024).
+const LETTER_MODE = `${Q}[rbtUs]*[wax+][rwxabtUs+]*(${Q}|[:|])`;
+// perl's write prefix: a 3-arg middle arg or the head of a 2-arg string (">x", ">>x", "+<x", " >x").
+const PERL_WRITE_MODE = `${Q}[ \\t]*(>|\\+[<>])`;
 const SHAPE = new RegExp(
-  `open${SP}\\([^)]*,${SP}(mode${SP}=${SP})?${Q}[rbt]*[wax+]|open${SP}\\(?[^,;()]*,${SP}${Q}[+]?>|write_text|write_bytes|createWriteStream|(${FN})${SP}\\(`,
+  `open${SP}\\([^)]*,${SP}(mode${SP}=${SP})?${LETTER_MODE}|open${SP}\\(?[^,;()]*,${SP}${PERL_WRITE_MODE}|write_text|write_bytes|createWriteStream|(${FN})${SP}\\(`,
 );
 const WRITES = new RegExp(
-  `open${SP}\\(${SP}${LIT}${SP},${SP}(mode${SP}=${SP})?${Q}[rbt]*[wax+]|(${FN})${SP}\\(${SP}${LIT}|Path${SP}\\(${SP}${LIT}${SP}\\)${SP}\\.${SP}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)`,
+  `open${SP}\\(${SP}${LIT}${SP},${SP}(mode${SP}=${SP})?${LETTER_MODE}|(${FN})${SP}\\(${SP}${LIT}|Path${SP}\\(${SP}${LIT}${SP}\\)${SP}\\.${SP}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)`,
   'g',
 );
 const READS = new RegExp(
