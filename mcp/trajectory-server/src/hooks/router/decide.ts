@@ -35,6 +35,7 @@ import type { Gate, GateResult } from '../gate.js';
 import { runWithDeadline } from '../lib/deadline.js';
 import { fixedReason, passthroughDeny } from '../lib/deny.js';
 import { runWithGitMemo } from '../lib/git.js';
+import { jqSurrogateEscapes } from '../lib/jq.js';
 import { type RouterGate, type RouterGroup, ROUTER_GROUPS, eventHoldsEnforcement, findGate, routerGates, routerGroup } from '../registry.js';
 
 export type GateOutcomeKind = 'allow' | 'deny' | 'skipped_budget' | 'error';
@@ -299,11 +300,15 @@ function judge(gate: RouterGate, s: Settled, cut: boolean, b: Bound): Judged {
   return { outcome: 'allow', stdout: context, code: 0, reason: '', stderr: '' };
 }
 
-/** What the group matcher of a JSON-object payload matches, else null (unparseable): agent_type at SubagentStart, else tool_name. */
+/**
+ * What the group matcher of a JSON-object payload matches, else null
+ * (unparseable, as jq reads it, so a lone high-surrogate escape the gates' jq
+ * readers stop at blocks here): agent_type at SubagentStart, else tool_name.
+ */
 export function payloadTool(payload: string, event?: string): string | null {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(payload);
+    parsed = JSON.parse(jqSurrogateEscapes(payload));
   } catch {
     return null;
   }

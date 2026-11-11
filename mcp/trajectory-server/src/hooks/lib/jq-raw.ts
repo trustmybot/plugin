@@ -1,25 +1,19 @@
 /**
  * `$(printf '%s' "$INPUT" | jq -r <path>)` as the trajectory-gates chain's
  * .sh gates capture payload fields (GH 1692), on jq 1.7's stream: numbers
- * print the literal jq keeps (1.0 stays 1.0, 1e2 is 1E+2), a lone surrogate
- * reads as U+FFFD, a value whose path indexes a non-object prints nothing and
- * the stream ends at the first value that fails to parse.
+ * print the literal jq keeps (1.0 stays 1.0, 1e2 is 1E+2), a lone low
+ * surrogate escape reads as U+FFFD, a value whose path indexes a non-object
+ * prints nothing and the stream ends at the first value that fails to parse,
+ * a lone high surrogate escape among them.
  */
 import { jqCompact, jqLiteralNumbers, jqNumberLiteral, jsonStream, jsonValues } from './jq.js';
 import { stringifyInOrder } from './jq-key-order.js';
-import { shellCapture, wellFormed } from './lint-shell.js';
+import { shellCapture } from './lint-shell.js';
 
 export class JqUnindexable extends Error {}
 
-type Reviver = (this: unknown, key: string, value: unknown, context?: { source?: string }) => unknown;
-
 const isRawJson = (value: unknown): boolean =>
   (JSON as unknown as { isRawJSON?: (v: unknown) => boolean }).isRawJSON?.(value) ?? false;
-
-const textReviver: Reviver = function (key, value, context) {
-  if (typeof value === 'string') return wellFormed(value);
-  return jqLiteralNumbers ? jqLiteralNumbers.call(this, key, value, context) : value;
-};
 
 export interface JqInput {
   values: unknown[];
@@ -31,7 +25,7 @@ export interface JqInput {
 export function jqInput(payload: string): JqInput {
   const text = payload.replace(/\0/g, '');
   const stream = jsonStream(text);
-  return { values: jsonValues(text, textReviver).slice(0, stream.values.length), complete: stream.complete };
+  return { values: jsonValues(text, jqLiteralNumbers).slice(0, stream.values.length), complete: stream.complete };
 }
 
 /** jq's `.<key>`: null on null, an error on anything but an object. */
