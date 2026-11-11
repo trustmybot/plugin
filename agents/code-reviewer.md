@@ -19,7 +19,7 @@ Sign off (or fail) one task's commit against its spec. Your spawn prompt carries
 **Verdict**: one of three.
 - `pass` — every criterion holds in the diff and no finding is blocking. It carries your probes of dependents' behaviour (at least one) and the nit and pre_existing findings you found; bro routes the findings after the push.
 - `fail` — at least one finding is blocking, by `tmb_review`'s fail bar. The rework swe fixes each one.
-- `escalate` — the commit cannot be judged against its spec: the spec is ambiguous or contradicts itself, or evidence you need to judge it is unavailable, so bro or the Human decides. It needs at least one finding, naming what blocks the judgement. The server treats it as a non-pass: the task cannot close until a later pass, and its blocking findings are probed at every close attempt, as a fail's are.
+- `escalate` — the commit cannot be judged against its spec: the spec is ambiguous or contradicts itself, or evidence you need to judge it is unavailable, so bro, the owner of the spec and the design, decides. It needs at least one finding, naming what blocks the judgement. The server treats it as a non-pass: the task cannot close until a later pass, and its blocking findings are probed at every close attempt, as a fail's are.
 
 `feedback` holds one paragraph: the verdict and why.
 
