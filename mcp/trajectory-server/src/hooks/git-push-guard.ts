@@ -42,6 +42,9 @@ export const GATE_NAME = 'git-push-guard';
 const SOURCE_PATHS = [':(top)', ':(top,exclude,glob)mcp/*/dist/**', ':(top,exclude)dashboard/dist'];
 const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
+const GIT_WORD = /\bgit\b/;
+/** An `xargs` git may take its subcommand from stdin (GH 2797). */
+const XARGS = /\bxargs\b/;
 
 export const SWE_PUSH_REASON = 'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes; commit in your worktree.';
 export const SWE_PUSH_FIX: DenyFix = { allowed: "task_update_status(status='completed', commit_sha, report)" };
@@ -317,7 +320,8 @@ class Guard {
 export const gitPushGuard: Gate = async (payload, env) => {
   const command = stripTrailingNewlines(jqAlternatives(payload, [['tool_input', 'command']]).replace(/\0/g, ''));
   const namesPush = prefilterPasses(command, (text) => text.includes('push'));
-  if (!namesPush && !gitBesideExpansion(command)) return ALLOW;
+  const xargsGit = !namesPush && prefilterPasses(command, (text) => GIT_WORD.test(text) && XARGS.test(text));
+  if (!namesPush && !xargsGit && !gitBesideExpansion(command)) return ALLOW;
 
   const cwd = payloadCwd(payload, env);
   const listed = await cmdStatements(command, cwd, env);

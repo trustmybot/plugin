@@ -126,6 +126,7 @@ describe('git-guards: the TypeScript gate', () => {
     assert.equal(needsGitGuard('é git commit'), true);
     assert.equal(needsGitGuard('legit commit'), false);
     assert.equal(needsGitGuard('cat .git/config'), false);
+    assert.equal(needsGitGuard('/usr/bin/git commit'), true);
     assert.equal(needsGitGuard('echo x\ngh pr create'), true);
     const sh = (locale: string) =>
       spawnSync('sh', ['-c', `printf '%s' "$1" | grep -E '(^|[^[:alnum:]_./-])(git|gh|glab)([[:space:]]|$)' >/dev/null`, '_', 'égit commit'], {

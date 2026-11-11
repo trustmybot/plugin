@@ -20,6 +20,7 @@
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
 import { type Charge, ENC, HD_DATA, NO_CHARGE, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
+import { gitWord } from './git-word.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 
 export const SEP = '\x12';
@@ -78,6 +79,8 @@ export interface Record {
   tail?: boolean;
   /** Without `assign`, a git, shell, eval or code-string builtin statement (or a PS4 record) cut where an unquoted $( ) or backtick starts: `word` when a blank comes before it, `glued` when it joins the last word (GH 2634, GH 2635). */
   cut?: 'word' | 'glued';
+  /** Without `assign`, the wrapper words (and their options) skipped before a git statement's command word, which gitSubcommandOf reads by its own table (GH 2797). */
+  wrappers?: string;
 }
 
 function norm(p: string): string {
@@ -273,9 +276,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
   const sstack: boolean[] = [];
   const q: Array<{ stmt: string; tail: boolean; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
-  const emit = (dir: string, text: string, args = false, cut?: Record['cut']) => {
+  const emit = (dir: string, text: string, args = false, cut?: Record['cut'], wrappers = '') => {
     charge(dir.length);
-    records.push({ dir, stmt: text, ...(args ? { tail: true } : {}), ...(cut ? { cut } : {}) });
+    records.push({ dir, stmt: text, ...(args ? { tail: true } : {}), ...(cut ? { cut } : {}), ...(wrappers !== '' ? { wrappers } : {}) });
   };
   const loops: Array<'f' | 'w' | 'o' | 'b' | 'g' | 'u'> = [];
   const fids: number[] = [];
@@ -794,6 +797,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     const n = w.length;
     stmt = '';
     let first = 0;
+    let wrapAt = -1;
     asg = '';
     let cdw = '';
     const chdirs: string[] = [];
@@ -847,12 +851,14 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
         let k = first + 1;
         while (k < n && w[k].startsWith('-')) k++;
         if (k < n && ASSIGNMENT.test(w[k])) {
+          if (wrapAt < 0) wrapAt = first;
           first = k;
           plain = false;
           continue;
         }
       }
       if (WRAPPER.test(w[first])) {
+        if (wrapAt < 0) wrapAt = first;
         const u = unwrap(w, first);
         for (let k = first; k < u.k; k++) if (PS4_WORD.test(w[k])) wrapped.push(w[k]);
         first = u.k;
@@ -903,8 +909,22 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     } else if (ok) {
       ok = VPLAIN.test(a0);
     }
-    const kept = !assign && a0 === 'git' ? gitEmptyWords(w, wq, first) : new Set<number>();
-    const cutAt: Record['cut'] = sub && CUT_KEPT.test(a0) ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
+    const shown = (k: number): string => (w[k] === '' && wq[k] ? EMPTY_WORD : w[k]);
+    const gitAt = (from: number): number => {
+      const live: number[] = [];
+      for (let k = from; k < n; k++) if (shown(k) !== '') live.push(k);
+      const found = gitWord(live.map(shown));
+      return found === null ? -1 : live[found.at];
+    };
+    let gi = gitAt(first);
+    if (gi < 0 && wrapAt >= 0) {
+      const wrappedGit = gitAt(wrapAt);
+      if (wrappedGit >= first) gi = wrappedGit;
+    }
+    const kept = !assign && gi >= 0 ? gitEmptyWords(w, wq, gi) : new Set<number>();
+    if (!assign) for (let k = first + 1; k < gi; k++) if (w[k] === '' && wq[k]) kept.add(k);
+    const cutAt: Record['cut'] = sub && (gi >= 0 || CUT_KEPT.test(a0)) ? (w[n - 1] === '' ? 'word' : 'glued') : undefined;
+    const wrappers = !assign && gi >= 0 && wrapAt >= 0 ? Array.from({ length: first - wrapAt }, (_, j) => shown(wrapAt + j)).filter((word) => word !== '').join(' ') : '';
     let out = a0;
     for (let k = first + 1; k < n; k++) {
       if (w[k] !== '') out += ' ' + w[k];
@@ -969,8 +989,9 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
       if (mk !== '' && mk !== '!') out += ' ' + mk;
     } else if (assign && a0 === 'xargs') {
       if (waspiped && pipesrc !== '') out += ' ' + pipesrc;
-    } else if (a0 === 'git') {
-      for (let k = first + 1; k < n; k++) {
+    }
+    if (gi >= 0 && (cdw === '' || !assign)) {
+      for (let k = gi + 1; k < n; k++) {
         if (w[k] === '') continue;
         if (w[k] === '-C') {
           if (kept.has(k + 1)) {
@@ -994,7 +1015,7 @@ function scan(buf: string, base: string, home: string, assign: boolean, frame: F
     }
     if (calls && !args) fnword(w, first);
     if (cur !== at.cur || alts !== at.alts) for (const fo of fnstack) if (defs[fo].sp === sp && defs[fo].qsp === qsp) defs[fo].moved = true;
-    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, cutAt);
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out, args, cutAt, wrappers);
     if (!chained && !args) {
       old = '-';
       owhy = '';
