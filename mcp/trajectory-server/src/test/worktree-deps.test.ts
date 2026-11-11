@@ -68,7 +68,7 @@ function isLinkTo(path: string, target: string): boolean {
   return lstatSync(path).isSymbolicLink() && readlinkSync(path) === target;
 }
 
-function isPerEntryLinkTo(dest: string, src: string): boolean {
+function isRealDirOfLinksTo(dest: string, src: string, linksEntry: (name: string) => boolean): boolean {
   const stat = lstatSync(dest);
   if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
   const names = readdirSync(src)
@@ -76,7 +76,17 @@ function isPerEntryLinkTo(dest: string, src: string): boolean {
     .sort();
   return (
     JSON.stringify(readdirSync(dest).sort()) === JSON.stringify(names) &&
-    names.every((name) => isLinkTo(join(dest, name), join(src, name)))
+    names.every((name) => linksEntry(name))
+  );
+}
+
+function isPerEntryLinkTo(dest: string, src: string): boolean {
+  return isRealDirOfLinksTo(dest, src, (name) =>
+    name === '.bin' || name.startsWith('@')
+      ? isRealDirOfLinksTo(join(dest, name), join(src, name), (child) =>
+          isLinkTo(join(dest, name, child), join(src, name, child)),
+        )
+      : isLinkTo(join(dest, name), join(src, name)),
   );
 }
 
@@ -211,6 +221,31 @@ describe('linkWorktreeNodeModules', () => {
       assert.equal(readFileSync(mainLock, 'utf8'), '{}\n');
       rmSync(join(wt, 'node_modules'), { recursive: true, force: true });
       assert.equal(readFileSync(mainLock, 'utf8'), '{}\n');
+    });
+  });
+
+  it('gives .bin and each @scope dir its own per-entry links so a worktree install cannot rewrite them in main (F816-2)', () => {
+    withWorktree((repoRoot, wt) => {
+      const mainModules = join(repoRoot, 'node_modules');
+      mkdirSync(join(mainModules, '@other', 'lib'), { recursive: true });
+      linkWorktreeNodeModules(repoRoot, wt);
+      const wtModules = join(wt, 'node_modules');
+      for (const container of ['.bin', '@scope', '@other']) {
+        const stat = lstatSync(join(wtModules, container));
+        assert.ok(stat.isDirectory() && !stat.isSymbolicLink(), `${container} is linked whole`);
+      }
+      assert.ok(isLinkTo(join(wtModules, '.bin', 'tool'), join(mainModules, '.bin', 'tool')));
+      assert.ok(isLinkTo(join(wtModules, '@scope', 'pkg'), join(mainModules, '@scope', 'pkg')));
+      assert.ok(isLinkTo(join(wtModules, '@other', 'lib'), join(mainModules, '@other', 'lib')));
+      assert.ok(isLinkTo(join(wtModules, 'left-pad'), join(mainModules, 'left-pad')));
+
+      writeFileSync(join(wtModules, '.bin', 'added'), '#!/bin/sh\n');
+      mkdirSync(join(wtModules, '@scope', 'added'));
+      unlinkSync(join(wtModules, '.bin', 'tool'));
+      unlinkSync(join(wtModules, '@scope', 'pkg'));
+      assert.deepEqual(readdirSync(join(mainModules, '.bin')), ['tool']);
+      assert.deepEqual(readdirSync(join(mainModules, '@scope')), ['pkg']);
+      assert.ok(existsSync(join(mainModules, '@scope', 'pkg', 'index.js')));
     });
   });
 

@@ -85,18 +85,33 @@ function isWholeDirLinkTo(dest: string, src: string): boolean {
 // worktree install overwrite the main checkout's copy.
 const NPM_REGENERATED_ENTRIES = new Set(['.package-lock.json']);
 
+// npm adds, renames and removes entries inside .bin and @scope dirs in place, so
+// a whole-dir link would let a worktree install rewrite the main install.
+function isWrittenInPlace(name: string): boolean {
+  return name === '.bin' || name.startsWith('@');
+}
+
 // A real dir of per-entry links: removing it, as `npm ci` does, removes only links.
 // A partial dir would read as `already exists` forever, so a failure removes it.
 function linkEachEntry(src: string, dest: string): void {
   mkdirSync(dest);
   try {
     for (const name of readdirSync(src)) {
-      if (!NPM_REGENERATED_ENTRIES.has(name)) symlinkSync(join(src, name), join(dest, name));
+      if (NPM_REGENERATED_ENTRIES.has(name)) continue;
+      const entrySrc = join(src, name);
+      const entryDest = join(dest, name);
+      if (isWrittenInPlace(name) && isDirectory(entrySrc)) linkChildren(entrySrc, entryDest);
+      else symlinkSync(entrySrc, entryDest);
     }
   } catch (error) {
     rmSync(dest, { recursive: true, force: true });
     throw error;
   }
+}
+
+function linkChildren(src: string, dest: string): void {
+  mkdirSync(dest);
+  for (const name of readdirSync(src)) symlinkSync(join(src, name), join(dest, name));
 }
 
 // The basename check keeps the guard off inside esbuild bundles (dist/index.js,
