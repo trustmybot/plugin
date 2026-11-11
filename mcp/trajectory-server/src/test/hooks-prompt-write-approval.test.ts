@@ -112,6 +112,46 @@ describe('prompt-write-approval (GH 2927)', () => {
     assert.ok(reason.includes(skill('y')), reason);
   });
 
+  it('F837-1: a symlinked prompt dir, inside or outside the project, and its real path are gated', () => {
+    const shared = join(base, `shared${seq}`);
+    mkdirSync(shared);
+    symlinkSync(shared, join(project, '.claude/skills'));
+    const outside = denied(write(skill('x')));
+    assert.ok(outside.includes(join(shared, 'x/SKILL.md')), outside);
+    denied(write(join(shared, 'y/SKILL.md')));
+    approve(join(shared, 'x/SKILL.md'), 'full');
+    assert.equal(write(skill('x')), null);
+
+    const libAgents = join(project, 'lib-agents');
+    mkdirSync(libAgents);
+    writeFileSync(join(libAgents, 'a.md'), AGENT);
+    rmSync(join(project, '.claude/agents'), { recursive: true });
+    symlinkSync(libAgents, join(project, '.claude/agents'));
+    denied(write(agentPath('a')));
+    denied(write(join(libAgents, 'a.md')));
+    approve(join(libAgents, 'a.md'), 'skills-array');
+    assert.equal(run('Edit', { file_path: agentPath('a'), old_string: '  - one\n', new_string: '  - one\n  - two\n' }), null);
+    assert.match(denied(run('Edit', { file_path: agentPath('a'), old_string: 'Body line.', new_string: 'Other.' })), /skills-array/);
+    assert.match(denied(run('Edit', { file_path: join(libAgents, 'a.md'), old_string: 'Body line.', new_string: 'Other.' })), /skills-array/);
+  });
+
+  it('F837-1: a symlinked skill entry is gated through its real path', () => {
+    const vendor = join(project, 'vendor/x');
+    mkdirSync(vendor, { recursive: true });
+    mkdirSync(join(project, '.claude/skills'), { recursive: true });
+    symlinkSync(vendor, join(project, '.claude/skills/x'));
+    denied(write(join(vendor, 'SKILL.md')));
+    assert.equal(write(join(project, 'vendor/other.md')), null);
+  });
+
+  it('F837-1: a letter-case spelling of the prompt dirs or the root is gated', () => {
+    mkdirSync(join(project, '.claude/skills'), { recursive: true });
+    denied(write(join(project, '.Claude/Skills/x/SKILL.md')));
+    denied(run('Edit', { file_path: join(project, '.CLAUDE/AGENTS/a.md'), old_string: 'Body', new_string: 'B' }));
+    denied(write(join(project.toUpperCase(), '.claude/skills/x/SKILL.md')));
+    assert.equal(write(join(project, '.claude/skillset/x.md')), null);
+  });
+
   it('SC3: a skills-array approval allows an Edit that only appends to skills:, denies one that changes the body', () => {
     approve(agentPath('a'), 'skills-array');
     assert.equal(run('Edit', { file_path: agentPath('a'), old_string: '  - one\n', new_string: '  - one\n  - two\n' }), null);
