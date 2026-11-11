@@ -60,7 +60,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 | File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
 | Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
 
-Before building `files[]`, call `scope_suggest(agent='bro', objective, anchors)` (or `world_model_symbol` on each anchor symbol), and build `files[]` from what it returns plus your own judgment. The `task_provision` hook checks this session for a recent world-model read and adds a nudge when there is none.
+Before building `files[]`, call `scope_suggest(agent='bro', objective, anchors)` (or `world_model_symbol` on each anchor symbol), and build `files[]` from what it returns plus your own judgment. The `task_provision` hook denies the call unless this session recently read the world model on code that covers one of the task's `files[]`: the path itself, or a directory above or below it.
 
 Pass the typed machine contract on each swe-executed task:
 

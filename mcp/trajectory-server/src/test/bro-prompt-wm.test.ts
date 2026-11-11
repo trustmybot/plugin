@@ -40,10 +40,11 @@ describe('GH 2965: tmb_planning puts the world model first for bro', () => {
     assert.match(verify, /under test/);
   });
 
-  it('GH 2965: §4 runs scope_suggest or world_model_symbol before building files[], and describes the provision hook as a recent-read nudge', () => {
+  it('GH 2965: §4 runs scope_suggest or world_model_symbol before building files[], and describes the provision hook as a deny without a recent read covering files[]', () => {
     assert.match(author, /Before building `files\[\]`, call `scope_suggest\(agent='bro', objective, anchors\)` \(or `world_model_symbol` on each anchor symbol\)/);
-    assert.match(author, /`task_provision` hook checks this session for a recent world-model read and adds a nudge/);
-    assert.doesNotMatch(author, /read covering a path in `files\[\]`/);
+    assert.match(author, /`task_provision` hook denies the call unless this session recently read the world model on code that covers one of the task's `files\[\]`/);
+    assert.match(author, /the path itself, or a directory above or below it/);
+    assert.doesNotMatch(author, /adds a nudge/);
   });
 
   it('GH 2965: tmb_planning makes no comparative claim and cites no issue in parentheses', () => {
