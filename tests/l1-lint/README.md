@@ -87,7 +87,6 @@ node --test tests/l1-lint/link-check.test.mjs
 | [`no-file-registry-refs.test.mjs`](./no-file-registry-refs.test.mjs) | References to the retired file registry |
 | [`rag-schema-invariants.test.mjs`](./rag-schema-invariants.test.mjs) | RAG/embedding schema invariants |
 | [`manifest-shape.test.mjs`](./manifest-shape.test.mjs) | Plugin manifest shape; `claude plugin validate --strict` findings when the `claude` CLI is on PATH and the run is not offline (`TMB_L1_OFFLINE` / `TMB_FORBID_LIVE_SYNC`) |
-| [`codex-scope4-contract.sh`](./codex-scope4-contract.sh) | Exact Codex Agent catalog, sandbox defaults, MCP isolation, and 15-tool surface |
 | [`valid-permission-decisions.test.mjs`](./valid-permission-decisions.test.mjs) | A `permissionDecision` other than allow / deny / ask in a TypeScript gate (`mcp/trajectory-server/src/hooks/**/*.ts`) |
 | [`no-retired-hook-gate-paths.test.mjs`](./no-retired-hook-gate-paths.test.mjs) | A citation of a retired shell gate (`scripts/hooks/<gate>.sh` or its persona and scope-fence libraries) outside changelogs, research, dist and fixtures, or a glob of every `.sh` under `scripts/hooks/` in `docs/` or `mcp/trajectory-server/src/` — the gates are `mcp/trajectory-server/src/hooks/<gate>.ts` (GH 1692) |
 

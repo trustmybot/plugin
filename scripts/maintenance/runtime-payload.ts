@@ -10,12 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 
 const KEPT_DIRS: readonly string[] = [
   '.claude-plugin/',
-  '.codex-plugin/',
-  '.cursor-plugin/',
-  '.agents/',
-  '.opencode/',
   '.github/',
-  'adapters/',
   'agents/',
   'commands/',
   'hooks/',
@@ -26,12 +21,8 @@ const KEPT_DIRS: readonly string[] = [
 ];
 
 const KEPT_FILES: ReadonlySet<string> = new Set([
-  'gemini-extension.json',
   '.mcp.json',
   'CLAUDE.md',
-  'CODEX.md',
-  'CURSOR.md',
-  'GEMINI.md',
   'README.md',
   'LICENSE',
   'CHANGELOG.md',

@@ -95,8 +95,9 @@ describe('l1Skipped', () => {
 describe('unwiredLints', () => {
   test('a lint with no step is reported', () => {
     const steps = l1Steps('/p/tests');
-    assert.deepEqual(unwiredLints(['link-check.test.mjs', 'brand-new.test.mjs', 'codex-scope4-contract.sh'], steps), [
+    assert.deepEqual(unwiredLints(['link-check.test.mjs', 'brand-new.test.mjs', 'brand-new.sh'], steps), [
       'brand-new.test.mjs',
+      'brand-new.sh',
     ]);
   });
   test('every lint in tests/l1-lint is wired', () => {

@@ -1,7 +1,7 @@
-// L1 lint: validate the shape of the Claude and Codex package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json, hooks/hooks.json, .codex-plugin/plugin.json, adapters/codex/.mcp.json, hooks/codex/hooks.json and .agents/plugins/marketplace.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on a `git archive HEAD` export of the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
+// L1 lint: validate the shape of the Claude package manifests — typos, missing required fields and structural drift in .claude-plugin/plugin.json, .mcp.json and hooks/hooks.json. When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on a `git archive HEAD` export of the plugin root and fails on any warning or error outside STRICT_ACCEPTED. run-all.ts runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -9,11 +9,6 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLUGIN_MANIFEST = '.claude-plugin/plugin.json';
-const CODEX_MANIFEST = '.codex-plugin/plugin.json';
-const CODEX_MCP = 'adapters/codex/.mcp.json';
-const CODEX_HOOKS = 'hooks/codex/hooks.json';
-const CODEX_SKILLS = 'adapters/codex/skills';
-const MARKETPLACE = '.agents/plugins/marketplace.json';
 const MCP_MANIFEST = '.mcp.json';
 const HOOKS_MANIFEST = 'hooks/hooks.json';
 
@@ -58,79 +53,6 @@ export function pluginManifestFailures(root) {
 
 test(`${PLUGIN_MANIFEST} has all required fields and a valid semver`, (t) => {
   report(t, pluginManifestFailures(ROOT), `${PLUGIN_MANIFEST} has all required fields and a valid semver`);
-});
-
-test('Codex package manifests', (t) => {
-  const failures = [];
-  for (const manifest of [CODEX_MANIFEST, CODEX_MCP, CODEX_HOOKS, MARKETPLACE]) {
-    if (!isFile(manifest)) failures.push(`${manifest} does not exist`);
-    else if (readJson(manifest) === undefined) failures.push(`${manifest} is not valid JSON`);
-  }
-  const codex = readJson(CODEX_MANIFEST);
-  if (codex !== undefined) {
-    const dp = codex.interface?.defaultPrompt;
-    const ok =
-      codex.name === 'tmb' &&
-      typeof codex.version === 'string' &&
-      codex.mcpServers === './adapters/codex/.mcp.json' &&
-      codex.hooks === './hooks/codex/hooks.json' &&
-      Array.isArray(codex.commands) &&
-      codex.commands.length === 0 &&
-      codex.skills === './adapters/codex/skills/' &&
-      Array.isArray(dp) &&
-      dp.length > 0 &&
-      dp.every((p) => typeof p === 'string' && p.includes('$tmb:tmb-') && Buffer.byteLength(p, 'utf8') <= 128);
-    if (!ok) failures.push(`${CODEX_MANIFEST} has invalid identity, component paths, command isolation, or defaultPrompt`);
-  }
-  if (existsSync(join(ROOT, '.codex-plugin/migrated-command-skills')) && statSync(join(ROOT, '.codex-plugin/migrated-command-skills')).isDirectory()) {
-    failures.push('.codex-plugin/migrated-command-skills must be install-time output, never a source surface');
-  }
-  const skillFiles = ['tmb-bro/SKILL.md', 'tmb-bro/agents/openai.yaml', 'tmb-agent-setup/SKILL.md', 'tmb-agent-setup/agents/openai.yaml'];
-  if (!skillFiles.every((f) => isFile(`${CODEX_SKILLS}/${f}`))) {
-    failures.push(`${CODEX_SKILLS} must contain the tmb-bro and tmb-agent-setup Skills with OpenAI metadata`);
-  } else {
-    const names = readdirSync(join(ROOT, CODEX_SKILLS), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-    const has = (rel, line) => readFileSync(join(ROOT, CODEX_SKILLS, rel), 'utf8').split('\n').includes(line);
-    const todo = (dir) =>
-      readdirSync(dir, { withFileTypes: true }).some((e) =>
-        e.isDirectory() ? todo(join(dir, e.name)) : e.isFile() && readFileSync(join(dir, e.name), 'latin1').includes('[TODO:'),
-      );
-    if (names.join(' ') !== 'tmb-agent-setup tmb-bro') failures.push(`${CODEX_SKILLS} must expose exactly tmb-bro and tmb-agent-setup`);
-    else if (
-      !has('tmb-bro/SKILL.md', 'name: tmb-bro') ||
-      !has('tmb-bro/agents/openai.yaml', '  allow_implicit_invocation: false') ||
-      !has('tmb-bro/agents/openai.yaml', '      value: "trajectory-server"') ||
-      !has('tmb-agent-setup/SKILL.md', 'name: tmb-agent-setup') ||
-      !has('tmb-agent-setup/agents/openai.yaml', '  allow_implicit_invocation: false') ||
-      !has('tmb-agent-setup/agents/openai.yaml', '      value: "trajectory-server"') ||
-      todo(join(ROOT, CODEX_SKILLS))
-    ) {
-      failures.push(`${CODEX_SKILLS} metadata or explicit-invocation policy is invalid`);
-    }
-  }
-  const mcp = readJson(CODEX_MCP);
-  if (mcp !== undefined) {
-    const count = typeof mcp === 'object' ? Object.keys(mcp).length : String(mcp).length;
-    if (count !== 1 || mcp['trajectory-server']?.args?.at?.(-1) !== 'mcp/trajectory-server/dist/codex.js') {
-      failures.push(`${CODEX_MCP} must expose exactly the isolated Codex trajectory server`);
-    }
-  }
-  const hooks = readJson(CODEX_HOOKS);
-  if (hooks !== undefined) {
-    const h = hooks.hooks;
-    if (!(h && typeof h === 'object' && !Array.isArray(h) && Object.keys(h).length === 0)) failures.push(`${CODEX_HOOKS} must remain empty in Codex Scope 4`);
-  }
-  const mkt = readJson(MARKETPLACE);
-  if (mkt !== undefined) {
-    const p = mkt.plugins;
-    if (!(Array.isArray(p) && p.length === 1 && p[0]?.name === 'tmb' && p[0]?.source?.source === 'local' && p[0]?.source?.path === './')) {
-      failures.push(`${MARKETPLACE} must point its sole local entry at the repository root`);
-    }
-  }
-  report(t, failures, 'Codex package disables Claude command migration and exposes only Codex-specific surfaces');
 });
 
 test(`${MCP_MANIFEST} has MCP servers, all with command + args`, (t) => {
