@@ -10,6 +10,7 @@ import { GATE_NAME as REVIEWER_DOWNSTREAM_GATE, reviewerDownstreamContext } from
 import { GATE_NAME as BRO_TURN_USAGE_GATE, broTurnUsage } from './bro-turn-usage.js';
 import { GATE_NAME as FOOTER_GATE, attributionFooter } from './attribution-footer.js';
 import { GATE_NAME as CQ_LINT_GATE, codeQualityLint } from './code-quality-lint.js';
+import { GATE_NAME as TEST_RUN_NUDGE_GATE, testRunNudge } from './test-run-nudge.js';
 import { GATE_NAME as COMMIT_MSG_GATE, commitMsgLint } from './commit-msg-lint.js';
 import { containmentGuard } from './containment-guard.js';
 import { GATE_NAME as DRIFT_WARN_GATE, deferredToolsDriftWarn } from './deferred-tools-drift-warn.js';
@@ -39,7 +40,6 @@ import { GATE_NAME as SESSION_LOG_GATE, sessionLogCapture } from './session-log-
 import { GATE_NAME as SESSION_HANDOFF_GATE, sessionHandoff } from './session-handoff.js';
 import { GATE_NAME as SESSION_START_PERSONA_GATE, sessionStartPersona } from './session-start-persona.js';
 import { GATE_NAME as USER_PROMPT_PERSONA_GATE, userPromptPersona } from './user-prompt-persona.js';
-import { GATE_NAME as REWORK_WAIVER_GATE, reworkWaiverCapture } from './rework-waiver-capture.js';
 import { GATE_NAME as CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate } from './consultant-persistence-gate.js';
 import { GATE_NAME as RT_AUQ_SHAPE_GATE, roundtableAuqShape } from './roundtable-auq-shape.js';
 import { GATE_NAME as RT_CLEANUP_GATE, roundtableCleanupPostcheck } from './roundtable-cleanup-postcheck.js';
@@ -89,6 +89,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [BRO_TURN_USAGE_GATE, broTurnUsage],
   [FOOTER_GATE, attributionFooter],
   [CQ_LINT_GATE, codeQualityLint],
+  [TEST_RUN_NUDGE_GATE, testRunNudge],
   [COMMIT_MSG_GATE, commitMsgLint],
   ['containment-guard', containmentGuard],
   [DRIFT_WARN_GATE, deferredToolsDriftWarn],
@@ -118,7 +119,6 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SESSION_START_PERSONA_GATE, sessionStartPersona],
   [SESSION_HANDOFF_GATE, sessionHandoff],
   [USER_PROMPT_PERSONA_GATE, userPromptPersona],
-  [REWORK_WAIVER_GATE, reworkWaiverCapture],
   [CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate],
   [RT_AUQ_SHAPE_GATE, roundtableAuqShape],
   [RT_CLEANUP_GATE, roundtableCleanupPostcheck],
@@ -258,6 +258,7 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
     routerGate(STAY_ON_BASE_GATE, 'enforcement'),
     routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
     routerGate(COMMIT_MSG_GATE, 'advisory'),
+    routerGate(TEST_RUN_NUDGE_GATE, 'advisory'),
     routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
     routerGate(REMOTE_ID_GATE, 'enforcement'),
     routerGate(NO_PROSE_GATE, 'enforcement'),
@@ -310,7 +311,6 @@ export const ROUTER_GROUPS: readonly RouterGroup[] = [
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PERSONA_GATE, 'advisory')], { part: 'persona' }),
   eventGroup('SessionStart', '', [routerGate(SESSION_START_PRESCAN_GATE, 'advisory')], { part: 'prescan' }),
   eventGroup('UserPromptSubmit', '', [
-    routerGate(REWORK_WAIVER_GATE, 'advisory'),
     routerGate(ACTIVATION_GATE, 'advisory'),
     routerGate(SESSION_LOG_GATE, 'advisory'),
     routerGate(PROMPT_INTENT_GATE, 'advisory'),

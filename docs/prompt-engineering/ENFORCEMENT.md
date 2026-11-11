@@ -87,7 +87,7 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 | Decision-audit row required on every `task_create_batch` | 1 |
 | MCP calls include `agent: 'bro'` | 1 |
 | `validation_record` requires `subagent_session_id` | 1 |
-| `discussion_append(author='human')` is refused; only the Human's `waive task <N>` prompt writes Human rows | 1 + 2 |
+| `discussion_append(author='human')` is refused; an agent quotes the Human under its own name | 1 |
 | AUQ shape during roundtable `awaiting_human` | 2 |
 | Roundtable state machine | 1 |
 | Issue-sync default-off + env-var kill-switch | 1 |
@@ -152,9 +152,9 @@ The "Layer" column names the **strongest currently deployed** layer for each int
 
 ## Positive prompts as the floor
 
-Layer 6 is the floor of the stack. Negative directives (`don't X`, `never Y`) are an anti-pattern: they force the model to first process the forbidden concept (Pink Elephant Problem). Phrase the canonical positive form; if the constraint is load-bearing, promote it to a deterministic layer instead of bracing the prompt.
+Layer 6 is the floor of the stack. State the action you want when a positive form exists. Keep a prohibition only when it is the clearest statement of a hard limit, pair it with what to do instead, and avoid naming a word or topic only to forbid it. If the constraint is load-bearing, promote it to a deterministic layer instead of bracing the prompt.
 
-Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (Jang 2023, MLR), compliance gap analysis (Gadlet 2026).
+The evidence on negative instructions is mixed, and no controlled study supports a blanket ban on frontier models. The negation rule in [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md) gives the sources.
 
 ## Grading a prompt surface
 

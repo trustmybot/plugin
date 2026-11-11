@@ -55,6 +55,7 @@ const WRAPPERS: { readonly [name: string]: Wrapper } = {
     dash: true,
   },
   command: { flags: 'p', lookups: 'vV' },
+  builtin: {},
   exec: { flags: 'cl', values: 'a' },
   nice: { values: 'n', longValues: ['adjustment'], numeric: true },
   nohup: {},

@@ -18,6 +18,8 @@ const HEADER = "[Persona loaded by the TMB persona hook from the tmb plugin's CL
 const NOTE =
   "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]";
 
+const TZ_LINE = 'User time zone: UTC (UTC+00:00). Give the Human times in this zone with its abbreviation; GitHub, commit and DB timestamps stay in UTC.';
+
 const payload = (sid: string, source: string) => JSON.stringify({ session_id: sid, hook_event_name: 'SessionStart', source });
 
 describe('session-start-persona: the persona as SessionStart context', () => {
@@ -42,7 +44,7 @@ describe('session-start-persona: the persona as SessionStart context', () => {
   const marker = (sid: string) => join(project, `.claude/tmb/sessions/${sid}.persona`);
 
   function run(dir: string, input: string, extra: NodeJS.ProcessEnv = {}): string {
-    return runGate(GATE, { cwd: dir, input, env: { ...sb.env, CLAUDE_PLUGIN_ROOT: plugin, CLAUDE_PROJECT_DIR: dir, ...extra } }).stdout;
+    return runGate(GATE, { cwd: dir, input, env: { ...sb.env, CLAUDE_PLUGIN_ROOT: plugin, CLAUDE_PROJECT_DIR: dir, TZ: 'UTC', ...extra } }).stdout;
   }
 
   function assertPersonaEmitted(label: string, sid: string, source: string): void {
@@ -54,7 +56,7 @@ describe('session-start-persona: the persona as SessionStart context', () => {
     const ctx = contextOf(out);
     assert.equal(lineAt(ctx, 1), HEADER, `${label}: header line`);
     assert.ok(ctx.includes('# You are bro'), `${label}: persona body`);
-    assert.ok(ctx.includes(`Project root (<project> in TMB prompts): ${project}`), `${label}: project root line`);
+    assert.ok(ctx.includes(`Project root (<project> in TMB prompts): ${project}\n${TZ_LINE}\n\n`), `${label}: project root line, then the time zone line`);
     assert.equal(checksum(projectMd), beforeSum, `${label}: project CLAUDE.md byte-identical`);
     assert.ok(existsSync(marker(sid)), `${label}: persona marker for ${sid}`);
   }

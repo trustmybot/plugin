@@ -1051,7 +1051,7 @@ describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
     const x = extractHooks(read('hooks/hooks.json'), table);
     const names = x.symbols.filter((s) => s.kind === 'hook').map((s) => s.qualified_name);
     assert.deepEqual(names.filter((n) => n.startsWith('SessionStart#')), ['SessionStart#1:ensure-gitignore', 'SessionStart#2:session-start-persona', 'SessionStart#3:session-start-prescan']);
-    assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:rework-waiver-capture', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
+    assert.deepEqual(names.filter((n) => n.startsWith('UserPromptSubmit#')), ['UserPromptSubmit#1:activation-routine', 'UserPromptSubmit#2:user-prompt-persona', 'UserPromptSubmit#3:roundtable-slash-detect']);
     assert.deepEqual(names.filter((n) => n.startsWith('WorktreeCreate#')), ['WorktreeCreate#1:worktree-create']);
     assert.deepEqual(names.filter((n) => n.startsWith('SubagentStart#')), ['SubagentStart#1:reviewer-downstream-context']);
     assert.deepEqual(names.filter((n) => n.endsWith(':swe-downstream-context')), ['PreToolUse#2:swe-downstream-context']);

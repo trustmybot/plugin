@@ -114,13 +114,13 @@ describe('agent-spawn-dispatch end to end', () => {
       assert.equal(spawn(), '', 'silent pass: no deny, no context');
     });
 
-    it('after two review FAILs the spawn is denied until an analysis plus its proven change, or a Human waiver', () => {
+    it('after two review FAILs the spawn is denied until an analysis plus its proven change; no Human row lifts it', () => {
       exec(db, "INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');");
       let out = spawn();
       assert.ok(out.includes(DENY), 'deny decision emitted');
       assert.ok(out.includes('task FAILs: 2 review FAILs on the task since its last passing review'),'rework-limit names the task-FAILs limit');
       assert.ok(out.includes('task_rework_analysis'), 'rework-limit names the analysis step');
-      assert.ok(!out.includes('waive task'), 'the inner limit asks for no Human waiver');
+      assert.ok(!/[Ww]aive|Human/.test(out), 'the rework limit asks nothing of the Human');
       exec(db, "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');");
       out = spawn();
       assert.ok(out.includes(DENY), 'a newer bro decision keeps the spawn denied');
@@ -139,7 +139,7 @@ describe('agent-spawn-dispatch end to end', () => {
       assert.ok(out.includes(DENY), 'a third FAIL needs a fresh analysis');
       exec(db, "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'human', 'decision', '2026-10-25T12:00:00.000Z');");
       out = spawn();
-      assert.ok(!out.includes(DENY), 'a newer Human decision lets the spawn through');
+      assert.ok(out.includes(DENY), "a newer author 'human' decision keeps the spawn denied");
     });
   });
 

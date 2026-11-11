@@ -1,8 +1,8 @@
 // The daily shadow compare of the world model (GH 2584): startup_catchup
 // starts, without awaiting it, a compare of at most one repo not compared in
 // the last 24 h against a clean full index built in a temp DB; a mismatch
-// writes a wm_reindex row with mode 'mismatch' that forces the next reindex
-// to rebuild in full.
+// writes a wm_reindex row with mode 'mismatch' that forces every reindex to
+// rebuild in full until the repo's indexed_stamp changes.
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -13,7 +13,7 @@ import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
-import { ensureFresh, reindexIdle } from '../world-model/freshness.js';
+import { __setIndexStampForTests, ensureFresh, indexStamp, reindexIdle } from '../world-model/freshness.js';
 import {
   __setShadowCompareClockForTests,
   runShadowCompare,
@@ -30,6 +30,7 @@ type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknow
 interface CompareRow {
   repo: string;
   commit: string;
+  stamp: string | null;
   verdict: string;
   tables: string[];
   ms: number;
@@ -317,6 +318,76 @@ describe('the race guard and the temp DB (SC4)', () => {
       );
     } finally {
       fx.cleanup();
+    }
+  });
+});
+
+describe('a mismatch holds until the repo stamp changes (GH 2584)', () => {
+  afterEach(() => __setIndexStampForTests());
+  const tamper = (db: TrajectoryDB) =>
+    db.run(`UPDATE wm_symbols SET signature = 'tampered' WHERE repo = 'app' AND qualified_name = 'beta' AND kind <> 'module'`);
+  const alpha = (n: number) => `export function alpha(): number {\n  return ${n};\n}\n`;
+  const fresh = (fx: Fx) => ensureFresh(fx.db, fx.graph, 'app', { dbPath: fx.dbPath, trigger: 'read' });
+  const last = (fx: Fx) => {
+    const r = reindexes(fx.db).at(-1)! as ReindexRow & { files_parsed: number };
+    return [r.mode, r.reason, r.files_parsed] as const;
+  };
+
+  async function mismatched(): Promise<Fx> {
+    const fx = await fixture();
+    tamper(fx.db);
+    assert.equal(assertGone(await runShadowCompare(fx.db, 'app')).verdict, 'mismatch');
+    const row = reindexes(fx.db).at(-1)! as ReindexRow & { stamp: string };
+    assert.deepEqual([row.mode, row.stamp], ['mismatch', indexStamp()]);
+    assert.equal(compares(fx.db).at(-1)!.stamp, indexStamp());
+    return fx;
+  }
+
+  it('two ref moves after the mismatch rebuild in full; after a stamp bump the next move is incremental', async () => {
+    const fx = await mismatched();
+    try {
+      assert.equal((await fresh(fx)).mode, 'full');
+      assert.deepEqual(last(fx), ['full', 'mismatch', 2]);
+      const settled = reindexes(fx.db).length;
+      await fresh(fx);
+      assert.equal(reindexes(fx.db).length, settled, 'a read at the rebuilt commit is a no-op');
+
+      for (const n of [2, 3]) {
+        fx.commit('app', { 'src/a.ts': alpha(n) });
+        assert.equal((await fresh(fx)).mode, 'full');
+        assert.deepEqual(last(fx), ['full', 'mismatch', 2], `ref move ${n - 1}`);
+      }
+
+      __setIndexStampForTests('bumped:0');
+      assert.equal((await fresh(fx)).mode, 'full');
+      assert.deepEqual(last(fx).slice(0, 2), ['full', 'stamp_changed']);
+      fx.commit('app', { 'src/a.ts': alpha(4) });
+      assert.equal((await fresh(fx)).mode, 'incremental');
+      assert.deepEqual(last(fx).slice(0, 2), ['incremental', 'ref_moved']);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('back on the mismatched stamp it holds again, unless a clean compare under another stamp came after it', async () => {
+    for (const compared of [false, true]) {
+      const fx = await mismatched();
+      try {
+        const original = indexStamp();
+        __setIndexStampForTests('bumped:0');
+        await fresh(fx);
+        assert.deepEqual(last(fx).slice(0, 2), ['full', 'stamp_changed']);
+        if (compared) assert.equal(assertGone(await runShadowCompare(fx.db, 'app')).verdict, 'match');
+
+        __setIndexStampForTests(original);
+        await fresh(fx);
+        assert.deepEqual(last(fx).slice(0, 2), ['full', 'stamp_changed']);
+        fx.commit('app', { 'src/a.ts': alpha(5) });
+        await fresh(fx);
+        assert.deepEqual(last(fx).slice(0, 2), compared ? ['incremental', 'ref_moved'] : ['full', 'mismatch'], `compared=${compared}`);
+      } finally {
+        fx.cleanup();
+      }
     }
   });
 });
